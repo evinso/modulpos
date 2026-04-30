@@ -1,5 +1,6 @@
 databases:
   - name: entegrasyon-db
+    region: ohio
     plan: free
     databaseName: entegrasyon
     user: entegrasyon_user
@@ -9,6 +10,7 @@ services:
   - type: web
     name: entegrasyon-server
     runtime: node
+    region: ohio
     rootDir: server
     plan: free
     buildCommand: npm install && npx prisma generate
