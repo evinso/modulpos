@@ -39,7 +39,6 @@ services:
     name: entegrasyon-client
     runtime: static
     rootDir: client
-    plan: free
     buildCommand: npm install && npm run build
     staticPublishPath: dist
     headers:
