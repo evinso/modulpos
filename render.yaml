@@ -56,4 +56,4 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_BASE_URL
-        value: https://api.modulpos.com/api
+        value: https://entegrasyon-server.onrender.com/api
