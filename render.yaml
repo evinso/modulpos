@@ -30,7 +30,7 @@ services:
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: CORS_ORIGIN
-        value: https://modulpos.com,https://www.modulpos.com,https://entegrasyon-client.onrender.com
+        value: https://modulpos.com,https://www.modulpos.com
       - key: TRENDYOL_BASE_URL
         value: https://api.trendyol.com/sapigw
       - key: TRENDYOL_STAGE_URL
@@ -56,4 +56,4 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_BASE_URL
-        value: https://entegrasyon-server.onrender.com/api
+        value: https://api.modulpos.com/api
