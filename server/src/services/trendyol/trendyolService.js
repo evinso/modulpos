@@ -7,7 +7,7 @@ class TrendyolService {
     this.apiKey = (connection.apiKey || '').trim();
     this.apiSecret = (connection.apiSecret || '').trim();
     this.supplierName = connection.supplierName;
-    this.baseUrl = connection.baseUrl || process.env.TRENDYOL_BASE_URL || 'https://api.trendyol.com/sapigw';
+    this.baseUrl = connection.baseUrl || process.env.TRENDYOL_BASE_URL || 'https://apigw.trendyol.com/integration';
     this.auth = Buffer.from(`${this.apiKey}:${this.apiSecret}`).toString('base64');
   }
 
@@ -67,7 +67,7 @@ class TrendyolService {
     try {
       const res = await this.requestWithRetry({
         method: 'get',
-        url: `${this.baseUrl}/product-categories`
+        url: `${this.baseUrl}/product/product-categories`
       });
       return res.data;
     } catch (err) {
@@ -81,7 +81,7 @@ class TrendyolService {
   async getCategoryAttributes(categoryId) {
     const res = await this.requestWithRetry({
       method: 'get',
-      url: `${this.baseUrl}/product-categories/${categoryId}/attributes`
+      url: `${this.baseUrl}/product/product-categories/${categoryId}/attributes`
     });
     return res.data;
   }
@@ -89,7 +89,7 @@ class TrendyolService {
   async getBrands(page = 0, size = 500) {
     const res = await this.requestWithRetry({
       method: 'get',
-      url: `${this.baseUrl}/brands`,
+      url: `${this.baseUrl}/product/brands`,
       params: { page, size }
     });
     return res.data;
@@ -98,7 +98,7 @@ class TrendyolService {
   async searchBrand(name) {
     const res = await this.requestWithRetry({
       method: 'get',
-      url: `${this.baseUrl}/brands/by-name`,
+      url: `${this.baseUrl}/product/brands/by-name`,
       params: { name }
     });
     return res.data;
@@ -108,7 +108,7 @@ class TrendyolService {
     const payload = { items: products };
     const res = await this.requestWithRetry({
       method: 'post',
-      url: `${this.baseUrl}/suppliers/${this.sellerId}/v2/products`,
+      url: `${this.baseUrl}/product/sellers/${this.sellerId}/v2/products`,
       data: payload
     });
     return res.data;
@@ -118,7 +118,7 @@ class TrendyolService {
     const payload = { items };
     const res = await this.requestWithRetry({
       method: 'post',
-      url: `${this.baseUrl}/suppliers/${this.sellerId}/products/price-and-inventory`,
+      url: `${this.baseUrl}/product/sellers/${this.sellerId}/products/price-and-inventory`,
       data: payload
     });
     return res.data;
@@ -127,7 +127,7 @@ class TrendyolService {
   async getBatchRequestResult(batchRequestId) {
     const res = await this.requestWithRetry({
       method: 'get',
-      url: `${this.baseUrl}/suppliers/${this.sellerId}/products/batch-requests/${batchRequestId}`
+      url: `${this.baseUrl}/product/sellers/${this.sellerId}/products/batch-requests/${batchRequestId}`
     });
     return res.data;
   }
@@ -135,7 +135,7 @@ class TrendyolService {
   async getProducts(page = 0, size = 50, approved = true) {
     const res = await this.requestWithRetry({
       method: 'get',
-      url: `${this.baseUrl}/suppliers/${this.sellerId}/products`,
+      url: `${this.baseUrl}/product/sellers/${this.sellerId}/products`,
       params: { page, size, approved }
     });
     return res.data;
@@ -151,7 +151,7 @@ class TrendyolService {
 
     const res = await this.requestWithRetry({
       method: 'get',
-      url: `${this.baseUrl}/suppliers/${this.sellerId}/orders`,
+      url: `${this.baseUrl}/order/sellers/${this.sellerId}/orders`,
       params: queryParams
     });
     return res.data;
@@ -161,7 +161,7 @@ class TrendyolService {
     const payload = { lines: [{ shipmentPackageId }], trackingNumber, cargoProviderCode };
     const res = await this.requestWithRetry({
       method: 'put',
-      url: `${this.baseUrl}/suppliers/${this.sellerId}/shipment-packages/${shipmentPackageId}`,
+      url: `${this.baseUrl}/order/sellers/${this.sellerId}/shipment-packages/${shipmentPackageId}`,
       data: payload
     });
     return res.data;
@@ -174,7 +174,7 @@ class TrendyolService {
     if (status) queryParams.status = status;
     const res = await this.requestWithRetry({
       method: 'get',
-      url: `${this.baseUrl}/suppliers/${this.sellerId}/questions/filter`,
+      url: `${this.baseUrl}/qna/sellers/${this.sellerId}/questions/filter`,
       params: queryParams
     });
     return res.data;
@@ -183,7 +183,7 @@ class TrendyolService {
   async answerQuestion(questionId, text) {
     const res = await this.requestWithRetry({
       method: 'post',
-      url: `${this.baseUrl}/suppliers/${this.sellerId}/questions/${questionId}/answers`,
+      url: `${this.baseUrl}/qna/sellers/${this.sellerId}/questions/${questionId}/answers`,
       data: { text }
     });
     return res.data;
@@ -195,7 +195,7 @@ class TrendyolService {
       // Supplier'a özgü bir endpoint kullanarak gerçek kimlik doğrulaması yap (addresses endpoint'i her satıcıda çalışır)
       await this.requestWithRetry({
         method: 'get',
-        url: `${this.baseUrl}/suppliers/${this.sellerId}/addresses`
+        url: `${this.baseUrl}/sellers/${this.sellerId}/addresses`
       });
       return { success: true, message: 'Trendyol bağlantısı başarılı' };
     } catch (error) {

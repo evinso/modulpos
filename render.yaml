@@ -32,7 +32,7 @@ services:
       - key: CORS_ORIGIN
         value: https://modulpos.com,https://www.modulpos.com
       - key: TRENDYOL_BASE_URL
-        value: https://api.trendyol.com/sapigw
+        value: https://apigw.trendyol.com/integration
       - key: TRENDYOL_STAGE_URL
         value: https://stageapi.trendyol.com/stagesapigw
 
