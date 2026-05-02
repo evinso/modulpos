@@ -192,11 +192,10 @@ class TrendyolService {
   // Test connection - detaylı hata analizi ile
   async testConnection() {
     try {
-      // Supplier'a özgü bir endpoint kullanarak gerçek kimlik doğrulaması yap
+      // Supplier'a özgü bir endpoint kullanarak gerçek kimlik doğrulaması yap (addresses endpoint'i her satıcıda çalışır)
       await this.requestWithRetry({
         method: 'get',
-        url: `${this.baseUrl}/suppliers/${this.sellerId}/products`,
-        params: { page: 0, size: 1 }
+        url: `${this.baseUrl}/suppliers/${this.sellerId}/addresses`
       });
       return { success: true, message: 'Trendyol bağlantısı başarılı' };
     } catch (error) {
