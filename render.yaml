@@ -30,7 +30,7 @@ services:
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: CORS_ORIGIN
-        value: https://modulpos.com,https://www.modulpos.com
+        value: https://modulpos.com,https://www.modulpos.com,https://entegrasyon-client.onrender.com
       - key: TRENDYOL_BASE_URL
         value: https://api.trendyol.com/sapigw
       - key: TRENDYOL_STAGE_URL
