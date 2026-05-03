@@ -558,30 +558,30 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
       });
       
       if (stillPending.length > 0) {
-        const barcodesToCheck = stillPending.map(p => p.product.barcode || p.product.sku).filter(Boolean);
-        // Process in chunks of 50 to avoid URL length limits
-        const chunkSize = 50;
-        for (let i = 0; i < barcodesToCheck.length; i += chunkSize) {
-          const chunk = barcodesToCheck.slice(i, i + chunkSize);
-          try {
-            const activeProducts = await service.getProducts(0, chunkSize, true, chunk);
-            if (activeProducts && activeProducts.content && Array.isArray(activeProducts.content)) {
-              const activeBarcodes = activeProducts.content.map(p => p.barcode);
+        try {
+          // Fetch the latest 100 approved products (usually enough for recently sent ones)
+          const activeProducts = await service.getProducts(0, 100, true);
+          if (activeProducts && activeProducts.content && Array.isArray(activeProducts.content)) {
+            for (const mp of stillPending) {
+              const mpBarcode = mp.product.barcode;
+              const mpSku = mp.product.sku;
               
-              for (const mp of stillPending) {
-                const mpBarcode = mp.product.barcode || mp.product.sku;
-                if (chunk.includes(mpBarcode) && activeBarcodes.includes(mpBarcode)) {
-                  await prisma.marketplaceProduct.update({
-                    where: { id: mp.id },
-                    data: { status: 'active', errorMessage: null }
-                  });
-                  updatedCount++;
-                }
+              const foundInTrendyol = activeProducts.content.find(tp => 
+                (mpBarcode && tp.barcode === mpBarcode) || 
+                (mpSku && tp.stockCode === mpSku)
+              );
+              
+              if (foundInTrendyol) {
+                await prisma.marketplaceProduct.update({
+                  where: { id: mp.id },
+                  data: { status: 'active', errorMessage: null }
+                });
+                updatedCount++;
               }
             }
-          } catch (err) {
-            console.error('[Trendyol getProducts Fallback Error]', err.message);
           }
+        } catch (err) {
+          console.error('[Trendyol getProducts Fallback Error]', err.message);
         }
       }
       
