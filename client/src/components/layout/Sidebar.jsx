@@ -1,5 +1,6 @@
-import { NavLink, useLocation, Link } from 'react-router-dom';
-import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send, ArrowLeftRight } from 'lucide-react';
+import { NavLink, Link } from 'react-router-dom';
+import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send, ArrowLeftRight, Shield } from 'lucide-react';
+import { useAuthStore } from '../../store/authStore';
 
 const navItems = [
   { section: 'Ana Menü', items: [
@@ -20,6 +21,9 @@ const navItems = [
 ];
 
 export default function Sidebar() {
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
+
   return (
     <aside className="sidebar">
       <Link to="/dashboard" className="sidebar-logo">
@@ -42,6 +46,19 @@ export default function Sidebar() {
             ))}
           </div>
         ))}
+
+        {isAdmin && (
+          <div className="sidebar-section">
+            <div className="sidebar-section-title">Sistem Yönetimi</div>
+            <NavLink
+              to="/superadmin"
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+            >
+              <Shield size={18} className="icon" />
+              <span>Süper Admin</span>
+            </NavLink>
+          </div>
+        )}
       </nav>
     </aside>
   );

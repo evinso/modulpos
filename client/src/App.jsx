@@ -13,6 +13,7 @@ import CategoryMappingPage from './pages/marketplaces/CategoryMappingPage';
 import TrendyolSendPage from './pages/marketplaces/TrendyolSendPage';
 import OrdersPage from './pages/orders/OrdersPage';
 import PricingPage from './pages/pricing/PricingPage';
+import SuperAdminPage from './pages/admin/SuperAdminPage';
 import './index.css';
 
 import LandingPage from './pages/landing/LandingPage';
@@ -20,6 +21,13 @@ import LandingPage from './pages/landing/LandingPage';
 function PrivateRoute({ children }) {
   const { token } = useAuthStore();
   return token ? children : <Navigate to="/login" />;
+}
+
+function AdminRoute({ children }) {
+  const { user, token } = useAuthStore();
+  if (!token) return <Navigate to="/login" />;
+  if (user?.role !== 'admin' && user?.role !== 'superadmin') return <Navigate to="/dashboard" />;
+  return children;
 }
 
 function App() {
@@ -42,6 +50,7 @@ function App() {
           <Route path="/trendyol-send" element={<TrendyolSendPage />} />
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/superadmin" element={<AdminRoute><SuperAdminPage /></AdminRoute>} />
         </Route>
       </Routes>
     </BrowserRouter>
