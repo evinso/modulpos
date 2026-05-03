@@ -402,14 +402,16 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
           marketplacePrice: p.price,
           marketplaceStock: p.stock,
           status: 'pending',
-          lastSyncedAt: new Date()
+          lastSyncedAt: new Date(),
+          batchRequestId: result?.batchRequestId || null
         },
         create: {
           productId: p.id,
           connectionId: connection.id,
           marketplacePrice: p.price,
           marketplaceStock: p.stock,
-          status: 'pending'
+          status: 'pending',
+          batchRequestId: result?.batchRequestId || null
         }
       });
     }
@@ -507,7 +509,7 @@ router.post('/connections/:id/sync-price-stock', async (req, res, next) => {
   }
 });
 
-// Sync product statuses from marketplace (using barcode lookup in store)
+// Sync product statuses from marketplace (using batch request results and fallback)
 router.post('/connections/:id/sync-status', async (req, res, next) => {
   try {
     const connection = await prisma.marketplaceConnection.findUnique({
@@ -521,31 +523,86 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
       const service = new TrendyolService(connection);
       
       // Get all pending products
-      const pendingProducts = await prisma.marketplaceProduct.findMany({
-        where: {
-          connectionId: connection.id,
-          status: 'pending'
-        },
+      const allPendingProducts = await prisma.marketplaceProduct.findMany({
+        where: { connectionId: connection.id, status: 'pending' },
         include: { product: true }
       });
       
-      if (pendingProducts.length === 0) {
+      if (allPendingProducts.length === 0) {
         return res.json({ message: 'Kontrol edilecek onay bekleyen ürün bulunamadı.', updated: 0 });
       }
-      
+
       let updatedCount = 0;
       let errorMessages = [];
+
+      // --- 1. Check via getBatchRequestResult (PRIMARY) ---
+      const productsWithBatch = allPendingProducts.filter(p => p.batchRequestId != null);
+      if (productsWithBatch.length > 0) {
+        const batchIds = [...new Set(productsWithBatch.map(p => p.batchRequestId))];
+        
+        for (const batchId of batchIds) {
+          try {
+            const batchResult = await service.getBatchRequestResult(batchId);
+            if (batchResult && batchResult.items && Array.isArray(batchResult.items)) {
+              for (const item of batchResult.items) {
+                // Determine barcode from various Trendyol batch request structures
+                let barcode = item.requestItem?.barcode || 
+                              item.requestItem?.product?.barcode || 
+                              item.requestItem?.updateRequest?.barcode;
+                              
+                if (!barcode && item.requestItem?.productMainId) {
+                  barcode = item.requestItem.productMainId;
+                }
+
+                if (!barcode) continue;
+
+                // Find matching pending product
+                const matchingMp = productsWithBatch.find(p => 
+                  p.batchRequestId === batchId && 
+                  (p.product.barcode === barcode || p.product.sku === barcode)
+                );
+
+                if (matchingMp) {
+                  let newStatus = matchingMp.status;
+                  let newError = matchingMp.errorMessage;
+                  
+                  if (item.status === 'SUCCESS') {
+                    newStatus = 'active';
+                    newError = null;
+                  } else if (item.status === 'FAILED') {
+                    newStatus = 'rejected';
+                    newError = (item.failureReasons || []).join(', ') || 'Trendyol tarafından reddedildi';
+                  }
+                  
+                  if (newStatus !== matchingMp.status) {
+                    await prisma.marketplaceProduct.update({
+                      where: { id: matchingMp.id },
+                      data: { status: newStatus, errorMessage: newError }
+                    });
+                    updatedCount++;
+                    // Remove from allPendingProducts so we don't check it again in fallback
+                    const idx = allPendingProducts.findIndex(p => p.id === matchingMp.id);
+                    if (idx !== -1) allPendingProducts.splice(idx, 1);
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            console.error(`[Trendyol Batch Check Error] ${batchId}`, err.response?.data || err.message);
+            errorMessages.push(`Toplu işlem (${batchId}) sorgulanamadı: ${err.message}`);
+          }
+        }
+      }
+
+      // --- 2. Fallback: Check remaining via getProducts (for products without batchId) ---
+      // We only process up to 50 items here to prevent timeouts
+      const stillPending = allPendingProducts.filter(p => p.status === 'pending').slice(0, 50);
       
-      // Trendyol API can filter by barcode. We process in chunks of 50 to avoid long URLs
-      const chunkSize = 50;
-      for (let i = 0; i < pendingProducts.length; i += chunkSize) {
-        const chunk = pendingProducts.slice(i, i + chunkSize);
-        
-        // Extract valid barcodes
-        const barcodeMap = new Map(); // barcode -> marketplaceProduct
+      if (stillPending.length > 0) {
         const barcodesToSearch = [];
+        const barcodeMap = new Map();
         
-        for (const mp of chunk) {
+        for (const mp of stillPending) {
           const searchParam = mp.product.barcode || mp.product.sku;
           if (searchParam) {
             barcodesToSearch.push(searchParam);
@@ -553,61 +610,51 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
           }
         }
         
-        if (barcodesToSearch.length === 0) continue;
-        
-        try {
-          // 1. Check Approved (Active) Products
-          const activeRes = await service.getProducts(0, 50, true, barcodesToSearch);
-          
-          if (activeRes && activeRes.content && Array.isArray(activeRes.content)) {
-            for (const tp of activeRes.content) {
-              const matchedMp = barcodeMap.get(tp.barcode) || barcodeMap.get(tp.stockCode);
-              if (matchedMp) {
-                await prisma.marketplaceProduct.update({
-                  where: { id: matchedMp.id },
-                  data: { status: 'active', errorMessage: null }
-                });
-                updatedCount++;
-                barcodeMap.delete(tp.barcode);
-                barcodeMap.delete(tp.stockCode);
-              }
-            }
-          }
-          
-          // 2. For remaining barcodes, check Unapproved (Pending/Rejected) Products
-          const remainingBarcodes = Array.from(barcodeMap.keys());
-          if (remainingBarcodes.length > 0) {
-            const inactiveRes = await service.getProducts(0, 50, false, remainingBarcodes);
-            
-            if (inactiveRes && inactiveRes.content && Array.isArray(inactiveRes.content)) {
-              for (const tp of inactiveRes.content) {
+        if (barcodesToSearch.length > 0) {
+          try {
+            // Check Approved (Active) Products
+            const activeRes = await service.getProducts(0, 50, true, barcodesToSearch);
+            if (activeRes && activeRes.content && Array.isArray(activeRes.content)) {
+              for (const tp of activeRes.content) {
                 const matchedMp = barcodeMap.get(tp.barcode) || barcodeMap.get(tp.stockCode);
                 if (matchedMp) {
-                  // Trendyol unapproved products. Check if it's rejected by looking at rejectReason or similar.
-                  // Often if it's not approved, it's either in review or rejected.
-                  // We can keep it 'pending' if it's under review, or mark 'rejected' if there's an error.
-                  // Let's assume if it has rejectReason or is explicitly rejected.
-                  const isRejected = tp.rejected || (tp.rejectReason && tp.rejectReason.length > 0);
-                  
-                  if (isRejected) {
-                    await prisma.marketplaceProduct.update({
-                      where: { id: matchedMp.id },
-                      data: { 
-                        status: 'rejected', 
-                        errorMessage: tp.rejectReason || 'Trendyol tarafından reddedildi'
-                      }
-                    });
-                    updatedCount++;
-                  }
-                  // If not rejected, it stays 'pending'
+                  await prisma.marketplaceProduct.update({
+                    where: { id: matchedMp.id },
+                    data: { status: 'active', errorMessage: null }
+                  });
+                  updatedCount++;
+                  barcodeMap.delete(tp.barcode);
+                  barcodeMap.delete(tp.stockCode);
                 }
               }
             }
+            
+            // Check Unapproved (Pending/Rejected) Products
+            const remainingBarcodes = Array.from(barcodeMap.keys());
+            if (remainingBarcodes.length > 0) {
+              const inactiveRes = await service.getProducts(0, 50, false, remainingBarcodes);
+              if (inactiveRes && inactiveRes.content && Array.isArray(inactiveRes.content)) {
+                for (const tp of inactiveRes.content) {
+                  const matchedMp = barcodeMap.get(tp.barcode) || barcodeMap.get(tp.stockCode);
+                  if (matchedMp) {
+                    const isRejected = tp.rejected || (tp.rejectReason && tp.rejectReason.length > 0);
+                    if (isRejected) {
+                      await prisma.marketplaceProduct.update({
+                        where: { id: matchedMp.id },
+                        data: { 
+                          status: 'rejected', 
+                          errorMessage: tp.rejectReason || 'Trendyol tarafından reddedildi'
+                        }
+                      });
+                      updatedCount++;
+                    }
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            console.error(`[Trendyol Fallback Sync Error]`, err.message);
           }
-          
-        } catch (err) {
-          console.error(`[Trendyol Status Sync Error] Chunk ${i/chunkSize}`, err.message);
-          errorMessages.push(`Sorgu hatası (Barkodlar: ${barcodesToSearch.slice(0, 3).join(',')}...): ${err.message}`);
         }
       }
       
