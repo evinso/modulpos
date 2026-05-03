@@ -38,7 +38,7 @@ export default function XmlSourcesPage() {
   const [savingMapping, setSavingMapping] = useState(false);
 
   // Add wizard state
-  const [addStep, setAddStep] = useState(1); // 1: basic info, 2: mapping, 3: config, 4: category map, 5: preview, 6: save+send
+  const [addStep, setAddStep] = useState(1); // 1: basic info, 2: mapping, 3: config, 4: preview, 5: save+send
   const [addAnalysis, setAddAnalysis] = useState(null);
   const [addMapping, setAddMapping] = useState({});
   const [addPreview, setAddPreview] = useState(null);
@@ -215,7 +215,7 @@ export default function XmlSourcesPage() {
       }
 
       toast.success('XML kaynağı ve ayarları kaydedildi! Şimdi ürünleri çekin.');
-      setAddStep(6);
+      setAddStep(5);
       fetchSources();
     } catch (err) { toast.error(err.response?.data?.error || 'Kayıt hatası'); }
   };
@@ -573,16 +573,15 @@ export default function XmlSourcesPage() {
                 {addStep === 1 && '1️⃣ XML Kaynağı Ekle'}
                 {addStep === 2 && '2️⃣ Alan Eşleştirmesi'}
                 {addStep === 3 && '3️⃣ Ürün Ayarları'}
-                {addStep === 4 && '4️⃣ Kategori Eşleştirme'}
-                {addStep === 5 && '5️⃣ Önizleme & Kaydet'}
-                {addStep === 6 && '✅ Tamamlandı'}
+                {addStep === 4 && '4️⃣ Önizleme & Kaydet'}
+                {addStep === 5 && '✅ Tamamlandı'}
               </h3>
               <button className="modal-close" onClick={resetAddWizard}>×</button>
             </div>
 
             {/* Step indicators */}
             <div style={{ display: 'flex', gap: 4, padding: '12px 24px', borderBottom: '1px solid var(--border-color)' }}>
-              {[1, 2, 3, 4, 5, 6].map(step => (
+              {[1, 2, 3, 4, 5].map(step => (
                 <div key={step} style={{
                   flex: 1, height: 4, borderRadius: 2,
                   background: step <= addStep ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
@@ -666,116 +665,10 @@ export default function XmlSourcesPage() {
                 </div>
               )}
 
-              {/* Step 4: Category Mapping */}
-              {addStep === 4 && (
-                <div>
-                  <div className="alert alert-info" style={{ marginBottom: 20 }}>
-                    📁 XML'den gelen kategorilerinizi pazaryeri kategorileriyle eşleştirin. Bu işlem pazaryerine ürün gönderirken zorunludur.
-                  </div>
-                  
-                  {connections.length === 0 ? (
-                    <div className="alert alert-warning">
-                      ⚠ Eşleştirme yapabileceğiniz bir pazaryeri bağlantısı bulunamadı. Bu adımı atlayabilir ve daha sonra "Pazaryeri" menüsünden eşleştirme yapabilirsiniz.
-                    </div>
-                  ) : (
-                    <>
-                      <div className="form-group">
-                        <label className="form-label">Mağaza Bağlantısı Seçin</label>
-                        <select className="form-select" value={selectedConn?.id || ''} onChange={e => {
-                          const c = connections.find(x => x.id === e.target.value);
-                          setSelectedConn(c);
-                          if (c) loadCategories(c.id);
-                        }}>
-                          {connections.map(c => <option key={c.id} value={c.id}>{c.supplierName || c.sellerId}</option>)}
-                        </select>
-                      </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 40px 1fr', gap: 16, alignItems: 'start', background: 'var(--bg-tertiary)', padding: 16, borderRadius: 'var(--radius)' }}>
-                        <div>
-                          <label className="form-label">Yerel Kategori (XML)</label>
-                          <select className="form-select" value={selectedLocalForMap} onChange={e => setSelectedLocalForMap(e.target.value)}>
-                            <option value="">Kategori seçin...</option>
-                            {localCats.map(cat => (
-                              <option key={cat} value={cat} style={{ color: addCategoryMappings[cat] ? 'var(--success)' : undefined }}>
-                                {cat} {addCategoryMappings[cat] ? '✓' : ''}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 28 }}>
-                          <ArrowRight size={20} style={{ color: 'var(--accent-primary)' }} />
-                        </div>
-                        
-                        <div>
-                          <label className="form-label">Trendyol Kategorisi</label>
-                          <div style={{ position: 'relative' }}>
-                            <Search size={14} style={{ position: 'absolute', left: 12, top: 12, color: 'var(--text-muted)' }} />
-                            <input className="form-input" style={{ paddingLeft: 34 }} placeholder="Kategori ara..." value={catSearch} onChange={e => { setCatSearch(e.target.value); setSelectedTrendyolForMap(null); }} />
-                          </div>
-                          
-                          {selectedTrendyolForMap && (
-                            <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <Check size={14} style={{ color: 'var(--accent-primary)' }} />
-                              <span style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>{selectedTrendyolForMap.fullPath || selectedTrendyolForMap.name}</span>
-                            </div>
-                          )}
-
-                          {catSearch.trim() && !selectedTrendyolForMap && (
-                            <div style={{ marginTop: 4, maxHeight: 250, overflowY: 'auto', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', boxShadow: '0 8px 30px rgba(0,0,0,0.3)' }}>
-                              {catLoading ? (
-                                <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}><Loader2 size={18} className="spinning" /></div>
-                              ) : filteredCategories.length === 0 ? (
-                                <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Kategori bulunamadı</div>
-                              ) : (
-                                filteredCategories.map(cat => (
-                                  <button key={cat.id} onClick={() => { setSelectedTrendyolForMap(cat); setCatSearch(cat.name); }} style={{ display: 'block', width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-color)', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--text-primary)' }}>
-                                    <div style={{ fontWeight: 500 }}>{cat.name}</div>
-                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{cat.fullPath}</div>
-                                  </button>
-                                ))
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
-                        <button className="btn btn-secondary btn-sm" onClick={handleAddCategoryMapping} disabled={!selectedLocalForMap || !selectedTrendyolForMap}>
-                          <Check size={14} /> Eşleştirmeyi Ekle
-                        </button>
-                      </div>
-                      
-                      {Object.keys(addCategoryMappings).length > 0 && (
-                        <div style={{ marginTop: 24 }}>
-                          <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--text-secondary)' }}>Eklenen Eşleştirmeler</h4>
-                          <table style={{ fontSize: 13 }}>
-                            <thead>
-                              <tr>
-                                <th>Yerel Kategori</th>
-                                <th>Pazaryeri Kategorisi</th>
-                                <th style={{ width: 40 }}></th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {Object.entries(addCategoryMappings).map(([localCat, mapData]) => (
-                                <tr key={localCat}>
-                                  <td>{localCat}</td>
-                                  <td>{mapData.marketplaceCategoryName}</td>
-                                  <td><button className="btn btn-danger btn-sm" style={{ padding: 4 }} onClick={() => handleRemoveCategoryMapping(localCat)}><Trash2 size={14} /></button></td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
 
               {/* Step 5: Preview */}
-              {addStep === 5 && addPreview && (
+              {addStep === 4 && addPreview && (
                 <div>
                   <div className="alert alert-success" style={{ marginBottom: 16 }}>
                     ✅ Her şey hazır! Aşağıdaki önizlemeyi kontrol edin, doğruysa kaydedin.
@@ -810,8 +703,8 @@ export default function XmlSourcesPage() {
                 </div>
               )}
 
-              {/* Step 6: Done */}
-              {addStep === 6 && (
+              {/* Step 5: Done */}
+              {addStep === 5 && (
                 <div style={{ textAlign: 'center', padding: '30px 0' }}>
                   <CheckCircle size={48} style={{ color: 'var(--success)', marginBottom: 16 }} />
                   <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Kaynak başarıyla eklendi!</h3>
@@ -828,7 +721,7 @@ export default function XmlSourcesPage() {
             </div>
 
             <div className="modal-footer">
-              {addStep > 1 && addStep < 6 && (
+              {addStep > 1 && addStep < 5 && (
                 <button className="btn btn-secondary" onClick={() => setAddStep(addStep - 1)}>← Geri</button>
               )}
               <div style={{ flex: 1 }} />
@@ -844,20 +737,15 @@ export default function XmlSourcesPage() {
               )}
               {addStep === 3 && (
                 <button className="btn btn-primary" onClick={() => setAddStep(4)}>
-                  Kategori Eşleştir →
-                </button>
-              )}
-              {addStep === 4 && (
-                <button className="btn btn-primary" onClick={() => setAddStep(5)}>
                   Önizle →
                 </button>
               )}
-              {addStep === 5 && (
+              {addStep === 4 && (
                 <button className="btn btn-primary" onClick={handleSaveAdd}>
                   ✓ Kaydet
                 </button>
               )}
-              {addStep === 6 && (
+              {addStep === 5 && (
                 <button className="btn btn-secondary" onClick={resetAddWizard}>Kapat</button>
               )}
             </div>
