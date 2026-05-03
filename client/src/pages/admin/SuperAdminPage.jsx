@@ -68,6 +68,19 @@ export default function SuperAdminPage() {
     }
   };
 
+  const handleExtendSubscription = async (userId, days) => {
+    setActionLoading(userId);
+    try {
+      await api.post(`/admin/users/${userId}/subscription`, { days });
+      toast.success(`${days} gün süre eklendi`);
+      fetchData();
+    } catch (error) {
+      toast.error('Süre uzatılamadı');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const filteredUsers = users.filter(u => 
     u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     u.email.toLowerCase().includes(searchTerm.toLowerCase())
@@ -193,12 +206,19 @@ export default function SuperAdminPage() {
                       </select>
                     </td>
                     <td>
-                      <div className="store-list">
-                        {user.stores.map(s => (
-                          <div key={s.id} className="store-tag" title={`${s._count.products} Ürün`}>
-                            {s.name}
-                          </div>
-                        ))}
+                      <div className="user-subscription-info">
+                        {user.subscriptions?.[0] ? (
+                          <>
+                            <span className="text-xs font-semibold block uppercase">
+                              {user.subscriptions[0].plan}
+                            </span>
+                            <span className={`text-xs ${new Date(user.subscriptions[0].endDate) < new Date() ? 'text-danger' : 'text-muted'}`}>
+                              Bitiş: {new Date(user.subscriptions[0].endDate).toLocaleDateString('tr-TR')}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-muted text-xs">Abonelik yok</span>
+                        )}
                       </div>
                     </td>
                     <td>
@@ -212,7 +232,14 @@ export default function SuperAdminPage() {
                     </td>
                     <td>
                       <div className="flex gap-2">
-                        <button className="header-icon-btn"><Edit size={14} /></button>
+                        <button 
+                          className="header-icon-btn" 
+                          title="Süreyi 30 Gün Uzat"
+                          onClick={() => handleExtendSubscription(user.id, 30)}
+                          disabled={actionLoading === user.id}
+                        >
+                          <Calendar size={14} />
+                        </button>
                         <button className="header-icon-btn text-danger"><Trash2 size={14} /></button>
                       </div>
                     </td>

@@ -167,6 +167,11 @@ export default function Header() {
                 <div className="user-details">
                   <div className="user-name-large">{user?.name}</div>
                   <div className="user-email">{user?.email || 'user@modulpos.com'}</div>
+                  {user?.subscriptions?.[0] && (
+                    <div className={`user-trial-badge ${new Date(user.subscriptions[0].endDate) < new Date() ? 'expired' : ''}`}>
+                      {Math.max(0, Math.ceil((new Date(user.subscriptions[0].endDate) - new Date()) / (1000 * 60 * 60 * 24)))} Gün Kaldı
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="dropdown-body">

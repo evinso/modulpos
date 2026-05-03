@@ -1136,3 +1136,32 @@ tbody tr:hover {
   border: 1px solid rgba(16, 185, 129, 0.3);
   color: var(--success);
 }
+
+/* User Subscription Badge */
+.user-trial-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.user-trial-badge.expired {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.user-subscription-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.text-danger { color: #ef4444; }
+.text-muted { color: var(--text-muted); }
+.font-semibold { font-weight: 600; }
+.block { display: block; }
+.uppercase { text-transform: uppercase; }

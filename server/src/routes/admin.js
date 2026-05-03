@@ -149,4 +149,40 @@ router.get('/stores', auth, isAdmin, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/admin/users/:id/subscription
+ * Extend or update user subscription
+ */
+router.post('/users/:id/subscription', auth, isAdmin, async (req, res) => {
+  try {
+    const { days, plan } = req.body;
+    const user = await prisma.user.findUnique({ 
+      where: { id: req.params.id },
+      include: { subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 } }
+    });
+
+    if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+
+    let currentEndDate = new Date();
+    if (user.subscriptions.length > 0 && user.subscriptions[0].endDate > new Date()) {
+      currentEndDate = new Date(user.subscriptions[0].endDate);
+    }
+
+    const newEndDate = new Date(currentEndDate.getTime() + days * 24 * 60 * 60 * 1000);
+
+    const subscription = await prisma.subscription.create({
+      data: {
+        userId: user.id,
+        plan: plan || (user.subscriptions[0]?.plan || 'basic'),
+        status: 'active',
+        endDate: newEndDate
+      }
+    });
+
+    res.json(subscription);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
