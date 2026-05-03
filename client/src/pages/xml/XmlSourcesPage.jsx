@@ -24,6 +24,7 @@ export default function XmlSourcesPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMappingModal, setShowMappingModal] = useState(null); // source id
   const [syncing, setSyncing] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   // Add form
   const [addForm, setAddForm] = useState({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10' });
@@ -306,8 +307,10 @@ export default function XmlSourcesPage() {
     finally { setSyncing(null); }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Bu XML kaynağını ve bağlı ürünleri silmek istediğinize emin misiniz?')) return;
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    const id = deleteConfirm;
+    setDeleteConfirm(null);
     try {
       await api.delete(`/xml-sources/${id}`);
       toast.success('XML kaynağı silindi');
@@ -553,7 +556,7 @@ export default function XmlSourcesPage() {
                     <RefreshCw size={14} className={syncing === s.id ? 'spinning' : ''} />
                     {syncing === s.id ? 'Çekiliyor...' : 'Şimdi Çek'}
                   </button>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleDelete(s.id)}><Trash2 size={14} /> Sil</button>
+                  <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(s.id)}><Trash2 size={14} /> Sil</button>
                 </div>
               </div>
             );
@@ -889,6 +892,25 @@ export default function XmlSourcesPage() {
               <button className="btn btn-primary" onClick={handleSaveMapping} disabled={savingMapping}>
                 {savingMapping ? 'Kaydediliyor...' : '✓ Eşleştirmeyi Kaydet'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== DELETE CONFIRM MODAL ===== */}
+      {deleteConfirm && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <div className="modal-header">
+              <h3>Kaynağı Sil</h3>
+              <button className="modal-close" onClick={() => setDeleteConfirm(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p>Bu XML kaynağını ve <strong>bağlı tüm ürünleri</strong> silmek istediğinize emin misiniz? Bu işlem geri alınamaz.</p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>İptal</button>
+              <button className="btn btn-danger" onClick={handleDelete}>Evet, Sil</button>
             </div>
           </div>
         </div>

@@ -15,6 +15,7 @@ export default function MarketplacePage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [testing, setTesting] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [form, setForm] = useState({ marketplaceType: 'trendyol', sellerId: '', apiKey: '', apiSecret: '', supplierName: '', defaultBrandId: '', defaultBrandName: '' });
 
   // Brand search state
@@ -99,8 +100,10 @@ export default function MarketplacePage() {
     finally { setTesting(null); }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Bu bağlantıyı silmek istediğinize emin misiniz?')) return;
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    const id = deleteConfirm;
+    setDeleteConfirm(null);
     try {
       await api.delete(`/marketplace/connections/${id}`);
       toast.success('Bağlantı silindi');
@@ -172,7 +175,7 @@ export default function MarketplacePage() {
                   <button className="btn btn-secondary btn-sm" onClick={() => handleTest(c.id)} disabled={testing === c.id}>
                     <TestTube size={14} /> {testing === c.id ? 'Test ediliyor...' : 'Bağlantıyı Test Et'}
                   </button>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleDelete(c.id)}><Trash2 size={14} /></button>
+                  <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(c.id)}><Trash2 size={14} /> Sil</button>
                 </div>
               </div>
             );
@@ -278,6 +281,25 @@ export default function MarketplacePage() {
                 <button type="submit" className="btn btn-primary">Bağlan</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===== DELETE CONFIRM MODAL ===== */}
+      {deleteConfirm && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <div className="modal-header">
+              <h3>Bağlantıyı Sil</h3>
+              <button className="modal-close" onClick={() => setDeleteConfirm(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p>Bu pazaryeri bağlantısını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.</p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>İptal</button>
+              <button className="btn btn-danger" onClick={handleDelete}>Evet, Sil</button>
+            </div>
           </div>
         </div>
       )}
