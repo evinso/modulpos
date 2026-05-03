@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Search, Trash2, Edit, Package, CheckSquare, Square,
   TrendingUp, TrendingDown, Tag, Layers, ToggleLeft, ToggleRight,
-  DollarSign, Box, Percent, X, AlertTriangle, ChevronDown, FileCode2, Eye
+  DollarSign, Box, Percent, X, AlertTriangle, ChevronDown, FileCode2, Eye, RefreshCw
 } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
