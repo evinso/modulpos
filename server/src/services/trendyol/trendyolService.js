@@ -118,7 +118,7 @@ class TrendyolService {
     const payload = { items };
     const res = await this.requestWithRetry({
       method: 'post',
-      url: `${this.baseUrl}/product/sellers/${this.sellerId}/products/price-and-inventory`,
+      url: `${this.baseUrl}/inventory/sellers/${this.sellerId}/products/price-and-inventory`,
       data: payload
     });
     return res.data;
