@@ -254,17 +254,31 @@ function getFieldValue(obj, mappedField, fallbackFields) {
 function getImagesValue(obj, mappedField, fallbackFields) {
   // Eşleştirme varsa
   if (mappedField && mappedField.trim() !== '') {
-    const val = getNestedValue(obj, mappedField);
-    if (!val) return [];
-    try {
-      const parsed = JSON.parse(val);
-      if (Array.isArray(parsed)) return parsed;
-    } catch {}
-    if (typeof val === 'string') {
-      if (val.includes(',')) return val.split(',').map(s => s.trim()).filter(Boolean);
-      if (val.startsWith('http')) return [val];
+    const fields = mappedField.split(',').map(s => s.trim()).filter(Boolean);
+    const resultImages = [];
+    
+    for (const field of fields) {
+      const val = getNestedValue(obj, field);
+      if (!val) continue;
+      
+      try {
+        const parsed = JSON.parse(val);
+        if (Array.isArray(parsed)) {
+          resultImages.push(...parsed);
+          continue;
+        }
+      } catch {}
+      
+      if (typeof val === 'string') {
+        if (val.includes(',') && !val.startsWith('http')) {
+          resultImages.push(...val.split(',').map(s => s.trim()).filter(Boolean));
+        } else {
+          resultImages.push(val);
+        }
+      }
     }
-    return [];
+    
+    if (resultImages.length > 0) return resultImages;
   }
 
   // Fallback

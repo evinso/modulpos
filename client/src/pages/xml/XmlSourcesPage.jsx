@@ -357,24 +357,54 @@ export default function XmlSourcesPage() {
 
               {/* Sağ: XML alan seçici */}
               <div style={{ flex: 1 }}>
-                <select
-                  className="form-select"
-                  value={currentMapping[field.key] || ''}
-                  onChange={(e) => onMappingChange({ ...currentMapping, [field.key]: e.target.value })}
-                  style={{
-                    background: 'var(--bg-primary)',
-                    fontSize: 13,
-                    padding: '8px 12px',
-                    borderColor: currentMapping[field.key] ? 'rgba(16,185,129,0.3)' : 'var(--border-color)',
-                  }}
-                >
-                  <option value="">— Eşleştirme yok —</option>
-                  {xmlFields.map(xf => (
-                    <option key={xf.path} value={xf.path}>
-                      {xf.path} {xf.sample ? `→ "${xf.sample.substring(0, 50)}"` : ''}
-                    </option>
-                  ))}
-                </select>
+                {field.key === 'images' ? (
+                  <>
+                    <select
+                      className="form-select"
+                      multiple
+                      value={(currentMapping[field.key] || '').split(',').filter(Boolean)}
+                      onChange={(e) => {
+                        const selected = Array.from(e.target.selectedOptions, option => option.value);
+                        onMappingChange({ ...currentMapping, [field.key]: selected.join(',') });
+                      }}
+                      style={{
+                        background: 'var(--bg-primary)',
+                        fontSize: 13,
+                        padding: '8px 12px',
+                        height: 100,
+                        borderColor: currentMapping[field.key] ? 'rgba(16,185,129,0.3)' : 'var(--border-color)',
+                      }}
+                    >
+                      {xmlFields.map(xf => (
+                        <option key={xf.path} value={xf.path} style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-color)' }}>
+                          {xf.path} {xf.sample ? `→ "${xf.sample.substring(0, 50)}"` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <small style={{ color: 'var(--text-muted)', fontSize: 11, display: 'block', marginTop: 4 }}>
+                      CTRL veya CMD tuşuna basılı tutarak birden fazla görsel alanı seçebilirsiniz.
+                    </small>
+                  </>
+                ) : (
+                  <select
+                    className="form-select"
+                    value={currentMapping[field.key] || ''}
+                    onChange={(e) => onMappingChange({ ...currentMapping, [field.key]: e.target.value })}
+                    style={{
+                      background: 'var(--bg-primary)',
+                      fontSize: 13,
+                      padding: '8px 12px',
+                      borderColor: currentMapping[field.key] ? 'rgba(16,185,129,0.3)' : 'var(--border-color)',
+                    }}
+                  >
+                    <option value="">— Eşleştirme yok —</option>
+                    {xmlFields.map(xf => (
+                      <option key={xf.path} value={xf.path}>
+                        {xf.path} {xf.sample ? `→ "${xf.sample.substring(0, 50)}"` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {/* Örnek değer */}
@@ -386,7 +416,20 @@ export default function XmlSourcesPage() {
                 }}>
                   {(() => {
                     const sample = analysis.sampleData?.[0];
-                    return sample ? (sample[currentMapping[field.key]] || '-') : '-';
+                    if (!sample) return '-';
+                    if (field.key === 'images' && currentMapping[field.key].includes(',')) {
+                      return currentMapping[field.key].split(',').map(k => {
+                        const parts = k.split('.');
+                        let val = sample;
+                        for(const p of parts) { if(val) val = val[p]; }
+                        return val;
+                      }).filter(Boolean).join(' | ') || '-';
+                    }
+                    
+                    const parts = currentMapping[field.key].split('.');
+                    let val = sample;
+                    for(const p of parts) { if(val) val = val[p]; }
+                    return val ? String(val) : '-';
                   })()}
                 </div>
               )}
