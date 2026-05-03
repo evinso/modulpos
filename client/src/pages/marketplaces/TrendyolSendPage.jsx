@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Send, Search, CheckSquare, Square, Package, AlertCircle, RefreshCw, ChevronDown, Filter, Eye } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
@@ -67,7 +67,7 @@ export default function TrendyolSendPage() {
 
   const mappedCategories = mappings.reduce((acc, m) => { acc[m.localCategory] = m; return acc; }, {});
 
-  const pricingLookup = React.useMemo(() => {
+  const pricingLookup = useMemo(() => {
     if (!selectedConn) return {};
     const lookup = {};
     for (const r of pricingRules) {
