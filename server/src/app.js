@@ -15,6 +15,7 @@ const orderRoutes = require('./routes/orders');
 const pricingRoutes = require('./routes/pricing');
 const questionRoutes = require('./routes/questions');
 const xmlConverterRoutes = require('./routes/xmlConverter');
+const notificationRoutes = require('./routes/notifications');
 
 const { errorHandler } = require('./middleware/errorHandler');
 
@@ -73,6 +74,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/pricing', pricingRoutes);
 app.use('/api/questions', questionRoutes);
 app.use('/api/xml-converter', xmlConverterRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const TrendyolService = require('../services/trendyol/trendyolService');
+const notificationService = require('../services/notificationService');
 
 const router = express.Router();
 router.use(auth);
@@ -58,6 +59,15 @@ router.post('/sync', async (req, res, next) => {
                 orderDate: new Date(pkg.orderDate)
               }
             });
+
+            await notificationService.create({
+              storeId: store.id,
+              title: 'Yeni Sipariş',
+              message: `${pkg.orderNumber} nolu yeni bir siparişiniz var.`,
+              type: 'info',
+              link: '/orders'
+            });
+
             totalSynced++;
           }
         }

@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const { parseXml, analyzeXml } = require('../services/xml/xmlParser');
+const notificationService = require('../services/notificationService');
 
 const router = express.Router();
 router.use(auth);
@@ -104,6 +105,15 @@ router.post('/', async (req, res, next) => {
         defaultVatRate: defaultVatRate !== undefined ? parseInt(defaultVatRate) : 10,
       }
     });
+
+    await notificationService.create({
+      storeId: store.id,
+      title: 'Yeni XML Kaynağı',
+      message: `"${name}" isimli XML kaynağı başarıyla eklendi.`,
+      type: 'success',
+      link: '/xml-sources'
+    });
+
     res.status(201).json(xmlSource);
   } catch (error) { next(error); }
 });
@@ -215,6 +225,14 @@ router.post('/:id/sync', async (req, res, next) => {
 
     await prisma.syncLog.update({ where: { id: syncLog.id }, data: { status: 'completed', itemCount: created + updated, errorCount: errors, completedAt: new Date() } });
     await prisma.xmlSource.update({ where: { id: xmlSource.id }, data: { lastSyncedAt: new Date(), totalProducts: products.length, status: 'active' } });
+
+    await notificationService.create({
+      storeId: store.id,
+      title: 'Senkronizasyon Tamamlandı',
+      message: `"${xmlSource.name}" senkronizasyonu tamamlandı: ${created} yeni, ${updated} güncellenen ürün.`,
+      type: errors > 0 ? 'warning' : 'success',
+      link: '/products'
+    });
 
     res.json({ message: 'Senkronizasyon tamamlandı', results: { total: products.length, created, updated, errors } });
   } catch (error) { next(error); }

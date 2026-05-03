@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { Search, Bell, LogOut, User, Settings, Shield, CreditCard, ChevronDown, Check, Clock, Info } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
+import api from '../../services/api';
 
 const pageTitles = {
   '/dashboard': 'Dashboard',
@@ -15,15 +16,10 @@ const pageTitles = {
   '/pricing': 'Fiyatlandırma Kuralları',
 };
 
-const dummyNotifications = [
-  { id: 1, title: 'Entegrasyon Başarılı', desc: '1.240 ürün Trendyol\'a başarıyla gönderildi.', type: 'success', time: '5 dk önce' },
-  { id: 2, title: 'Stok Uyarısı', desc: 'EB2239-KS kodlu ürünün stoğu kritik seviyede (4 adet).', type: 'warning', time: '1 saat önce' },
-  { id: 3, title: 'Yeni Sipariş', desc: 'Trendyol üzerinden yeni bir siparişiniz var.', type: 'info', time: '2 saat önce' },
-];
-
 export default function Header() {
   const location = useLocation();
   const { user, logout } = useAuthStore();
+  const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const title = pageTitles[location.pathname] || 'Panel';
@@ -31,8 +27,20 @@ export default function Header() {
   const notificationRef = useRef(null);
   const userMenuRef = useRef(null);
 
+  const fetchNotifications = async () => {
+    try {
+      const response = await api.get('/notifications?unreadOnly=false&limit=10');
+      setNotifications(response.data);
+    } catch (error) {
+      console.error('Bildirimler yüklenemedi:', error);
+    }
+  };
+
   useEffect(() => {
     document.title = `ModulPOS / ${title}`;
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 60000); // 1 dakikada bir kontrol et
+    return () => clearInterval(interval);
   }, [title]);
 
   useEffect(() => {
@@ -47,6 +55,40 @@ export default function Header() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const handleMarkAsRead = async (id) => {
+    try {
+      await api.post(`/notifications/${id}/read`);
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+    } catch (error) {
+      console.error('Bildirim işaretlenemedi:', error);
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      await api.post('/notifications/read-all');
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+    } catch (error) {
+      console.error('Tüm bildirimler işaretlenemedi:', error);
+    }
+  };
+
+  const unreadCount = notifications.filter(n => !n.isRead).length;
+
+  const formatDate = (dateStr) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Şimdi';
+    if (diffMins < 60) return `${diffMins} dk önce`;
+    if (diffHours < 24) return `${diffHours} saat önce`;
+    return `${diffDays} gün önce`;
+  };
 
   return (
     <header className="header">
@@ -63,29 +105,39 @@ export default function Header() {
         <div className="header-dropdown-wrapper" ref={notificationRef}>
           <button className="header-icon-btn" onClick={() => setShowNotifications(!showNotifications)}>
             <Bell size={16} />
-            <span className="notification-dot"></span>
+            {unreadCount > 0 && <span className="notification-dot"></span>}
           </button>
           {showNotifications && (
             <div className="header-dropdown notifications-dropdown">
               <div className="dropdown-header">
-                <h3>Bildirimler</h3>
-                <button className="text-btn">Tümünü oku</button>
+                <h3>Bildirimler ({unreadCount})</h3>
+                <button className="text-btn" onClick={handleMarkAllAsRead}>Tümünü oku</button>
               </div>
               <div className="dropdown-body">
-                {dummyNotifications.map(n => (
-                  <div key={n.id} className="notification-item">
-                    <div className={`notification-icon ${n.type}`}>
-                      {n.type === 'success' && <Check size={14} />}
-                      {n.type === 'warning' && <Clock size={14} />}
-                      {n.type === 'info' && <Info size={14} />}
+                {notifications.length > 0 ? (
+                  notifications.map(n => (
+                    <div 
+                      key={n.id} 
+                      className={`notification-item ${n.isRead ? 'read' : 'unread'}`}
+                      onClick={() => handleMarkAsRead(n.id)}
+                    >
+                      <div className={`notification-icon ${n.type}`}>
+                        {n.type === 'success' && <Check size={14} />}
+                        {n.type === 'warning' && <Clock size={14} />}
+                        {n.type === 'info' && <Info size={14} />}
+                        {n.type === 'error' && <Info size={14} />}
+                      </div>
+                      <div className="notification-content">
+                        <div className="notification-title">{n.title}</div>
+                        <div className="notification-desc">{n.message}</div>
+                        <div className="notification-time">{formatDate(n.createdAt)}</div>
+                      </div>
+                      {!n.isRead && <div className="unread-dot" />}
                     </div>
-                    <div className="notification-content">
-                      <div className="notification-title">{n.title}</div>
-                      <div className="notification-desc">{n.desc}</div>
-                      <div className="notification-time">{n.time}</div>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <div className="p-4 text-center text-sm text-gray-500">Henüz bildirim yok</div>
+                )}
               </div>
               <div className="dropdown-footer">
                 <button className="dropdown-footer-btn">Tüm bildirimleri gör</button>

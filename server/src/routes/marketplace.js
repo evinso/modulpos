@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const TrendyolService = require('../services/trendyol/trendyolService');
+const notificationService = require('../services/notificationService');
 
 const router = express.Router();
 router.use(auth);
@@ -415,6 +416,14 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
         }
       });
     }
+
+    await notificationService.create({
+      storeId: connection.storeId,
+      title: 'Ürün Gönderimi',
+      message: `${formatted.length} ürün Trendyol'a gönderildi. ${errors.length > 0 ? errors.length + ' hata var.' : ''}`,
+      type: errors.length > 0 ? 'warning' : 'success',
+      link: '/marketplace'
+    });
 
     res.json({
       message: `${formatted.length} ürün Trendyol'a gönderildi`,
