@@ -203,6 +203,33 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     const catMap = {};
     for (const m of catMappings) { catMap[m.localCategory] = m; }
 
+    // Initialize Trendyol service for brand lookups
+    const service = new TrendyolService(connection);
+
+    // Brand cache: brandName -> brandId (to avoid duplicate API calls)
+    const brandCache = {};
+
+    // Resolve brand ID from brand name via Trendyol API
+    async function resolveBrandId(brandName) {
+      if (!brandName || brandName.trim() === '') return null;
+      const key = brandName.trim().toLowerCase();
+      if (brandCache[key] !== undefined) return brandCache[key];
+      
+      try {
+        const result = await service.searchBrand(brandName.trim());
+        if (result && Array.isArray(result) && result.length > 0) {
+          brandCache[key] = result[0].id;
+          return result[0].id;
+        }
+        brandCache[key] = null;
+        return null;
+      } catch (err) {
+        console.warn(`[Trendyol] Marka araması başarısız: "${brandName}" -`, err.message);
+        brandCache[key] = null;
+        return null;
+      }
+    }
+
     // Format products for Trendyol
     const formatted = [];
     const errors = [];
@@ -219,17 +246,11 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
 
       // Parse mapped attributes
       const attributes = [];
-      let mappedBrandId = null;
       if (mapping.attributes) {
         try {
           const parsedAttrs = JSON.parse(mapping.attributes);
           for (const [attrId, attrObj] of Object.entries(parsedAttrs)) {
             if (!attrObj.valueId && !attrObj.valueName) continue;
-            
-            // Try to detect brand attribute (usually named "Marka")
-            if (attrObj.name && attrObj.name.toLowerCase().includes('marka') && attrObj.valueId) {
-              mappedBrandId = parseInt(attrObj.valueId);
-            }
             
             if (attrObj.valueId) {
               attributes.push({
@@ -268,7 +289,28 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
         } catch (e) {}
       }
 
-      const brandId = mappedBrandId || connection.defaultBrandId || 0;
+      // Resolve brand ID: ürünün brand alanından Trendyol marka ID çözümle
+      let brandId = null;
+      
+      // 1. Ürünün brand alanından çözümle (XML'den gelen marka adı)
+      if (p.brand) {
+        brandId = await resolveBrandId(p.brand);
+      }
+      
+      // 2. Marka bulunamazsa connection'ın default brand ID'sini kullan
+      if (!brandId && connection.config) {
+        try {
+          const config = JSON.parse(connection.config);
+          if (config.defaultBrandId) brandId = config.defaultBrandId;
+        } catch (e) {}
+      }
+      
+      // 3. Hala bulunamazsa hata listesine ekle
+      if (!brandId) {
+        errors.push(`${p.sku}: Marka bulunamadı (${p.brand || 'Marka boş'}). Trendyol'da geçerli bir marka eşleştirmesi yapın.`);
+        continue;
+      }
+
       const item = TrendyolService.formatProduct(p, mapping.marketplaceCategoryId, brandId, attributes);
       formatted.push(item);
     }
@@ -277,9 +319,6 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
       return res.status(400).json({ error: 'Gönderilebilir ürün yok', details: errors });
     }
 
-    // Send to Trendyol
-    const service = new TrendyolService(connection);
-    
     // Debug: Log payload being sent
     console.log('[Trendyol Send] Seller ID:', connection.sellerId);
     console.log('[Trendyol Send] Base URL:', connection.baseUrl || process.env.TRENDYOL_BASE_URL);

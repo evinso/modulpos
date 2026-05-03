@@ -92,7 +92,7 @@ model Product {
   rawXmlData    String?  // JSON - original XML data, never modified
   weight        Float?
   desi          Float?
-  vatRate       Int      @default(18)
+  vatRate       Int      @default(10)
   currencyType  String   @default("TRY")
   status        String   @default("active") // active, passive, draft
   createdAt     DateTime @default(now())

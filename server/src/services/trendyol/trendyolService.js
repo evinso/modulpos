@@ -240,6 +240,16 @@ class TrendyolService {
 
   // Format product for Trendyol API
   static formatProduct(product, categoryId, brandId, attributes = []) {
+    // KDV oranı doğrulama (10 Temmuz sonrası: 0, 1, 10, 20)
+    const validVatRates = [0, 1, 10, 20];
+    let vatRate = product.vatRate || 10;
+    if (!validVatRates.includes(vatRate)) {
+      // Eski oranları en yakın yeni orana çevir
+      if (vatRate === 8) vatRate = 10;
+      else if (vatRate === 18) vatRate = 20;
+      else vatRate = 10; // fallback
+    }
+
     return {
       barcode: product.barcode,
       title: product.title,
@@ -253,7 +263,7 @@ class TrendyolService {
       currencyType: 'TRY',
       listPrice: product.listPrice || product.price,
       salePrice: product.price,
-      vatRate: product.vatRate || 18,
+      vatRate: vatRate,
       cargoCompanyId: 17, // Default: Aras Kargo
       images: (typeof product.images === 'string' ? JSON.parse(product.images) : product.images || []).map(url => ({ url })),
       attributes: attributes
