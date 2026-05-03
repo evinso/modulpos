@@ -590,30 +590,47 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
       });
       
       if (stillPending.length > 0) {
-        try {
-          // Fetch the latest 100 approved products (usually enough for recently sent ones)
-          const activeProducts = await service.getProducts(0, 100, true);
-          if (activeProducts && activeProducts.content && Array.isArray(activeProducts.content)) {
-            for (const mp of stillPending) {
-              const mpBarcode = mp.product.barcode;
-              const mpSku = mp.product.sku;
-              
-              const foundInTrendyol = activeProducts.content.find(tp => 
-                (mpBarcode && tp.barcode === mpBarcode) || 
-                (mpSku && tp.stockCode === mpSku)
-              );
-              
-              if (foundInTrendyol) {
+        // En fazla 50 ürünü kontrol et (Timeout/Limit yememek için)
+        const productsToCheck = stillPending.slice(0, 50);
+        
+        for (const mp of productsToCheck) {
+          const mpBarcode = mp.product.barcode;
+          const mpSku = mp.product.sku;
+          const searchParam = mpBarcode || mpSku;
+          if (!searchParam) continue;
+          
+          try {
+            // Sadece bu spesifik ürünü barkoduyla ara
+            const activeRes = await service.getProducts(0, 50, true, [searchParam]);
+            
+            let found = false;
+            if (activeRes && activeRes.content && Array.isArray(activeRes.content)) {
+              const tp = activeRes.content.find(t => t.barcode === searchParam || t.stockCode === searchParam);
+              if (tp) {
                 await prisma.marketplaceProduct.update({
                   where: { id: mp.id },
                   data: { status: 'active', errorMessage: null }
                 });
                 updatedCount++;
+                found = true;
               }
             }
+            
+            // Eğer aktif değilse reddedilmiş mi kontrol et
+            if (!found) {
+              const inactiveRes = await service.getProducts(0, 50, false, [searchParam]);
+              if (inactiveRes && inactiveRes.content && Array.isArray(inactiveRes.content)) {
+                const tp = inactiveRes.content.find(t => t.barcode === searchParam || t.stockCode === searchParam);
+                // approved=false ise Trendyol'da inceleniyor veya red yemiştir. Trendyol red yediyse rejected döneriz.
+                if (tp && tp.approved === false) {
+                  // statusStr 'FAILED' gibi Trendyol'un batch servisinden döner, ama getProducts'da rejected olduğunu anlamak zordur.
+                  // Beklemede bırakalım.
+                }
+              }
+            }
+          } catch (err) {
+            console.error(`[Trendyol Fallback Error] Barcode: ${searchParam}`, err.message);
           }
-        } catch (err) {
-          console.error('[Trendyol getProducts Fallback Error]', err.message);
         }
       }
       
