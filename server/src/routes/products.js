@@ -335,6 +335,68 @@ router.post('/bulk-action', async (req, res, next) => {
         });
         break;
       }
+      case 'sync_marketplaces': {
+        // Bulunan ürünleri ve marketplace ürünlerini çek
+        const marketplaceProducts = await prisma.marketplaceProduct.findMany({
+          where: { productId: { in: productIds } },
+          include: { product: true, connection: true }
+        });
+        if (marketplaceProducts.length === 0) {
+          return res.status(400).json({ error: 'Seçilen ürünlerin hiçbiri bir pazaryerine gönderilmemiş' });
+        }
+        
+        // Bağlantılara göre grupla
+        const grouped = {};
+        for (const mp of marketplaceProducts) {
+          if (!grouped[mp.connectionId]) grouped[mp.connectionId] = { connection: mp.connection, mps: [] };
+          grouped[mp.connectionId].mps.push(mp);
+        }
+        
+        let syncedCount = 0;
+        let errorMessages = [];
+        
+        for (const connId in grouped) {
+          const { connection, mps } = grouped[connId];
+          if (connection.marketplaceType === 'trendyol') {
+            try {
+              const TrendyolService = require('../services/trendyol/trendyolService');
+              const service = new TrendyolService(connection);
+              
+              const items = mps.map(mp => ({
+                barcode: mp.product.barcode || mp.product.sku,
+                quantity: mp.product.stock,
+                salePrice: mp.product.price,
+                listPrice: mp.product.listPrice > mp.product.price ? mp.product.listPrice : mp.product.price
+              }));
+              
+              const syncRes = await service.updatePriceAndInventory(items);
+              
+              // Veritabanını güncelle
+              for (const mp of mps) {
+                await prisma.marketplaceProduct.update({
+                  where: { id: mp.id },
+                  data: {
+                    marketplacePrice: mp.product.price,
+                    marketplaceStock: mp.product.stock,
+                    batchRequestId: syncRes?.batchRequestId || mp.batchRequestId,
+                    lastSyncedAt: new Date()
+                  }
+                });
+                syncedCount++;
+              }
+            } catch (e) {
+              errorMessages.push(`${connection.supplierName || connection.marketplaceType}: ${e.response?.data?.message || e.message}`);
+            }
+          }
+        }
+        
+        if (syncedCount === 0 && errorMessages.length > 0) {
+          return res.status(500).json({ error: 'Güncelleme hataları: ' + errorMessages.join(', ') });
+        }
+        
+        const warningStr = errorMessages.length > 0 ? ` (Bazı hatalar: ${errorMessages.join(', ')})` : '';
+        return res.json({ message: `${syncedCount} ürün pazaryerlerinde güncellendi${warningStr}`, count: syncedCount });
+      }
       default:
         return res.status(400).json({ error: 'Geçersiz işlem' });
     }

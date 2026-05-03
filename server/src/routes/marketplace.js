@@ -408,4 +408,67 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
   }
 });
 
+// Sync price and stock to marketplace
+router.post('/connections/:id/sync-price-stock', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({
+      where: { id: req.params.id }
+    });
+    
+    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+    
+    const { productIds } = req.body;
+    
+    // Find marketplace products matching these local product IDs
+    const marketplaceProducts = await prisma.marketplaceProduct.findMany({
+      where: {
+        connectionId: connection.id,
+        ...(productIds && productIds.length > 0 ? { productId: { in: productIds } } : {})
+      },
+      include: { product: true }
+    });
+    
+    if (marketplaceProducts.length === 0) {
+      return res.status(400).json({ error: 'Güncellenecek ürün bulunamadı. Seçtiğiniz ürünler bu pazaryerine gönderilmiş olmalı.' });
+    }
+    
+    if (connection.marketplaceType === 'trendyol') {
+      const TrendyolService = require('../services/trendyol/trendyolService');
+      const service = new TrendyolService(connection);
+      
+      const items = marketplaceProducts.map(mp => ({
+        barcode: mp.product.barcode || mp.product.sku, // Trendyol uses barcode for price/stock update
+        quantity: mp.product.stock,
+        salePrice: mp.product.price,
+        listPrice: mp.product.listPrice > mp.product.price ? mp.product.listPrice : mp.product.price
+      }));
+      
+      const result = await service.updatePriceAndInventory(items);
+      
+      // Update local marketplace product records with the new price/stock and batchRequestId
+      for (const mp of marketplaceProducts) {
+        await prisma.marketplaceProduct.update({
+          where: { id: mp.id },
+          data: {
+            marketplacePrice: mp.product.price,
+            marketplaceStock: mp.product.stock,
+            batchRequestId: result?.batchRequestId || mp.batchRequestId,
+            lastSyncedAt: new Date()
+          }
+        });
+      }
+      
+      res.json({
+        message: `${items.length} ürünün fiyat ve stok bilgileri Trendyol'a gönderildi.`,
+        batchId: result?.batchRequestId
+      });
+    } else {
+      res.status(400).json({ error: 'Bu pazaryeri için henüz fiyat/stok güncellemesi desteklenmiyor' });
+    }
+  } catch (error) {
+    console.error('[Marketplace Sync Error]', error.response?.data || error.message);
+    res.status(500).json({ error: 'Pazaryeri güncellenirken hata oluştu', details: error.response?.data });
+  }
+});
+
 module.exports = router;

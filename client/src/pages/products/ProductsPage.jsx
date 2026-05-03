@@ -28,6 +28,9 @@ const BULK_ACTIONS = [
     { key: 'set_brand', label: 'Marka Ata', needsValue: true, placeholder: 'Marka adı' },
     { key: 'set_vat_rate', label: 'KDV Oranı', needsValue: true, placeholder: 'Oran', suffix: '%' },
   ]},
+  { group: 'Pazaryeri', icon: <Package size={15} />, actions: [
+    { key: 'sync_marketplaces', label: 'Pazaryeri Fiyat/Stok Güncelle', color: 'var(--accent-primary)', needsValue: false },
+  ]},
   { group: 'Tehlikeli', icon: <AlertTriangle size={15} />, actions: [
     { key: 'delete', label: 'Seçilenleri Sil', color: 'var(--danger)', needsValue: false, dangerous: true },
   ]},
@@ -448,7 +451,7 @@ export default function ProductsPage() {
                       </button>
                     </th>
                   )}
-                  <th>SKU</th><th>Ürün Adı</th><th>XML Fiyat</th><th>Satış Fiyatı</th><th>Fark</th><th>Stok</th><th>Marka</th><th>Durum</th><th>İşlem</th>
+                  <th>SKU</th><th>Ürün Adı</th><th>XML Fiyat</th><th>Satış Fiyatı</th><th>Fark</th><th>Stok</th><th>Marka</th><th>Pazaryeri</th><th>Durum</th><th>İşlem</th>
                 </tr>
               </thead>
               <tbody>
@@ -492,6 +495,19 @@ export default function ProductsPage() {
                       </td>
                       <td><span className={`badge ${p.stock > 10 ? 'badge-success' : p.stock > 0 ? 'badge-warning' : 'badge-danger'}`}>{p.stock}</span></td>
                       <td>{p.brand || '-'}</td>
+                      <td>
+                        {p.marketplaceProducts && p.marketplaceProducts.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {p.marketplaceProducts.map(mp => (
+                              <span key={mp.id} className={`badge badge-${mp.status === 'active' ? 'success' : mp.status === 'rejected' ? 'danger' : 'warning'}`} title={mp.errorMessage || 'Durum: ' + mp.status}>
+                                {mp.connection.marketplaceType === 'trendyol' ? 'Trendyol' : mp.connection.marketplaceType}: {mp.status === 'pending' ? 'Bekliyor' : mp.status === 'active' ? 'Aktif' : mp.status === 'rejected' ? 'Hata' : mp.status}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Yok</span>
+                        )}
+                      </td>
                       <td><span className={`badge ${p.status === 'active' ? 'badge-success' : 'badge-warning'}`}>{p.status === 'active' ? 'Aktif' : 'Pasif'}</span></td>
                       <td>
                         <div style={{ display: 'flex', gap: 8 }}>
