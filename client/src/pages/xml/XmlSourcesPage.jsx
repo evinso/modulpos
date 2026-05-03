@@ -165,25 +165,37 @@ export default function XmlSourcesPage() {
   };
 
   const handleAddPreview = async () => {
+    // Use already-analyzed data — no need to re-fetch from server
+    if (!addAnalysis || !addAnalysis.sampleData) {
+      toast.error('Önce XML analizi yapılmalı');
+      return;
+    }
     setPreviewing(true);
     try {
-      // Geçici kaynak oluşturup preview almak yerine analyze verisiyle simüle edelim
-      const res = await api.post('/xml-sources/analyze', { url: addForm.url });
-      if (res.data.success && res.data.sampleData) {
-        // Mapping'e göre veriyi dönüştür
-        const mapped = res.data.sampleData.map(row => {
-          const product = {};
-          for (const field of PRODUCT_FIELDS) {
-            const xmlField = addMapping[field.key];
-            product[field.key] = xmlField ? (row[xmlField] || '-') : '-';
+      const mapped = addAnalysis.sampleData.map(row => {
+        const product = {};
+        for (const field of PRODUCT_FIELDS) {
+          const xmlField = addMapping[field.key];
+          if (!xmlField) {
+            product[field.key] = '-';
+          } else if (field.key === 'images' && xmlField.includes(',')) {
+            // Multiple image fields — join the URLs
+            const urls = xmlField.split(',').map(f => f.trim()).map(f => row[f]).filter(Boolean);
+            product[field.key] = urls.length > 0 ? urls[0] : '-'; // show first image URL in preview
+          } else {
+            const val = row[xmlField];
+            product[field.key] = (val !== null && val !== undefined && val !== '') ? String(val) : '-';
           }
-          return product;
-        });
-        setAddPreview(mapped);
-        setAddStep(3);
-      }
-    } catch (err) { toast.error('Önizleme hatası'); }
-    finally { setPreviewing(false); }
+        }
+        return product;
+      });
+      setAddPreview(mapped);
+      setAddStep(3);
+    } catch (err) {
+      toast.error('Önizleme hatası: ' + err.message);
+    } finally {
+      setPreviewing(false);
+    }
   };
 
   const handleSaveAdd = async () => {
