@@ -4,17 +4,17 @@ import './LandingPage.css';
 
 const features = [
   { icon: <FileCode2 size={24} />, title: 'XML Otomatik İçe Aktarma', desc: 'Her formattaki tedarikçi XML\'ini sisteme bağlayın. RSS, Google Shopping, özel formatlar — hepsi desteklenir.' },
-  { icon: <Store size={24} />, title: 'Trendyol Entegrasyonu', desc: 'Ürünlerinizi Trendyol\'a tek tıkla gönderin. Stok ve fiyat güncellemeleri otomatik senkronize edilir.' },
+  { icon: <Store size={24} />, title: 'Pazaryeri Entegrasyonu', desc: 'Ürünlerinizi pazaryerlerine tek tıkla gönderin. Stok ve fiyat güncellemeleri otomatik senkronize edilir.' },
   { icon: <Tags size={24} />, title: 'Merkezi Fiyatlandırma', desc: 'Alış fiyatına göre otomatik satış fiyatı hesaplama. Pazaryerine göre özel kâr marjı tanımlayın.' },
   { icon: <ArrowLeftRight size={24} />, title: 'XML Dönüştürücü', desc: 'Desteklenmeyen XML formatlarını anında dönüştürün. Proxy URL ile her senkronizasyonda güncel veri.' },
-  { icon: <FolderTree size={24} />, title: 'Kategori Eşleştirme', desc: 'Tedarikçi kategorilerinizi Trendyol kategorileriyle eşleştirin. Ürün gönderimi sorunsuz gerçekleşsin.' },
+  { icon: <FolderTree size={24} />, title: 'Kategori Eşleştirme', desc: 'Tedarikçi kategorilerinizi pazaryeri kategorileriyle eşleştirin. Ürün gönderimi sorunsuz gerçekleşsin.' },
   { icon: <BarChart3 size={24} />, title: 'Sipariş Takibi', desc: 'Tüm pazaryerlerindeki siparişlerinizi tek panelden takip edin. Gerçek zamanlı durum güncellemeleri.' },
 ];
 
 const steps = [
   { n: '01', title: 'XML Kaynağı Ekle', desc: 'Tedarikçinizin XML linkini yapıştırın, sistem otomatik analiz etsin.' },
   { n: '02', title: 'Alan Eşleştir', desc: 'XML alanlarını ürün alanlarıyla eşleştirin, fiyatlandırma kuralı tanımlayın.' },
-  { n: '03', title: 'Pazaryerine Gönder', desc: 'Ürünleri Trendyol\'a gönderin, stok ve fiyatlar otomatik güncellensin.' },
+  { n: '03', title: 'Pazaryerine Gönder', desc: 'Ürünleri pazaryerlerine gönderin, stok ve fiyatlar otomatik güncellensin.' },
 ];
 
 const stats = [
@@ -60,7 +60,7 @@ export default function LandingPage() {
             <span className="lp-gradient-text">Tek Yerden Yönetin</span>
           </h1>
           <p className="lp-hero-desc">
-            XML tedarikçi bağlantısından Trendyol satışına kadar tüm süreç otomatik.
+            XML tedarikçi bağlantısından pazaryeri satışına kadar tüm süreç otomatik.
             Ürün yönetimi, fiyatlandırma ve sipariş takibi artık çok kolay.
           </p>
           <div className="lp-hero-cta">
@@ -150,7 +150,7 @@ export default function LandingPage() {
           <div className="lp-section-header">
             <div className="lp-badge-label">Nasıl Çalışır?</div>
             <h2>3 adımda <span className="lp-gradient-text">satışa başlayın</span></h2>
-            <p>Dakikalar içinde kurulumu tamamlayın, tedarikçinizden Trendyol'a köprü kurun</p>
+            <p>Dakikalar içinde kurulumu tamamlayın, tedarikçinizden pazaryerine köprü kurun</p>
           </div>
           <div className="lp-steps">
             {steps.map((s, i) => (
