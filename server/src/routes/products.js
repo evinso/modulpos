@@ -25,6 +25,8 @@ router.get('/', async (req, res, next) => {
       brand,
       category,
       xmlSourceId,
+      connectionId,
+      marketplaceStatus,
       sortBy = 'createdAt',
       sortOrder = 'desc'
     } = req.query;
@@ -42,6 +44,11 @@ router.get('/', async (req, res, next) => {
     if (brand) where.brand = brand;
     if (category) where.category = category;
     if (xmlSourceId) where.xmlSourceId = xmlSourceId;
+    if (connectionId || marketplaceStatus) {
+      where.marketplaceProducts = { some: {} };
+      if (connectionId) where.marketplaceProducts.some.connectionId = connectionId;
+      if (marketplaceStatus) where.marketplaceProducts.some.status = marketplaceStatus;
+    }
 
     const [products, total] = await Promise.all([
       prisma.product.findMany({

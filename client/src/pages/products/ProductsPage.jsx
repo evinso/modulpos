@@ -57,13 +57,44 @@ export default function ProductsPage() {
   const [syncingStatus, setSyncingStatus] = useState(false);
   const [openGroup, setOpenGroup] = useState(null);
   const [selectAllMode, setSelectAllMode] = useState(false); // true = all products selected (across pages)
+  
+  // Filters
+  const [filterXmlSource, setFilterXmlSource] = useState('');
+  const [filterConnection, setFilterConnection] = useState('');
+  const [filterMarketplaceStatus, setFilterMarketplaceStatus] = useState('');
+  const [xmlSources, setXmlSources] = useState([]);
+  const [connections, setConnections] = useState([]);
 
-  useEffect(() => { fetchProducts(); }, [pagination.page, search]);
+  useEffect(() => { 
+    fetchOptions();
+  }, []);
+
+  useEffect(() => { 
+    fetchProducts(); 
+  }, [pagination.page, search, filterXmlSource, filterConnection, filterMarketplaceStatus]);
+
+  const fetchOptions = async () => {
+    try {
+      const [xmlRes, connRes] = await Promise.all([
+        api.get('/xml-sources'),
+        api.get('/marketplace/connections')
+      ]);
+      setXmlSources(xmlRes.data);
+      setConnections(connRes.data);
+    } catch (err) {
+      console.error('Filtre seçenekleri yüklenemedi');
+    }
+  };
 
   const fetchProducts = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/products', { params: { page: pagination.page, search } });
+      const params = { page: pagination.page, search };
+      if (filterXmlSource) params.xmlSourceId = filterXmlSource;
+      if (filterConnection) params.connectionId = filterConnection;
+      if (filterMarketplaceStatus) params.marketplaceStatus = filterMarketplaceStatus;
+      
+      const res = await api.get('/products', { params });
       setProducts(res.data.products);
       setPagination(res.data.pagination);
     } catch { toast.error('Ürünler yüklenemedi'); }
@@ -384,6 +415,29 @@ export default function ProductsPage() {
             <Search size={14} className="search-icon" />
             <input type="text" placeholder="Ürün ara..." value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
+        </div>
+        
+        {/* Filtreler */}
+        <div style={{ display: 'flex', gap: 12, padding: '12px 20px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Filtrele:</div>
+          <select className="form-select" style={{ width: 200, padding: '6px 12px', fontSize: 13 }} value={filterXmlSource} onChange={e => setFilterXmlSource(e.target.value)}>
+            <option value="">Tüm Tedarikçiler (XML)</option>
+            {xmlSources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          
+          <select className="form-select" style={{ width: 200, padding: '6px 12px', fontSize: 13 }} value={filterConnection} onChange={e => { setFilterConnection(e.target.value); if(!e.target.value) setFilterMarketplaceStatus(''); }}>
+            <option value="">Tüm Pazaryerleri</option>
+            {connections.map(c => <option key={c.id} value={c.id}>{c.supplierName || c.marketplaceType}</option>)}
+          </select>
+
+          {filterConnection && (
+            <select className="form-select" style={{ width: 180, padding: '6px 12px', fontSize: 13 }} value={filterMarketplaceStatus} onChange={e => setFilterMarketplaceStatus(e.target.value)}>
+              <option value="">Tüm Durumlar</option>
+              <option value="pending">Bekleyenler</option>
+              <option value="active">Aktif/Onaylı</option>
+              <option value="rejected">Reddedilenler</option>
+            </select>
+          )}
         </div>
 
         {loading ? (
