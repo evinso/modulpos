@@ -53,6 +53,9 @@ async function analyzeXml(url) {
 function findProductArray(parsed) {
   // Bilinen yapıları kontrol et
   const knownPaths = [
+    // RSS / Google Shopping Feed
+    { path: 'channel.item', check: (r) => r?.channel?.item },
+    // Türk e-ticaret XML formatları
     { path: 'Products.Product', check: (r) => r?.Products?.Product },
     { path: 'products.product', check: (r) => r?.products?.product },
     { path: 'Urunler.Urun', check: (r) => r?.Urunler?.Urun },
@@ -61,10 +64,20 @@ function findProductArray(parsed) {
     { path: 'items.item', check: (r) => r?.items?.item },
     { path: 'ProductList.Product', check: (r) => r?.ProductList?.Product },
     { path: 'UrunListesi.Urun', check: (r) => r?.UrunListesi?.Urun },
+    // Catalog / generic formats
     { path: 'catalog.product', check: (r) => r?.catalog?.product },
+    { path: 'catalog.products.product', check: (r) => r?.catalog?.products?.product },
     { path: 'root.product', check: (r) => r?.root?.product },
     { path: 'root.row', check: (r) => r?.root?.row },
+    { path: 'root.item', check: (r) => r?.root?.item },
     { path: 'data.product', check: (r) => r?.data?.product },
+    { path: 'data.item', check: (r) => r?.data?.item },
+    // Atom feed
+    { path: 'entry', check: (r) => r?.entry },
+    // Flat arrays
+    { path: 'product', check: (r) => r?.product },
+    { path: 'item', check: (r) => r?.item },
+    { path: 'row', check: (r) => r?.row },
   ];
 
   // XML kök elemanını bul (?xml, ?xml-stylesheet gibi deklarasyonları atla)
@@ -233,18 +246,25 @@ async function parseXml(url, mappingConfigStr) {
   const mc = mappingConfig;
   const hasMappings = Object.keys(mc).some(k => mc[k] && mc[k] !== '');
 
+  // RSS/Google Shopping feeds return prices as "125.50 TRY" - strip currency codes
+  const cleanPrice = (val) => {
+    if (!val) return 0;
+    const str = String(val).replace(/[^\d.,]/g, '').replace(',', '.');
+    return parseFloat(str) || 0;
+  };
+
   return rawProducts.map(p => ({
-    sku: getFieldValue(p, mc.sku, ['StockCode', 'stockCode', 'sku', 'SKU', 'urunKodu', 'UrunKodu', 'ProductCode', 'productCode', 'Sku']),
-    barcode: getFieldValue(p, mc.barcode, ['Barcode', 'barcode', 'Barkod', 'barkod', 'EAN', 'ean']),
-    title: getFieldValue(p, mc.title, ['Name', 'name', 'Title', 'title', 'UrunAdi', 'urunAdi', 'ProductName', 'productName', 'Baslik']),
-    description: getFieldValue(p, mc.description, ['Description', 'description', 'Aciklama', 'aciklama', 'Detay', 'detay', 'Detail']),
-    price: parseFloat(getFieldValue(p, mc.price, ['Price', 'price', 'Fiyat', 'fiyat', 'SalePrice', 'salePrice', 'SatisFiyat']) || 0),
-    listPrice: parseFloat(getFieldValue(p, mc.listPrice, ['ListPrice', 'listPrice', 'ListeFiyat', 'listeFiyat', 'MarketPrice', 'PiyasaFiyat']) || 0),
-    cost: parseFloat(getFieldValue(p, mc.cost, ['Cost', 'cost', 'Maliyet', 'maliyet', 'AlisFiyat']) || 0),
-    stock: parseInt(getFieldValue(p, mc.stock, ['Stock', 'stock', 'Stok', 'stok', 'Quantity', 'quantity', 'Adet', 'Miktar']) || 0),
-    brand: getFieldValue(p, mc.brand, ['Brand', 'brand', 'Marka', 'marka', 'BrandName']),
-    category: getFieldValue(p, mc.category, ['Category', 'category', 'Kategori', 'kategori', 'CategoryName', 'KategoriAdi']),
-    images: getImagesValue(p, mc.images, ['Images', 'images', 'Resimler', 'Image', 'image', 'Resim', 'ImageUrl', 'img', 'Img', 'Pictures', 'Gorsel']),
+    sku: getFieldValue(p, mc.sku, ['StockCode', 'stockCode', 'sku', 'SKU', 'urunKodu', 'UrunKodu', 'ProductCode', 'productCode', 'Sku', 'id', 'ID', 'model_number', 'mpn', 'g:id', 'g:mpn']),
+    barcode: getFieldValue(p, mc.barcode, ['Barcode', 'barcode', 'Barkod', 'barkod', 'EAN', 'ean', 'gtin', 'GTIN', 'g:gtin', 'g:barcode']),
+    title: getFieldValue(p, mc.title, ['Name', 'name', 'Title', 'title', 'UrunAdi', 'urunAdi', 'ProductName', 'productName', 'Baslik', 'g:title']),
+    description: getFieldValue(p, mc.description, ['Description', 'description', 'Aciklama', 'aciklama', 'Detay', 'detay', 'Detail', 'g:description']),
+    price: cleanPrice(getFieldValue(p, mc.price, ['Price', 'price', 'Fiyat', 'fiyat', 'SalePrice', 'salePrice', 'SatisFiyat', 'sale_price', 'g:price', 'g:sale_price'])),
+    listPrice: cleanPrice(getFieldValue(p, mc.listPrice, ['ListPrice', 'listPrice', 'ListeFiyat', 'listeFiyat', 'MarketPrice', 'PiyasaFiyat', 'listprice', 'g:list_price'])),
+    cost: cleanPrice(getFieldValue(p, mc.cost, ['Cost', 'cost', 'Maliyet', 'maliyet', 'AlisFiyat'])),
+    stock: parseInt(getFieldValue(p, mc.stock, ['Stock', 'stock', 'Stok', 'stok', 'Quantity', 'quantity', 'Adet', 'Miktar', 'g:quantity']) || 0),
+    brand: getFieldValue(p, mc.brand, ['Brand', 'brand', 'Marka', 'marka', 'BrandName', 'g:brand']),
+    category: getFieldValue(p, mc.category, ['Category', 'category', 'Kategori', 'kategori', 'CategoryName', 'KategoriAdi', 'product_type', 'google_product_category', 'g:product_type', 'g:google_product_category']),
+    images: getImagesValue(p, mc.images, ['Images', 'images', 'Resimler', 'Image', 'image', 'Resim', 'ImageUrl', 'img', 'Img', 'Pictures', 'Gorsel', 'image_link', 'g:image_link', 'additional_image_link', 'g:additional_image_link']),
     attributes: {}
   }));
 }
@@ -295,26 +315,39 @@ function getImagesValue(obj, mappedField, fallbackFields) {
     if (resultImages.length > 0) return resultImages;
   }
 
-  // Fallback
+  // Fallback - collect from ALL matching fields (RSS has image_link + additional_image_link as separate fields)
+  const collectedImages = [];
   for (const key of fallbackFields) {
     const val = obj[key];
     if (!val) continue;
     if (typeof val === 'string') {
-      if (val.includes(',')) return val.split(',').map(s => s.trim()).filter(Boolean);
-      if (val.startsWith('http')) return [val];
-    }
-    if (Array.isArray(val)) {
-      return val.map(v => {
+      if (val.includes(',')) {
+        collectedImages.push(...val.split(',').map(s => s.trim()).filter(Boolean));
+      } else if (val.startsWith('http') || val.startsWith('//')) {
+        collectedImages.push(val);
+      }
+    } else if (Array.isArray(val)) {
+      collectedImages.push(...val.map(v => {
         if (typeof v === 'string') return v;
         return v?.url || v?.Url || v?.URL || v?.src || '';
-      }).filter(Boolean);
-    }
-    if (typeof val === 'object' && !Array.isArray(val)) {
+      }).filter(Boolean));
+    } else if (typeof val === 'object' && !Array.isArray(val)) {
       const imgs = Object.values(val).filter(v => typeof v === 'string' && (v.startsWith('http') || v.startsWith('//')));
-      if (imgs.length) return imgs;
+      collectedImages.push(...imgs);
     }
   }
-  return [];
+
+  // Also scan for additional_image_link1..10, g:additional_image_link patterns
+  for (const key of Object.keys(obj)) {
+    if (/^(additional_image_link\d*|g:additional_image_link\d*)$/i.test(key)) {
+      const val = obj[key];
+      if (typeof val === 'string' && (val.startsWith('http') || val.startsWith('//'))) {
+        if (!collectedImages.includes(val)) collectedImages.push(val);
+      }
+    }
+  }
+
+  return collectedImages;
 }
 
 module.exports = { parseXml, analyzeXml };
