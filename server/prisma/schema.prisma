@@ -162,6 +162,8 @@ model MarketplaceProduct {
 
   product    Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
   connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, connectionId])
 }
 
 model CategoryMapping {

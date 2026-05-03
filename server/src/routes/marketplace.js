@@ -363,18 +363,16 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
           productId_connectionId: { productId: p.id, connectionId: connection.id }
         },
         update: {
-          marketplaceSku: p.sku,
-          price: p.price,
-          stock: p.stock,
+          marketplacePrice: p.price,
+          marketplaceStock: p.stock,
           status: 'pending',
           lastSyncedAt: new Date()
         },
         create: {
           productId: p.id,
           connectionId: connection.id,
-          marketplaceSku: p.sku,
-          price: p.price,
-          stock: p.stock,
+          marketplacePrice: p.price,
+          marketplaceStock: p.stock,
           status: 'pending'
         }
       });
