@@ -235,7 +235,7 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
 
     // Fetch pricing rules for this connection
     const pricingRules = await prisma.pricingRule.findMany({
-      where: { storeId: store.id, applyTo: 'marketplace_xml', isActive: true },
+      where: { storeId: connection.storeId, applyTo: 'marketplace_xml', isActive: true },
       orderBy: { priority: 'asc' }
     });
 
