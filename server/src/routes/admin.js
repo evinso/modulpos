@@ -6,11 +6,18 @@ const { auth } = require('../middleware/auth');
 /**
  * Middleware to check if user is admin
  */
-const isAdmin = (req, res, next) => {
-  if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
-    return res.status(403).json({ error: 'Bu işlem için yetkiniz yok' });
+const isAdmin = async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user || (user.role !== 'admin' && user.role !== 'superadmin')) {
+      return res.status(403).json({ error: 'Bu işlem için yetkiniz yok' });
+    }
+    // Update req.user with latest data
+    req.user = user;
+    next();
+  } catch (error) {
+    res.status(500).json({ error: 'Yetki kontrolü sırasında hata oluştu' });
   }
-  next();
 };
 
 /**
