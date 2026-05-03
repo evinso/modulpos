@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Search, Bell, LogOut } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
@@ -15,6 +16,10 @@ export default function Header() {
   const location = useLocation();
   const { user, logout } = useAuthStore();
   const title = pageTitles[location.pathname] || 'Panel';
+
+  useEffect(() => {
+    document.title = `Modül Pos / ${title}`;
+  }, [title]);
 
   return (
     <header className="header">
