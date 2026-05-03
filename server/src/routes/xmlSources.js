@@ -74,7 +74,7 @@ router.post('/', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
-    const { name, url, format, syncIntervalMin, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct } = req.body;
+    const { name, url, format, syncIntervalMin, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate } = req.body;
     if (!name || !url) return res.status(400).json({ error: 'İsim ve URL zorunludur' });
     const xmlSource = await prisma.xmlSource.create({
       data: {
@@ -89,6 +89,7 @@ router.post('/', async (req, res, next) => {
         defaultBrandId: defaultBrandId || null,
         priceMarkup: priceMarkup || 0,
         priceMarkupPct: priceMarkupPct || 0,
+        defaultVatRate: defaultVatRate !== undefined ? parseInt(defaultVatRate) : 10,
       }
     });
     res.status(201).json(xmlSource);
@@ -98,7 +99,7 @@ router.post('/', async (req, res, next) => {
 // Update XML source (including mapping)
 router.put('/:id', async (req, res, next) => {
   try {
-    const { name, url, format, syncIntervalMin, status, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct } = req.body;
+    const { name, url, format, syncIntervalMin, status, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate } = req.body;
     const data = {};
     if (name !== undefined) data.name = name;
     if (url !== undefined) data.url = url;
@@ -113,6 +114,7 @@ router.put('/:id', async (req, res, next) => {
     if (defaultBrandId !== undefined) data.defaultBrandId = defaultBrandId || null;
     if (priceMarkup !== undefined) data.priceMarkup = priceMarkup || 0;
     if (priceMarkupPct !== undefined) data.priceMarkupPct = priceMarkupPct || 0;
+    if (defaultVatRate !== undefined) data.defaultVatRate = parseInt(defaultVatRate);
     const xmlSource = await prisma.xmlSource.update({ where: { id: req.params.id }, data });
     res.json(xmlSource);
   } catch (error) { next(error); }
@@ -217,6 +219,7 @@ router.post('/:id/sync', async (req, res, next) => {
               description: p.description,
               xmlPrice: xmlPrice,
               price: finalPrice,
+              vatRate: xmlSource.defaultVatRate || 10,
               cost: p.cost || 0,
               listPrice: p.listPrice || 0,
               stock: p.stock || 0,

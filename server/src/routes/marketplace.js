@@ -28,11 +28,15 @@ router.post('/connections', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
-    const { marketplaceType, sellerId, apiKey, apiSecret, supplierName } = req.body;
+    const { marketplaceType, sellerId, apiKey, apiSecret, supplierName, defaultBrandId, defaultBrandName } = req.body;
     if (!marketplaceType || !apiKey || !apiSecret) return res.status(400).json({ error: 'Pazaryeri türü, API Key ve Secret zorunludur' });
 
+    const config = {};
+    if (defaultBrandId) config.defaultBrandId = parseInt(defaultBrandId);
+    if (defaultBrandName) config.defaultBrandName = defaultBrandName;
+
     const connection = await prisma.marketplaceConnection.create({
-      data: { storeId: store.id, marketplaceType, sellerId, apiKey, apiSecret, supplierName }
+      data: { storeId: store.id, marketplaceType, sellerId, apiKey, apiSecret, supplierName, config: Object.keys(config).length > 0 ? JSON.stringify(config) : null }
     });
     res.status(201).json(connection);
   } catch (error) { next(error); }
@@ -76,6 +80,28 @@ router.get('/connections/:id/categories', async (req, res, next) => {
 });
 
 
+// Search brands (for connection creation - uses provided credentials)
+router.get('/brands/search', async (req, res, next) => {
+  try {
+    const { name, sellerId, apiKey, apiSecret } = req.query;
+    if (!name || !apiKey || !apiSecret) {
+      return res.status(400).json({ error: 'Marka adı, API Key ve Secret gerekli' });
+    }
+    
+    const tempService = new TrendyolService({
+      sellerId: sellerId || '',
+      apiKey,
+      apiSecret,
+      baseUrl: process.env.TRENDYOL_BASE_URL
+    });
+    
+    const result = await tempService.searchBrand(name);
+    res.json(result || []);
+  } catch (error) {
+    console.error('[Brand Search Error]', error.response?.data || error.message);
+    res.json([]);
+  }
+});
 
 // Delete connection
 router.delete('/connections/:id', async (req, res, next) => {

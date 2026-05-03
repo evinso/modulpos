@@ -26,7 +26,7 @@ export default function XmlSourcesPage() {
   const [syncing, setSyncing] = useState(null);
 
   // Add form
-  const [addForm, setAddForm] = useState({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '' });
+  const [addForm, setAddForm] = useState({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10' });
 
   // Mapping state
   const [analyzing, setAnalyzing] = useState(false);
@@ -197,6 +197,7 @@ export default function XmlSourcesPage() {
         priceMarkupPct: parseFloat(addForm.priceMarkupPct) || 0,
         defaultCategoryId: addForm.defaultCategoryId || null,
         defaultBrandId: addForm.defaultBrandId || null,
+        defaultVatRate: parseInt(addForm.defaultVatRate) || 10,
       });
       setSavedSourceId(res.data.id);
       
@@ -233,7 +234,7 @@ export default function XmlSourcesPage() {
   const resetAddWizard = () => {
     setShowAddModal(false);
     setAddStep(1);
-    setAddForm({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '' });
+    setAddForm({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10' });
     setAddAnalysis(null);
     setAddMapping({});
     setAddPreview(null);
@@ -594,6 +595,28 @@ export default function XmlSourcesPage() {
                   <small style={{ color: 'var(--text-muted)', fontSize: 11, display: 'block', marginTop: 4 }}>
                     Önce yüzde artışı, sonra sabit tutar uygulanır. Örnek: XML fiyat ₺100, %20 + ₺10 → ₺130
                   </small>
+
+                  <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '20px 0' }} />
+
+                  <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    📋 KDV Oranı
+                  </h4>
+                  <div className="form-group">
+                    <label className="form-label">Varsayılan KDV Oranı (%)</label>
+                    <select
+                      className="form-select"
+                      value={addForm.defaultVatRate}
+                      onChange={e => setAddForm({...addForm, defaultVatRate: e.target.value})}
+                    >
+                      <option value="0">%0 - KDV Muaf</option>
+                      <option value="1">%1</option>
+                      <option value="10">%10</option>
+                      <option value="20">%20</option>
+                    </select>
+                    <small style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 4, display: 'block' }}>
+                      Bu KDV oranı, bu XML kaynağından çekilen tüm ürünlere uygulanır. Trendyol'un 10 Temmuz sonrası kabul ettiği oranlar: %0, %1, %10, %20
+                    </small>
+                  </div>
                 </div>
               )}
 

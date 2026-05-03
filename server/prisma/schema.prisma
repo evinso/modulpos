@@ -65,6 +65,7 @@ model XmlSource {
   defaultBrandId  String?  // Default Trendyol brand ID
   priceMarkup     Float    @default(0) // Fixed amount to add to XML price
   priceMarkupPct  Float    @default(0) // Percentage to add to XML price
+  defaultVatRate  Int      @default(10) // KDV oranı: 0, 1, 10, 20
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
