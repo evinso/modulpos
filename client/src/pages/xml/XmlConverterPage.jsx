@@ -3,7 +3,7 @@ import { ArrowRight, Download, Copy, RefreshCw, CheckCircle, AlertCircle, Zap, G
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'https://api.modulpos.com/api';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://api.modulpos.com/api';
 
 export default function XmlConverterPage() {
   const [url, setUrl] = useState('');

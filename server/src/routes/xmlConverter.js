@@ -14,7 +14,8 @@ const PARSER_OPTIONS = {
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
   isArray: (tagName) => {
-    const arrayTags = ['item', 'Urun', 'product', 'Product', 'row', 'entry', 'category', 'product_type', 'filtre', 'resim'];
+    // Only list tags that genuinely repeat as siblings under a parent
+    const arrayTags = ['item', 'Urun', 'product', 'Product', 'row', 'entry'];
     return arrayTags.includes(tagName);
   },
   allowBooleanAttributes: true,
