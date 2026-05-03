@@ -357,35 +357,52 @@ export default function XmlSourcesPage() {
 
               {/* Sağ: XML alan seçici */}
               <div style={{ flex: 1 }}>
-                {field.key === 'images' ? (
-                  <>
-                    <select
-                      className="form-select"
-                      multiple
-                      value={(currentMapping[field.key] || '').split(',').filter(Boolean)}
-                      onChange={(e) => {
-                        const selected = Array.from(e.target.selectedOptions, option => option.value);
-                        onMappingChange({ ...currentMapping, [field.key]: selected.join(',') });
-                      }}
-                      style={{
-                        background: 'var(--bg-primary)',
-                        fontSize: 13,
-                        padding: '8px 12px',
-                        height: 100,
-                        borderColor: currentMapping[field.key] ? 'rgba(16,185,129,0.3)' : 'var(--border-color)',
-                      }}
-                    >
-                      {xmlFields.map(xf => (
-                        <option key={xf.path} value={xf.path} style={{ padding: '4px 8px', borderBottom: '1px solid var(--border-color)' }}>
-                          {xf.path} {xf.sample ? `→ "${xf.sample.substring(0, 50)}"` : ''}
-                        </option>
+                {field.key === 'images' ? (() => {
+                  const selectedArr = (currentMapping[field.key] || '').split(',').filter(Boolean);
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {selectedArr.map((sel, idx) => (
+                        <div key={idx} style={{ display: 'flex', gap: 8 }}>
+                          <select
+                            className="form-select"
+                            value={sel}
+                            onChange={(e) => {
+                              const newArr = [...selectedArr];
+                              newArr[idx] = e.target.value;
+                              onMappingChange({ ...currentMapping, [field.key]: newArr.filter(Boolean).join(',') });
+                            }}
+                            style={{ flex: 1, fontSize: 13, padding: '8px 12px', borderColor: 'rgba(16,185,129,0.3)' }}
+                          >
+                            <option value="">— Kaldır —</option>
+                            {xmlFields.map(xf => (
+                              <option key={xf.path} value={xf.path}>
+                                {xf.path} {xf.sample ? `→ "${xf.sample.substring(0, 50)}"` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       ))}
-                    </select>
-                    <small style={{ color: 'var(--text-muted)', fontSize: 11, display: 'block', marginTop: 4 }}>
-                      CTRL veya CMD tuşuna basılı tutarak birden fazla görsel alanı seçebilirsiniz.
-                    </small>
-                  </>
-                ) : (
+                      
+                      <select
+                        className="form-select"
+                        value=""
+                        onChange={(e) => {
+                          if (!e.target.value) return;
+                          const newArr = [...selectedArr, e.target.value];
+                          onMappingChange({ ...currentMapping, [field.key]: newArr.filter(Boolean).join(',') });
+                        }}
+                        style={{ fontSize: 13, padding: '8px 12px', borderStyle: 'dashed' }}
+                      >
+                        <option value="">+ Yeni görsel alanı seç/ekle...</option>
+                        {xmlFields.filter(xf => !selectedArr.includes(xf.path)).map(xf => (
+                          <option key={xf.path} value={xf.path}>
+                            {xf.path} {xf.sample ? `→ "${xf.sample.substring(0, 50)}"` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })() : (
                   <select
                     className="form-select"
                     value={currentMapping[field.key] || ''}
