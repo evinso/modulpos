@@ -14,7 +14,18 @@ async function analyzeXml(url) {
       'Accept': 'application/xml, text/xml, */*'
     }
   });
-  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '@_',
+    isArray: (tagName) => {
+      // These tags can appear multiple times in RSS/Google Shopping feeds
+      const arrayTags = ['item', 'Urun', 'product', 'Product', 'row', 'entry', 'category', 'product_type', 'filtre', 'resim'];
+      return arrayTags.includes(tagName);
+    },
+    allowBooleanAttributes: true,
+    parseTagValue: true,
+    trimValues: true,
+  });
   const parsed = parser.parse(response.data);
 
   // Ürün dizisini bul
@@ -90,8 +101,8 @@ function findProductArray(parsed) {
   for (const rootKey of rootKeys) {
     const root = parsed[rootKey];
 
-    // Doğrudan kök bir dizi ise
-    if (Array.isArray(root)) {
+    // Doğrudan kök bir dizi ise (item, Urun, product gibi her zaman array parse edilenler)
+    if (Array.isArray(root) && root.length > 0 && typeof root[0] === 'object') {
       return { rawProducts: root, productPath: rootKey };
     }
 
@@ -101,7 +112,9 @@ function findProductArray(parsed) {
         const result = check(root);
         if (result) {
           const arr = Array.isArray(result) ? result : [result];
-          return { rawProducts: arr, productPath: `${rootKey}.${path}` };
+          if (arr.length > 0 && typeof arr[0] === 'object') {
+            return { rawProducts: arr, productPath: `${rootKey}.${path}` };
+          }
         }
       }
 
@@ -111,7 +124,7 @@ function findProductArray(parsed) {
         if (Array.isArray(child) && child.length > 0 && typeof child[0] === 'object') {
           return { rawProducts: child, productPath: `${rootKey}.${childKey}` };
         }
-        // Tek eleman ama obje — içinde dizi olabilir (Products > Product[1] durumu)
+        // Tek eleman ama obje — içinde dizi olabilir
         if (child && typeof child === 'object' && !Array.isArray(child)) {
           for (const grandKey of Object.keys(child)) {
             const grandChild = child[grandKey];
@@ -212,6 +225,11 @@ function getNestedValue(obj, path) {
     } else {
       val = val[part];
     }
+    // If value is an array (from duplicate XML tags), take first non-object element or first element
+    if (Array.isArray(val)) {
+      const primitive = val.find(v => typeof v !== 'object');
+      val = primitive !== undefined ? primitive : val[0];
+    }
   }
   if (val === null || val === undefined) return null;
   if (typeof val === 'object') return JSON.stringify(val).substring(0, 200);
@@ -230,7 +248,17 @@ async function parseXml(url, mappingConfigStr) {
       'Accept': 'application/xml, text/xml, */*'
     }
   });
-  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '@_',
+    isArray: (tagName) => {
+      const arrayTags = ['item', 'Urun', 'product', 'Product', 'row', 'entry', 'category', 'product_type', 'filtre', 'resim'];
+      return arrayTags.includes(tagName);
+    },
+    allowBooleanAttributes: true,
+    parseTagValue: true,
+    trimValues: true,
+  });
   const parsed = parser.parse(response.data);
 
   let mappingConfig = {};
