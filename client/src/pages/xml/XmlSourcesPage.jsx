@@ -9,7 +9,7 @@ const PRODUCT_FIELDS = [
   { key: 'barcode', label: 'Barkod', required: false, icon: '📊' },
   { key: 'title', label: 'Ürün Adı', required: true, icon: '📝' },
   { key: 'description', label: 'Açıklama', required: false, icon: '📄' },
-  { key: 'price', label: 'Satış Fiyatı', required: true, icon: '💰' },
+  { key: 'price', label: 'Alış Fiyatı', required: true, icon: '💰' },
   { key: 'listPrice', label: 'Liste Fiyatı', required: false, icon: '🏷️' },
   { key: 'cost', label: 'Maliyet Fiyatı', required: false, icon: '💵' },
   { key: 'stock', label: 'Stok Miktarı', required: true, icon: '📦' },
