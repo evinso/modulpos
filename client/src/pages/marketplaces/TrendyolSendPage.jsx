@@ -82,7 +82,12 @@ export default function TrendyolSendPage() {
       toast.success(res.data.message || `${selectedIds.size} ürün Trendyol'a gönderildi`);
       setSelectedIds(new Set());
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Gönderme hatası');
+      const errData = err.response?.data;
+      const errorMsg = errData?.message || errData?.error || 'Gönderme hatası';
+      toast.error(errorMsg, { duration: 8000 });
+      if (errData?.details) {
+        console.error('[Trendyol Send Error Details]', errData.details);
+      }
     } finally { setSending(false); }
   };
 

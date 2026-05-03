@@ -279,6 +279,13 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
 
     // Send to Trendyol
     const service = new TrendyolService(connection);
+    
+    // Debug: Log payload being sent
+    console.log('[Trendyol Send] Seller ID:', connection.sellerId);
+    console.log('[Trendyol Send] Base URL:', connection.baseUrl || process.env.TRENDYOL_BASE_URL);
+    console.log('[Trendyol Send] Products count:', formatted.length);
+    console.log('[Trendyol Send] First product sample:', JSON.stringify(formatted[0], null, 2));
+    
     const result = await service.createProducts(formatted);
 
     // Create MarketplaceProduct records
@@ -316,8 +323,23 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
       batchId: result?.batchRequestId || null
     });
   } catch (error) {
+    console.error('[Trendyol Send Error]', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      message: error.message,
+      url: error.config?.url
+    });
+    
     if (error.response?.data) {
-      return res.status(400).json({ error: 'Trendyol API hatası', details: error.response.data });
+      return res.status(400).json({ 
+        error: 'Trendyol API hatası', 
+        details: error.response.data,
+        status: error.response.status,
+        message: typeof error.response.data === 'string' 
+          ? error.response.data 
+          : error.response.data?.errors?.[0]?.message || error.response.data?.message || JSON.stringify(error.response.data)
+      });
     }
     next(error);
   }
