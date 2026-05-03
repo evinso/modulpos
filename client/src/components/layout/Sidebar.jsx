@@ -11,7 +11,7 @@ const navItems = [
     { to: '/xml-sources', icon: FileCode2, label: 'XML Kaynakları' },
     { to: '/marketplace', icon: Store, label: 'Pazaryerleri' },
     { to: '/category-mapping', icon: FolderTree, label: 'Kategori Eşleştirme' },
-    { to: '/trendyol-send', icon: Send, label: "Trendyol'a Gönder" },
+    { to: '/trendyol-send', icon: Send, label: "Pazaryerine Gönder" },
   ]},
   { section: 'Yönetim', items: [
     { to: '/pricing', icon: Tags, label: 'Fiyatlandırma' },

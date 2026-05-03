@@ -14,23 +14,36 @@ export default function TrendyolSendPage() {
   const [sending, setSending] = useState(false);
   const [mappings, setMappings] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all'); // all, ready, missing
+  const [xmlSources, setXmlSources] = useState([]);
+  const [filterXmlSource, setFilterXmlSource] = useState('');
 
-  useEffect(() => { fetchConnections(); }, []);
-  useEffect(() => { if (selectedConn) { fetchProducts(); fetchMappings(); } }, [selectedConn, pagination.page, search]);
+  useEffect(() => { fetchConnections(); fetchXmlSources(); }, []);
+  useEffect(() => { if (selectedConn) { fetchProducts(); fetchMappings(); } }, [selectedConn, pagination.page, search, filterXmlSource]);
 
   const fetchConnections = async () => {
     try {
       const res = await api.get('/marketplace/connections');
-      const tConns = res.data.filter(c => c.marketplaceType === 'trendyol');
-      setConnections(tConns);
-      if (tConns.length > 0) setSelectedConn(tConns[0]);
+      // For now, only show trendyol since it's the only one implemented for sending,
+      // but let's prepare the UI for multiple marketplaces.
+      // If we keep all connections, we can still use them.
+      setConnections(res.data);
+      if (res.data.length > 0) setSelectedConn(res.data[0]);
     } catch { toast.error('Bağlantılar yüklenemedi'); }
     finally { setLoading(false); }
   };
 
+  const fetchXmlSources = async () => {
+    try {
+      const res = await api.get('/xml-sources');
+      setXmlSources(res.data);
+    } catch {}
+  };
+
   const fetchProducts = async () => {
     try {
-      const res = await api.get('/products', { params: { page: pagination.page, limit: 20, search } });
+      const params = { page: pagination.page, limit: 20, search };
+      if (filterXmlSource) params.xmlSourceId = filterXmlSource;
+      const res = await api.get('/products', { params });
       setProducts(res.data.products);
       setPagination(p => ({ ...p, total: res.data.pagination.total, totalPages: res.data.pagination.totalPages }));
     } catch { toast.error('Ürünler yüklenemedi'); }
@@ -72,21 +85,21 @@ export default function TrendyolSendPage() {
     setSelectedIds(allSelected ? new Set() : new Set(readyIds));
   };
 
-  const handleSendToTrendyol = async () => {
+  const handleSendToMarketplace = async () => {
     if (!selectedConn || selectedIds.size === 0) return;
     setSending(true);
     try {
       const res = await api.post(`/marketplace/connections/${selectedConn.id}/send-products`, {
         productIds: Array.from(selectedIds)
       });
-      toast.success(res.data.message || `${selectedIds.size} ürün Trendyol'a gönderildi`);
+      toast.success(res.data.message || `${selectedIds.size} ürün pazaryerine gönderildi`);
       setSelectedIds(new Set());
     } catch (err) {
       const errData = err.response?.data;
       const errorMsg = errData?.message || errData?.error || 'Gönderme hatası';
       toast.error(errorMsg, { duration: 8000 });
       if (errData?.details) {
-        console.error('[Trendyol Send Error Details]', errData.details);
+        console.error('[Marketplace Send Error Details]', errData.details);
       }
     } finally { setSending(false); }
   };
@@ -96,12 +109,12 @@ export default function TrendyolSendPage() {
   if (connections.length === 0) {
     return (
       <div>
-        <div className="page-title"><h1>Trendyol'a Gönder</h1><p>Ürünlerinizi Trendyol'a gönderin</p></div>
+        <div className="page-title"><h1>Pazaryerine Gönder</h1><p>Ürünlerinizi pazaryerlerine gönderin</p></div>
         <div className="card">
           <div className="empty-state">
             <AlertCircle size={48} className="empty-icon" />
-            <h3>Trendyol bağlantısı bulunamadı</h3>
-            <p>Önce Pazaryerleri sayfasından bir Trendyol bağlantısı oluşturun</p>
+            <h3>Pazaryeri bağlantısı bulunamadı</h3>
+            <p>Önce Pazaryerleri sayfasından bir bağlantı oluşturun</p>
           </div>
         </div>
       </div>
@@ -115,26 +128,26 @@ export default function TrendyolSendPage() {
     <div>
       <div className="page-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h1>Trendyol'a Gönder</h1>
-          <p>Düzenlenmiş ürünlerinizi Trendyol mağazanıza gönderin</p>
+          <h1>Pazaryerine Gönder</h1>
+          <p>Düzenlenmiş ürünlerinizi pazaryeri mağazanıza gönderin</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          {connections.length > 1 && (
+          {connections.length > 0 && (
             <select className="form-select" style={{ width: 200 }}
-              value={selectedConn?.id}
+              value={selectedConn?.id || ''}
               onChange={e => { setSelectedConn(connections.find(c => c.id === e.target.value)); setSelectedIds(new Set()); }}
             >
-              {connections.map(c => <option key={c.id} value={c.id}>{c.supplierName || c.sellerId}</option>)}
+              {connections.map(c => <option key={c.id} value={c.id}>{c.supplierName || c.marketplaceType} ({c.marketplaceType})</option>)}
             </select>
           )}
           <button
             className="btn btn-primary"
-            onClick={handleSendToTrendyol}
+            onClick={handleSendToMarketplace}
             disabled={sending || selectedIds.size === 0}
             style={{ padding: '10px 24px' }}
           >
             <Send size={16} />
-            {sending ? 'Gönderiliyor...' : `Trendyol'a Gönder (${selectedIds.size})`}
+            {sending ? 'Gönderiliyor...' : 'Pazaryerine Gönder'} ({selectedIds.size})
           </button>
         </div>
       </div>
@@ -160,6 +173,10 @@ export default function TrendyolSendPage() {
         <div className="table-header">
           <h3>Ürünler</h3>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <select className="form-select form-select-sm" style={{ width: 180, fontSize: 13, padding: '6px 10px' }} value={filterXmlSource} onChange={e => setFilterXmlSource(e.target.value)}>
+              <option value="">Tüm Tedarikçiler (XML)</option>
+              {xmlSources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
             <div className="header-search" style={{ width: 220 }}>
               <Search size={14} className="search-icon" />
               <input type="text" placeholder="Ürün ara..." value={search} onChange={e => setSearch(e.target.value)} />
