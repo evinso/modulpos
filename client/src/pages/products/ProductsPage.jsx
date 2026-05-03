@@ -54,6 +54,7 @@ export default function ProductsPage() {
   const [bulkValue, setBulkValue] = useState('');
   const [bulkLoading, setBulkLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [syncingStatus, setSyncingStatus] = useState(false);
   const [openGroup, setOpenGroup] = useState(null);
   const [selectAllMode, setSelectAllMode] = useState(false); // true = all products selected (across pages)
 
@@ -176,6 +177,32 @@ export default function ProductsPage() {
     }
   };
 
+  const syncMarketplaceStatus = async () => {
+    setSyncingStatus(true);
+    try {
+      // Get connections to know which ones to check
+      const connsRes = await api.get('/marketplace/connections');
+      const trendyolConns = connsRes.data.filter(c => c.marketplaceType === 'trendyol');
+      
+      let totalUpdated = 0;
+      for (const conn of trendyolConns) {
+        const res = await api.post(`/marketplace/connections/${conn.id}/sync-status`);
+        totalUpdated += (res.data.updated || 0);
+      }
+      
+      if (totalUpdated > 0) {
+        toast.success(`${totalUpdated} ürünün pazaryeri durumu güncellendi`);
+        fetchProducts();
+      } else {
+        toast.success('Pazaryeri durumları güncel, değişen ürün yok');
+      }
+    } catch (err) {
+      toast.error('Durumlar sorgulanırken hata oluştu');
+    } finally {
+      setSyncingStatus(false);
+    }
+  };
+
   const handleBulkSubmit = () => {
     const cfg = getActionConfig(bulkAction);
     if (cfg?.dangerous) {
@@ -210,11 +237,15 @@ export default function ProductsPage() {
               )}
             </button>
           )}
-          <button className="btn btn-primary" onClick={() => { setEditProduct(null); setForm({ sku: '', title: '', price: '', stock: '', brand: '', category: '', barcode: '', description: '' }); setShowModal(true); }}>
-            <Plus size={16} /> Yeni Ürün
-          </button>
+            <button className="btn btn-secondary" onClick={syncMarketplaceStatus} disabled={syncingStatus}>
+              <RefreshCw size={16} className={syncingStatus ? 'spinning' : ''} />
+              {syncingStatus ? 'Sorgulanıyor...' : 'Durumları Sorgula'}
+            </button>
+            <button className="btn btn-primary" onClick={() => { setEditProduct(null); setForm({ sku: '', title: '', price: '', stock: '', brand: '', category: '', barcode: '', description: '' }); setShowModal(true); }}>
+              <Plus size={16} /> Yeni Ürün
+            </button>
+          </div>
         </div>
-      </div>
 
       {/* Bulk Operations Panel */}
       {showBulkPanel && (

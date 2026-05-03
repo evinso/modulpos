@@ -471,4 +471,94 @@ router.post('/connections/:id/sync-price-stock', async (req, res, next) => {
   }
 });
 
+// Sync product statuses from marketplace (using batch request results)
+router.post('/connections/:id/sync-status', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({
+      where: { id: req.params.id }
+    });
+    
+    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+    
+    if (connection.marketplaceType === 'trendyol') {
+      const TrendyolService = require('../services/trendyol/trendyolService');
+      const service = new TrendyolService(connection);
+      
+      // Get all pending products that have a batchRequestId
+      const pendingProducts = await prisma.marketplaceProduct.findMany({
+        where: {
+          connectionId: connection.id,
+          status: 'pending',
+          batchRequestId: { not: null }
+        },
+        include: { product: true }
+      });
+      
+      if (pendingProducts.length === 0) {
+        return res.json({ message: 'Kontrol edilecek onay bekleyen (batchRequestId içeren) ürün bulunamadı.', updated: 0 });
+      }
+      
+      // Group by batchRequestId to avoid duplicate API calls
+      const batchIds = [...new Set(pendingProducts.map(p => p.batchRequestId))];
+      
+      let updatedCount = 0;
+      let errorMessages = [];
+      
+      for (const batchId of batchIds) {
+        try {
+          const batchResult = await service.getBatchRequestResult(batchId);
+          // batchResult format is typically { items: [{ requestItem: { barcode: '...' }, status: 'SUCCESS'|'FAILED', failureReasons: [] }] }
+          if (batchResult && batchResult.items && Array.isArray(batchResult.items)) {
+            for (const item of batchResult.items) {
+              const barcode = item.requestItem?.barcode || item.requestItem?.productMainId;
+              const statusStr = item.status; // 'SUCCESS' or 'FAILED'
+              const failureReasons = item.failureReasons || [];
+              
+              if (barcode) {
+                // Find matching products in our pending list
+                const matchingProducts = pendingProducts.filter(p => p.batchRequestId === batchId && (p.product.barcode === barcode || p.product.sku === barcode));
+                
+                for (const mp of matchingProducts) {
+                  let newStatus = mp.status;
+                  let newError = mp.errorMessage;
+                  
+                  if (statusStr === 'SUCCESS') {
+                    newStatus = 'active';
+                    newError = null;
+                  } else if (statusStr === 'FAILED') {
+                    newStatus = 'rejected';
+                    newError = failureReasons.join(', ') || 'Trendyol tarafından reddedildi';
+                  }
+                  
+                  if (newStatus !== mp.status) {
+                    await prisma.marketplaceProduct.update({
+                      where: { id: mp.id },
+                      data: { status: newStatus, errorMessage: newError }
+                    });
+                    updatedCount++;
+                  }
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error(`[Trendyol Batch Check Error] ${batchId}`, err.response?.data || err.message);
+          errorMessages.push(`Batch ${batchId} sorgulanamadı: ${err.message}`);
+        }
+      }
+      
+      const warnMsg = errorMessages.length > 0 ? ` (${errorMessages.length} sorgu hatası)` : '';
+      return res.json({ 
+        message: `${updatedCount} ürünün durumu güncellendi.${warnMsg}`,
+        updated: updatedCount 
+      });
+    } else {
+      res.status(400).json({ error: 'Bu pazaryeri için durum sorgulama desteklenmiyor' });
+    }
+  } catch (error) {
+    console.error('[Marketplace Status Sync Error]', error);
+    res.status(500).json({ error: 'Durumlar güncellenirken hata oluştu' });
+  }
+});
+
 module.exports = router;
