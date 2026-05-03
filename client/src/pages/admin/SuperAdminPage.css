@@ -1,5 +1,50 @@
 .admin-page {
   padding: 8px 0;
+  animation: fadeIn 0.4s ease-out;
+}
+
+.admin-header-flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.admin-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  background: var(--bg-secondary);
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  width: fit-content;
+  border: 1px solid var(--border-color);
+}
+
+.admin-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.admin-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.admin-tab.active {
+  background: var(--accent-gradient);
+  color: white;
+  box-shadow: var(--accent-glow);
 }
 
 .user-cell {
@@ -48,15 +93,47 @@
   white-space: nowrap;
 }
 
-.mb-8 {
-  margin-bottom: 32px;
-}
-
-.text-xs {
+.admin-select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--text-primary);
   font-size: 12px;
+  outline: none;
+  cursor: pointer;
 }
 
-/* Animations */
-.admin-page {
-  animation: fadeIn 0.4s ease-out;
+.admin-select:focus {
+  border-color: var(--accent-primary);
+}
+
+.badge.clickable {
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.badge.clickable:active {
+  transform: scale(0.95);
+}
+
+.store-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.font-semibold { font-weight: 600; }
+.text-danger { color: var(--danger); }
+.flex { display: flex; }
+.gap-2 { gap: 8px; }
+.mb-8 { margin-bottom: 32px; }
+
+@keyframes spinning {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinning {
+  animation: spinning 1s linear infinite;
 }

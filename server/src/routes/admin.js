@@ -104,4 +104,42 @@ router.post('/users/:id/role', auth, isAdmin, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/admin/users/:id/toggle-status
+ * Toggle user active/passive status
+ */
+router.post('/users/:id/toggle-status', auth, isAdmin, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+
+    const updatedUser = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { isActive: !user.isActive }
+    });
+    res.json(updatedUser);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/stores
+ * List all stores with counts
+ */
+router.get('/stores', auth, isAdmin, async (req, res) => {
+  try {
+    const stores = await prisma.store.findMany({
+      include: {
+        user: { select: { name: true, email: true } },
+        _count: { select: { products: true, orders: true, xmlSources: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(stores);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
