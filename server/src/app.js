@@ -26,9 +26,14 @@ const defaultDevOrigins = [
   'http://localhost:5176'
 ];
 
+const productionOrigins = [
+  'https://modulpos.com',
+  'https://www.modulpos.com'
+];
+
 const allowedOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
-  : defaultDevOrigins;
+  : [...defaultDevOrigins, ...productionOrigins];
 
 // Security
 app.use(helmet());
