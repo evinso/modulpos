@@ -6,7 +6,14 @@ const { XMLParser } = require('fast-xml-parser');
  * Kullanıcının hangi tag'ları eşleştireceğini görmesi için.
  */
 async function analyzeXml(url) {
-  const response = await axios.get(url, { timeout: 30000, maxContentLength: 100 * 1024 * 1024 });
+  const response = await axios.get(url, {
+    timeout: 120000,
+    maxContentLength: 200 * 1024 * 1024,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'application/xml, text/xml, */*'
+    }
+  });
   const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
   const parsed = parser.parse(response.data);
 
@@ -202,7 +209,14 @@ function getNestedValue(obj, path) {
  * Mapping config ile XML parse et
  */
 async function parseXml(url, mappingConfigStr) {
-  const response = await axios.get(url, { timeout: 30000, maxContentLength: 100 * 1024 * 1024 });
+  const response = await axios.get(url, {
+    timeout: 120000,
+    maxContentLength: 200 * 1024 * 1024,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'application/xml, text/xml, */*'
+    }
+  });
   const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
   const parsed = parser.parse(response.data);
 

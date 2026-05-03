@@ -33,7 +33,19 @@ router.post('/analyze', async (req, res, next) => {
     const analysis = await analyzeXml(url);
     res.json(analysis);
   } catch (error) {
-    res.status(400).json({ error: `XML analiz hatası: ${error.message}` });
+    let msg = `XML analiz hatası: ${error.message}`;
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      msg = 'XML kaynağına bağlanılamadı: Sunucu çok yavaş yanıt veriyor veya dosya çok büyük. Lütfen URL\'yi kontrol edip tekrar deneyin. (Zaman aşımı: 120 saniye)';
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      msg = 'XML kaynağına erişilemiyor: Sunucu bulunamadı veya bağlantı reddedildi. URL\'yi kontrol edin.';
+    } else if (error.response?.status === 403) {
+      msg = 'XML kaynağına erişim engellendi (403). Sunucu dışarıdan erişimi engelliyor olabilir.';
+    } else if (error.response?.status === 404) {
+      msg = 'XML dosyası bulunamadı (404). URL\'nin doğru olduğundan emin olun.';
+    } else if (error.response?.status >= 500) {
+      msg = `XML sunucusu hata döndü (${error.response.status}). Sunucu tarafında bir problem var, daha sonra tekrar deneyin.`;
+    }
+    res.status(400).json({ error: msg });
   }
 });
 
