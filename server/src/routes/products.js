@@ -369,22 +369,58 @@ router.post('/bulk-action', async (req, res, next) => {
               const TrendyolService = require('../services/trendyol/trendyolService');
               const service = new TrendyolService(connection);
               
-              const items = mps.map(mp => ({
-                barcode: mp.product.barcode || mp.product.sku,
-                quantity: mp.product.stock,
-                salePrice: mp.product.price,
-                listPrice: mp.product.listPrice > mp.product.price ? mp.product.listPrice : mp.product.price
-              }));
+              // Fetch pricing rules for this connection
+              const pricingRules = await prisma.pricingRule.findMany({
+                where: { storeId: connection.storeId, applyTo: 'marketplace_xml', isActive: true },
+                orderBy: { priority: 'asc' }
+              });
+
+              const pricingLookup = {};
+              for (const r of pricingRules) {
+                if (!r.conditions) continue;
+                try {
+                  const conds = JSON.parse(r.conditions);
+                  if (conds.connectionId === connection.id && conds.xmlSourceId) {
+                    pricingLookup[conds.xmlSourceId] = r;
+                  }
+                } catch(e) {}
+              }
+
+              const items = mps.map(mp => {
+                // Determine final price based on rules
+                let finalPrice = mp.product.price;
+                const rule = pricingLookup[mp.product.xmlSourceId];
+                
+                if (rule) {
+                  if (rule.type === 'percentage') {
+                    finalPrice = finalPrice * (1 + rule.value / 100);
+                  } else if (rule.type === 'fixed') {
+                    finalPrice = finalPrice + rule.value;
+                  }
+                  finalPrice = Math.round(Math.max(0, finalPrice) * 100) / 100;
+                }
+
+                return {
+                  barcode: mp.product.barcode || mp.product.sku,
+                  quantity: mp.product.stock,
+                  salePrice: finalPrice,
+                  listPrice: mp.product.listPrice > finalPrice ? mp.product.listPrice : finalPrice
+                };
+              });
               
               const syncRes = await service.updatePriceAndInventory(items);
               
               // Veritabanını güncelle
-              for (const mp of mps) {
+              for (const item of items) {
+                // items array has final salePrice and barcode
+                const mp = mps.find(m => (m.product.barcode || m.product.sku) === item.barcode);
+                if (!mp) continue;
+                
                 await prisma.marketplaceProduct.update({
                   where: { id: mp.id },
                   data: {
-                    marketplacePrice: mp.product.price,
-                    marketplaceStock: mp.product.stock,
+                    marketplacePrice: item.salePrice,
+                    marketplaceStock: item.quantity,
                     batchRequestId: syncRes?.batchRequestId || mp.batchRequestId,
                     lastSyncedAt: new Date()
                   }
