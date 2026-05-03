@@ -106,14 +106,15 @@ export default function ProductsPage() {
   };
 
   const pricingLookup = useCallback((connectionId) => {
-    if (!connectionId) return {};
     const lookup = {};
     for (const r of pricingRules) {
       if (!r.conditions || !r.isActive) continue;
       try {
         const conds = JSON.parse(r.conditions);
-        if (conds.connectionId === connectionId && conds.xmlSourceId) {
-          lookup[conds.xmlSourceId] = r;
+        if (conds.xmlSourceId && (!connectionId || conds.connectionId === connectionId)) {
+          if (!lookup[conds.xmlSourceId]) {
+            lookup[conds.xmlSourceId] = r;
+          }
         }
       } catch(e) {}
     }
@@ -575,8 +576,8 @@ export default function ProductsPage() {
                   const isSelected = selectedIds.has(p.id);
                   const xmlPrice = p.xmlPrice || 0;
                   const basePrice = p.price || 0;
-                  const calculatedMpPrice = filterConnection ? getMarketplacePrice(p, filterConnection) : null;
-                  const salePrice = filterConnection && calculatedMpPrice !== null ? calculatedMpPrice : basePrice;
+                  const calculatedMpPrice = getMarketplacePrice(p, filterConnection);
+                  const salePrice = calculatedMpPrice !== null ? calculatedMpPrice : basePrice;
                   const hasMissingRule = filterConnection && calculatedMpPrice === null;
                   
                   const diff = salePrice - xmlPrice;
