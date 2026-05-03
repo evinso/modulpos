@@ -307,7 +307,7 @@ export default function XmlSourcesPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Bu XML kaynağını ve bağlı ürünleri silmek istediğinize emin misiniz?')) return;
+    if (!window.confirm('Bu XML kaynağını ve bağlı ürünleri silmek istediğinize emin misiniz?')) return;
     try {
       await api.delete(`/xml-sources/${id}`);
       toast.success('XML kaynağı silindi');

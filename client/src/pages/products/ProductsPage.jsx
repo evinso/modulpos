@@ -148,7 +148,7 @@ export default function ProductsPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Bu ürünü silmek istediğinize emin misiniz?')) return;
+    if (!window.confirm('Bu ürünü silmek istediğinize emin misiniz?')) return;
     try {
       await api.delete(`/products/${id}`);
       toast.success('Ürün silindi');

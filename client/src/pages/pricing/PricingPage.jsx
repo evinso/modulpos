@@ -56,7 +56,7 @@ export default function PricingPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Bu kuralı silmek istediğinize emin misiniz?')) return;
+    if (!window.confirm('Bu kuralı silmek istediğinize emin misiniz?')) return;
     try {
       await api.delete(`/pricing/${id}`);
       toast.success('Kural silindi');

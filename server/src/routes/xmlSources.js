@@ -211,8 +211,15 @@ router.post('/:id/sync', async (req, res, next) => {
 // Delete
 router.delete('/:id', async (req, res, next) => {
   try {
+    // Önce bu XML kaynağına bağlı ürünleri silelim
+    await prisma.product.deleteMany({
+      where: { xmlSourceId: req.params.id }
+    });
+    
+    // Sonra kaynağın kendisini silelim
     await prisma.xmlSource.delete({ where: { id: req.params.id } });
-    res.json({ message: 'XML kaynağı silindi' });
+    
+    res.json({ message: 'XML kaynağı ve bağlı ürünler silindi' });
   } catch (error) { next(error); }
 });
 

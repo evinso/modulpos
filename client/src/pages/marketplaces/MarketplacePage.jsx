@@ -100,7 +100,7 @@ export default function MarketplacePage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Bu bağlantıyı silmek istediğinize emin misiniz?')) return;
+    if (!window.confirm('Bu bağlantıyı silmek istediğinize emin misiniz?')) return;
     try {
       await api.delete(`/marketplace/connections/${id}`);
       toast.success('Bağlantı silindi');
