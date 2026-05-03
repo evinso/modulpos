@@ -547,6 +547,40 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
         }
       }
       
+      // Fallback: Check remaining pending products directly via getProducts API
+      const stillPending = await prisma.marketplaceProduct.findMany({
+        where: { connectionId: connection.id, status: 'pending' },
+        include: { product: true }
+      });
+      
+      if (stillPending.length > 0) {
+        const barcodesToCheck = stillPending.map(p => p.product.barcode || p.product.sku).filter(Boolean);
+        // Process in chunks of 50 to avoid URL length limits
+        const chunkSize = 50;
+        for (let i = 0; i < barcodesToCheck.length; i += chunkSize) {
+          const chunk = barcodesToCheck.slice(i, i + chunkSize);
+          try {
+            const activeProducts = await service.getProducts(0, chunkSize, true, chunk);
+            if (activeProducts && activeProducts.content && Array.isArray(activeProducts.content)) {
+              const activeBarcodes = activeProducts.content.map(p => p.barcode);
+              
+              for (const mp of stillPending) {
+                const mpBarcode = mp.product.barcode || mp.product.sku;
+                if (chunk.includes(mpBarcode) && activeBarcodes.includes(mpBarcode)) {
+                  await prisma.marketplaceProduct.update({
+                    where: { id: mp.id },
+                    data: { status: 'active', errorMessage: null }
+                  });
+                  updatedCount++;
+                }
+              }
+            }
+          } catch (err) {
+            console.error('[Trendyol getProducts Fallback Error]', err.message);
+          }
+        }
+      }
+      
       const warnMsg = errorMessages.length > 0 ? ` (${errorMessages.length} sorgu hatası)` : '';
       return res.json({ 
         message: `${updatedCount} ürünün durumu güncellendi.${warnMsg}`,

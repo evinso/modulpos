@@ -132,11 +132,15 @@ class TrendyolService {
     return res.data;
   }
 
-  async getProducts(page = 0, size = 50, approved = true) {
+  async getProducts(page = 0, size = 50, approved = true, barcodes = []) {
+    const params = { page, size, approved };
+    if (barcodes && barcodes.length > 0) {
+      params.barcode = barcodes.join(',');
+    }
     const res = await this.requestWithRetry({
       method: 'get',
       url: `${this.baseUrl}/product/sellers/${this.sellerId}/products`,
-      params: { page, size, approved }
+      params
     });
     return res.data;
   }
