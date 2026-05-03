@@ -15,6 +15,8 @@ import OrdersPage from './pages/orders/OrdersPage';
 import PricingPage from './pages/pricing/PricingPage';
 import './index.css';
 
+import LandingPage from './pages/landing/LandingPage';
+
 function PrivateRoute({ children }) {
   const { token } = useAuthStore();
   return token ? children : <Navigate to="/login" />;
@@ -27,19 +29,19 @@ function App() {
         style: { background: '#1a2236', color: '#f1f5f9', border: '1px solid rgba(59,130,246,0.2)' }
       }} />
       <Routes>
+        <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
-        <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
-          <Route index element={<Navigate to="/dashboard" />} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="products" element={<ProductsPage />} />
-          <Route path="xml-sources" element={<XmlSourcesPage />} />
-          <Route path="xml-converter" element={<XmlConverterPage />} />
-          <Route path="marketplace" element={<MarketplacePage />} />
-          <Route path="category-mapping" element={<CategoryMappingPage />} />
-          <Route path="trendyol-send" element={<TrendyolSendPage />} />
-          <Route path="orders" element={<OrdersPage />} />
-          <Route path="pricing" element={<PricingPage />} />
+        <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/products" element={<ProductsPage />} />
+          <Route path="/xml-sources" element={<XmlSourcesPage />} />
+          <Route path="/xml-converter" element={<XmlConverterPage />} />
+          <Route path="/marketplace" element={<MarketplacePage />} />
+          <Route path="/category-mapping" element={<CategoryMappingPage />} />
+          <Route path="/trendyol-send" element={<TrendyolSendPage />} />
+          <Route path="/orders" element={<OrdersPage />} />
+          <Route path="/pricing" element={<PricingPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

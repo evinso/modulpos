@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, Link } from 'react-router-dom';
 import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send, ArrowLeftRight } from 'lucide-react';
 
 const navItems = [
@@ -22,10 +22,10 @@ const navItems = [
 export default function Sidebar() {
   return (
     <aside className="sidebar">
-      <div className="sidebar-logo">
-        <div className="logo-icon">E</div>
-        <h1>Entegrasyon</h1>
-      </div>
+      <Link to="/dashboard" className="sidebar-logo">
+        <div className="logo-icon">M</div>
+        <h1>ModulPOS</h1>
+      </Link>
       <nav className="sidebar-nav">
         {navItems.map((section) => (
           <div key={section.section} className="sidebar-section">
