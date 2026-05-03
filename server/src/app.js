@@ -14,6 +14,7 @@ const marketplaceRoutes = require('./routes/marketplace');
 const orderRoutes = require('./routes/orders');
 const pricingRoutes = require('./routes/pricing');
 const questionRoutes = require('./routes/questions');
+const xmlConverterRoutes = require('./routes/xmlConverter');
 
 const { errorHandler } = require('./middleware/errorHandler');
 
@@ -71,6 +72,7 @@ app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/pricing', pricingRoutes);
 app.use('/api/questions', questionRoutes);
+app.use('/api/xml-converter', xmlConverterRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

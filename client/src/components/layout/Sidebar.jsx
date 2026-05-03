@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send } from 'lucide-react';
+import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send, ArrowLeftRight } from 'lucide-react';
 
 const navItems = [
   { section: 'Ana Menü', items: [
@@ -9,6 +9,7 @@ const navItems = [
   ]},
   { section: 'Entegrasyon', items: [
     { to: '/xml-sources', icon: FileCode2, label: 'XML Kaynakları' },
+    { to: '/xml-converter', icon: ArrowLeftRight, label: 'XML Dönüştürücü' },
     { to: '/marketplace', icon: Store, label: 'Pazaryerleri' },
     { to: '/category-mapping', icon: FolderTree, label: 'Kategori Eşleştirme' },
     { to: '/trendyol-send', icon: Send, label: "Pazaryerine Gönder" },

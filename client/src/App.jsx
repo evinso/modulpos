@@ -7,6 +7,7 @@ import RegisterPage from './pages/auth/RegisterPage';
 import DashboardPage from './pages/dashboard/DashboardPage';
 import ProductsPage from './pages/products/ProductsPage';
 import XmlSourcesPage from './pages/xml/XmlSourcesPage';
+import XmlConverterPage from './pages/xml/XmlConverterPage';
 import MarketplacePage from './pages/marketplaces/MarketplacePage';
 import CategoryMappingPage from './pages/marketplaces/CategoryMappingPage';
 import TrendyolSendPage from './pages/marketplaces/TrendyolSendPage';
@@ -33,6 +34,7 @@ function App() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="products" element={<ProductsPage />} />
           <Route path="xml-sources" element={<XmlSourcesPage />} />
+          <Route path="xml-converter" element={<XmlConverterPage />} />
           <Route path="marketplace" element={<MarketplacePage />} />
           <Route path="category-mapping" element={<CategoryMappingPage />} />
           <Route path="trendyol-send" element={<TrendyolSendPage />} />
