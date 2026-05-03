@@ -24,7 +24,15 @@ export default function CategoryMappingPage() {
   const [attributeMappings, setAttributeMappings] = useState({});
   const [attrLoading, setAttrLoading] = useState(false);
 
-  useEffect(() => { fetchConnections(); }, []);
+  // XML Source Filter
+  const [xmlSources, setXmlSources] = useState([]);
+  const [filterXmlSource, setFilterXmlSource] = useState('');
+
+  useEffect(() => { fetchConnections(); fetchXmlSources(); }, []);
+
+  useEffect(() => {
+    if (selectedConn) fetchLocalCategories();
+  }, [filterXmlSource, selectedConn]);
 
   useEffect(() => {
     if (!selectedTrendyol || !selectedConn) {
@@ -55,6 +63,13 @@ export default function CategoryMappingPage() {
     fetchAttrs();
   }, [selectedTrendyol, selectedConn]);
 
+  const fetchXmlSources = async () => {
+    try {
+      const res = await api.get('/xml-sources');
+      setXmlSources(res.data);
+    } catch {}
+  };
+
   const fetchConnections = async () => {
     try {
       const res = await api.get('/marketplace/connections');
@@ -68,11 +83,22 @@ export default function CategoryMappingPage() {
     finally { setLoading(false); }
   };
 
+  const fetchLocalCategories = async () => {
+    try {
+      const params = filterXmlSource ? { xmlSourceId: filterXmlSource } : {};
+      const res = await api.get('/marketplace/local-categories', { params });
+      setLocalCategories(res.data);
+    } catch (err) {
+      toast.error('Kategoriler güncellenemedi');
+    }
+  };
+
   const loadData = async (connId) => {
     setCatLoading(true);
     try {
+      const params = filterXmlSource ? { xmlSourceId: filterXmlSource } : {};
       const [localRes, catRes, mapRes] = await Promise.all([
-        api.get('/marketplace/local-categories'),
+        api.get('/marketplace/local-categories', { params }),
         api.get(`/marketplace/connections/${connId}/categories`),
         api.get(`/marketplace/connections/${connId}/category-mappings`)
       ]);
@@ -181,18 +207,29 @@ export default function CategoryMappingPage() {
           <h1>Kategori Eşleştirme</h1>
           <p>XML ürün kategorilerinizi Trendyol kategorileriyle eşleştirin</p>
         </div>
-        {connections.length > 1 && (
-          <select className="form-select" style={{ width: 220 }}
-            value={selectedConn?.id}
-            onChange={e => {
-              const c = connections.find(c => c.id === e.target.value);
-              setSelectedConn(c);
-              loadData(c.id);
-            }}
-          >
-            {connections.map(c => <option key={c.id} value={c.id}>{c.supplierName || c.sellerId}</option>)}
-          </select>
-        )}
+        <div style={{ display: 'flex', gap: 10 }}>
+          {xmlSources.length > 0 && (
+            <select className="form-select" style={{ width: 220 }}
+              value={filterXmlSource}
+              onChange={e => setFilterXmlSource(e.target.value)}
+            >
+              <option value="">Tüm Tedarikçiler (XML)</option>
+              {xmlSources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          )}
+          {connections.length > 0 && (
+            <select className="form-select" style={{ width: 220 }}
+              value={selectedConn?.id || ''}
+              onChange={e => {
+                const c = connections.find(c => c.id === e.target.value);
+                setSelectedConn(c);
+                loadData(c.id);
+              }}
+            >
+              {connections.map(c => <option key={c.id} value={c.id}>{c.supplierName || c.marketplaceType} ({c.marketplaceType})</option>)}
+            </select>
+          )}
+        </div>
       </div>
 
       {/* New Mapping Form */}
