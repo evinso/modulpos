@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "XmlSource" ADD COLUMN "defaultVatRate" INTEGER NOT NULL DEFAULT 10;
