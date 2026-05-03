@@ -241,7 +241,59 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
         continue;
       }
 
-      const item = TrendyolService.formatProduct(p, mapping.marketplaceCategoryId, connection.defaultBrandId || 0);
+      // Parse mapped attributes
+      const attributes = [];
+      let mappedBrandId = null;
+      if (mapping.attributes) {
+        try {
+          const parsedAttrs = JSON.parse(mapping.attributes);
+          for (const [attrId, attrObj] of Object.entries(parsedAttrs)) {
+            if (!attrObj.valueId && !attrObj.valueName) continue;
+            
+            // Try to detect brand attribute (usually named "Marka")
+            if (attrObj.name && attrObj.name.toLowerCase().includes('marka') && attrObj.valueId) {
+              mappedBrandId = parseInt(attrObj.valueId);
+            }
+            
+            if (attrObj.valueId) {
+              attributes.push({
+                attributeId: parseInt(attrId),
+                attributeValueId: parseInt(attrObj.valueId)
+              });
+            } else if (attrObj.valueName) {
+              let finalValue = attrObj.valueName;
+              // Desteklenen dinamik alanlar örn: {brand}, {color}, {size}
+              if (finalValue.includes('{') && finalValue.includes('}')) {
+                const fieldName = finalValue.replace(/[{}]/g, '');
+                
+                // Önce ürünün ana alanlarında ara
+                if (p[fieldName] !== undefined && p[fieldName] !== null) {
+                  finalValue = String(p[fieldName]);
+                } else if (p.attributes) {
+                  // Ürünün JSON özelliklerinde ara
+                  try {
+                    const pAttrs = typeof p.attributes === 'string' ? JSON.parse(p.attributes) : p.attributes;
+                    if (pAttrs[fieldName]) finalValue = String(pAttrs[fieldName]);
+                    // Case insensitive search
+                    else {
+                      const foundKey = Object.keys(pAttrs).find(k => k.toLowerCase() === fieldName.toLowerCase());
+                      if (foundKey) finalValue = String(pAttrs[foundKey]);
+                    }
+                  } catch (e) {}
+                }
+              }
+              
+              attributes.push({
+                attributeId: parseInt(attrId),
+                customAttributeValue: finalValue
+              });
+            }
+          }
+        } catch (e) {}
+      }
+
+      const brandId = mappedBrandId || connection.defaultBrandId || 0;
+      const item = TrendyolService.formatProduct(p, mapping.marketplaceCategoryId, brandId, attributes);
       formatted.push(item);
     }
 

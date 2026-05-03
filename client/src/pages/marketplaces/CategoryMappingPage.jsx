@@ -19,7 +19,41 @@ export default function CategoryMappingPage() {
   const [selectedTrendyol, setSelectedTrendyol] = useState(null);
   const [saving, setSaving] = useState(false);
 
+  // Attribute state
+  const [requiredAttributes, setRequiredAttributes] = useState([]);
+  const [attributeMappings, setAttributeMappings] = useState({});
+  const [attrLoading, setAttrLoading] = useState(false);
+
   useEffect(() => { fetchConnections(); }, []);
+
+  useEffect(() => {
+    if (!selectedTrendyol || !selectedConn) {
+      setRequiredAttributes([]);
+      setAttributeMappings({});
+      return;
+    }
+    const fetchAttrs = async () => {
+      setAttrLoading(true);
+      try {
+        const res = await api.get(`/marketplace/connections/${selectedConn.id}/categories/${selectedTrendyol.id}/attributes`);
+        const attrs = res.data?.categoryAttributes || [];
+        const required = attrs.filter(a => a.required);
+        setRequiredAttributes(required);
+        
+        // Varsayılan boş değerleri set et
+        const initialMappings = {};
+        required.forEach(a => {
+          initialMappings[a.attribute.id] = { name: a.attribute.name, valueId: '', valueName: '' };
+        });
+        setAttributeMappings(initialMappings);
+      } catch (err) {
+        toast.error('Kategori özellikleri alınamadı');
+      } finally {
+        setAttrLoading(false);
+      }
+    };
+    fetchAttrs();
+  }, [selectedTrendyol, selectedConn]);
 
   const fetchConnections = async () => {
     try {
@@ -88,12 +122,21 @@ export default function CategoryMappingPage() {
 
   const handleSaveMapping = async () => {
     if (!selectedLocal || !selectedTrendyol || !selectedConn) return;
+    
+    // Check if all required attributes are mapped
+    const unmappedAttr = requiredAttributes.find(a => !attributeMappings[a.attribute.id]?.valueId && !attributeMappings[a.attribute.id]?.valueName);
+    if (unmappedAttr) {
+      toast.error(`"${unmappedAttr.attribute.name}" özelliği zorunludur.`);
+      return;
+    }
+
     setSaving(true);
     try {
       await api.post(`/marketplace/connections/${selectedConn.id}/category-mappings`, {
         localCategory: selectedLocal,
         marketplaceCategoryId: selectedTrendyol.id,
-        marketplaceCategoryName: selectedTrendyol.fullPath || selectedTrendyol.name
+        marketplaceCategoryName: selectedTrendyol.fullPath || selectedTrendyol.name,
+        attributes: attributeMappings
       });
       toast.success('Kategori eşleştirmesi kaydedildi');
       setSelectedLocal('');
@@ -253,6 +296,71 @@ export default function CategoryMappingPage() {
           </div>
         </div>
 
+        {/* Required Attributes Section */}
+        {selectedTrendyol && (
+          <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border-color)' }}>
+            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <AlertCircle size={16} style={{ color: 'var(--warning)' }} />
+              Zorunlu Kategori Özellikleri
+            </h4>
+            
+            {attrLoading ? (
+              <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)' }}>
+                <Loader2 size={16} className="spinning" /> Özellikler yükleniyor...
+              </div>
+            ) : requiredAttributes.length === 0 ? (
+              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                Bu kategori için zorunlu özellik bulunmuyor.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 16 }}>
+                {requiredAttributes.map(attr => (
+                  <div key={attr.attribute.id}>
+                    <label className="form-label">
+                      {attr.attribute.name}
+                      <span style={{ color: 'var(--danger)', marginLeft: 4 }}>*</span>
+                    </label>
+                    {attr.allowCustom ? (
+                      <input 
+                        type="text" 
+                        className="form-input" 
+                        placeholder={`${attr.attribute.name} girin veya XML alan adını {alan} yazın`}
+                        value={attributeMappings[attr.attribute.id]?.valueName || ''}
+                        onChange={e => setAttributeMappings(prev => ({
+                          ...prev,
+                          [attr.attribute.id]: { name: attr.attribute.name, valueName: e.target.value }
+                        }))}
+                      />
+                    ) : (
+                      <select 
+                        className="form-select"
+                        value={attributeMappings[attr.attribute.id]?.valueId || ''}
+                        onChange={e => {
+                          const valId = e.target.value;
+                          const valObj = attr.attributeValues.find(v => v.id.toString() === valId);
+                          setAttributeMappings(prev => ({
+                            ...prev,
+                            [attr.attribute.id]: { 
+                              name: attr.attribute.name, 
+                              valueId: valId, 
+                              valueName: valObj ? valObj.name : '' 
+                            }
+                          }));
+                        }}
+                      >
+                        <option value="">Seçiniz...</option>
+                        {attr.attributeValues.map(v => (
+                          <option key={v.id} value={v.id}>{v.name}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
           <button
             className="btn btn-primary"
@@ -302,6 +410,18 @@ export default function CategoryMappingPage() {
                   <td>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{m.marketplaceCategoryName || m.marketplaceCategoryId}</div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>ID: {m.marketplaceCategoryId}</div>
+                    {m.attributes && m.attributes !== '{}' && (
+                      <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {Object.values(JSON.parse(m.attributes)).map((attr, idx) => (
+                          <span key={idx} style={{ 
+                            fontSize: 10, padding: '2px 6px', background: 'var(--bg-secondary)', 
+                            borderRadius: 4, border: '1px solid var(--border-color)', color: 'var(--text-secondary)'
+                          }}>
+                            {attr.name}: {attr.valueName || attr.valueId}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </td>
                   <td>
                     <button className="btn btn-danger btn-sm" onClick={() => handleDeleteMapping(m.id)}>
