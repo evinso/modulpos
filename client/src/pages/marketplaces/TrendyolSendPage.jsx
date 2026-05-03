@@ -16,9 +16,17 @@ export default function TrendyolSendPage() {
   const [filterStatus, setFilterStatus] = useState('all'); // all, ready, missing
   const [xmlSources, setXmlSources] = useState([]);
   const [filterXmlSource, setFilterXmlSource] = useState('');
+  const [pricingRules, setPricingRules] = useState([]);
 
-  useEffect(() => { fetchConnections(); fetchXmlSources(); }, []);
+  useEffect(() => { fetchConnections(); fetchXmlSources(); fetchPricingRules(); }, []);
   useEffect(() => { if (selectedConn) { fetchProducts(); fetchMappings(); } }, [selectedConn, pagination.page, search, filterXmlSource]);
+
+  const fetchPricingRules = async () => {
+    try {
+      const res = await api.get('/pricing');
+      setPricingRules(res.data);
+    } catch {}
+  };
 
   const fetchConnections = async () => {
     try {
@@ -59,11 +67,35 @@ export default function TrendyolSendPage() {
 
   const mappedCategories = mappings.reduce((acc, m) => { acc[m.localCategory] = m; return acc; }, {});
 
+  const pricingLookup = React.useMemo(() => {
+    if (!selectedConn) return {};
+    const lookup = {};
+    for (const r of pricingRules) {
+      if (!r.conditions || !r.isActive) continue;
+      try {
+        const conds = JSON.parse(r.conditions);
+        if (conds.connectionId === selectedConn.id && conds.xmlSourceId) {
+          lookup[conds.xmlSourceId] = r;
+        }
+      } catch(e) {}
+    }
+    return lookup;
+  }, [pricingRules, selectedConn]);
+
+  const getCalculatedPrice = (p) => {
+    const rule = pricingLookup[p.xmlSourceId];
+    if (!rule) return p.price;
+    let finalPrice = p.price;
+    if (rule.type === 'percentage') finalPrice = finalPrice * (1 + rule.value / 100);
+    if (rule.type === 'fixed') finalPrice = finalPrice + rule.value;
+    return Math.round(Math.max(0, finalPrice) * 100) / 100;
+  };
+
   const getProductStatus = (p) => {
     const hasCategoryMapping = p.category && mappedCategories[p.category];
     const hasBarcode = !!p.barcode;
-    const hasPrice = p.price > 0;
-    if (hasCategoryMapping && hasBarcode && hasPrice) return 'ready';
+    const hasPricingRule = !!pricingLookup[p.xmlSourceId];
+    if (hasCategoryMapping && hasBarcode && hasPricingRule) return 'ready';
     return 'missing';
   };
 
@@ -208,9 +240,10 @@ export default function TrendyolSendPage() {
               const status = getProductStatus(p);
               const isSelected = selectedIds.has(p.id);
               const catMapping = p.category ? mappedCategories[p.category] : null;
+              const hasPricingRule = !!pricingLookup[p.xmlSourceId];
               const issues = [];
               if (!p.barcode) issues.push('Barkod yok');
-              if (!p.price || p.price <= 0) issues.push('Fiyat yok');
+              if (!hasPricingRule) issues.push('Fiyat kuralı yok');
               if (!catMapping) issues.push('Kategori eşleştirilmemiş');
 
               return (
@@ -226,7 +259,7 @@ export default function TrendyolSendPage() {
                   </td>
                   <td style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-muted)' }}>{p.sku}</td>
                   <td style={{ fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</td>
-                  <td style={{ fontWeight: 600 }}>₺{(p.price || 0).toLocaleString('tr-TR')}</td>
+                  <td style={{ fontWeight: 600 }}>₺{(getCalculatedPrice(p) || 0).toLocaleString('tr-TR')}</td>
                   <td style={{ fontFamily: 'monospace', fontSize: 12, color: p.barcode ? 'var(--text-secondary)' : 'var(--danger)' }}>
                     {p.barcode || '⚠ Eksik'}
                   </td>
@@ -242,11 +275,13 @@ export default function TrendyolSendPage() {
                   </td>
                   <td>
                     {status === 'ready' ? (
-                      <span className="badge badge-success" style={{ fontSize: 11 }}>✓ Hazır</span>
+                      <span className="badge badge-success">Gönderime Hazır</span>
                     ) : (
-                      <span className="badge badge-warning" style={{ fontSize: 11 }} title={issues.join(', ')}>
-                        {issues.length} eksik
-                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {!mappedCategories[p.category] && <span className="badge badge-error" style={{ fontSize: 10 }}>Kategori Eksik</span>}
+                        {!p.barcode && <span className="badge badge-error" style={{ fontSize: 10 }}>Barkod Eksik</span>}
+                        {!pricingLookup[p.xmlSourceId] && <span className="badge badge-error" style={{ fontSize: 10 }}>Fiyat Eksik</span>}
+                      </div>
                     )}
                   </td>
                 </tr>

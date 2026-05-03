@@ -64,6 +64,7 @@ export default function ProductsPage() {
   const [filterMarketplaceStatus, setFilterMarketplaceStatus] = useState('');
   const [xmlSources, setXmlSources] = useState([]);
   const [connections, setConnections] = useState([]);
+  const [pricingRules, setPricingRules] = useState([]);
 
   useEffect(() => { 
     fetchOptions();
@@ -75,12 +76,14 @@ export default function ProductsPage() {
 
   const fetchOptions = async () => {
     try {
-      const [xmlRes, connRes] = await Promise.all([
+      const [xmlRes, connRes, pricingRes] = await Promise.all([
         api.get('/xml-sources'),
-        api.get('/marketplace/connections')
+        api.get('/marketplace/connections'),
+        api.get('/pricing')
       ]);
       setXmlSources(xmlRes.data);
       setConnections(connRes.data);
+      setPricingRules(pricingRes.data);
     } catch (err) {
       console.error('Filtre seçenekleri yüklenemedi');
     }
@@ -100,6 +103,31 @@ export default function ProductsPage() {
     } catch { toast.error('Ürünler yüklenemedi'); }
     finally { setLoading(false); }
   };
+
+  const pricingLookup = useCallback((connectionId) => {
+    if (!connectionId) return {};
+    const lookup = {};
+    for (const r of pricingRules) {
+      if (!r.conditions || !r.isActive) continue;
+      try {
+        const conds = JSON.parse(r.conditions);
+        if (conds.connectionId === connectionId && conds.xmlSourceId) {
+          lookup[conds.xmlSourceId] = r;
+        }
+      } catch(e) {}
+    }
+    return lookup;
+  }, [pricingRules]);
+
+  const getMarketplacePrice = useCallback((p, connectionId) => {
+    const lookup = pricingLookup(connectionId);
+    const rule = lookup[p.xmlSourceId];
+    if (!rule) return null;
+    let finalPrice = p.price;
+    if (rule.type === 'percentage') finalPrice = finalPrice * (1 + rule.value / 100);
+    if (rule.type === 'fixed') finalPrice = finalPrice + rule.value;
+    return Math.round(Math.max(0, finalPrice) * 100) / 100;
+  }, [pricingLookup]);
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -536,14 +564,18 @@ export default function ProductsPage() {
                       </button>
                     </th>
                   )}
-                  <th>SKU</th><th>Ürün Adı</th><th>XML Fiyat</th><th>Satış Fiyatı</th><th>Fark</th><th>Stok</th><th>Marka</th><th>Pazaryeri</th><th>Durum</th><th>İşlem</th>
+                  <th>SKU</th><th>Ürün Adı</th><th>XML Fiyat</th><th>{filterConnection ? 'Pazaryeri Fiyatı' : 'Satış Fiyatı'}</th><th>Fark</th><th>Stok</th><th>Marka</th><th>Pazaryeri</th><th>Durum</th><th>İşlem</th>
                 </tr>
               </thead>
               <tbody>
                 {products.map((p) => {
                   const isSelected = selectedIds.has(p.id);
                   const xmlPrice = p.xmlPrice || 0;
-                  const salePrice = p.price || 0;
+                  const basePrice = p.price || 0;
+                  const calculatedMpPrice = filterConnection ? getMarketplacePrice(p, filterConnection) : null;
+                  const salePrice = filterConnection && calculatedMpPrice !== null ? calculatedMpPrice : basePrice;
+                  const hasMissingRule = filterConnection && calculatedMpPrice === null;
+                  
                   const diff = salePrice - xmlPrice;
                   const diffPct = xmlPrice > 0 ? ((diff / xmlPrice) * 100).toFixed(1) : 0;
                   return (
@@ -560,7 +592,13 @@ export default function ProductsPage() {
                       <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                         {xmlPrice > 0 ? `₺${xmlPrice.toLocaleString('tr-TR')}` : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                       </td>
-                      <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₺{salePrice.toLocaleString('tr-TR')}</td>
+                      <td style={{ fontWeight: 600, color: filterConnection ? 'var(--accent-primary)' : 'var(--text-primary)' }}>
+                        {hasMissingRule ? (
+                           <span className="badge badge-error" style={{ fontSize: 10 }}>Kural Eksik</span>
+                        ) : (
+                           `₺${salePrice.toLocaleString('tr-TR')}`
+                        )}
+                      </td>
                       <td>
                         {xmlPrice > 0 && diff !== 0 ? (
                           <span style={{

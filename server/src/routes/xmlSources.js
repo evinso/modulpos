@@ -120,24 +120,6 @@ router.put('/:id', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-// Apply pricing rules to calculate final price
-function applyPricingRules(xmlPrice, product, rules) {
-  let finalPrice = xmlPrice;
-  for (const rule of rules) {
-    if (!rule.isActive) continue;
-    // Check if rule applies to this product
-    if (rule.applyTo === 'category' && rule.applyValue && product.category !== rule.applyValue) continue;
-    if (rule.applyTo === 'brand' && rule.applyValue && product.brand !== rule.applyValue) continue;
-    if (rule.applyTo === 'xml_source' && rule.applyValue && product.xmlSourceId !== rule.applyValue) continue;
-
-    if (rule.type === 'percentage') {
-      finalPrice = finalPrice * (1 + rule.value / 100);
-    } else if (rule.type === 'fixed') {
-      finalPrice = finalPrice + rule.value;
-    }
-  }
-  return Math.round(Math.max(0, finalPrice) * 100) / 100;
-}
 
 // Sync
 router.post('/:id/sync', async (req, res, next) => {
@@ -148,12 +130,6 @@ router.post('/:id/sync', async (req, res, next) => {
     if (!xmlSource) return res.status(404).json({ error: 'XML kaynağı bulunamadı' });
 
     const syncLog = await prisma.syncLog.create({ data: { storeId: store.id, type: 'xml_sync', status: 'started' } });
-
-    // Fetch active pricing rules for this store
-    const pricingRules = await prisma.pricingRule.findMany({
-      where: { storeId: store.id, isActive: true },
-      orderBy: { priority: 'asc' }
-    });
 
     const products = await parseXml(xmlSource.url, xmlSource.mappingConfig);
     let created = 0, updated = 0, errors = 0;
@@ -170,18 +146,9 @@ router.post('/:id/sync', async (req, res, next) => {
           brand: p.brand, category: p.category, images: p.images
         });
 
-        // Apply XmlSource-level modifications
+        // The base product price is just the XML price.
+        // Marketplace-specific pricing will be applied during sending.
         let finalPrice = xmlPrice;
-        if (xmlSource.priceMarkupPct) {
-          finalPrice = finalPrice * (1 + xmlSource.priceMarkupPct / 100);
-        }
-        if (xmlSource.priceMarkup) {
-          finalPrice = finalPrice + xmlSource.priceMarkup;
-        }
-
-        // Apply store-level pricing rules
-        const productData = { ...p, xmlSourceId: xmlSource.id };
-        finalPrice = applyPricingRules(finalPrice, productData, pricingRules);
 
         // Apply barcode prefix
         const finalBarcode = xmlSource.barcodePrefix

@@ -233,6 +233,23 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     const catMap = {};
     for (const m of catMappings) { catMap[m.localCategory] = m; }
 
+    // Fetch pricing rules for this connection
+    const pricingRules = await prisma.pricingRule.findMany({
+      where: { storeId: store.id, applyTo: 'marketplace_xml', isActive: true },
+      orderBy: { priority: 'asc' }
+    });
+
+    const pricingLookup = {};
+    for (const r of pricingRules) {
+      if (!r.conditions) continue;
+      try {
+        const conds = JSON.parse(r.conditions);
+        if (conds.connectionId === connection.id && conds.xmlSourceId) {
+          pricingLookup[conds.xmlSourceId] = r;
+        }
+      } catch(e) {}
+    }
+
     // Initialize Trendyol service for brand lookups
     const service = new TrendyolService(connection);
 
@@ -273,6 +290,21 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
         errors.push(`${p.sku}: Barkod eksik`);
         continue;
       }
+
+      // Find and apply Pricing Rule
+      const rule = pricingLookup[p.xmlSourceId];
+      if (!rule) {
+        errors.push(`${p.sku}: Fiyatlandırma kuralı eksik (Fiyatlandırma sayfasından kural tanımlayın)`);
+        continue;
+      }
+
+      let finalPrice = p.price;
+      if (rule.type === 'percentage') {
+        finalPrice = finalPrice * (1 + rule.value / 100);
+      } else if (rule.type === 'fixed') {
+        finalPrice = finalPrice + rule.value;
+      }
+      p.price = Math.round(Math.max(0, finalPrice) * 100) / 100;
 
       // Parse mapped attributes
       const attributes = [];

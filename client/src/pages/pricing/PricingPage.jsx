@@ -7,9 +7,22 @@ export default function PricingPage() {
   const [rules, setRules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ name: '', type: 'percentage', value: '', applyTo: 'all', applyValue: '' });
+  const [form, setForm] = useState({ name: '', type: 'percentage', value: '', applyTo: 'marketplace_xml', connectionId: '', xmlSourceId: '' });
+  const [xmlSources, setXmlSources] = useState([]);
+  const [connections, setConnections] = useState([]);
 
-  useEffect(() => { fetchRules(); }, []);
+  useEffect(() => { fetchRules(); fetchOptions(); }, []);
+
+  const fetchOptions = async () => {
+    try {
+      const [xmlRes, connRes] = await Promise.all([
+        api.get('/xml-sources'),
+        api.get('/marketplace/connections')
+      ]);
+      setXmlSources(xmlRes.data);
+      setConnections(connRes.data);
+    } catch {}
+  };
 
   const fetchRules = async () => {
     try {
@@ -22,10 +35,15 @@ export default function PricingPage() {
   const handleAdd = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/pricing', { ...form, value: parseFloat(form.value) });
+      const payload = { 
+        ...form, 
+        value: parseFloat(form.value),
+        conditions: { connectionId: form.connectionId, xmlSourceId: form.xmlSourceId }
+      };
+      await api.post('/pricing', payload);
       toast.success('Fiyatlandırma kuralı eklendi');
       setShowModal(false);
-      setForm({ name: '', type: 'percentage', value: '', applyTo: 'all', applyValue: '' });
+      setForm({ name: '', type: 'percentage', value: '', applyTo: 'marketplace_xml', connectionId: '', xmlSourceId: '' });
       fetchRules();
     } catch (err) { toast.error(err.response?.data?.error || 'Hata'); }
   };
@@ -76,7 +94,24 @@ export default function PricingPage() {
                   <td style={{ fontWeight: 500 }}>{r.name}</td>
                   <td><span className="badge badge-primary">{typeLabels[r.type] || r.type}</span></td>
                   <td style={{ fontWeight: 600 }}>{r.type === 'percentage' ? `%${r.value}` : `₺${r.value}`}</td>
-                  <td>{r.applyTo === 'all' ? 'Tüm Ürünler' : `${r.applyTo}: ${r.applyValue}`}</td>
+                  <td>
+                    {(() => {
+                      try {
+                        const conds = r.conditions ? JSON.parse(r.conditions) : null;
+                        if (conds && conds.connectionId && conds.xmlSourceId) {
+                          const c = connections.find(x => x.id === conds.connectionId);
+                          const x = xmlSources.find(x => x.id === conds.xmlSourceId);
+                          return (
+                            <div style={{ fontSize: 12 }}>
+                              <div><strong>Pazaryeri:</strong> {c?.supplierName || c?.marketplaceType || conds.connectionId}</div>
+                              <div><strong>Kaynak:</strong> {x?.name || conds.xmlSourceId}</div>
+                            </div>
+                          );
+                        }
+                      } catch(e) {}
+                      return r.applyTo === 'all' ? 'Tüm Ürünler' : r.applyTo;
+                    })()}
+                  </td>
                   <td>
                     <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: r.isActive ? 'var(--success)' : 'var(--text-muted)' }} onClick={() => toggleActive(r.id, r.isActive)}>
                       {r.isActive ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
@@ -110,17 +145,22 @@ export default function PricingPage() {
                   </div>
                   <div className="form-group"><label className="form-label">Değer *</label><input type="number" className="form-input" placeholder={form.type === 'percentage' ? '20' : '50'} value={form.value} onChange={e => setForm({...form, value: e.target.value})} required /></div>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Uygulanacak Alan</label>
-                  <select className="form-select" value={form.applyTo} onChange={e => setForm({...form, applyTo: e.target.value})}>
-                    <option value="all">Tüm Ürünler</option>
-                    <option value="category">Belirli Kategori</option>
-                    <option value="brand">Belirli Marka</option>
-                  </select>
+                <div className="grid grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Pazaryeri Bağlantısı *</label>
+                    <select className="form-select" value={form.connectionId} onChange={e => setForm({...form, connectionId: e.target.value})} required>
+                      <option value="">Seçiniz...</option>
+                      {connections.map(c => <option key={c.id} value={c.id}>{c.supplierName || c.marketplaceType} ({c.marketplaceType})</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">XML Kaynağı *</label>
+                    <select className="form-select" value={form.xmlSourceId} onChange={e => setForm({...form, xmlSourceId: e.target.value})} required>
+                      <option value="">Seçiniz...</option>
+                      {xmlSources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
                 </div>
-                {form.applyTo !== 'all' && (
-                  <div className="form-group"><label className="form-label">{form.applyTo === 'category' ? 'Kategori Adı' : 'Marka Adı'}</label><input className="form-input" value={form.applyValue} onChange={e => setForm({...form, applyValue: e.target.value})} /></div>
-                )}
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>İptal</button>

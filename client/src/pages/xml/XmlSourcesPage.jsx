@@ -639,23 +639,6 @@ export default function XmlSourcesPage() {
 
                   <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '20px 0' }} />
 
-                  <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <DollarSign size={16} style={{ color: 'var(--success)' }} /> Fiyat Ayarları
-                  </h4>
-                  <div className="grid grid-2" style={{ gap: 16 }}>
-                    <div className="form-group">
-                      <label className="form-label">Fiyat Artışı (%)</label>
-                      <input type="number" className="form-input" placeholder="ör: 20 (XML fiyatına %20 ekler)" value={addForm.priceMarkupPct} onChange={e => setAddForm({...addForm, priceMarkupPct: e.target.value})} />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Sabit Fiyat Artışı (₺)</label>
-                      <input type="number" className="form-input" placeholder="ör: 50 (XML fiyatına ₺50 ekler)" value={addForm.priceMarkup} onChange={e => setAddForm({...addForm, priceMarkup: e.target.value})} />
-                    </div>
-                  </div>
-                  <small style={{ color: 'var(--text-muted)', fontSize: 11, display: 'block', marginTop: 4 }}>
-                    Önce yüzde artışı, sonra sabit tutar uygulanır. Örnek: XML fiyat ₺100, %20 + ₺10 → ₺130
-                  </small>
-
                   <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '20px 0' }} />
 
                   <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -794,8 +777,6 @@ export default function XmlSourcesPage() {
                   <div className="alert alert-success" style={{ marginBottom: 16 }}>
                     ✅ Her şey hazır! Aşağıdaki önizlemeyi kontrol edin, doğruysa kaydedin.
                     {addForm.barcodePrefix && <><br/>📎 Barkod ön eki: <strong>{addForm.barcodePrefix}</strong></>}
-                    {addForm.priceMarkupPct && <><br/>📈 Fiyat artışı: <strong>%{addForm.priceMarkupPct}</strong></>}
-                    {addForm.priceMarkup && <><br/>💰 Sabit artış: <strong>₺{addForm.priceMarkup}</strong></>}
                   </div>
                   <div style={{ overflowX: 'auto', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
                     <table style={{ minWidth: 800 }}>
