@@ -75,31 +75,7 @@ router.get('/connections/:id/categories', async (req, res, next) => {
   }
 });
 
-// Send products to marketplace
-router.post('/connections/:id/send-products', async (req, res, next) => {
-  try {
-    const { productIds, categoryId, brandId } = req.body;
-    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
-    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
 
-    const products = await prisma.product.findMany({ where: { id: { in: productIds } } });
-
-    if (connection.marketplaceType === 'trendyol') {
-      const service = new TrendyolService(connection);
-      const formatted = products.map(p => TrendyolService.formatProduct(p, categoryId, brandId));
-      const result = await service.createProducts(formatted);
-
-      // Create marketplace product records
-      for (const p of products) {
-        await prisma.marketplaceProduct.create({
-          data: { productId: p.id, connectionId: connection.id, batchRequestId: result.batchRequestId?.toString(), status: 'pending' }
-        });
-      }
-      return res.json({ message: `${products.length} ürün gönderildi`, batchRequestId: result.batchRequestId });
-    }
-    res.json({ message: 'Bu pazaryeri henüz desteklenmiyor' });
-  } catch (error) { next(error); }
-});
 
 // Delete connection
 router.delete('/connections/:id', async (req, res, next) => {
