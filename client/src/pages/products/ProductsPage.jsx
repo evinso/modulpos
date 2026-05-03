@@ -57,6 +57,7 @@ export default function ProductsPage() {
   const [syncingStatus, setSyncingStatus] = useState(false);
   const [openGroup, setOpenGroup] = useState(null);
   const [selectAllMode, setSelectAllMode] = useState(false); // true = all products selected (across pages)
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   
   // Filters
   const [filterXmlSource, setFilterXmlSource] = useState('');
@@ -147,8 +148,10 @@ export default function ProductsPage() {
     } catch (err) { toast.error(err.response?.data?.error || 'Hata oluştu'); }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Bu ürünü silmek istediğinize emin misiniz?')) return;
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    const id = deleteConfirm;
+    setDeleteConfirm(null);
     try {
       await api.delete(`/products/${id}`);
       toast.success('Ürün silindi');
@@ -635,7 +638,7 @@ export default function ProductsPage() {
                       <td>
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button className="btn btn-secondary btn-sm" onClick={() => openEdit(p)}><Edit size={14} /></button>
-                          <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p.id)}><Trash2 size={14} /></button>
+                          <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(p.id)}><Trash2 size={14} /></button>
                         </div>
                       </td>
                     </tr>
@@ -709,6 +712,25 @@ export default function ProductsPage() {
               <button className="btn btn-danger" onClick={executeBulkAction} disabled={bulkLoading}>
                 {bulkLoading ? <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> : 'Evet, Sil'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Single Product Delete Confirm Modal */}
+      {deleteConfirm && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <div className="modal-header">
+              <h3>Ürünü Sil</h3>
+              <button className="modal-close" onClick={() => setDeleteConfirm(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p>Bu ürünü silmek istediğinize emin misiniz? Bu işlem geri alınamaz.</p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>İptal</button>
+              <button className="btn btn-danger" onClick={handleDelete}>Evet, Sil</button>
             </div>
           </div>
         </div>

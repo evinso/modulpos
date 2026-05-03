@@ -7,6 +7,7 @@ export default function PricingPage() {
   const [rules, setRules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [form, setForm] = useState({ name: '', type: 'percentage', value: '', applyTo: 'marketplace_xml', connectionId: '', xmlSourceId: '' });
   const [xmlSources, setXmlSources] = useState([]);
   const [connections, setConnections] = useState([]);
@@ -55,13 +56,15 @@ export default function PricingPage() {
     } catch { toast.error('Güncelleme hatası'); }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Bu kuralı silmek istediğinize emin misiniz?')) return;
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    const id = deleteConfirm;
+    setDeleteConfirm(null);
     try {
       await api.delete(`/pricing/${id}`);
       toast.success('Kural silindi');
       fetchRules();
-    } catch { toast.error('Hata'); }
+    } catch { toast.error('Silme hatası'); }
   };
 
   const typeLabels = { percentage: 'Yüzde', fixed: 'Sabit Tutar', formula: 'Formül' };
@@ -117,7 +120,7 @@ export default function PricingPage() {
                       {r.isActive ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
                     </button>
                   </td>
-                  <td><button className="btn btn-danger btn-sm" onClick={() => handleDelete(r.id)}><Trash2 size={14} /></button></td>
+                  <td><button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(r.id)}><Trash2 size={14} /></button></td>
                 </tr>
               ))}
             </tbody>
@@ -167,6 +170,25 @@ export default function PricingPage() {
                 <button type="submit" className="btn btn-primary">Kaydet</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===== DELETE CONFIRM MODAL ===== */}
+      {deleteConfirm && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <div className="modal-header">
+              <h3>Kuralı Sil</h3>
+              <button className="modal-close" onClick={() => setDeleteConfirm(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p>Bu fiyatlandırma kuralını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.</p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>İptal</button>
+              <button className="btn btn-danger" onClick={handleDelete}>Evet, Sil</button>
+            </div>
           </div>
         </div>
       )}
