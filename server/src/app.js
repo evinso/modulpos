@@ -86,6 +86,25 @@ app.get('/api/health', (req, res) => {
 // Error handling
 app.use(errorHandler);
 
+// Bootstrap Admin User
+const bootstrapAdmin = async () => {
+  try {
+    const prisma = require('./config/database');
+    const adminEmail = 'ozgurklc111@gmail.com';
+    const user = await prisma.user.findUnique({ where: { email: adminEmail } });
+    if (user && user.role !== 'admin' && user.role !== 'superadmin') {
+      await prisma.user.update({
+        where: { email: adminEmail },
+        data: { role: 'admin' }
+      });
+      console.log(`✅ Admin bootstrap: ${adminEmail} promoted to admin.`);
+    }
+  } catch (err) {
+    console.error('❌ Admin bootstrap error:', err.message);
+  }
+};
+bootstrapAdmin();
+
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
 app.listen(PORT, HOST, () => {
