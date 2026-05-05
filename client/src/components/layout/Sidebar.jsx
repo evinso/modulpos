@@ -1,5 +1,5 @@
 import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send, ArrowLeftRight, Shield } from 'lucide-react';
+import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send, ArrowLeftRight, Shield, Sparkles, Globe } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 
 const navItems = [
@@ -11,12 +11,16 @@ const navItems = [
   { section: 'Entegrasyon', items: [
     { to: '/xml-sources', icon: FileCode2, label: 'XML Kaynakları' },
     { to: '/xml-converter', icon: ArrowLeftRight, label: 'XML Dönüştürücü' },
+    { to: '/global-xml-market', icon: Store, label: 'Hazır XML Market', badge: 'Yeni' },
     { to: '/marketplace', icon: Store, label: 'Pazaryerleri' },
     { to: '/category-mapping', icon: FolderTree, label: 'Kategori Eşleştirme' },
     { to: '/trendyol-send', icon: Send, label: "Pazaryerine Gönder" },
   ]},
   { section: 'Yönetim', items: [
     { to: '/pricing', icon: Tags, label: 'Fiyatlandırma' },
+  ]},
+  { section: 'Vizyon', items: [
+    { to: '/innovation', icon: Sparkles, label: 'Gelecek Vizyonu', badge: 'Yeni' },
   ]},
 ];
 
@@ -56,6 +60,13 @@ export default function Sidebar() {
             >
               <Shield size={18} className="icon" />
               <span>Süper Admin</span>
+            </NavLink>
+            <NavLink
+              to="/global-xml-admin"
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+            >
+              <Globe size={18} className="icon" />
+              <span>Global XML (Admin)</span>
             </NavLink>
           </div>
         )}

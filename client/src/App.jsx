@@ -8,12 +8,15 @@ import DashboardPage from './pages/dashboard/DashboardPage';
 import ProductsPage from './pages/products/ProductsPage';
 import XmlSourcesPage from './pages/xml/XmlSourcesPage';
 import XmlConverterPage from './pages/xml/XmlConverterPage';
+import GlobalXmlMarketPage from './pages/xml/GlobalXmlMarketPage';
+import GlobalXmlAdminPage from './pages/xml/GlobalXmlAdminPage';
 import MarketplacePage from './pages/marketplaces/MarketplacePage';
 import CategoryMappingPage from './pages/marketplaces/CategoryMappingPage';
 import TrendyolSendPage from './pages/marketplaces/TrendyolSendPage';
 import OrdersPage from './pages/orders/OrdersPage';
 import PricingPage from './pages/pricing/PricingPage';
 import SuperAdminPage from './pages/admin/SuperAdminPage';
+import InnovationPage from './pages/dashboard/InnovationPage';
 import './index.css';
 
 import LandingPage from './pages/landing/LandingPage';
@@ -45,11 +48,14 @@ function App() {
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/xml-sources" element={<XmlSourcesPage />} />
           <Route path="/xml-converter" element={<XmlConverterPage />} />
+          <Route path="/global-xml-market" element={<GlobalXmlMarketPage />} />
+          <Route path="/global-xml-admin" element={<AdminRoute><GlobalXmlAdminPage /></AdminRoute>} />
           <Route path="/marketplace" element={<MarketplacePage />} />
           <Route path="/category-mapping" element={<CategoryMappingPage />} />
           <Route path="/trendyol-send" element={<TrendyolSendPage />} />
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/innovation" element={<InnovationPage />} />
           <Route path="/superadmin" element={<AdminRoute><SuperAdminPage /></AdminRoute>} />
         </Route>
       </Routes>

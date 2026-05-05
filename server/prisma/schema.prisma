@@ -282,3 +282,16 @@ model Notification {
 
   store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 }
+
+model GlobalXmlProvider {
+  id              String   @id @default(uuid())
+  name            String
+  url             String
+  format          String   @default("xml")
+  mappingConfig   String?  // pre-mapped tags JSON
+  description     String?
+  logo            String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
