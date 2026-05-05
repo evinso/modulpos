@@ -155,7 +155,7 @@ router.get('/stores', auth, isAdmin, async (req, res) => {
  */
 router.post('/users/:id/subscription', auth, isAdmin, async (req, res) => {
   try {
-    const { days, plan } = req.body;
+    const { days, plan, endDate } = req.body;
     const user = await prisma.user.findUnique({ 
       where: { id: req.params.id },
       include: { subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 } }
@@ -163,12 +163,18 @@ router.post('/users/:id/subscription', auth, isAdmin, async (req, res) => {
 
     if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
 
-    let currentEndDate = new Date();
-    if (user.subscriptions.length > 0 && user.subscriptions[0].endDate > new Date()) {
-      currentEndDate = new Date(user.subscriptions[0].endDate);
+    let newEndDate;
+    if (endDate) {
+      // Direkt tarih girilmişse onu kullan
+      newEndDate = new Date(endDate);
+    } else {
+      // Gün girilmişse mevcut tarihe veya bugüne ekle
+      let currentEndDate = new Date();
+      if (user.subscriptions.length > 0 && user.subscriptions[0].endDate > new Date()) {
+        currentEndDate = new Date(user.subscriptions[0].endDate);
+      }
+      newEndDate = new Date(currentEndDate.getTime() + (days || 30) * 24 * 60 * 60 * 1000);
     }
-
-    const newEndDate = new Date(currentEndDate.getTime() + days * 24 * 60 * 60 * 1000);
 
     const subscription = await prisma.subscription.create({
       data: {
@@ -178,6 +184,14 @@ router.post('/users/:id/subscription', auth, isAdmin, async (req, res) => {
         endDate: newEndDate
       }
     });
+
+    // Eğer tarih ilerideyse, kullanıcıyı aktif et
+    if (newEndDate > new Date() && !user.isActive) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { isActive: true }
+      });
+    }
 
     res.json(subscription);
   } catch (error) {

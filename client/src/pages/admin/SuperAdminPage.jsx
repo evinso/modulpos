@@ -17,6 +17,11 @@ export default function SuperAdminPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [actionLoading, setActionLoading] = useState(null);
 
+  const [subModalUser, setSubModalUser] = useState(null);
+  const [subEndDate, setSubEndDate] = useState('');
+  const [subPlan, setSubPlan] = useState('premium');
+  const [showOnlyPremium, setShowOnlyPremium] = useState(false);
+
   useEffect(() => {
     fetchData();
   }, [activeTab]);
@@ -68,23 +73,52 @@ export default function SuperAdminPage() {
     }
   };
 
-  const handleExtendSubscription = async (userId, days) => {
-    setActionLoading(userId);
+  const handleExtendSubscription = async () => {
+    if (!subModalUser || !subEndDate) return;
+    
+    setActionLoading(subModalUser.id);
     try {
-      await api.post(`/admin/users/${userId}/subscription`, { days });
-      toast.success(`${days} gün süre eklendi`);
+      await api.post(`/admin/users/${subModalUser.id}/subscription`, { 
+        endDate: new Date(subEndDate).toISOString(),
+        plan: subPlan
+      });
+      toast.success(`Abonelik başarıyla güncellendi`);
+      setSubModalUser(null);
       fetchData();
     } catch (error) {
-      toast.error('Süre uzatılamadı');
+      toast.error('Süre güncellenemedi');
     } finally {
       setActionLoading(null);
     }
   };
 
-  const filteredUsers = users.filter(u => 
+  const openSubModal = (user) => {
+    setSubModalUser(user);
+    if (user.subscriptions?.[0]?.endDate) {
+      // Format for datetime-local input
+      const date = new Date(user.subscriptions[0].endDate);
+      const tzoffset = (new Date()).getTimezoneOffset() * 60000;
+      const localISOTime = (new Date(date - tzoffset)).toISOString().slice(0,16);
+      setSubEndDate(localISOTime);
+      setSubPlan(user.subscriptions[0].plan);
+    } else {
+      setSubEndDate('');
+      setSubPlan('premium');
+    }
+  };
+
+  let filteredUsers = users.filter(u => 
     u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     u.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  if (showOnlyPremium) {
+    filteredUsers = filteredUsers.filter(u => {
+      if (!u.subscriptions || u.subscriptions.length === 0) return false;
+      const endDate = new Date(u.subscriptions[0].endDate);
+      return endDate > new Date(); // Active premium
+    });
+  }
 
   const filteredStores = stores.filter(s => 
     s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -155,8 +189,14 @@ export default function SuperAdminPage() {
 
       <div className="admin-content">
         <div className="table-container">
-          <div className="table-header">
-            <h3>{activeTab === 'users' ? 'Kullanıcı Yönetimi' : 'Tüm Mağazalar'}</h3>
+          <div className="table-header" style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+            <h3 style={{ margin: 0, flex: 1, minWidth: 200 }}>{activeTab === 'users' ? 'Kullanıcı Yönetimi' : 'Tüm Mağazalar'}</h3>
+            {activeTab === 'users' && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', background: 'rgba(59,130,246,0.1)', padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(59,130,246,0.2)', color: 'var(--accent-primary)' }}>
+                <input type="checkbox" checked={showOnlyPremium} onChange={e => setShowOnlyPremium(e.target.checked)} />
+                Sadece Premium
+              </label>
+            )}
             <div className="header-search">
               <Search size={14} className="search-icon" />
               <input 
@@ -174,13 +214,16 @@ export default function SuperAdminPage() {
                 <tr>
                   <th>Kullanıcı</th>
                   <th>Rol</th>
-                  <th>Mağazalar</th>
+                  <th>Abonelik Bitiş</th>
                   <th>Durum</th>
                   <th>İşlem</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.map(user => (
+                {filteredUsers.map(user => {
+                  const sub = user.subscriptions?.[0];
+                  const isExpired = sub && new Date(sub.endDate) < new Date();
+                  return (
                   <tr key={user.id}>
                     <td>
                       <div className="user-cell">
@@ -207,13 +250,13 @@ export default function SuperAdminPage() {
                     </td>
                     <td>
                       <div className="user-subscription-info">
-                        {user.subscriptions?.[0] ? (
+                        {sub ? (
                           <>
-                            <span className="text-xs font-semibold block uppercase">
-                              {user.subscriptions[0].plan}
+                            <span className={`text-xs font-semibold block uppercase ${isExpired ? 'text-danger' : 'text-success'}`}>
+                              {sub.plan} {isExpired ? '(SÜRESİ BİTTİ)' : ''}
                             </span>
-                            <span className={`text-xs ${new Date(user.subscriptions[0].endDate) < new Date() ? 'text-danger' : 'text-muted'}`}>
-                              Bitiş: {new Date(user.subscriptions[0].endDate).toLocaleDateString('tr-TR')}
+                            <span className={`text-xs ${isExpired ? 'text-danger' : 'text-muted'}`}>
+                              Bitiş: {new Date(sub.endDate).toLocaleString('tr-TR')}
                             </span>
                           </>
                         ) : (
@@ -233,18 +276,18 @@ export default function SuperAdminPage() {
                     <td>
                       <div className="flex gap-2">
                         <button 
-                          className="header-icon-btn" 
-                          title="Süreyi 30 Gün Uzat"
-                          onClick={() => handleExtendSubscription(user.id, 30)}
+                          className="btn btn-secondary" 
+                          style={{ padding: '4px 8px', fontSize: 12, height: 'auto' }}
+                          title="Abonelik Tarihi Düzenle"
+                          onClick={() => openSubModal(user)}
                           disabled={actionLoading === user.id}
                         >
-                          <Calendar size={14} />
+                          <Calendar size={14} style={{ marginRight: 4 }} /> Aktivasyon
                         </button>
-                        <button className="header-icon-btn text-danger"><Trash2 size={14} /></button>
                       </div>
                     </td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           ) : (
@@ -282,6 +325,59 @@ export default function SuperAdminPage() {
           )}
         </div>
       </div>
+
+      {/* Subscription Modal */}
+      {subModalUser && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+        }}>
+          <div className="card" style={{ width: '100%', maxWidth: 420, padding: 0 }}>
+            <div className="table-header">
+              <h3>Aktivasyon / Abonelik Düzenle</h3>
+              <button className="text-btn" onClick={() => setSubModalUser(null)}>Kapat</button>
+            </div>
+            <div style={{ padding: 20 }}>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
+                <strong>{subModalUser.name} ({subModalUser.email})</strong> kullanıcısının abonelik bitiş tarihini ve planını doğrudan ayarlayabilirsiniz. Bitiş tarihi gelecekte olan kullanıcılar otomatik olarak "Aktif" duruma geçer.
+              </p>
+
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <label className="form-label">Abonelik Bitiş Tarihi ve Saati</label>
+                <input
+                  type="datetime-local"
+                  className="form-input"
+                  value={subEndDate}
+                  onChange={e => setSubEndDate(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 20 }}>
+                <label className="form-label">Plan Türü</label>
+                <select
+                  className="form-input"
+                  value={subPlan}
+                  onChange={e => setSubPlan(e.target.value)}
+                >
+                  <option value="trial">Trial (Deneme)</option>
+                  <option value="starter">Starter</option>
+                  <option value="growth">Growth</option>
+                  <option value="premium">Premium</option>
+                  <option value="enterprise">Enterprise</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button className="btn btn-secondary" onClick={() => setSubModalUser(null)}>İptal</button>
+                <button className="btn btn-primary" onClick={handleExtendSubscription} disabled={actionLoading === subModalUser.id}>
+                  {actionLoading === subModalUser.id ? 'Kaydediliyor...' : 'Tarihi Güncelle'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

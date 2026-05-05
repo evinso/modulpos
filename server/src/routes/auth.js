@@ -94,8 +94,28 @@ router.post('/login', async (req, res, next) => {
       return res.status(401).json({ error: 'Geçersiz e-posta veya şifre' });
     }
 
+    // Abonelik süresi kontrolü ve otomatik devre dışı bırakma
+    let isExpired = false;
+    if (user.subscriptions && user.subscriptions.length > 0) {
+      const sub = user.subscriptions[0];
+      if (sub.endDate && new Date(sub.endDate) < new Date()) {
+        isExpired = true;
+      }
+    } else {
+      // Hiç aboneliği yoksa süresi bitmiş say
+      isExpired = true;
+    }
+
+    // Sadece normal müşterileri (owner, operator vb.) devre dışı bırak (adminler hariç)
+    if (isExpired && user.role !== 'admin' && user.role !== 'superadmin') {
+      if (user.isActive) {
+        await prisma.user.update({ where: { id: user.id }, data: { isActive: false } });
+        user.isActive = false;
+      }
+    }
+
     if (!user.isActive) {
-      return res.status(403).json({ error: 'Hesabınız devre dışı bırakılmış' });
+      return res.status(403).json({ error: 'Abonelik süreniz dolduğu için hesabınız devre dışı bırakılmıştır. Lütfen yönetici ile iletişime geçin.' });
     }
 
     const token = jwt.sign(
