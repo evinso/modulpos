@@ -19,6 +19,7 @@ const notificationRoutes = require('./routes/notifications');
 const adminRoutes = require('./routes/admin');
 const globalXmlRoutes = require('./routes/globalXml');
 const creditRoutes = require('./routes/credits');
+const paymentRoutes = require('./routes/payment');
 
 const { errorHandler } = require('./middleware/errorHandler');
 
@@ -81,6 +82,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/global-xml', globalXmlRoutes);
 app.use('/api/credits', creditRoutes);
+app.use('/api/payment', paymentRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

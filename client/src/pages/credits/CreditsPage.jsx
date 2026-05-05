@@ -16,8 +16,26 @@ export default function CreditsPage() {
   const [prices, setPrices] = useState({});
   const [loading, setLoading] = useState(true);
 
+  // Payment states
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [purchaseAmount, setPurchaseAmount] = useState('50');
+  const [iframeToken, setIframeToken] = useState(null);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+
   useEffect(() => {
     fetchData();
+    
+    // Check URL for payment status
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentStatus = urlParams.get('payment');
+    if (paymentStatus === 'success') {
+      toast.success('Ödemeniz başarıyla alındı ve krediniz hesabınıza yüklendi!');
+      // Clean url
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (paymentStatus === 'fail') {
+      toast.error('Ödeme işlemi başarısız oldu veya iptal edildi.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }, []);
 
   const fetchData = async () => {
@@ -37,13 +55,58 @@ export default function CreditsPage() {
     }
   };
 
+  const handleStartPayment = async () => {
+    const amount = parseFloat(purchaseAmount);
+    if (isNaN(amount) || amount < 10) {
+      toast.error('Minimum 10 TL yükleyebilirsiniz.');
+      return;
+    }
+
+    setPaymentLoading(true);
+    try {
+      const res = await api.post('/payment/paytr-token', { amount });
+      setIframeToken(res.data.token);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Ödeme başlatılamadı.');
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
+  // PayTR Script injection when token is received
+  useEffect(() => {
+    if (iframeToken) {
+      const script = document.createElement('script');
+      script.src = `https://www.paytr.com/js/iframeResizer.min.js`;
+      script.async = true;
+      document.body.appendChild(script);
+      
+      script.onload = () => {
+        if (window.iFrameResize) {
+           window.iFrameResize({}, '#paytriframe');
+        }
+      }
+
+      return () => {
+        if (document.body.contains(script)) {
+          document.body.removeChild(script);
+        }
+      }
+    }
+  }, [iframeToken]);
+
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
 
   return (
     <div>
-      <div className="page-title">
-        <h1>Kredi & Bakiye</h1>
-        <p>Bakiyenizi görüntüleyin ve işlem geçmişinizi takip edin</p>
+      <div className="page-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1>Kredi & Bakiye</h1>
+          <p>Bakiyenizi görüntüleyin ve işlem geçmişinizi takip edin</p>
+        </div>
+        <button className="btn btn-primary" onClick={() => { setPaymentModalOpen(true); setIframeToken(null); setPurchaseAmount('50'); }}>
+          <Wallet size={16} /> Kredi Satın Al
+        </button>
       </div>
 
       {/* Balance Card */}
@@ -167,6 +230,73 @@ export default function CreditsPage() {
           </div>
         )}
       </div>
+
+      {/* Payment Modal */}
+      {paymentModalOpen && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.6)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+        }}>
+          <div className="card" style={{ width: '100%', maxWidth: 500, padding: 0, background: 'var(--bg-primary)', overflow: 'hidden' }}>
+            <div className="table-header" style={{ borderBottom: '1px solid var(--border-color)' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Wallet size={18} style={{ color: 'var(--accent-primary)' }} />
+                Kredi Yükle
+              </h3>
+              <button className="text-btn" onClick={() => setPaymentModalOpen(false)}>Kapat</button>
+            </div>
+            
+            <div style={{ padding: 20 }}>
+              {!iframeToken ? (
+                <>
+                  <div className="form-group" style={{ marginBottom: 16 }}>
+                    <label className="form-label">Yüklenecek Tutar (TL)</label>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="number"
+                        className="form-input"
+                        min="10"
+                        step="10"
+                        value={purchaseAmount}
+                        onChange={e => setPurchaseAmount(e.target.value)}
+                        placeholder="Örn: 50"
+                        style={{ fontSize: 18, fontWeight: 600, paddingRight: 40 }}
+                        autoFocus
+                      />
+                      <span style={{ position: 'absolute', right: 12, top: 12, color: 'var(--text-muted)', fontWeight: 600 }}>TL</span>
+                    </div>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 8 }}>
+                      1 TL = 1 Kredi olarak hesabınıza yansıyacaktır. Minimum 10 TL yükleyebilirsiniz.
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 24 }}>
+                    <button className="btn btn-secondary" onClick={() => setPaymentModalOpen(false)}>İptal</button>
+                    <button className="btn btn-primary" onClick={handleStartPayment} disabled={paymentLoading}>
+                      {paymentLoading ? 'Bağlanıyor...' : 'Güvenli Ödeme Yap'}
+                    </button>
+                  </div>
+                  
+                  <div style={{ marginTop: 24, textAlign: 'center' }}>
+                    <img src="https://www.paytr.com/img/general/PayTR-Odeme-Altyapisi.svg" alt="PayTR" style={{ height: 30, opacity: 0.8 }} />
+                  </div>
+                </>
+              ) : (
+                <div style={{ width: '100%' }}>
+                  <iframe 
+                    src={`https://www.paytr.com/odeme/guvenli/${iframeToken}`} 
+                    id="paytriframe" 
+                    frameBorder="0" 
+                    scrolling="no" 
+                    style={{ width: '100%', minHeight: '550px' }}
+                  ></iframe>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

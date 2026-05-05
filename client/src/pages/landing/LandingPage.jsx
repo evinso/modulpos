@@ -229,11 +229,60 @@ export default function LandingPage() {
       {/* FOOTER */}
       <footer className="lp-footer">
         <div className="lp-footer-inner">
-          <Link to="/" className="lp-logo">
-            <div className="lp-logo-icon">M</div>
-            <span>ModulPOS</span>
-          </Link>
-          <p>© 2025 ModulPOS. Tüm hakları saklıdır.</p>
+          <div className="lp-footer-brand">
+            <Link to="/" className="lp-logo">
+              <div className="lp-logo-icon">M</div>
+              <span>ModulPOS</span>
+            </Link>
+            <p>
+              Tüm pazaryerlerinizi tek platformdan yönetin. E-ticaret operasyonlarınızı otomatikleştirin ve satışlarınızı artırın.
+            </p>
+            <div style={{ marginTop: 16, fontSize: 13, color: '#64748b' }}>
+              <strong>ModulPOS Yazılım A.Ş.</strong><br/>
+              Bilişim Vadisi, Teknoloji Blv. No:1<br/>
+              Gebze / Kocaeli<br/>
+              info@modulpos.com | 0850 000 00 00
+            </div>
+          </div>
+          
+          <div>
+            <h4>Ürün</h4>
+            <ul>
+              <li><a href="#features">Özellikler</a></li>
+              <li><a href="#pricing">Fiyatlandırma</a></li>
+              <li><a href="#how">Nasıl Çalışır?</a></li>
+              <li><Link to="/register">Ücretsiz Başla</Link></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4>Yasal Sözleşmeler</h4>
+            <ul>
+              <li><a href="#">Mesafeli Satış Sözleşmesi</a></li>
+              <li><a href="#">İptal ve İade Koşulları</a></li>
+              <li><a href="#">Gizlilik ve Güvenlik Politikası</a></li>
+              <li><a href="#">Teslimat Koşulları</a></li>
+              <li><a href="#">Kullanım Şartları</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4>Kurumsal</h4>
+            <ul>
+              <li><a href="#">Hakkımızda</a></li>
+              <li><a href="#">İletişim</a></li>
+              <li><a href="#">Kariyer</a></li>
+              <li><a href="#">Destek Merkezi</a></li>
+            </ul>
+          </div>
+        </div>
+        
+        <div className="lp-footer-bottom">
+          <p>© {new Date().getFullYear()} ModulPOS. Tüm hakları saklıdır.</p>
+          <div className="lp-footer-payment-icons">
+            <img src="https://www.paytr.com/img/general/PayTR-Odeme-Altyapisi.svg" alt="PayTR Güvenli Ödeme" style={{ height: 24, marginRight: 12 }} />
+            <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>128 Bit SSL ile Güvendesiniz.</span>
+          </div>
         </div>
       </footer>
     </div>

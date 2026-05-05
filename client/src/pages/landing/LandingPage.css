@@ -601,18 +601,72 @@
 /* ─── FOOTER ─── */
 .lp-footer {
   border-top: 1px solid rgba(255,255,255,0.06);
-  padding: 32px 24px;
+  padding: 60px 24px 32px;
+  background: #040914;
 }
 .lp-footer-inner {
   max-width: 1200px;
   margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 40px;
+  margin-bottom: 40px;
 }
-.lp-footer p {
+.lp-footer-brand p {
+  font-size: 14px;
+  color: #64748b;
+  margin-top: 16px;
+  line-height: 1.6;
+}
+.lp-footer-brand .lp-logo {
+  margin-bottom: 0;
+}
+.lp-footer h4 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #f8fafc;
+  margin-bottom: 20px;
+}
+.lp-footer ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.lp-footer ul li a {
+  color: #94a3b8;
+  text-decoration: none;
+  font-size: 14px;
+  transition: color 0.2s;
+}
+.lp-footer ul li a:hover {
+  color: #f1f5f9;
+}
+.lp-footer-bottom {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-top: 32px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+.lp-footer-bottom p {
   font-size: 13px;
   color: #475569;
+}
+.lp-footer-payment-icons {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  opacity: 0.8;
+}
+.lp-footer-payment-icons img {
+  height: 24px;
 }
 
 /* ─── RESPONSIVE ─── */
@@ -622,4 +676,5 @@
   .lp-features-grid, .lp-pricing-grid, .lp-steps { grid-template-columns: 1fr; }
   .lp-stats { grid-template-columns: repeat(2, 1fr); }
   .lp-nav-links { display: none; }
+  .lp-footer-inner { grid-template-columns: 1fr; gap: 32px; }
 }
