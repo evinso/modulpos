@@ -37,6 +37,41 @@ router.get('/all', auth, requireAdmin, async (req, res, next) => {
   }
 });
 
+// Helper to get a working Trendyol connection for admin operations
+const getTrendyolConnection = async () => {
+  const connection = await prisma.marketplaceConnection.findFirst({
+    where: { marketplaceType: 'trendyol', status: 'active' }
+  });
+  if (!connection) throw new Error('Sistemde aktif bir Trendyol bağlantısı bulunamadı. Lütfen önce bir mağaza üzerinden Trendyol bağlantısı kurun.');
+  return connection;
+};
+
+// GET /api/global-xml/trendyol-categories - Admin fetches trendyol categories
+router.get('/trendyol-categories', auth, requireAdmin, async (req, res, next) => {
+  try {
+    const connection = await getTrendyolConnection();
+    const TrendyolService = require('../services/trendyol/trendyolService');
+    const service = new TrendyolService(connection);
+    const categories = await service.getCategories();
+    res.json(categories);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/global-xml/trendyol-categories/:catId/attributes - Admin fetches trendyol attributes
+router.get('/trendyol-categories/:catId/attributes', auth, requireAdmin, async (req, res, next) => {
+  try {
+    const connection = await getTrendyolConnection();
+    const TrendyolService = require('../services/trendyol/trendyolService');
+    const service = new TrendyolService(connection);
+    const attributes = await service.getCategoryAttributes(parseInt(req.params.catId));
+    res.json(attributes);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // POST /api/global-xml - Admin creates a new Global XML provider
 router.post('/', auth, requireAdmin, async (req, res, next) => {
   try {

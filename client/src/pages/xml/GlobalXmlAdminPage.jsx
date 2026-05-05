@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Link, Save, X, Globe, RefreshCw, Eye, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, Edit2, Trash2, Link, Save, X, Globe, RefreshCw, Eye, ArrowRight, Search, FolderTree, AlertCircle, Check, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 
@@ -174,9 +174,57 @@ export default function GlobalXmlAdminPage() {
   const [previewData, setPreviewData] = useState(null);
   const [previewing, setPreviewing] = useState(false);
 
+  // Category Mapping advanced state
+  const [trendyolCategories, setTrendyolCategories] = useState([]);
+  const [catLoading, setCatLoading] = useState(false);
+  const [selectedLocal, setSelectedLocal] = useState('');
+  const [catSearch, setCatSearch] = useState('');
+  const [selectedTrendyol, setSelectedTrendyol] = useState(null);
+  const [requiredAttributes, setRequiredAttributes] = useState([]);
+  const [attributeMappings, setAttributeMappings] = useState({});
+  const [attrLoading, setAttrLoading] = useState(false);
+
   useEffect(() => {
     fetchProviders();
+    fetchTrendyolCategories();
   }, []);
+
+  const fetchTrendyolCategories = async () => {
+    try {
+      const res = await api.get('/global-xml/trendyol-categories');
+      setTrendyolCategories(res.data?.categories || res.data || []);
+    } catch (err) {
+      console.error('Trendyol categories load error:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedTrendyol) {
+      setRequiredAttributes([]);
+      setAttributeMappings({});
+      return;
+    }
+    const fetchAttrs = async () => {
+      setAttrLoading(true);
+      try {
+        const res = await api.get(`/global-xml/trendyol-categories/${selectedTrendyol.id}/attributes`);
+        const attrs = res.data?.categoryAttributes || [];
+        const required = attrs.filter(a => a.required);
+        setRequiredAttributes(required);
+        
+        const initialMappings = {};
+        required.forEach(a => {
+          initialMappings[a.attribute.id] = { name: a.attribute.name, valueId: '', valueName: '' };
+        });
+        setAttributeMappings(initialMappings);
+      } catch (err) {
+        toast.error('Kategori özellikleri alınamadı');
+      } finally {
+        setAttrLoading(false);
+      }
+    };
+    fetchAttrs();
+  }, [selectedTrendyol]);
 
   const fetchProviders = async () => {
     try {
@@ -187,6 +235,59 @@ export default function GlobalXmlAdminPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Build flat searchable list from tree
+  const flatCategories = useMemo(() => {
+    const result = [];
+    const flatten = (cats, path = '') => {
+      if (!Array.isArray(cats)) return;
+      for (const cat of cats) {
+        const fullPath = path ? `${path} > ${cat.name}` : cat.name;
+        result.push({ ...cat, fullPath });
+        if (cat.subCategories?.length) {
+          flatten(cat.subCategories, fullPath);
+        }
+      }
+    };
+    flatten(trendyolCategories);
+    return result;
+  }, [trendyolCategories]);
+
+  // Filter categories by search
+  const filteredCategories = useMemo(() => {
+    if (!catSearch.trim()) return [];
+    const q = catSearch.toLowerCase();
+    return flatCategories
+      .filter(c => !c.subCategories?.length) // Only leaf categories
+      .filter(c => c.fullPath.toLowerCase().includes(q) || c.name.toLowerCase().includes(q))
+      .slice(0, 30);
+  }, [catSearch, flatCategories]);
+
+  const handleSaveMapping = () => {
+    if (!selectedLocal || !selectedTrendyol) return;
+    
+    // Check if all required attributes are mapped
+    const unmappedAttr = requiredAttributes.find(a => !attributeMappings[a.attribute.id]?.valueId && !attributeMappings[a.attribute.id]?.valueName);
+    if (unmappedAttr) {
+      toast.error(`"${unmappedAttr.attribute.name}" özelliği zorunludur.`);
+      return;
+    }
+
+    const newMapping = {
+      marketplaceCategoryId: String(selectedTrendyol.id),
+      marketplaceCategoryName: selectedTrendyol.fullPath || selectedTrendyol.name,
+      attributes: JSON.stringify(attributeMappings)
+    };
+
+    const newConfig = { ...categoryMappingConfig, [selectedLocal]: newMapping };
+    setCategoryMappingConfig(newConfig);
+    setCategoryMappingStr(JSON.stringify(newConfig, null, 2));
+    
+    toast.success('Kategori eşleştirmesi JSON\'a eklendi');
+    setSelectedLocal('');
+    setSelectedTrendyol(null);
+    setCatSearch('');
   };
 
   const handleOpenModal = (provider = null) => {
@@ -540,35 +641,207 @@ export default function GlobalXmlAdminPage() {
 
                     {xmlAnalysis.categories && xmlAnalysis.categories.length > 0 && (
                       <div style={{ marginTop: 32, borderTop: '1px solid var(--border-color)', paddingTop: 24 }}>
-                        <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Kategori Eşleştirmesi (Gelişmiş JSON)</h3>
-                        <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>
-                          Bu XML içindeki kategorileri tüm kullanıcılar için otomatik eşleştirmek istiyorsanız, bir test mağazasında yaptığınız eşleştirme JSON'unu kopyalayıp buraya yapıştırın.
+                        <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <Link size={18} style={{ color: 'var(--accent-primary)' }} />
+                          Kategori Eşleştirmesi
+                        </h3>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 24 }}>
+                          Bu XML içindeki kategorileri tüm kullanıcılar için otomatik eşleştirmek istiyorsanız, aşağıdan XML kategorisi ve Trendyol kategorisini seçip zorunlu alanları belirleyebilirsiniz.
                         </p>
                         
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 24 }}>
-                          <div>
-                            <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>XML Kategorileri ({xmlAnalysis.categories.length})</h4>
-                            <div style={{ 
-                              background: 'var(--bg-secondary)', padding: 12, borderRadius: 'var(--radius-sm)', 
-                              maxHeight: 300, overflowY: 'auto', border: '1px solid var(--border-color)' 
-                            }}>
-                              {xmlAnalysis.categories.map((cat, i) => (
-                                <div key={i} style={{ fontSize: 12, padding: '4px 0', borderBottom: i < xmlAnalysis.categories.length - 1 ? '1px solid var(--border-color)' : 'none' }}>
-                                  {cat}
+                        <div className="card" style={{ marginBottom: 24, padding: 24, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius)' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 40px 1fr', gap: 16, alignItems: 'start' }}>
+                            {/* Local Category */}
+                            <div>
+                              <label className="form-label">Yerel Kategori (XML)</label>
+                              <select
+                                className="form-select"
+                                value={selectedLocal}
+                                onChange={e => setSelectedLocal(e.target.value)}
+                              >
+                                <option value="">Kategori seçin...</option>
+                                {xmlAnalysis.categories.map(cat => (
+                                  <option key={cat} value={cat} style={{ color: categoryMappingConfig[cat] ? 'var(--success)' : undefined }}>
+                                    {cat} {categoryMappingConfig[cat] ? '✓' : ''}
+                                  </option>
+                                ))}
+                              </select>
+                              {selectedLocal && categoryMappingConfig[selectedLocal] && (
+                                <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', fontSize: 12 }}>
+                                  <span style={{ color: 'var(--success)', fontWeight: 600 }}>Mevcut eşleştirme:</span>
+                                  <span style={{ color: 'var(--text-secondary)', marginLeft: 6 }}>{categoryMappingConfig[selectedLocal].marketplaceCategoryName}</span>
                                 </div>
-                              ))}
+                              )}
+                            </div>
+
+                            {/* Arrow */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 28 }}>
+                              <ArrowRight size={20} style={{ color: 'var(--accent-primary)' }} />
+                            </div>
+
+                            {/* Trendyol Category Search */}
+                            <div>
+                              <label className="form-label">Trendyol Kategorisi</label>
+                              <div style={{ position: 'relative' }}>
+                                <Search size={14} style={{ position: 'absolute', left: 12, top: 12, color: 'var(--text-muted)' }} />
+                                <input
+                                  className="form-input"
+                                  style={{ paddingLeft: 34 }}
+                                  placeholder="Trendyol'da kategori ara..."
+                                  value={catSearch}
+                                  onChange={e => { setCatSearch(e.target.value); setSelectedTrendyol(null); }}
+                                />
+                              </div>
+
+                              {selectedTrendyol && (
+                                <div style={{
+                                  marginTop: 8, padding: '8px 12px', borderRadius: 8,
+                                  background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)',
+                                  fontSize: 13, display: 'flex', alignItems: 'center', gap: 6
+                                }}>
+                                  <Check size={14} style={{ color: 'var(--accent-primary)' }} />
+                                  <span style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>{selectedTrendyol.fullPath || selectedTrendyol.name}</span>
+                                </div>
+                              )}
+
+                              {catSearch.trim() && !selectedTrendyol && (
+                                <div style={{
+                                  marginTop: 4, maxHeight: 250, overflowY: 'auto',
+                                  background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
+                                  borderRadius: 'var(--radius-sm)', boxShadow: '0 8px 30px rgba(0,0,0,0.3)'
+                                }}>
+                                  {filteredCategories.length === 0 ? (
+                                    <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                                      Kategori bulunamadı
+                                    </div>
+                                  ) : (
+                                    filteredCategories.map(cat => (
+                                      <button
+                                        type="button"
+                                        key={cat.id}
+                                        onClick={() => { setSelectedTrendyol(cat); setCatSearch(cat.name); }}
+                                        style={{
+                                          display: 'block', width: '100%', padding: '10px 14px',
+                                          background: 'none', border: 'none', borderBottom: '1px solid var(--border-color)',
+                                          textAlign: 'left', cursor: 'pointer', transition: 'background 0.15s',
+                                          fontFamily: 'inherit', fontSize: 13, color: 'var(--text-primary)'
+                                        }}
+                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(59,130,246,0.06)'}
+                                        onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                                      >
+                                        <div style={{ fontWeight: 500 }}>{cat.name}</div>
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{cat.fullPath}</div>
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
-                          <div>
-                            <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Eşleştirme JSON</h4>
-                            <textarea
-                              className="form-textarea"
-                              style={{ height: 300, fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre' }}
-                              placeholder={`{\n  "Elektronik > Telefon": {\n    "marketplaceCategoryId": "384",\n    "marketplaceCategoryName": "Cep Telefonu",\n    "attributes": "{\\"456\\": {\\"valueId\\": \\"789\\"}}"\n  }\n}`}
-                              value={categoryMappingStr}
-                              onChange={e => setCategoryMappingStr(e.target.value)}
-                            />
+
+                          {/* Required Attributes Section */}
+                          {selectedTrendyol && (
+                            <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border-color)' }}>
+                              <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <AlertCircle size={16} style={{ color: 'var(--warning)' }} />
+                                Zorunlu Kategori Özellikleri
+                              </h4>
+                              
+                              {attrLoading ? (
+                                <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)' }}>
+                                  <Loader2 size={16} className="spinning" /> Özellikler yükleniyor...
+                                </div>
+                              ) : requiredAttributes.length === 0 ? (
+                                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                                  Bu kategori için zorunlu özellik bulunmuyor.
+                                </div>
+                              ) : (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 16 }}>
+                                  {requiredAttributes.map(attr => (
+                                    <div key={attr.attribute.id}>
+                                      <label className="form-label">
+                                        {attr.attribute.name}
+                                        <span style={{ color: 'var(--danger)', marginLeft: 4 }}>*</span>
+                                      </label>
+                                      {attr.allowCustom ? (
+                                        <input 
+                                          type="text" 
+                                          className="form-input" 
+                                          placeholder={`${attr.attribute.name} girin veya {alan} yazın`}
+                                          value={attributeMappings[attr.attribute.id]?.valueName || ''}
+                                          onChange={e => setAttributeMappings(prev => ({
+                                            ...prev,
+                                            [attr.attribute.id]: { name: attr.attribute.name, valueName: e.target.value }
+                                          }))}
+                                        />
+                                      ) : (
+                                        <select 
+                                          className="form-select"
+                                          value={attributeMappings[attr.attribute.id]?.valueId || ''}
+                                          onChange={e => {
+                                            const valId = e.target.value;
+                                            const valObj = attr.attributeValues.find(v => v.id.toString() === valId);
+                                            setAttributeMappings(prev => ({
+                                              ...prev,
+                                              [attr.attribute.id]: { 
+                                                name: attr.attribute.name, 
+                                                valueId: valId, 
+                                                valueName: valObj ? valObj.name : '' 
+                                              }
+                                            }));
+                                          }}
+                                        >
+                                          <option value="">Seçiniz...</option>
+                                          {attr.attributeValues.map(v => (
+                                            <option key={v.id} value={v.id}>{v.name}</option>
+                                          ))}
+                                        </select>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              onClick={handleSaveMapping}
+                              disabled={!selectedLocal || !selectedTrendyol}
+                            >
+                              <Check size={14} /> Eşleştirmeyi JSON'a Ekle
+                            </button>
                           </div>
+                        </div>
+                        
+                        <div>
+                          <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>Mevcut Eşleştirme JSON</span>
+                            {Object.keys(categoryMappingConfig).length > 0 && (
+                              <button type="button" className="text-btn" onClick={() => {
+                                setCategoryMappingConfig({});
+                                setCategoryMappingStr('{}');
+                              }} style={{ color: 'var(--danger)', fontSize: 12 }}>
+                                Tümünü Temizle
+                              </button>
+                            )}
+                          </h4>
+                          <textarea
+                            className="form-textarea"
+                            style={{ height: 200, fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre' }}
+                            placeholder={`{\n  "Elektronik > Telefon": {\n    "marketplaceCategoryId": "384",\n    "marketplaceCategoryName": "Cep Telefonu",\n    "attributes": "{\\"456\\": {\\"valueId\\": \\"789\\"}}"\n  }\n}`}
+                            value={categoryMappingStr}
+                            onChange={e => {
+                              setCategoryMappingStr(e.target.value);
+                              try {
+                                if (!e.target.value) { setCategoryMappingConfig({}); return; }
+                                const parsed = JSON.parse(e.target.value);
+                                setCategoryMappingConfig(parsed);
+                              } catch(err) {}
+                            }}
+                          />
                         </div>
                       </div>
                     )}
