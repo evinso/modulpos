@@ -18,6 +18,7 @@ const xmlConverterRoutes = require('./routes/xmlConverter');
 const notificationRoutes = require('./routes/notifications');
 const adminRoutes = require('./routes/admin');
 const globalXmlRoutes = require('./routes/globalXml');
+const creditRoutes = require('./routes/credits');
 
 const { errorHandler } = require('./middleware/errorHandler');
 
@@ -79,6 +80,7 @@ app.use('/api/xml-converter', xmlConverterRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/global-xml', globalXmlRoutes);
+app.use('/api/credits', creditRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -299,7 +299,35 @@ model GlobalXmlProvider {
   priceMarkup     Float    @default(0)
   priceMarkupPct  Float    @default(0)
   barcodePrefix   String?
+  creditCost      Float    @default(0) // Kredi maliyeti (admin belirler)
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+model CreditBalance {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  balance   Float    @default(0)
+  updatedAt DateTime @updatedAt
+
+  transactions CreditTransaction[]
+}
+
+model CreditTransaction {
+  id          String   @id @default(uuid())
+  balanceId   String
+  amount      Float    // pozitif = yükleme, negatif = harcama
+  type        String   // topup, xml_import, xml_convert, admin_adjust
+  description String?
+  referenceId String?  // ilgili provider/source ID
+  createdAt   DateTime @default(now())
+
+  balance CreditBalance @relation(fields: [balanceId], references: [id], onDelete: Cascade)
+}
+
+model SystemSettings {
+  id    String @id @default(uuid())
+  key   String @unique
+  value String
 }

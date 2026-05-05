@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Search, Tag, AlertCircle, CheckCircle2, PackageSearch } from 'lucide-react';
+import { Download, Search, Tag, AlertCircle, CheckCircle2, PackageSearch, Wallet } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 import { useNavigate } from 'react-router-dom';
@@ -16,11 +16,26 @@ export default function GlobalXmlMarketPage() {
     priceMarkupPct: 0
   });
 
+  const [creditBalance, setCreditBalance] = useState(0);
+  const [defaultCost, setDefaultCost] = useState(0);
+
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchProviders();
+    fetchCredits();
   }, []);
+
+  const fetchCredits = async () => {
+    try {
+      const [balRes, priceRes] = await Promise.all([
+        api.get('/credits/balance'),
+        api.get('/credits/prices')
+      ]);
+      setCreditBalance(balRes.data.balance);
+      setDefaultCost(priceRes.data.xmlImportDefaultCost || 0);
+    } catch {}
+  };
 
   const fetchProviders = async () => {
     try {
@@ -57,11 +72,23 @@ export default function GlobalXmlMarketPage() {
 
   return (
     <div className="global-xml-market">
-      <div className="page-header" style={{ marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '8px' }}>Hazır XML Market</h2>
-        <p style={{ color: 'var(--text-secondary)' }}>
-          Kategori eşleştirmeleri ve tag ayarları önceden yapılmış tedarikçi XML'lerini tek tıkla mağazanıza ekleyin.
-        </p>
+      <div className="page-header" style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h2 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '8px' }}>Hazır XML Market</h2>
+          <p style={{ color: 'var(--text-secondary)' }}>
+            Kategori eşleştirmeleri ve tag ayarları önceden yapılmış tedarikçi XML'lerini tek tıkla mağazanıza ekleyin.
+          </p>
+        </div>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '8px 16px', borderRadius: 12,
+          background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)'
+        }}>
+          <Wallet size={18} style={{ color: 'var(--accent-primary)' }} />
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--accent-primary)' }}>
+            {creditBalance.toFixed(2)} Kredi
+          </span>
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: '24px' }}>
@@ -105,9 +132,20 @@ export default function GlobalXmlMarketPage() {
                 </div>
               </div>
               
-              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: '1.5', flex: 1, marginBottom: '20px' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: '1.5', flex: 1, marginBottom: '12px' }}>
                 {provider.description || "Bu XML kaynağı uzman ekibimiz tarafından sizin için önceden ayarlanmıştır."}
               </p>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <span style={{
+                  fontSize: 13, fontWeight: 600, color: 'var(--warning)',
+                  display: 'flex', alignItems: 'center', gap: 4
+                }}>
+                  <Wallet size={14} />
+                  {(provider.creditCost > 0 ? provider.creditCost : defaultCost)} Kredi
+                </span>
+                <span className="badge badge-success" style={{ marginTop: 0 }}>Hazır Eşleştirme</span>
+              </div>
               
               <button 
                 className="btn btn-primary" 
@@ -138,8 +176,19 @@ export default function GlobalXmlMarketPage() {
                 <CheckCircle2 color="var(--success)" size={20} style={{ flexShrink: 0, marginTop: '2px' }} />
                 <div>
                   <h4 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--success)', marginBottom: '4px' }}>Kategori Eşleştirmeleri Hazır!</h4>
-                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Bu XML'i eklediğinizde Trendyol eşleştirmeleri otomatik yapılacaktır. Aşağıdaki isteğe bağlı ayarları yapıp devam edebilirsiniz.</p>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Bu XML'i eklediğinizde Trendyol eşleştirmeleri otomatik yapılacaktır.</p>
                 </div>
+              </div>
+
+              <div style={{
+                background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)',
+                padding: '12px', borderRadius: 'var(--radius-sm)', marginBottom: '20px',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+              }}>
+                <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Bu işlem için kesilecek kredi:</span>
+                <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent-primary)' }}>
+                  {(selectedProvider.creditCost > 0 ? selectedProvider.creditCost : defaultCost)} Kredi
+                </span>
               </div>
 
               <div className="form-group">

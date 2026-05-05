@@ -162,6 +162,7 @@ export default function GlobalXmlAdminPage() {
     barcodePrefix: '',
     priceMarkup: '',
     priceMarkupPct: '',
+    creditCost: '',
     isActive: true
   });
 
@@ -305,6 +306,7 @@ export default function GlobalXmlAdminPage() {
         barcodePrefix: provider.barcodePrefix || '',
         priceMarkup: provider.priceMarkup || '',
         priceMarkupPct: provider.priceMarkupPct || '',
+        creditCost: provider.creditCost || '',
         isActive: provider.isActive
       });
       
@@ -336,6 +338,7 @@ export default function GlobalXmlAdminPage() {
         barcodePrefix: '',
         priceMarkup: '',
         priceMarkupPct: '',
+        creditCost: '',
         isActive: true
       });
       setMapping({});
@@ -579,6 +582,12 @@ export default function GlobalXmlAdminPage() {
                     <label className="form-label">Global Barkod Ön Eki</label>
                     <input type="text" className="form-input" value={formData.barcodePrefix} onChange={e => setFormData({...formData, barcodePrefix: e.target.value})} placeholder="Örn: GLOB-" />
                   </div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 24, maxWidth: 300 }}>
+                  <label className="form-label">💰 Kredi Maliyeti</label>
+                  <input type="number" step="0.5" min="0" className="form-input" value={formData.creditCost} onChange={e => setFormData({...formData, creditCost: e.target.value})} placeholder="Varsayılan: Sistem ayarı" />
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>Bu XML'i eklemek için kullanıcıdan kesilecek kredi. Boş bırakılırsa sistem varsayılanı kullanılır.</span>
                 </div>
 
                 <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>

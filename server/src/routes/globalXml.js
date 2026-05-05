@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
+const { deductCredits, getSetting } = require('./credits');
 
 const router = express.Router();
 
@@ -76,7 +77,7 @@ router.get('/trendyol-categories/:catId/attributes', auth, requireAdmin, async (
 // POST /api/global-xml - Admin creates a new Global XML provider
 router.post('/', auth, requireAdmin, async (req, res, next) => {
   try {
-    const { name, url, format, mappingConfig, categoryMappingConfig, description, logo, isActive, priceMarkup, priceMarkupPct, barcodePrefix } = req.body;
+    const { name, url, format, mappingConfig, categoryMappingConfig, description, logo, isActive, priceMarkup, priceMarkupPct, barcodePrefix, creditCost } = req.body;
     
     if (!name || !url) {
       return res.status(400).json({ error: 'İsim ve URL zorunludur' });
@@ -94,6 +95,7 @@ router.post('/', auth, requireAdmin, async (req, res, next) => {
         priceMarkup: priceMarkup ? parseFloat(priceMarkup) : 0,
         priceMarkupPct: priceMarkupPct ? parseFloat(priceMarkupPct) : 0,
         barcodePrefix: barcodePrefix || null,
+        creditCost: creditCost ? parseFloat(creditCost) : 0,
         isActive: isActive !== undefined ? isActive : true
       }
     });
@@ -107,7 +109,7 @@ router.post('/', auth, requireAdmin, async (req, res, next) => {
 // PUT /api/global-xml/:id - Admin updates a Global XML provider
 router.put('/:id', auth, requireAdmin, async (req, res, next) => {
   try {
-    const { name, url, format, mappingConfig, categoryMappingConfig, description, logo, isActive, priceMarkup, priceMarkupPct, barcodePrefix } = req.body;
+    const { name, url, format, mappingConfig, categoryMappingConfig, description, logo, isActive, priceMarkup, priceMarkupPct, barcodePrefix, creditCost } = req.body;
     
     const provider = await prisma.globalXmlProvider.update({
       where: { id: req.params.id },
@@ -122,6 +124,7 @@ router.put('/:id', auth, requireAdmin, async (req, res, next) => {
         priceMarkup: priceMarkup ? parseFloat(priceMarkup) : 0,
         priceMarkupPct: priceMarkupPct ? parseFloat(priceMarkupPct) : 0,
         barcodePrefix: barcodePrefix || null,
+        creditCost: creditCost ? parseFloat(creditCost) : 0,
         isActive
       }
     });
@@ -165,6 +168,24 @@ router.post('/:id/import', auth, async (req, res, next) => {
 
     if (!provider || !provider.isActive) {
       return res.status(404).json({ error: 'Aktif Global XML bulunamadı' });
+    }
+
+    // Kredi kontrolü
+    const defaultCost = await getSetting('credit_xml_import_default', '5');
+    const creditCost = provider.creditCost > 0 ? provider.creditCost : parseFloat(defaultCost);
+    
+    if (creditCost > 0) {
+      try {
+        await deductCredits(
+          req.user.id,
+          creditCost,
+          'xml_import',
+          `"${provider.name}" XML kaynağı eklendi`,
+          provider.id
+        );
+      } catch (creditErr) {
+        return res.status(402).json({ error: creditErr.message });
+      }
     }
 
     // Create a new XmlSource for the user based on the global one

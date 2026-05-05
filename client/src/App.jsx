@@ -16,6 +16,8 @@ import TrendyolSendPage from './pages/marketplaces/TrendyolSendPage';
 import OrdersPage from './pages/orders/OrdersPage';
 import PricingPage from './pages/pricing/PricingPage';
 import SuperAdminPage from './pages/admin/SuperAdminPage';
+import CreditsPage from './pages/credits/CreditsPage';
+import CreditAdminPage from './pages/admin/CreditAdminPage';
 import './index.css';
 
 import LandingPage from './pages/landing/LandingPage';
@@ -54,7 +56,9 @@ function App() {
           <Route path="/trendyol-send" element={<TrendyolSendPage />} />
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/credits" element={<CreditsPage />} />
           <Route path="/superadmin" element={<AdminRoute><SuperAdminPage /></AdminRoute>} />
+          <Route path="/credit-admin" element={<AdminRoute><CreditAdminPage /></AdminRoute>} />
         </Route>
       </Routes>
     </BrowserRouter>

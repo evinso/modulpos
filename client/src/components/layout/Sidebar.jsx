@@ -1,5 +1,5 @@
 import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send, ArrowLeftRight, Shield, Sparkles, Globe } from 'lucide-react';
+import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send, ArrowLeftRight, Shield, Sparkles, Globe, Wallet, CreditCard } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 
 const navItems = [
@@ -18,6 +18,7 @@ const navItems = [
   ]},
   { section: 'Yönetim', items: [
     { to: '/pricing', icon: Tags, label: 'Fiyatlandırma' },
+    { to: '/credits', icon: Wallet, label: 'Kredi & Bakiye' },
   ]},
 ];
 
@@ -64,6 +65,13 @@ export default function Sidebar() {
             >
               <Globe size={18} className="icon" />
               <span>Global XML (Admin)</span>
+            </NavLink>
+            <NavLink
+              to="/credit-admin"
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+            >
+              <CreditCard size={18} className="icon" />
+              <span>Kredi Yönetimi</span>
             </NavLink>
           </div>
         )}

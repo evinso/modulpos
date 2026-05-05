@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const { XMLParser, XMLBuilder } = require('fast-xml-parser');
 const { auth } = require('../middleware/auth');
+const { deductCredits, getSetting } = require('./credits');
 
 const router = express.Router();
 
@@ -222,6 +223,21 @@ router.post('/preview', auth, async (req, res) => {
   if (!url) return res.status(400).json({ error: 'URL zorunludur' });
 
   try {
+    // Kredi kontrolü
+    const convertCost = parseFloat(await getSetting('credit_xml_convert', '1'));
+    if (convertCost > 0) {
+      try {
+        await deductCredits(
+          req.user.id,
+          convertCost,
+          'xml_convert',
+          `XML Dönüştürme: ${url.substring(0, 60)}...`
+        );
+      } catch (creditErr) {
+        return res.status(402).json({ error: creditErr.message });
+      }
+    }
+
     const { xml, count } = await convertXml(url);
 
     // Parse back to get sample
