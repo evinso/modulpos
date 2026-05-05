@@ -190,11 +190,15 @@ export default function GlobalXmlAdminPage() {
   }, []);
 
   const fetchTrendyolCategories = async () => {
+    setCatLoading(true);
     try {
       const res = await api.get('/global-xml/trendyol-categories');
       setTrendyolCategories(res.data?.categories || res.data || []);
     } catch (err) {
       console.error('Trendyol categories load error:', err);
+      toast.error('Trendyol kategorileri yüklenemedi: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setCatLoading(false);
     }
   };
 
@@ -690,8 +694,15 @@ export default function GlobalXmlAdminPage() {
                                   placeholder="Trendyol'da kategori ara..."
                                   value={catSearch}
                                   onChange={e => { setCatSearch(e.target.value); setSelectedTrendyol(null); }}
+                                  disabled={catLoading}
                                 />
                               </div>
+
+                              {catLoading && (
+                                <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <Loader2 size={14} className="spinning" /> Kategoriler yükleniyor...
+                                </div>
+                              )}
 
                               {selectedTrendyol && (
                                 <div style={{

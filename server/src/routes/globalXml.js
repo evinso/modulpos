@@ -40,7 +40,8 @@ router.get('/all', auth, requireAdmin, async (req, res, next) => {
 // Helper to get a working Trendyol connection for admin operations
 const getTrendyolConnection = async () => {
   const connection = await prisma.marketplaceConnection.findFirst({
-    where: { marketplaceType: 'trendyol', status: 'active' }
+    where: { marketplaceType: 'trendyol' },
+    orderBy: { createdAt: 'desc' }
   });
   if (!connection) throw new Error('Sistemde aktif bir Trendyol bağlantısı bulunamadı. Lütfen önce bir mağaza üzerinden Trendyol bağlantısı kurun.');
   return connection;
