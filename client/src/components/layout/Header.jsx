@@ -90,6 +90,33 @@ export default function Header() {
     return `${diffDays} gün önce`;
   };
 
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    if (showUserMenu && user?.subscriptions?.[0]) {
+      const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+      return () => clearInterval(timer);
+    }
+  }, [showUserMenu, user]);
+
+  const getRemainingTime = (endDateStr) => {
+    const diff = new Date(endDateStr) - new Date();
+    if (diff <= 0) return 'Süresi Bitti';
+    
+    const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+    const m = Math.floor((diff / 1000 / 60) % 60);
+    const s = Math.floor((diff / 1000) % 60);
+
+    let res = [];
+    if (d > 0) res.push(`${d}g`);
+    if (d > 0 || h > 0) res.push(`${h}s`);
+    if (d > 0 || h > 0 || m > 0) res.push(`${m}d`);
+    res.push(`${s}sn`);
+
+    return res.join(' ') + ' kaldı';
+  };
+
   return (
     <header className="header">
       <div className="header-left">
@@ -169,7 +196,7 @@ export default function Header() {
                   <div className="user-email">{user?.email || 'user@modulpos.com'}</div>
                   {user?.subscriptions?.[0] && (
                     <div className={`user-trial-badge ${new Date(user.subscriptions[0].endDate) < new Date() ? 'expired' : ''}`}>
-                      {Math.max(0, Math.ceil((new Date(user.subscriptions[0].endDate) - new Date()) / (1000 * 60 * 60 * 24)))} Gün Kaldı
+                      {getRemainingTime(user.subscriptions[0].endDate)}
                     </div>
                   )}
                 </div>

@@ -133,6 +133,23 @@ router.post('/users/:id/toggle-status', auth, isAdmin, async (req, res) => {
 });
 
 /**
+ * DELETE /api/admin/users/:id
+ * Delete a user
+ */
+router.delete('/users/:id', auth, isAdmin, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+
+    await prisma.user.delete({
+      where: { id: req.params.id }
+    });
+    res.json({ message: 'Kullanıcı başarıyla silindi' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+/**
  * GET /api/admin/stores
  * List all stores with counts
  */

@@ -60,6 +60,20 @@ export default function SuperAdminPage() {
     }
   };
 
+  const handleDeleteUser = async (userId) => {
+    if (!window.confirm('Bu kullanıcıyı ve ona ait tüm verileri silmek istediğinize emin misiniz? Bu işlem Geri Alınamaz!')) return;
+    setActionLoading(userId);
+    try {
+      await api.delete(`/admin/users/${userId}`);
+      toast.success('Kullanıcı başarıyla silindi');
+      fetchData();
+    } catch (error) {
+      toast.error('Kullanıcı silinirken bir hata oluştu');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleToggleStatus = async (userId) => {
     setActionLoading(userId);
     try {
@@ -266,11 +280,11 @@ export default function SuperAdminPage() {
                     </td>
                     <td>
                       <button 
-                        className={`badge ${user.isActive ? 'badge-success' : 'badge-danger'} clickable`}
+                        className={`badge ${!isExpired && user.isActive ? 'badge-success' : 'badge-danger'} clickable`}
                         onClick={() => handleToggleStatus(user.id)}
                         disabled={actionLoading === user.id}
                       >
-                        {user.isActive ? 'Aktif' : 'Pasif'}
+                        {isExpired ? 'Pasif (Süresi Bitti)' : (user.isActive ? 'Aktif' : 'Pasif')}
                       </button>
                     </td>
                     <td>
@@ -283,6 +297,14 @@ export default function SuperAdminPage() {
                           disabled={actionLoading === user.id}
                         >
                           <Calendar size={14} style={{ marginRight: 4 }} /> Aktivasyon
+                        </button>
+                        <button 
+                          className="header-icon-btn text-danger"
+                          title="Kullanıcıyı Sil"
+                          onClick={() => handleDeleteUser(user.id)}
+                          disabled={actionLoading === user.id}
+                        >
+                          <Trash2 size={16} />
                         </button>
                       </div>
                     </td>
