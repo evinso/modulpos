@@ -240,6 +240,23 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
       orderBy: { priority: 'asc' }
     });
 
+    // Fetch Global XML Provider category mappings as fallback
+    const globalCatMap = {};
+    const distinctXmlSourceIds = [...new Set(products.map(p => p.xmlSourceId).filter(Boolean))];
+    if (distinctXmlSourceIds.length > 0) {
+      const xmlSources = await prisma.xmlSource.findMany({
+        where: { id: { in: distinctXmlSourceIds }, globalProviderId: { not: null } },
+        include: { globalProvider: true }
+      });
+      for (const src of xmlSources) {
+        if (src.globalProvider && src.globalProvider.categoryMappingConfig) {
+          try {
+            globalCatMap[src.id] = JSON.parse(src.globalProvider.categoryMappingConfig);
+          } catch(e) {}
+        }
+      }
+    }
+
     const pricingLookup = {};
     for (const r of pricingRules) {
       if (!r.conditions) continue;
@@ -282,7 +299,11 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     const formatted = [];
     const errors = [];
     for (const p of products) {
-      const mapping = p.category ? catMap[p.category] : null;
+      let mapping = p.category ? catMap[p.category] : null;
+      if (!mapping && p.xmlSourceId && globalCatMap[p.xmlSourceId] && p.category) {
+        mapping = globalCatMap[p.xmlSourceId][p.category];
+      }
+      
       if (!mapping) {
         errors.push(`${p.sku}: Kategori eşleştirmesi yok (${p.category || 'Kategori boş'})`);
         continue;

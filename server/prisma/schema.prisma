@@ -293,6 +293,7 @@ model GlobalXmlProvider {
   url             String
   format          String   @default("xml")
   mappingConfig   String?  // pre-mapped tags JSON
+  categoryMappingConfig String? // JSON of global category mappings
   description     String?
   logo            String?
   priceMarkup     Float    @default(0)

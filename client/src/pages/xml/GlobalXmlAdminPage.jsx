@@ -167,6 +167,8 @@ export default function GlobalXmlAdminPage() {
 
   // Mapping state
   const [mapping, setMapping] = useState({});
+  const [categoryMappingConfig, setCategoryMappingConfig] = useState({});
+  const [categoryMappingStr, setCategoryMappingStr] = useState('{}');
   const [analyzing, setAnalyzing] = useState(false);
   const [xmlAnalysis, setXmlAnalysis] = useState(null);
   const [previewData, setPreviewData] = useState(null);
@@ -206,6 +208,18 @@ export default function GlobalXmlAdminPage() {
         try { initialMapping = JSON.parse(provider.mappingConfig); } catch(e) {}
       }
       setMapping(initialMapping);
+      
+      let initialCatMapping = {};
+      let initialCatStr = '{}';
+      if (provider.categoryMappingConfig) {
+        try { 
+          initialCatMapping = JSON.parse(provider.categoryMappingConfig); 
+          initialCatStr = JSON.stringify(initialCatMapping, null, 2);
+        } catch(e) {}
+      }
+      setCategoryMappingConfig(initialCatMapping);
+      setCategoryMappingStr(initialCatStr);
+      
       setEditingProvider(provider);
     } else {
       setFormData({
@@ -220,6 +234,8 @@ export default function GlobalXmlAdminPage() {
         isActive: true
       });
       setMapping({});
+      setCategoryMappingConfig({});
+      setCategoryMappingStr('{}');
       setEditingProvider(null);
     }
     setXmlAnalysis(null);
@@ -279,7 +295,22 @@ export default function GlobalXmlAdminPage() {
     setSaving(true);
     
     try {
-      const payload = { ...formData, mappingConfig: mapping };
+      let parsedCatConfig = {};
+      try {
+        if (categoryMappingStr && categoryMappingStr.trim() !== '' && categoryMappingStr !== '{}') {
+          parsedCatConfig = JSON.parse(categoryMappingStr);
+        }
+      } catch (err) {
+        setSaving(false);
+        toast.error('Kategori eşleştirme JSON formatı hatalı. Lütfen geçerli bir JSON girin.');
+        return;
+      }
+
+      const payload = { 
+        ...formData, 
+        mappingConfig: mapping,
+        categoryMappingConfig: Object.keys(parsedCatConfig).length > 0 ? parsedCatConfig : null
+      };
 
       if (editingProvider) {
         await api.put(`/global-xml/${editingProvider.id}`, payload);
@@ -505,6 +536,41 @@ export default function GlobalXmlAdminPage() {
                       <button type="button" className="btn btn-secondary" onClick={handlePreview} style={{ marginTop: '16px' }}>
                         <Eye size={16} /> Eşleştirmeyi Önizle
                       </button>
+                    )}
+
+                    {xmlAnalysis.categories && xmlAnalysis.categories.length > 0 && (
+                      <div style={{ marginTop: 32, borderTop: '1px solid var(--border-color)', paddingTop: 24 }}>
+                        <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Kategori Eşleştirmesi (Gelişmiş JSON)</h3>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>
+                          Bu XML içindeki kategorileri tüm kullanıcılar için otomatik eşleştirmek istiyorsanız, bir test mağazasında yaptığınız eşleştirme JSON'unu kopyalayıp buraya yapıştırın.
+                        </p>
+                        
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 24 }}>
+                          <div>
+                            <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>XML Kategorileri ({xmlAnalysis.categories.length})</h4>
+                            <div style={{ 
+                              background: 'var(--bg-secondary)', padding: 12, borderRadius: 'var(--radius-sm)', 
+                              maxHeight: 300, overflowY: 'auto', border: '1px solid var(--border-color)' 
+                            }}>
+                              {xmlAnalysis.categories.map((cat, i) => (
+                                <div key={i} style={{ fontSize: 12, padding: '4px 0', borderBottom: i < xmlAnalysis.categories.length - 1 ? '1px solid var(--border-color)' : 'none' }}>
+                                  {cat}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Eşleştirme JSON</h4>
+                            <textarea
+                              className="form-textarea"
+                              style={{ height: 300, fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre' }}
+                              placeholder={`{\n  "Elektronik > Telefon": {\n    "marketplaceCategoryId": "384",\n    "marketplaceCategoryName": "Cep Telefonu",\n    "attributes": "{\\"456\\": {\\"valueId\\": \\"789\\"}}"\n  }\n}`}
+                              value={categoryMappingStr}
+                              onChange={e => setCategoryMappingStr(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      </div>
                     )}
                   </>
                 ) : (

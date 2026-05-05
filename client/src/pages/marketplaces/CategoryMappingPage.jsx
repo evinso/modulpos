@@ -200,6 +200,9 @@ export default function CategoryMappingPage() {
     );
   }
 
+  const selectedXmlSource = xmlSources.find(s => s.id === filterXmlSource);
+  const isGlobalXml = selectedXmlSource && selectedXmlSource.globalProviderId;
+
   return (
     <div>
       <div className="page-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -233,13 +236,29 @@ export default function CategoryMappingPage() {
       </div>
 
       {/* New Mapping Form */}
-      <div className="card" style={{ marginBottom: 20, padding: 24 }}>
-        <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Link2 size={18} style={{ color: 'var(--accent-primary)' }} />
-          Yeni Eşleştirme
-        </h3>
+      {(() => {
+        if (isGlobalXml) {
+          return (
+            <div className="card" style={{ marginBottom: 20, padding: 32, textAlign: 'center', background: 'rgba(59,130,246,0.03)' }}>
+              <FolderTree size={48} style={{ color: 'var(--accent-primary)', marginBottom: 16, opacity: 0.5, display: 'inline-block' }} />
+              <h3 style={{ fontSize: 18, fontWeight: 600, color: 'var(--accent-primary)', marginBottom: 8 }}>
+                ✨ Ayarlar Tedarikçi Havuzundan Eklendi
+              </h3>
+              <p style={{ color: 'var(--text-secondary)', maxWidth: 500, margin: '0 auto' }}>
+                Bu XML kaynağı global havuzdan eklendiği için kategori eşleştirmeleri sistem yöneticisi tarafından merkezi olarak yönetilmektedir. Burada ek bir işlem yapmanıza gerek yoktur.
+              </p>
+            </div>
+          );
+        }
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 40px 1fr', gap: 16, alignItems: 'start' }}>
+        return (
+          <div className="card" style={{ marginBottom: 20, padding: 24 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Link2 size={18} style={{ color: 'var(--accent-primary)' }} />
+              Yeni Eşleştirme
+            </h3>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 40px 1fr', gap: 16, alignItems: 'start' }}>
           {/* Local Category */}
           <div>
             <label className="form-label">Yerel Kategori (XML)</label>
@@ -409,10 +428,14 @@ export default function CategoryMappingPage() {
           </button>
         </div>
       </div>
+        );
+      })()}
 
       {/* Existing Mappings */}
-      <div className="table-container">
-        <div className="table-header">
+      {!isGlobalXml && (
+        <>
+          <div className="table-container">
+          <div className="table-header">
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <FolderTree size={18} style={{ color: 'var(--accent-secondary)' }} />
             Eşleştirmeler ({mappings.length})
@@ -502,6 +525,8 @@ export default function CategoryMappingPage() {
           </div>
         );
       })()}
+        </>
+      )}
     </div>
   );
 }

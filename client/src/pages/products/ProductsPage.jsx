@@ -501,18 +501,35 @@ export default function ProductsPage() {
                   const stockChanged = xmlD.stock !== p.stock;
                   return (
                     <tr key={p.id}>
-                      <td style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-muted)' }}>{xmlD.sku || p.sku}</td>
-                      <td style={{ fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{xmlD.title || p.title}</td>
-                      <td style={{ fontWeight: 600 }}>₺{(xmlD.price || 0).toLocaleString('tr-TR')}</td>
-                      <td>{xmlD.stock ?? p.stock}</td>
-                      <td>{xmlD.brand || p.brand || '-'}</td>
-                      <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{xmlD.category || p.category || '-'}</td>
-                      <td style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-muted)' }}>{xmlD.barcode || p.barcode || '-'}</td>
-                      <td>
-                        <button className="btn btn-secondary btn-sm" onClick={() => setDetailProduct(p)}>
-                          <Eye size={14} /> Fark
-                        </button>
-                      </td>
+                      {p.xmlSource?.globalProviderId ? (
+                        <>
+                          <td style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-muted)' }}>{p.sku}</td>
+                          <td style={{ fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</td>
+                          <td colSpan="5" style={{ textAlign: 'center', color: 'var(--accent-primary)', fontSize: 13, fontStyle: 'italic', padding: '12px' }}>
+                            ✨ Tedarikçi Havuzundan Eklendi (Orijinal veriler gizlidir)
+                          </td>
+                          <td>
+                            <button className="btn btn-secondary btn-sm" disabled title="Bu özellik havuz ürünlerinde kullanılamaz">
+                              <Eye size={14} /> Fark
+                            </button>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-muted)' }}>{xmlD.sku || p.sku}</td>
+                          <td style={{ fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{xmlD.title || p.title}</td>
+                          <td style={{ fontWeight: 600 }}>₺{(xmlD.price || 0).toLocaleString('tr-TR')}</td>
+                          <td>{xmlD.stock ?? p.stock}</td>
+                          <td>{xmlD.brand || p.brand || '-'}</td>
+                          <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{xmlD.category || p.category || '-'}</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-muted)' }}>{xmlD.barcode || p.barcode || '-'}</td>
+                          <td>
+                            <button className="btn btn-secondary btn-sm" onClick={() => setDetailProduct(p)}>
+                              <Eye size={14} /> Fark
+                            </button>
+                          </td>
+                        </>
+                      )}
                     </tr>
                   );
                 })}

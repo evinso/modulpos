@@ -48,13 +48,28 @@ async function analyzeXml(url) {
     return row;
   });
 
+  // Extract all unique categories (try common paths if not specified)
+  const categoryPaths = ['Category', 'category', 'Kategori', 'kategori', 'CategoryName', 'KategoriAdi', 'product_type'];
+  const uniqueCategories = new Set();
+  
+  for (const p of rawProducts) {
+    for (const cp of categoryPaths) {
+      const catVal = getNestedValue(p, cp);
+      if (catVal && typeof catVal === 'string') {
+        uniqueCategories.add(catVal.trim());
+        break;
+      }
+    }
+  }
+
   return {
     success: true,
     totalProducts: rawProducts.length,
     productPath,
     fields,
     sampleData,
-    sampleProduct
+    sampleProduct,
+    categories: Array.from(uniqueCategories).slice(0, 500) // max 500 categories
   };
 }
 
