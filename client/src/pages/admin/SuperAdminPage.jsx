@@ -360,11 +360,8 @@ export default function SuperAdminPage() {
                   value={subPlan}
                   onChange={e => setSubPlan(e.target.value)}
                 >
-                  <option value="trial">Trial (Deneme)</option>
-                  <option value="starter">Starter</option>
-                  <option value="growth">Growth</option>
+                  <option value="trial">Deneme Süresi</option>
                   <option value="premium">Premium</option>
-                  <option value="enterprise">Enterprise</option>
                 </select>
               </div>
 
