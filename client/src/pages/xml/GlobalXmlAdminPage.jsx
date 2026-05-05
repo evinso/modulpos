@@ -159,6 +159,9 @@ export default function GlobalXmlAdminPage() {
     format: 'xml',
     description: '',
     logo: '',
+    barcodePrefix: '',
+    priceMarkup: '',
+    priceMarkupPct: '',
     isActive: true
   });
 
@@ -192,6 +195,9 @@ export default function GlobalXmlAdminPage() {
         format: provider.format,
         description: provider.description || '',
         logo: provider.logo || '',
+        barcodePrefix: provider.barcodePrefix || '',
+        priceMarkup: provider.priceMarkup || '',
+        priceMarkupPct: provider.priceMarkupPct || '',
         isActive: provider.isActive
       });
       
@@ -208,6 +214,9 @@ export default function GlobalXmlAdminPage() {
         format: 'xml',
         description: '',
         logo: '',
+        barcodePrefix: '',
+        priceMarkup: '',
+        priceMarkupPct: '',
         isActive: true
       });
       setMapping({});
@@ -412,6 +421,28 @@ export default function GlobalXmlAdminPage() {
                 <div className="form-group" style={{ marginBottom: '24px' }}>
                   <label className="form-label">Açıklama (Kullanıcılara Gösterilecek)</label>
                   <textarea className="form-textarea" style={{ minHeight: '60px' }} value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="XML kaynağı hakkında bilgi..." />
+                </div>
+
+                <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '24px 0' }} />
+                
+                <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Gizli Fiyatlandırma ve Barkod Ayarları</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '16px' }}>
+                  Bu ayarlar kullanıcıdan tamamen gizlenir. Kullanıcı ürünleri çektiğinde alış fiyatları ve barkodlar bu ayarlara göre değişmiş olarak gelir.
+                </p>
+
+                <div className="grid grid-3" style={{ marginBottom: '24px', gap: '16px' }}>
+                  <div className="form-group">
+                    <label className="form-label">Sabit Kâr Ekle (TL)</label>
+                    <input type="number" step="0.01" className="form-input" value={formData.priceMarkup} onChange={e => setFormData({...formData, priceMarkup: e.target.value})} placeholder="Örn: 10" />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Yüzdelik Kâr Ekle (%)</label>
+                    <input type="number" step="0.01" className="form-input" value={formData.priceMarkupPct} onChange={e => setFormData({...formData, priceMarkupPct: e.target.value})} placeholder="Örn: 20" />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Global Barkod Ön Eki</label>
+                    <input type="text" className="form-input" value={formData.barcodePrefix} onChange={e => setFormData({...formData, barcodePrefix: e.target.value})} placeholder="Örn: GLOB-" />
+                  </div>
                 </div>
 
                 <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>

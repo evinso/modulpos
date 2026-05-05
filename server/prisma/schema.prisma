@@ -67,6 +67,9 @@ model XmlSource {
   priceMarkup     Float    @default(0) // Fixed amount to add to XML price
   priceMarkupPct  Float    @default(0) // Percentage to add to XML price
   defaultVatRate  Int      @default(10) // KDV oranı: 0, 1, 10, 20
+  globalPriceMarkup    Float    @default(0) // Hidden global markup
+  globalPriceMarkupPct Float    @default(0) // Hidden global markup percentage
+  globalBarcodePrefix  String?  // Hidden global barcode prefix
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -291,6 +294,9 @@ model GlobalXmlProvider {
   mappingConfig   String?  // pre-mapped tags JSON
   description     String?
   logo            String?
+  priceMarkup     Float    @default(0)
+  priceMarkupPct  Float    @default(0)
+  barcodePrefix   String?
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

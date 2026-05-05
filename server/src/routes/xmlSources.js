@@ -159,7 +159,18 @@ router.post('/:id/sync', async (req, res, next) => {
     for (const p of products) {
       try {
         const sku = p.sku || p.barcode || `xml-${Date.now()}-${Math.random()}`;
-        const xmlPrice = p.price || 0;
+        let rawXmlPrice = p.price || 0;
+        
+        // 1. Önce Admin'in Global XML üzerinden belirlediği GİZLİ markupları uygula
+        // Kullanıcı bu fiyatı "orijinal alış fiyatı" (xmlPrice) olarak görecek
+        if (xmlSource.globalPriceMarkupPct) {
+          rawXmlPrice += rawXmlPrice * (xmlSource.globalPriceMarkupPct / 100);
+        }
+        if (xmlSource.globalPriceMarkup) {
+          rawXmlPrice += xmlSource.globalPriceMarkup;
+        }
+
+        const xmlPrice = rawXmlPrice;
 
         // Store raw XML data as-is (never modify this)
         const rawXmlData = JSON.stringify({
@@ -169,13 +180,17 @@ router.post('/:id/sync', async (req, res, next) => {
         });
 
         // The base product price is just the XML price.
-        // Marketplace-specific pricing will be applied during sending.
         let finalPrice = xmlPrice;
 
-        // Apply barcode prefix
+        // Apply global barcode prefix first
+        const baseBarcode = xmlSource.globalBarcodePrefix 
+          ? `${xmlSource.globalBarcodePrefix}${p.barcode || sku}` 
+          : (p.barcode || sku);
+
+        // Apply user's barcode prefix
         const finalBarcode = xmlSource.barcodePrefix
-          ? `${xmlSource.barcodePrefix}${p.barcode || sku}`
-          : p.barcode;
+          ? `${xmlSource.barcodePrefix}${baseBarcode}`
+          : baseBarcode;
 
         const existing = await prisma.product.findFirst({ where: { storeId: store.id, xmlSourceId: xmlSource.id, sku } });
         if (existing) {

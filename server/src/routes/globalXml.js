@@ -40,7 +40,7 @@ router.get('/all', auth, requireAdmin, async (req, res, next) => {
 // POST /api/global-xml - Admin creates a new Global XML provider
 router.post('/', auth, requireAdmin, async (req, res, next) => {
   try {
-    const { name, url, format, mappingConfig, description, logo, isActive } = req.body;
+    const { name, url, format, mappingConfig, description, logo, isActive, priceMarkup, priceMarkupPct, barcodePrefix } = req.body;
     
     if (!name || !url) {
       return res.status(400).json({ error: 'İsim ve URL zorunludur' });
@@ -54,6 +54,9 @@ router.post('/', auth, requireAdmin, async (req, res, next) => {
         mappingConfig: mappingConfig ? JSON.stringify(mappingConfig) : null,
         description,
         logo,
+        priceMarkup: priceMarkup ? parseFloat(priceMarkup) : 0,
+        priceMarkupPct: priceMarkupPct ? parseFloat(priceMarkupPct) : 0,
+        barcodePrefix: barcodePrefix || null,
         isActive: isActive !== undefined ? isActive : true
       }
     });
@@ -67,7 +70,7 @@ router.post('/', auth, requireAdmin, async (req, res, next) => {
 // PUT /api/global-xml/:id - Admin updates a Global XML provider
 router.put('/:id', auth, requireAdmin, async (req, res, next) => {
   try {
-    const { name, url, format, mappingConfig, description, logo, isActive } = req.body;
+    const { name, url, format, mappingConfig, description, logo, isActive, priceMarkup, priceMarkupPct, barcodePrefix } = req.body;
     
     const provider = await prisma.globalXmlProvider.update({
       where: { id: req.params.id },
@@ -78,6 +81,9 @@ router.put('/:id', auth, requireAdmin, async (req, res, next) => {
         mappingConfig: mappingConfig ? JSON.stringify(mappingConfig) : null,
         description,
         logo,
+        priceMarkup: priceMarkup ? parseFloat(priceMarkup) : 0,
+        priceMarkupPct: priceMarkupPct ? parseFloat(priceMarkupPct) : 0,
+        barcodePrefix: barcodePrefix || null,
         isActive
       }
     });
@@ -134,6 +140,10 @@ router.post('/:id/import', auth, async (req, res, next) => {
         barcodePrefix: barcodePrefix || null,
         priceMarkup: priceMarkup ? parseFloat(priceMarkup) : 0,
         priceMarkupPct: priceMarkupPct ? parseFloat(priceMarkupPct) : 0,
+        // Gizli global markupları aktar
+        globalPriceMarkup: provider.priceMarkup,
+        globalPriceMarkupPct: provider.priceMarkupPct,
+        globalBarcodePrefix: provider.barcodePrefix,
         status: 'active'
       }
     });
