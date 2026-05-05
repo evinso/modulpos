@@ -61,7 +61,9 @@ router.get('/users', auth, isAdmin, async (req, res) => {
             }
           }
         },
-        subscriptions: true
+        subscriptions: {
+          orderBy: { createdAt: 'desc' }
+        }
       },
       orderBy: { createdAt: 'desc' }
     });
