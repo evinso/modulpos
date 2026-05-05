@@ -152,6 +152,44 @@ export default function CreditAdminPage() {
             </span>
           </div>
 
+          <h3 style={{ fontSize: 16, fontWeight: 600, marginTop: 40, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8, borderTop: '1px solid var(--border-color)', paddingTop: 20 }}>
+            <Wallet size={18} style={{ color: 'var(--accent-primary)' }} />
+            PayTR API Ayarları (Kredi Yükleme)
+          </h3>
+
+          <div className="form-group" style={{ marginBottom: 20 }}>
+            <label className="form-label">Mağaza Numarası (Merchant ID)</label>
+            <input
+              type="text"
+              className="form-input"
+              value={settings.paytr_merchant_id || ''}
+              onChange={e => setSettings({ ...settings, paytr_merchant_id: e.target.value })}
+              placeholder="XXXXXX"
+            />
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 20 }}>
+            <label className="form-label">Mağaza Parolası (Merchant Key)</label>
+            <input
+              type="password"
+              className="form-input"
+              value={settings.paytr_merchant_key || ''}
+              onChange={e => setSettings({ ...settings, paytr_merchant_key: e.target.value })}
+              placeholder="XXXXXXXXXXXXXXXX"
+            />
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 20 }}>
+            <label className="form-label">Mağaza Gizli Anahtarı (Merchant Salt)</label>
+            <input
+              type="password"
+              className="form-input"
+              value={settings.paytr_merchant_salt || ''}
+              onChange={e => setSettings({ ...settings, paytr_merchant_salt: e.target.value })}
+              placeholder="XXXXXXXXXXXXXXXX"
+            />
+          </div>
+
           <button className="btn btn-primary" onClick={handleSaveSettings} disabled={saving}>
             <Save size={16} /> {saving ? 'Kaydediliyor...' : 'Ayarları Kaydet'}
           </button>

@@ -6,11 +6,6 @@ const { getOrCreateBalance } = require('./credits');
 
 const router = express.Router();
 
-// Get credentials from env variables
-const MERCHANT_ID = process.env.PAYTR_MERCHANT_ID || 'XXXXXX';
-const MERCHANT_KEY = process.env.PAYTR_MERCHANT_KEY || 'XXXXXXXXXXXXXXXX';
-const MERCHANT_SALT = process.env.PAYTR_MERCHANT_SALT || 'XXXXXXXXXXXXXXXX';
-
 /**
  * Helper to generate PayTR token
  */
@@ -22,6 +17,15 @@ router.post('/paytr-token', auth, async (req, res, next) => {
       return res.status(400).json({ error: 'Minimum yükleme tutarı 10 TL/Kredi olmalıdır.' });
     }
 
+    const { getSetting } = require('./credits');
+    const MERCHANT_ID = await getSetting('paytr_merchant_id', process.env.PAYTR_MERCHANT_ID || 'XXXXXX');
+    const MERCHANT_KEY = await getSetting('paytr_merchant_key', process.env.PAYTR_MERCHANT_KEY || 'XXXXXXXXXXXXXXXX');
+    const MERCHANT_SALT = await getSetting('paytr_merchant_salt', process.env.PAYTR_MERCHANT_SALT || 'XXXXXXXXXXXXXXXX');
+
+    if (MERCHANT_ID === 'XXXXXX') {
+      return res.status(500).json({ error: 'PayTR entegrasyonu yapılandırılmamış (Sistem Yönetimi üzerinden API ayarlarını yapınız).' });
+    }
+
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı.' });
 
@@ -29,12 +33,6 @@ router.post('/paytr-token', auth, async (req, res, next) => {
     
     // Create a unique order ID that includes userId so we can parse it in webhook
     const merchant_oid = `MP_${req.user.id}_${Date.now()}`;
-    
-    // Save pending transaction to track what we're selling
-    // We can use CreditTransaction with status pending, or just put it in a separate table
-    // Since we don't have a pending status in CreditTransaction, we'll store the intent in SystemSettings temporarily or just trust the webhook amount.
-    // Actually, best practice is to pass the credits in a custom field or derive from payment_amount.
-    // We'll give 1 Kredi for 1 TL.
     
     const email = user.email;
     const payment_amount = Math.round(parseFloat(amount) * 100); // in kurus
@@ -116,6 +114,10 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
   try {
     const { merchant_oid, status, total_amount, hash, merchant_id, failed_reason_code, failed_reason_msg } = req.body;
     
+    const { getSetting } = require('./credits');
+    const MERCHANT_KEY = await getSetting('paytr_merchant_key', process.env.PAYTR_MERCHANT_KEY || 'XXXXXXXXXXXXXXXX');
+    const MERCHANT_SALT = await getSetting('paytr_merchant_salt', process.env.PAYTR_MERCHANT_SALT || 'XXXXXXXXXXXXXXXX');
+
     // Validate hash
     const hash_str = merchant_oid + MERCHANT_SALT + status + total_amount;
     const computed_hash = crypto.createHmac('sha256', MERCHANT_KEY).update(hash_str).digest('base64');
