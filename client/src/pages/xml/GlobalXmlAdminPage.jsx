@@ -437,12 +437,18 @@ export default function GlobalXmlAdminPage() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Bu global XML sağlayıcısını silmek istediğinize emin misiniz?')) return;
-    
+  const [deleteModalProvider, setDeleteModalProvider] = useState(null);
+
+  const handleDelete = (provider) => {
+    setDeleteModalProvider(provider);
+  };
+
+  const confirmDeleteProvider = async () => {
+    if (!deleteModalProvider) return;
     try {
-      await api.delete(`/global-xml/${id}`);
+      await api.delete(`/global-xml/${deleteModalProvider.id}`);
       toast.success('Silindi');
+      setDeleteModalProvider(null);
       fetchProviders();
     } catch (error) {
       toast.error('Silme başarısız');
@@ -513,7 +519,7 @@ export default function GlobalXmlAdminPage() {
                         <button className="btn btn-sm btn-secondary" onClick={() => handleOpenModal(p)} style={{ marginRight: '8px' }}>
                           <Edit2 size={14} />
                         </button>
-                        <button className="btn btn-sm btn-danger" onClick={() => handleDelete(p.id)}>
+                        <button className="btn btn-sm btn-danger" onClick={() => handleDelete(p)}>
                           <Trash2 size={14} />
                         </button>
                       </td>
@@ -525,6 +531,35 @@ export default function GlobalXmlAdminPage() {
           </table>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteModalProvider && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+        }}>
+          <div className="card" style={{ width: '100%', maxWidth: 420, padding: 0 }}>
+            <div className="table-header">
+              <h3>Tedarikçi Silme Onayı</h3>
+              <button className="text-btn" onClick={() => setDeleteModalProvider(null)}><X size={20} /></button>
+            </div>
+            <div style={{ padding: 20 }}>
+              <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 20 }}>
+                <strong>{deleteModalProvider.name}</strong> adlı global XML sağlayıcısını silmek istediğinize emin misiniz? <br/><br/>
+                <span style={{ color: 'var(--danger)', fontWeight: 500 }}>Bu işlem geri alınamaz!</span>
+              </p>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button className="btn btn-secondary" onClick={() => setDeleteModalProvider(null)}>İptal</button>
+                <button className="btn btn-primary" style={{ background: 'var(--danger)', borderColor: 'var(--danger)', color: 'white' }} onClick={confirmDeleteProvider}>
+                  Evet, Sil
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isModalOpen && (
         <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>

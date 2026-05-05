@@ -60,12 +60,19 @@ export default function SuperAdminPage() {
     }
   };
 
-  const handleDeleteUser = async (userId) => {
-    if (!window.confirm('Bu kullanıcıyı ve ona ait tüm verileri silmek istediğinize emin misiniz? Bu işlem Geri Alınamaz!')) return;
-    setActionLoading(userId);
+  const [deleteModalUser, setDeleteModalUser] = useState(null);
+
+  const handleDeleteUser = (user) => {
+    setDeleteModalUser(user);
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!deleteModalUser) return;
+    setActionLoading(deleteModalUser.id);
     try {
-      await api.delete(`/admin/users/${userId}`);
+      await api.delete(`/admin/users/${deleteModalUser.id}`);
       toast.success('Kullanıcı başarıyla silindi');
+      setDeleteModalUser(null);
       fetchData();
     } catch (error) {
       toast.error('Kullanıcı silinirken bir hata oluştu');
@@ -301,7 +308,7 @@ export default function SuperAdminPage() {
                         <button 
                           className="header-icon-btn text-danger"
                           title="Kullanıcıyı Sil"
-                          onClick={() => handleDeleteUser(user.id)}
+                          onClick={() => handleDeleteUser(user)}
                           disabled={actionLoading === user.id}
                         >
                           <Trash2 size={16} />
@@ -347,6 +354,35 @@ export default function SuperAdminPage() {
           )}
         </div>
       </div>
+
+      {/* Delete User Confirmation Modal */}
+      {deleteModalUser && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+        }}>
+          <div className="card" style={{ width: '100%', maxWidth: 420, padding: 0 }}>
+            <div className="table-header">
+              <h3>Kullanıcı Silme Onayı</h3>
+              <button className="text-btn" onClick={() => setDeleteModalUser(null)}>Kapat</button>
+            </div>
+            <div style={{ padding: 20 }}>
+              <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 20 }}>
+                <strong>{deleteModalUser.name} ({deleteModalUser.email})</strong> kullanıcısını ve ona ait tüm mağaza, ürün ve XML verilerini silmek istediğinize emin misiniz? <br/><br/>
+                <span style={{ color: 'var(--danger)', fontWeight: 500 }}>Bu işlem kesinlikle geri alınamaz!</span>
+              </p>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button className="btn btn-secondary" onClick={() => setDeleteModalUser(null)}>İptal</button>
+                <button className="btn btn-primary" style={{ background: 'var(--danger)', borderColor: 'var(--danger)', color: 'white' }} onClick={confirmDeleteUser} disabled={actionLoading === deleteModalUser.id}>
+                  {actionLoading === deleteModalUser.id ? 'Siliniyor...' : 'Evet, Sil'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Subscription Modal */}
       {subModalUser && (
