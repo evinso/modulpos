@@ -204,7 +204,14 @@ router.get('/local-categories', async (req, res, next) => {
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
     const { xmlSourceId } = req.query;
     const where = { storeId: store.id, category: { not: null } };
-    if (xmlSourceId) where.xmlSourceId = xmlSourceId;
+    if (xmlSourceId) {
+      where.xmlSourceId = xmlSourceId;
+    } else {
+      where.OR = [
+        { xmlSourceId: null },
+        { xmlSource: { globalProviderId: null } }
+      ];
+    }
     
     const products = await prisma.product.findMany({
       where,

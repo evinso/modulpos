@@ -66,7 +66,9 @@ export default function CategoryMappingPage() {
   const fetchXmlSources = async () => {
     try {
       const res = await api.get('/xml-sources');
-      setXmlSources(res.data);
+      // Sadece kullanıcının kendi eklediği (globalProviderId'si olmayan) XML'leri göster
+      const customSources = res.data.filter(s => !s.globalProviderId);
+      setXmlSources(customSources);
     } catch {}
   };
 
