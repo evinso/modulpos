@@ -16,7 +16,6 @@ import TrendyolSendPage from './pages/marketplaces/TrendyolSendPage';
 import OrdersPage from './pages/orders/OrdersPage';
 import PricingPage from './pages/pricing/PricingPage';
 import SuperAdminPage from './pages/admin/SuperAdminPage';
-import InnovationPage from './pages/dashboard/InnovationPage';
 import './index.css';
 
 import LandingPage from './pages/landing/LandingPage';
@@ -55,7 +54,6 @@ function App() {
           <Route path="/trendyol-send" element={<TrendyolSendPage />} />
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/pricing" element={<PricingPage />} />
-          <Route path="/innovation" element={<InnovationPage />} />
           <Route path="/superadmin" element={<AdminRoute><SuperAdminPage /></AdminRoute>} />
         </Route>
       </Routes>

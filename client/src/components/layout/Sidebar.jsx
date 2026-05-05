@@ -19,9 +19,6 @@ const navItems = [
   { section: 'Yönetim', items: [
     { to: '/pricing', icon: Tags, label: 'Fiyatlandırma' },
   ]},
-  { section: 'Vizyon', items: [
-    { to: '/innovation', icon: Sparkles, label: 'Gelecek Vizyonu', badge: 'Yeni' },
-  ]},
 ];
 
 export default function Sidebar() {
