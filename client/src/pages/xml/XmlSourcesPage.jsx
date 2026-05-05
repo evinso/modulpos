@@ -536,6 +536,7 @@ export default function XmlSourcesPage() {
         <div className="grid grid-2">
           {sources.map((s) => {
             const hasMapping = s.mappingConfig && s.mappingConfig !== '{}' && s.mappingConfig !== 'null';
+            const isGlobal = !!s.globalProviderId;
             return (
               <div key={s.id} className="card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
@@ -543,11 +544,13 @@ export default function XmlSourcesPage() {
                     <h3 style={{ fontSize: 16, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                       {statusIcon(s.status)} {s.name}
                     </h3>
-                    <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, wordBreak: 'break-all' }}>{s.url}</p>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, wordBreak: 'break-all' }}>
+                      {isGlobal ? <span style={{ color: 'var(--accent-primary)', fontWeight: 500 }}>✨ Tedarikçi Havuzundan Eklendi (Bağlantı Gizli)</span> : s.url}
+                    </p>
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    <span className={`badge ${hasMapping ? 'badge-success' : 'badge-warning'}`}>
-                      {hasMapping ? '✓ Eşleştirildi' : '⚠ Eşleştirme Yok'}
+                    <span className={`badge ${hasMapping || isGlobal ? 'badge-success' : 'badge-warning'}`}>
+                      {isGlobal ? '✓ Hazır Şablon' : (hasMapping ? '✓ Eşleştirildi' : '⚠ Eşleştirme Yok')}
                     </span>
                     <span className={`badge ${s.status === 'active' ? 'badge-success' : s.status === 'error' ? 'badge-danger' : 'badge-warning'}`}>
                       {s.status === 'active' ? 'Aktif' : s.status === 'error' ? 'Hata' : 'Bekliyor'}
@@ -561,9 +564,11 @@ export default function XmlSourcesPage() {
                 </div>
                 {s.errorMessage && <div className="alert alert-error" style={{ marginBottom: 12 }}>{s.errorMessage}</div>}
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button className="btn btn-secondary btn-sm" onClick={() => openMapping(s)}>
-                    <Settings size={14} /> Alan Eşleştir
-                  </button>
+                  {!isGlobal && (
+                    <button className="btn btn-secondary btn-sm" onClick={() => openMapping(s)}>
+                      <Settings size={14} /> Alan Eşleştir
+                    </button>
+                  )}
                   <button className="btn btn-primary btn-sm" onClick={() => handleSync(s.id)} disabled={syncing === s.id}>
                     <RefreshCw size={14} className={syncing === s.id ? 'spinning' : ''} />
                     {syncing === s.id ? 'Çekiliyor...' : 'Şimdi Çek'}

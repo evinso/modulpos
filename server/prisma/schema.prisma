@@ -70,6 +70,7 @@ model XmlSource {
   globalPriceMarkup    Float    @default(0) // Hidden global markup
   globalPriceMarkupPct Float    @default(0) // Hidden global markup percentage
   globalBarcodePrefix  String?  // Hidden global barcode prefix
+  globalProviderId     String?  // ID of the global provider this was imported from
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

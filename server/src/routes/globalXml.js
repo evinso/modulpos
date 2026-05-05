@@ -144,6 +144,7 @@ router.post('/:id/import', auth, async (req, res, next) => {
         globalPriceMarkup: provider.priceMarkup,
         globalPriceMarkupPct: provider.priceMarkupPct,
         globalBarcodePrefix: provider.barcodePrefix,
+        globalProviderId: provider.id,
         status: 'active'
       }
     });
