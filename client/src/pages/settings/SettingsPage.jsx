@@ -30,6 +30,15 @@ export default function SettingsPage() {
     confirmPassword: '',
   });
 
+  // Store State
+  const [storeData, setStoreData] = useState({
+    name: user?.stores?.[0]?.name || '',
+    taxId: user?.stores?.[0]?.taxId || '',
+    phone: user?.stores?.[0]?.phone || '',
+    address: user?.stores?.[0]?.address || '',
+  });
+  const [storeLoading, setStoreLoading] = useState(false);
+
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
@@ -71,6 +80,27 @@ export default function SettingsPage() {
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
     } catch (error) {
       toast.error(error.response?.data?.error || 'Şifre güncellenemedi');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStoreUpdate = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await api.put('/auth/store', storeData);
+      
+      // Update the store in the user context
+      const updatedUser = { ...user };
+      if (updatedUser.stores && updatedUser.stores.length > 0) {
+        updatedUser.stores[0] = { ...updatedUser.stores[0], ...res.data };
+      }
+      setUser(updatedUser);
+      
+      toast.success('Mağaza ayarları güncellendi');
+    } catch (error) {
+      toast.error('Mağaza güncellenemedi');
     } finally {
       setLoading(false);
     }
@@ -232,12 +262,59 @@ export default function SettingsPage() {
           {activeTab === 'general' && (
             <div>
               <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 24 }}>Genel Mağaza Ayarları</h2>
-              <div className="alert alert-warning">
-                Bu alandaki mağaza vergi, fatura ve adres ayarları yakında aktif edilecektir. 
-              </div>
-              <p style={{ color: 'var(--text-secondary)' }}>
-                Tüm entegrasyonlar mevcut mağaza kimliğiniz üzerinden çalışmaktadır.
-              </p>
+              {storeLoading ? (
+                <div style={{ padding: 20, textAlign: 'center' }}>Yükleniyor...</div>
+              ) : (
+                <form onSubmit={handleStoreUpdate}>
+                  <div className="grid grid-2" style={{ gap: 20, marginBottom: 20 }}>
+                    <div>
+                      <label className="form-label">Mağaza Adı</label>
+                      <input 
+                        type="text" 
+                        className="form-input" 
+                        value={storeData.name}
+                        onChange={e => setStoreData({...storeData, name: e.target.value})}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">Vergi Numarası / TCKN</label>
+                      <input 
+                        type="text" 
+                        className="form-input" 
+                        value={storeData.taxId}
+                        onChange={e => setStoreData({...storeData, taxId: e.target.value})}
+                        placeholder="Vergi No veya TCKN"
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">Mağaza Telefonu</label>
+                      <input 
+                        type="text" 
+                        className="form-input" 
+                        value={storeData.phone}
+                        onChange={e => setStoreData({...storeData, phone: e.target.value})}
+                        placeholder="05XX XXX XX XX"
+                      />
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label className="form-label">Mağaza Açık Adresi</label>
+                      <textarea 
+                        className="form-input" 
+                        rows={3}
+                        value={storeData.address}
+                        onChange={e => setStoreData({...storeData, address: e.target.value})}
+                        placeholder="Fatura ve kargo işlemleri için açık adresiniz..."
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 32 }}>
+                    <button type="submit" className="btn btn-primary" disabled={loading}>
+                      <Save size={16} /> {loading ? 'Kaydediliyor...' : 'Mağaza Ayarlarını Kaydet'}
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           )}
         </div>
