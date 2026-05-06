@@ -46,11 +46,11 @@ router.get('/metrics', async (req, res, next) => {
     ]);
 
     // Calculate total revenue
-    const orders = await prisma.order.findMany({
+    const revenueAgg = await prisma.order.aggregate({
       where: { storeId: store.id, status: { not: 'cancelled' } },
-      select: { totalAmount: true }
+      _sum: { totalAmount: true }
     });
-    const totalRevenue = orders.reduce((sum, o) => sum + o.totalAmount, 0);
+    const totalRevenue = revenueAgg._sum.totalAmount || 0;
 
     // Today's orders
     const today = new Date();

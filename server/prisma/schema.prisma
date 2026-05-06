@@ -108,6 +108,10 @@ model Product {
   xmlSource           XmlSource?           @relation(fields: [xmlSourceId], references: [id], onDelete: SetNull)
   variants            ProductVariant[]
   marketplaceProducts MarketplaceProduct[]
+
+  @@index([storeId])
+  @@index([barcode])
+  @@index([sku])
 }
 
 model ProductVariant {
@@ -209,6 +213,9 @@ model Order {
 
   store      Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
   connection MarketplaceConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
+  @@index([storeId, status])
 }
 
 model PricingRule {
