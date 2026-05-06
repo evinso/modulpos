@@ -19,7 +19,7 @@ import SuperAdminPage from './pages/admin/SuperAdminPage';
 import CreditsPage from './pages/credits/CreditsPage';
 import CreditAdminPage from './pages/admin/CreditAdminPage';
 import SettingsPage from './pages/settings/SettingsPage';
-import LogsPage from './pages/logs/LogsPage';
+import LogsPage from './pages/activity/LogsPage';
 import './index.css';
 
 import LandingPage from './pages/landing/LandingPage';
