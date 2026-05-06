@@ -218,4 +218,54 @@ router.post('/users/:id/subscription', auth, isAdmin, async (req, res) => {
   }
 });
 
+/**
+ * PUT /api/admin/users/:id/quotas
+ * Update user quotas (maxProducts, maxXmlSources)
+ */
+router.put('/users/:id/quotas', auth, isAdmin, async (req, res) => {
+  try {
+    const { maxProducts, maxXmlSources } = req.body;
+    
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: {
+        maxProducts: parseInt(maxProducts),
+        maxXmlSources: parseInt(maxXmlSources)
+      }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'UPDATE_QUOTA',
+        details: JSON.stringify({ targetUserId: req.params.id, maxProducts, maxXmlSources }),
+        level: 'INFO'
+      }
+    });
+
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/audit-logs
+ * Get all system audit logs
+ */
+router.get('/audit-logs', auth, isAdmin, async (req, res) => {
+  try {
+    const logs = await prisma.auditLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: {
+        user: { select: { name: true, email: true } }
+      }
+    });
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

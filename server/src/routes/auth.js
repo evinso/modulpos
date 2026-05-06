@@ -126,6 +126,16 @@ router.post('/login', async (req, res, next) => {
 
     const { passwordHash: _, ...userWithoutPassword } = user;
 
+    // Log the login
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'LOGIN',
+        details: JSON.stringify({ email: user.email }),
+        level: 'INFO'
+      }
+    }).catch(err => console.error("Audit log error:", err)); // fire and forget
+
     res.json({
       message: 'Giriş başarılı',
       user: userWithoutPassword,
@@ -198,6 +208,30 @@ router.put('/password', auth, async (req, res, next) => {
     });
 
     res.json({ message: 'Şifreniz başarıyla güncellendi' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Update store settings
+router.put('/store', auth, async (req, res, next) => {
+  try {
+    const { name, taxId, address, phone } = req.body;
+
+    const store = await prisma.store.findFirst({
+      where: { userId: req.user.id }
+    });
+
+    if (!store) {
+      return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    }
+
+    const updatedStore = await prisma.store.update({
+      where: { id: store.id },
+      data: { name, taxId, address, phone }
+    });
+
+    res.json(updatedStore);
   } catch (error) {
     next(error);
   }

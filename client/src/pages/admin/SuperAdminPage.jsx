@@ -22,6 +22,10 @@ export default function SuperAdminPage() {
   const [subPlan, setSubPlan] = useState('premium');
   const [showOnlyPremium, setShowOnlyPremium] = useState(false);
 
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [quotaModalUser, setQuotaModalUser] = useState(null);
+  const [quotaData, setQuotaData] = useState({ maxProducts: 5000, maxXmlSources: 3 });
+
   useEffect(() => {
     fetchData();
   }, [activeTab]);
@@ -35,9 +39,12 @@ export default function SuperAdminPage() {
       if (activeTab === 'users') {
         const usersRes = await api.get('/admin/users');
         setUsers(usersRes.data);
-      } else {
+      } else if (activeTab === 'stores') {
         const storesRes = await api.get('/admin/stores');
         setStores(storesRes.data);
+      } else if (activeTab === 'auditLogs') {
+        const logsRes = await api.get('/admin/audit-logs');
+        setAuditLogs(logsRes.data);
       }
     } catch (error) {
       console.error('Admin verileri yüklenemedi:', error);
@@ -128,6 +135,29 @@ export default function SuperAdminPage() {
     }
   };
 
+  const openQuotaModal = (user) => {
+    setQuotaModalUser(user);
+    setQuotaData({
+      maxProducts: user.maxProducts || 5000,
+      maxXmlSources: user.maxXmlSources || 3
+    });
+  };
+
+  const handleUpdateQuota = async () => {
+    if (!quotaModalUser) return;
+    setActionLoading(quotaModalUser.id);
+    try {
+      await api.put(`/admin/users/${quotaModalUser.id}/quotas`, quotaData);
+      toast.success('Kotalar başarıyla güncellendi');
+      setQuotaModalUser(null);
+      fetchData();
+    } catch (error) {
+      toast.error('Kota güncellenemedi');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   let filteredUsers = users.filter(u => 
     u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     u.email.toLowerCase().includes(searchTerm.toLowerCase())
@@ -205,6 +235,12 @@ export default function SuperAdminPage() {
           onClick={() => setActiveTab('stores')}
         >
           <Store size={16} /> Mağazalar
+        </button>
+        <button 
+          className={`admin-tab ${activeTab === 'auditLogs' ? 'active' : ''}`}
+          onClick={() => setActiveTab('auditLogs')}
+        >
+          <Shield size={16} /> Sistem Logları
         </button>
       </div>
 
@@ -299,6 +335,15 @@ export default function SuperAdminPage() {
                         <button 
                           className="btn btn-secondary" 
                           style={{ padding: '4px 8px', fontSize: 12, height: 'auto' }}
+                          title="Müşteri Kotalarını Düzenle"
+                          onClick={() => openQuotaModal(user)}
+                          disabled={actionLoading === user.id}
+                        >
+                          <Settings size={14} style={{ marginRight: 4 }} /> Kota
+                        </button>
+                        <button 
+                          className="btn btn-secondary" 
+                          style={{ padding: '4px 8px', fontSize: 12, height: 'auto' }}
                           title="Abonelik Tarihi Düzenle"
                           onClick={() => openSubModal(user)}
                           disabled={actionLoading === user.id}
@@ -319,7 +364,7 @@ export default function SuperAdminPage() {
                 )})}
               </tbody>
             </table>
-          ) : (
+          ) : activeTab === 'stores' ? (
             <table>
               <thead>
                 <tr>
@@ -351,9 +396,102 @@ export default function SuperAdminPage() {
                 ))}
               </tbody>
             </table>
-          )}
+          ) : activeTab === 'auditLogs' ? (
+            <table>
+              <thead>
+                <tr>
+                  <th>Tarih</th>
+                  <th>Kullanıcı</th>
+                  <th>İşlem</th>
+                  <th>Detay</th>
+                  <th>Durum</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditLogs.map(log => (
+                  <tr key={log.id}>
+                    <td style={{ fontSize: 13 }}>{new Date(log.createdAt).toLocaleString('tr-TR')}</td>
+                    <td>
+                      {log.user ? (
+                        <div className="user-meta">
+                          <div className="user-name">{log.user.name}</div>
+                          <div className="user-email" style={{ fontSize: 11 }}>{log.user.email}</div>
+                        </div>
+                      ) : (
+                        <span className="text-muted">Sistem</span>
+                      )}
+                    </td>
+                    <td><span className="badge badge-primary" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>{log.action}</span></td>
+                    <td style={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: 'var(--text-secondary)' }} title={log.details}>
+                      {log.details}
+                    </td>
+                    <td>
+                      <span className={`badge ${log.level === 'ERROR' ? 'badge-danger' : log.level === 'WARNING' ? 'badge-warning' : 'badge-info'}`}>
+                        {log.level}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {auditLogs.length === 0 && (
+                  <tr>
+                    <td colSpan="5" style={{ textAlign: 'center', padding: 20 }}>Henüz bir sistem aktivitesi bulunmuyor.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          ) : null}
         </div>
       </div>
+
+      {/* Quota Modal */}
+      {quotaModalUser && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+        }}>
+          <div className="card" style={{ width: '100%', maxWidth: 420, padding: 0 }}>
+            <div className="table-header">
+              <h3>Müşteri Kotalarını Düzenle</h3>
+              <button className="text-btn" onClick={() => setQuotaModalUser(null)}>Kapat</button>
+            </div>
+            <div style={{ padding: 20 }}>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
+                <strong>{quotaModalUser.name}</strong> adlı kullanıcının sistem sınırlarını buradan değiştirebilirsiniz. Değişiklikler anında yansır ve Audit Log kayıtlarına düşer.
+              </p>
+
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <label className="form-label">Maksimum Ürün Sayısı</label>
+                <input 
+                  type="number" 
+                  className="form-input" 
+                  value={quotaData.maxProducts}
+                  onChange={e => setQuotaData({...quotaData, maxProducts: parseInt(e.target.value) || 0})}
+                  min="0"
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 24 }}>
+                <label className="form-label">Maksimum XML Kaynağı</label>
+                <input 
+                  type="number" 
+                  className="form-input" 
+                  value={quotaData.maxXmlSources}
+                  onChange={e => setQuotaData({...quotaData, maxXmlSources: parseInt(e.target.value) || 0})}
+                  min="0"
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button className="btn btn-secondary" onClick={() => setQuotaModalUser(null)}>İptal</button>
+                <button className="btn btn-primary" onClick={handleUpdateQuota} disabled={actionLoading === quotaModalUser.id}>
+                  {actionLoading === quotaModalUser.id ? 'Kaydediliyor...' : 'Kotaları Kaydet'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete User Confirmation Modal */}
       {deleteModalUser && (
