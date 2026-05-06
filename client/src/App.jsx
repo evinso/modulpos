@@ -18,6 +18,7 @@ import PricingPage from './pages/pricing/PricingPage';
 import SuperAdminPage from './pages/admin/SuperAdminPage';
 import CreditsPage from './pages/credits/CreditsPage';
 import CreditAdminPage from './pages/admin/CreditAdminPage';
+import SettingsPage from './pages/settings/SettingsPage';
 import './index.css';
 
 import LandingPage from './pages/landing/LandingPage';
@@ -57,6 +58,7 @@ function App() {
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/credits" element={<CreditsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/superadmin" element={<AdminRoute><SuperAdminPage /></AdminRoute>} />
           <Route path="/credit-admin" element={<AdminRoute><CreditAdminPage /></AdminRoute>} />
         </Route>

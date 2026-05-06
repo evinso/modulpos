@@ -178,4 +178,29 @@ router.put('/profile', auth, async (req, res, next) => {
   }
 });
 
+// Update password
+router.put('/password', auth, async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+
+    const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isMatch) return res.status(400).json({ error: 'Mevcut şifreniz hatalı' });
+
+    if (newPassword.length < 6) return res.status(400).json({ error: 'Yeni şifre en az 6 karakter olmalıdır' });
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { passwordHash }
+    });
+
+    res.json({ message: 'Şifreniz başarıyla güncellendi' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

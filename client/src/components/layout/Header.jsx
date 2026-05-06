@@ -203,18 +203,18 @@ export default function Header() {
               </div>
               <div className="dropdown-body">
                 <div className="dropdown-section">
-                  <Link to="/profile" className="dropdown-item">
+                  <Link to="/settings?tab=profile" className="dropdown-item" onClick={() => setShowUserMenu(false)}>
                     <User size={14} /> Profil Bilgileri
                   </Link>
-                  <Link to="/settings" className="dropdown-item">
+                  <Link to="/settings?tab=general" className="dropdown-item" onClick={() => setShowUserMenu(false)}>
                     <Settings size={14} /> Genel Ayarlar
                   </Link>
                 </div>
                 <div className="dropdown-section">
-                  <Link to="/billing" className="dropdown-item">
+                  <Link to="/settings?tab=billing" className="dropdown-item" onClick={() => setShowUserMenu(false)}>
                     <CreditCard size={14} /> Faturalandırma
                   </Link>
-                  <Link to="/security" className="dropdown-item">
+                  <Link to="/settings?tab=security" className="dropdown-item" onClick={() => setShowUserMenu(false)}>
                     <Shield size={14} /> Güvenlik
                   </Link>
                 </div>
