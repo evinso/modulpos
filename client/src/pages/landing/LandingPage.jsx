@@ -282,16 +282,27 @@ export default function LandingPage() {
           <div className="lp-footer-payment-icons" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginRight: '8px' }}>Güvenli Ödeme:</span>
             
-            <img src="/payment/visa.svg" alt="Visa" style={{ height: 16, width: 'auto', flexShrink: 0 }} />
-            <img src="/payment/mastercard.svg" alt="Mastercard" style={{ height: 20, width: 'auto', flexShrink: 0, marginLeft: 8 }} />
-            <img src="/payment/troy.svg" alt="Troy" style={{ height: 16, width: 'auto', flexShrink: 0, marginLeft: 8 }} />
-
-            {/* PayTR text logo since it has a specific look and is easiest to read */}
-            <span style={{ fontSize: 16, color: '#0f172a', fontWeight: 800, letterSpacing: '-0.5px', marginLeft: 12, display: 'flex', alignItems: 'center' }}>
-              PAY<span style={{ color: '#10b981' }}>TR</span>
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-tertiary)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent-primary)' }}>
+                <rect width="20" height="14" x="2" y="5" rx="2" />
+                <line x1="2" x2="22" y1="10" y2="10" />
+              </svg>
+              <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>Visa</span>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>•</span>
+              <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>Mastercard</span>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>•</span>
+              <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>Troy</span>
+              <div style={{ width: '1px', height: '14px', background: 'var(--border-color)', margin: '0 4px' }}></div>
+              <span style={{ fontSize: 14, color: '#0f172a', fontWeight: 800, letterSpacing: '-0.5px' }}>PAY<span style={{ color: '#10b981' }}>TR</span></span>
+            </div>
+            
             <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 8px' }}></div>
-            <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>128 Bit SSL ile Güvendesiniz.</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#10b981' }}>
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
+              </svg>
+              <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>128 Bit SSL ile Güvendesiniz.</span>
+            </div>
           </div>
         </div>
       </footer>
