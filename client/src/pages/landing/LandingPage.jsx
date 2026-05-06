@@ -281,10 +281,24 @@ export default function LandingPage() {
           <p>© {new Date().getFullYear()} ModulPOS. Tüm hakları saklıdır.</p>
           <div className="lp-footer-payment-icons" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginRight: '8px' }}>Güvenli Ödeme:</span>
-            <img src="https://upload.wikimedia.org/wikipedia/commons/4/41/Visa_Logo.png" alt="Visa" style={{ height: 16, objectFit: 'contain' }} />
-            <img src="https://upload.wikimedia.org/wikipedia/commons/b/b7/MasterCard_Logo.svg" alt="Mastercard" style={{ height: 20, objectFit: 'contain' }} />
-            <img src="https://upload.wikimedia.org/wikipedia/commons/5/5f/Troy_logo.svg" alt="Troy" style={{ height: 20, objectFit: 'contain' }} />
-            <span style={{ fontSize: 14, color: '#0f172a', fontWeight: 800, letterSpacing: '-0.5px', marginLeft: '4px' }}>PAY<span style={{ color: '#10b981' }}>TR</span></span>
+            
+            {/* Visa */}
+            <svg viewBox="0 0 38 12" height="14" fill="#1434CB" xmlns="http://www.w3.org/2000/svg">
+              <path d="M14.7 0l-2.4 11.4h3.8L18.4 0h-3.7zm21.3 3.1c-.8-.4-2-.7-3.4-.7-3.7 0-6.3 2-6.3 4.8 0 2 1.8 3.1 3.2 3.8 1.4.7 1.9 1.1 1.9 1.8 0 1-1.3 1.5-2.6 1.5-1.7 0-2.6-.3-3.6-.8l-.5-.2-.5 3.3c.9.4 2.6.8 4.3.8 4 0 6.6-2 6.6-5 0-1.6-1-2.8-3-3.7-1.3-.6-2-.9-2-1.5 0-.5.6-1 2.3-1 1.4 0 2.4.3 3.2.6l.4.2.5-3.4zm-19.4 8.3H13l-2.1-10c-.1-.7-.7-1.1-1.4-1.3L5.4 0v.2c1.1.2 2.3.7 2.6 1.2l2.3 10zm-10.7 0L8.4 0H4.7c-.7 0-1.2.4-1.5 1.1L.1 11.4h4l.8-2.2h4.8l.5 2.2zM6 6.6L7.4 2.8 8.2 6.6H6z"/>
+            </svg>
+
+            {/* Mastercard */}
+            <svg viewBox="0 0 36 22" height="16" xmlns="http://www.w3.org/2000/svg" style={{ marginLeft: 4 }}>
+              <circle cx="11" cy="11" r="11" fill="#EB001B"/>
+              <circle cx="25" cy="11" r="11" fill="#F79E1B"/>
+              <path d="M18 21.4a11 11 0 0 0 0-20.8 11 11 0 0 0 0 20.8z" fill="#FF5F00"/>
+            </svg>
+
+            {/* Troy */}
+            <span style={{ fontSize: 16, color: '#00B1D9', fontWeight: 800, fontStyle: 'italic', letterSpacing: '-0.5px', marginLeft: 6 }}>TROY</span>
+
+            {/* PayTR */}
+            <span style={{ fontSize: 15, color: '#0f172a', fontWeight: 800, letterSpacing: '-0.5px', marginLeft: 8 }}>PAY<span style={{ color: '#10b981' }}>TR</span></span>
             <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 8px' }}></div>
             <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>128 Bit SSL ile Güvendesiniz.</span>
           </div>
