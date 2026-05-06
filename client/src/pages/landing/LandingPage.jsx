@@ -279,8 +279,13 @@ export default function LandingPage() {
         
         <div className="lp-footer-bottom">
           <p>© {new Date().getFullYear()} ModulPOS. Tüm hakları saklıdır.</p>
-          <div className="lp-footer-payment-icons">
-            <img src="https://www.paytr.com/img/general/PayTR-Odeme-Altyapisi.svg" alt="PayTR Güvenli Ödeme" style={{ height: 24, marginRight: 12 }} />
+          <div className="lp-footer-payment-icons" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginRight: '8px' }}>Güvenli Ödeme:</span>
+            <img src="https://upload.wikimedia.org/wikipedia/commons/4/41/Visa_Logo.png" alt="Visa" style={{ height: 16, objectFit: 'contain' }} />
+            <img src="https://upload.wikimedia.org/wikipedia/commons/b/b7/MasterCard_Logo.svg" alt="Mastercard" style={{ height: 20, objectFit: 'contain' }} />
+            <img src="https://upload.wikimedia.org/wikipedia/commons/5/5f/Troy_logo.svg" alt="Troy" style={{ height: 20, objectFit: 'contain' }} />
+            <span style={{ fontSize: 14, color: '#0f172a', fontWeight: 800, letterSpacing: '-0.5px', marginLeft: '4px' }}>PAY<span style={{ color: '#10b981' }}>TR</span></span>
+            <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 8px' }}></div>
             <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>128 Bit SSL ile Güvendesiniz.</span>
           </div>
         </div>
