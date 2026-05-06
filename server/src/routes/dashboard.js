@@ -6,6 +6,10 @@ const router = express.Router();
 
 router.use(auth);
 
+async function getUserStore(userId) {
+  return prisma.store.findFirst({ where: { userId } });
+}
+
 // Dashboard metrics
 router.get('/metrics', async (req, res, next) => {
   try {
