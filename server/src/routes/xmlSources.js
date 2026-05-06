@@ -250,7 +250,21 @@ router.post('/:id/sync', async (req, res, next) => {
     });
 
     res.json({ message: 'Senkronizasyon tamamlandı', results: { total: products.length, created, updated, errors } });
-  } catch (error) { next(error); }
+  } catch (error) { 
+    console.error('[XML Sync Error]', error.message);
+    
+    // Log the error to Audit Logs
+    prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'XML_SYNC_ERROR',
+        details: JSON.stringify({ error: error.message }),
+        level: 'ERROR'
+      }
+    }).catch(err => console.error("Audit log error:", err));
+
+    next(error); 
+  }
 });
 
 // Delete

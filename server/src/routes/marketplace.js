@@ -469,14 +469,26 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
       url: error.config?.url
     });
     
+    const errorMsg = typeof error.response?.data === 'string' 
+      ? error.response.data 
+      : error.response?.data?.errors?.[0]?.message || error.response?.data?.message || error.message;
+
+    // Log the error to Audit Logs
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'TRENDYOL_SEND_ERROR',
+        details: JSON.stringify({ error: errorMsg, status: error.response?.status }),
+        level: 'ERROR'
+      }
+    }).catch(err => console.error("Audit log error:", err));
+    
     if (error.response?.data) {
       return res.status(400).json({ 
         error: 'Trendyol API hatası', 
         details: error.response.data,
         status: error.response.status,
-        message: typeof error.response.data === 'string' 
-          ? error.response.data 
-          : error.response.data?.errors?.[0]?.message || error.response.data?.message || JSON.stringify(error.response.data)
+        message: errorMsg
       });
     }
     next(error);
@@ -542,6 +554,17 @@ router.post('/connections/:id/sync-price-stock', async (req, res, next) => {
     }
   } catch (error) {
     console.error('[Marketplace Sync Error]', error.response?.data || error.message);
+    
+    // Log the error to Audit Logs
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'TRENDYOL_SYNC_ERROR',
+        details: JSON.stringify({ error: error.response?.data || error.message, action: 'price_stock_sync' }),
+        level: 'ERROR'
+      }
+    }).catch(err => console.error("Audit log error:", err));
+
     res.status(500).json({ error: 'Pazaryeri güncellenirken hata oluştu', details: error.response?.data });
   }
 });
