@@ -91,4 +91,72 @@ router.get('/metrics', async (req, res, next) => {
   }
 });
 
+// Get comprehensive system and sync logs for the user
+router.get('/logs', auth, async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+
+    const [syncLogs, auditLogs] = await Promise.all([
+      prisma.syncLog.findMany({
+        where: { storeId: store.id },
+        orderBy: { createdAt: 'desc' },
+        take: 50
+      }),
+      prisma.auditLog.findMany({
+        where: { userId: req.user.id },
+        orderBy: { createdAt: 'desc' },
+        take: 50
+      })
+    ]);
+
+    // Format logs into a unified list
+    const unifiedLogs = [
+      ...syncLogs.map(log => ({
+        id: log.id,
+        type: log.type === 'xml_sync' ? 'XML Senkronizasyonu' : log.type,
+        status: log.status, // started, completed, failed
+        message: log.status === 'failed' 
+          ? 'Senkronizasyon başarısız oldu' 
+          : `${log.itemCount || 0} ürün işlendi, ${log.errorCount || 0} hata.`,
+        level: log.status === 'failed' ? 'ERROR' : (log.errorCount > 0 ? 'WARNING' : 'INFO'),
+        createdAt: log.createdAt,
+        source: 'SYNC'
+      })),
+      ...auditLogs.map(log => {
+        let title = log.action;
+        let msg = log.details;
+        
+        try {
+          const parsed = JSON.parse(log.details);
+          if (parsed.error) msg = parsed.error;
+        } catch(e) {}
+
+        if (log.action === 'XML_SYNC_ERROR') title = 'XML Çekme Hatası';
+        if (log.action === 'TRENDYOL_SEND_ERROR') title = 'Trendyol Ürün Gönderim Hatası';
+        if (log.action === 'TRENDYOL_SYNC_ERROR') title = 'Trendyol Fiyat/Stok Senkronizasyon Hatası';
+        if (log.action === 'CRON_XML_SYNC_ERROR') title = 'Otomatik XML Senkronizasyon Hatası';
+        if (log.action === 'LOGIN') {
+          title = 'Sisteme Giriş';
+          msg = 'Başarılı giriş yapıldı.';
+        }
+
+        return {
+          id: log.id,
+          type: title,
+          status: log.level === 'ERROR' ? 'failed' : 'completed',
+          message: msg,
+          level: log.level,
+          createdAt: log.createdAt,
+          source: 'AUDIT'
+        };
+      })
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 100);
+
+    res.json(unifiedLogs);
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

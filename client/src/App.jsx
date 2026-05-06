@@ -19,6 +19,7 @@ import SuperAdminPage from './pages/admin/SuperAdminPage';
 import CreditsPage from './pages/credits/CreditsPage';
 import CreditAdminPage from './pages/admin/CreditAdminPage';
 import SettingsPage from './pages/settings/SettingsPage';
+import LogsPage from './pages/logs/LogsPage';
 import './index.css';
 
 import LandingPage from './pages/landing/LandingPage';
@@ -58,6 +59,7 @@ function App() {
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/credits" element={<CreditsPage />} />
+          <Route path="/logs" element={<LogsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/superadmin" element={<AdminRoute><SuperAdminPage /></AdminRoute>} />
           <Route path="/credit-admin" element={<AdminRoute><CreditAdminPage /></AdminRoute>} />

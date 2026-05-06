@@ -1,5 +1,5 @@
 import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send, ArrowLeftRight, Shield, Sparkles, Globe, Wallet, CreditCard } from 'lucide-react';
+import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send, ArrowLeftRight, Shield, Sparkles, Globe, Wallet, CreditCard, Activity } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 
 const navItems = [
@@ -19,6 +19,7 @@ const navItems = [
   { section: 'Yönetim', items: [
     { to: '/pricing', icon: Tags, label: 'Fiyatlandırma' },
     { to: '/credits', icon: Wallet, label: 'Kredi & Bakiye' },
+    { to: '/logs', icon: Activity, label: 'İşlem Logları' },
   ]},
 ];
 
