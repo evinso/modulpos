@@ -100,7 +100,7 @@ router.get('/logs', auth, async (req, res, next) => {
     const [syncLogs, auditLogs] = await Promise.all([
       prisma.syncLog.findMany({
         where: { storeId: store.id },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { startedAt: 'desc' },
         take: 50
       }),
       prisma.auditLog.findMany({
@@ -120,7 +120,7 @@ router.get('/logs', auth, async (req, res, next) => {
           ? 'Senkronizasyon başarısız oldu' 
           : `${log.itemCount || 0} ürün işlendi, ${log.errorCount || 0} hata.`,
         level: log.status === 'failed' ? 'ERROR' : (log.errorCount > 0 ? 'WARNING' : 'INFO'),
-        createdAt: log.createdAt,
+        createdAt: log.startedAt,
         source: 'SYNC'
       })),
       ...auditLogs.map(log => {
