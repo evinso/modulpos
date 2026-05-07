@@ -3,7 +3,7 @@ import api from '../../services/api';
 import { 
   Users, Store, Package, ShoppingCart, CreditCard, Shield, Search, 
   MoreVertical, CheckCircle, XCircle, UserPlus, Mail, Calendar, 
-  Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus
+  Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus, List
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './SuperAdminPage.css';
@@ -30,6 +30,10 @@ export default function SuperAdminPage() {
   const [showPlanModal, setShowPlanModal] = useState(null); // { id, name, price, ... } or 'new'
   const [planForm, setPlanForm] = useState({ name: '', price: '', period: '', features: '', ctaText: 'Hemen Başla', isHighlighted: false, order: 0, isActive: true });
 
+  const [footerSections, setFooterSections] = useState([]);
+  const [showFooterModal, setShowFooterModal] = useState(null);
+  const [footerForm, setFooterForm] = useState({ title: '', links: [{ label: '', url: '', isExternal: false }], order: 0, isActive: true });
+
   useEffect(() => {
     fetchData();
   }, [activeTab]);
@@ -52,6 +56,9 @@ export default function SuperAdminPage() {
       } else if (activeTab === 'pricing') {
         const plansRes = await api.get('/admin/pricing-plans');
         setPricingPlans(plansRes.data);
+      } else if (activeTab === 'footer') {
+        const footerRes = await api.get('/admin/footer-sections');
+        setFooterSections(footerRes.data);
       }
     } catch (error) {
       console.error('Admin verileri yüklenemedi:', error);
@@ -198,6 +205,59 @@ export default function SuperAdminPage() {
     }
   };
 
+  const handleSaveFooter = async (e) => {
+    e.preventDefault();
+    try {
+      const data = {
+        ...footerForm,
+        links: footerForm.links.filter(l => l.label.trim())
+      };
+
+      if (showFooterModal === 'new') {
+        await api.post('/admin/footer-sections', data);
+        toast.success('Yeni bölüm eklendi');
+      } else {
+        await api.put(`/admin/footer-sections/${showFooterModal.id}`, data);
+        toast.success('Bölüm güncellendi');
+      }
+      setShowFooterModal(null);
+      fetchData();
+    } catch (error) {
+      toast.error('Bölüm kaydedilemedi');
+    }
+  };
+
+  const handleDeleteFooter = async (id) => {
+    if (!window.confirm('Bu bölümü silmek istediğinize emin misiniz?')) return;
+    try {
+      await api.delete(`/admin/footer-sections/${id}`);
+      toast.success('Bölüm silindi');
+      fetchData();
+    } catch (error) {
+      toast.error('Bölüm silinemedi');
+    }
+  };
+
+  const addFooterLink = () => {
+    setFooterForm({
+      ...footerForm,
+      links: [...footerForm.links, { label: '', url: '', isExternal: false }]
+    });
+  };
+
+  const removeFooterLink = (index) => {
+    setFooterForm({
+      ...footerForm,
+      links: footerForm.links.filter((_, i) => i !== index)
+    });
+  };
+
+  const updateFooterLink = (index, field, value) => {
+    const newLinks = [...footerForm.links];
+    newLinks[index][field] = value;
+    setFooterForm({ ...footerForm, links: newLinks });
+  };
+
   let filteredUsers = users.filter(u => 
     u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     u.email.toLowerCase().includes(searchTerm.toLowerCase())
@@ -281,6 +341,9 @@ export default function SuperAdminPage() {
         </button>
         <button className={`tab-btn ${activeTab === 'pricing' ? 'active' : ''}`} onClick={() => setActiveTab('pricing')}>
           <Tags size={18} /> Fiyat Planları
+        </button>
+        <button className={`tab-btn ${activeTab === 'footer' ? 'active' : ''}`} onClick={() => setActiveTab('footer')}>
+          <List size={18} /> Footer Yönetimi
         </button>
       </div>
 
@@ -550,9 +613,125 @@ export default function SuperAdminPage() {
                 </tbody>
               </table>
             </div>
+          ) : activeTab === 'footer' ? (
+            <div className="footer-admin-view">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <h3>Landing Page Footer Bölümleri</h3>
+                <button className="btn btn-primary" onClick={() => {
+                  setFooterForm({ title: '', links: [{ label: '', url: '', isExternal: false }], order: footerSections.length, isActive: true });
+                  setShowFooterModal('new');
+                }}>
+                  <Plus size={16} /> Yeni Bölüm Ekle
+                </button>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Sıra</th>
+                    <th>Bölüm Başlığı</th>
+                    <th>Link Sayısı</th>
+                    <th>Durum</th>
+                    <th>İşlem</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {footerSections.map(section => (
+                    <tr key={section.id}>
+                      <td style={{ width: 60 }}>{section.order}</td>
+                      <td><span className="font-semibold">{section.title}</span></td>
+                      <td><span className="badge badge-info">{JSON.parse(section.links || '[]').length} Link</span></td>
+                      <td>
+                        <span className={`badge ${section.isActive ? 'badge-success' : 'badge-danger'}`}>
+                          {section.isActive ? 'Yayında' : 'Taslak'}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="flex gap-2">
+                          <button className="header-icon-btn" onClick={() => {
+                            setFooterForm({
+                              ...section,
+                              links: JSON.parse(section.links || '[]')
+                            });
+                            setShowFooterModal(section);
+                          }}>
+                            <Edit size={16} />
+                          </button>
+                          <button className="header-icon-btn text-danger" onClick={() => handleDeleteFooter(section.id)}>
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {footerSections.length === 0 && (
+                    <tr>
+                      <td colSpan="5" style={{ textAlign: 'center', padding: 20 }}>Henüz bir footer bölümü eklenmemiş.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           ) : null}
         </div>
       </div>
+
+      {/* Footer Modal */}
+      {showFooterModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+        }}>
+          <div className="card" style={{ width: '100%', maxWidth: 600, padding: 0 }}>
+            <div className="table-header">
+              <h3>{showFooterModal === 'new' ? 'Yeni Bölüm Ekle' : 'Bölümü Düzenle'}</h3>
+              <button className="text-btn" onClick={() => setShowFooterModal(null)}>İptal</button>
+            </div>
+            <form onSubmit={handleSaveFooter} style={{ padding: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: 15 }}>
+                <div className="form-group">
+                  <label>Bölüm Başlığı</label>
+                  <input type="text" className="input" value={footerForm.title} onChange={e => setFooterForm({...footerForm, title: e.target.value})} placeholder="Örn: Yasal Sözleşmeler" required />
+                </div>
+                <div className="form-group">
+                  <label>Sıralama</label>
+                  <input type="number" className="input" value={footerForm.order} onChange={e => setFooterForm({...footerForm, order: e.target.value})} />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <label>Linkler</label>
+                  <button type="button" className="text-btn" onClick={addFooterLink} style={{ fontSize: 12 }}>+ Link Ekle</button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 250, overflowY: 'auto', paddingRight: 5 }}>
+                  {footerForm.links.map((link, idx) => (
+                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 40px', gap: 10, alignItems: 'center', background: 'var(--bg-tertiary)', padding: 10, borderRadius: 8 }}>
+                      <input type="text" className="input" value={link.label} onChange={e => updateFooterLink(idx, 'label', e.target.value)} placeholder="Etiket (Örn: Hakkımızda)" required />
+                      <input type="text" className="input" value={link.url} onChange={e => updateFooterLink(idx, 'url', e.target.value)} placeholder="URL (Örn: /policy/hakkimizda)" required />
+                      <button type="button" className="text-danger" onClick={() => removeFooterLink(idx)} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginTop: 10 }}>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={footerForm.isActive} onChange={e => setFooterForm({...footerForm, isActive: e.target.checked})} />
+                  <span className="text-sm">Yayında</span>
+                </label>
+              </div>
+
+              <div className="flex gap-3">
+                <button type="button" className="btn btn-secondary flex-1" onClick={() => setShowFooterModal(null)}>Vazgeç</button>
+                <button type="submit" className="btn btn-primary flex-1">Kaydet</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Plan Modal */}
       {showPlanModal && (

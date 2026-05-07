@@ -327,4 +327,73 @@ router.delete('/pricing-plans/:id', auth, isAdmin, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/admin/footer-sections
+ */
+router.get('/footer-sections', auth, isAdmin, async (req, res) => {
+  try {
+    const sections = await prisma.landingFooterSection.findMany({
+      orderBy: { order: 'asc' }
+    });
+    res.json(sections);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/footer-sections
+ */
+router.post('/footer-sections', auth, isAdmin, async (req, res) => {
+  try {
+    const { title, links, order, isActive } = req.body;
+    const section = await prisma.landingFooterSection.create({
+      data: {
+        title,
+        links: Array.isArray(links) ? JSON.stringify(links) : links,
+        order: parseInt(order) || 0,
+        isActive: isActive !== undefined ? isActive : true
+      }
+    });
+    res.status(201).json(section);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/admin/footer-sections/:id
+ */
+router.put('/footer-sections/:id', auth, isAdmin, async (req, res) => {
+  try {
+    const { title, links, order, isActive } = req.body;
+    const section = await prisma.landingFooterSection.update({
+      where: { id: req.params.id },
+      data: {
+        title,
+        links: Array.isArray(links) ? JSON.stringify(links) : links,
+        order: parseInt(order) || 0,
+        isActive
+      }
+    });
+    res.json(section);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/admin/footer-sections/:id
+ */
+router.delete('/footer-sections/:id', auth, isAdmin, async (req, res) => {
+  try {
+    await prisma.landingFooterSection.delete({
+      where: { id: req.params.id }
+    });
+    res.json({ message: 'Bölüm silindi' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

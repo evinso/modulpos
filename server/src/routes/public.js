@@ -22,4 +22,24 @@ router.get('/pricing-plans', async (req, res) => {
   }
 });
 
+// Get landing page footer sections
+router.get('/footer-sections', async (req, res) => {
+  try {
+    const sections = await prisma.landingFooterSection.findMany({
+      where: { isActive: true },
+      orderBy: { order: 'asc' }
+    });
+    
+    // Parse links JSON
+    const formattedSections = sections.map(s => ({
+      ...s,
+      links: JSON.parse(s.links || '[]')
+    }));
+    
+    res.json(formattedSections);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

@@ -29,9 +29,11 @@ const stats = [
 export default function LandingPage() {
   const [plans, setPlans] = useState([]);
   const [loadingPlans, setLoadingPlans] = useState(true);
+  const [footerSections, setFooterSections] = useState([]);
 
   useEffect(() => {
     fetchPlans();
+    fetchFooter();
   }, []);
 
   const fetchPlans = async () => {
@@ -42,6 +44,15 @@ export default function LandingPage() {
       console.error('Planlar yüklenemedi:', error);
     } finally {
       setLoadingPlans(false);
+    }
+  };
+
+  const fetchFooter = async () => {
+    try {
+      const res = await api.get('/public/footer-sections');
+      setFooterSections(res.data);
+    } catch (error) {
+      console.error('Footer yüklenemedi:', error);
     }
   };
 
@@ -265,36 +276,51 @@ export default function LandingPage() {
             </div>
           </div>
           
-          <div>
-            <h4>Ürün</h4>
-            <ul>
-              <li><a href="#features">Özellikler</a></li>
-              <li><a href="#pricing">Fiyatlandırma</a></li>
-              <li><a href="#how">Nasıl Çalışır?</a></li>
-              <li><Link to="/register">Ücretsiz Başla</Link></li>
-            </ul>
-          </div>
-
-          <div>
-            <h4>Yasal Sözleşmeler</h4>
-            <ul>
-              <li><Link to="/policy/mesafeli-satis-sozlesmesi">Mesafeli Satış Sözleşmesi</Link></li>
-              <li><Link to="/policy/iptal-ve-iade-kosullari">İptal ve İade Koşulları</Link></li>
-              <li><Link to="/policy/gizlilik-ve-guvenlik-politikasi">Gizlilik ve Güvenlik Politikası</Link></li>
-              <li><Link to="/policy/teslimat-kosullari">Teslimat Koşulları</Link></li>
-              <li><Link to="/policy/kullanim-sartlari">Kullanım Şartları</Link></li>
-            </ul>
-          </div>
-          
-          <div>
-            <h4>Kurumsal</h4>
-            <ul>
-              <li><Link to="/policy/hakkimizda">Hakkımızda</Link></li>
-              <li><Link to="/policy/iletisim">İletişim</Link></li>
-              <li><a href="#">Kariyer</a></li>
-              <li><a href="#">Destek Merkezi</a></li>
-            </ul>
-          </div>
+          {(footerSections.length > 0 ? footerSections : [
+            {
+              title: 'Ürün',
+              links: [
+                { label: 'Özellikler', url: '#features' },
+                { label: 'Fiyatlandırma', url: '#pricing' },
+                { label: 'Nasıl Çalışır?', url: '#how' },
+                { label: 'Ücretsiz Başla', url: '/register' }
+              ]
+            },
+            {
+              title: 'Yasal Sözleşmeler',
+              links: [
+                { label: 'Mesafeli Satış Sözleşmesi', url: '/policy/mesafeli-satis-sozlesmesi' },
+                { label: 'İptal ve İade Koşulları', url: '/policy/iptal-ve-iade-kosullari' },
+                { label: 'Gizlilik ve Güvenlik Politikası', url: '/policy/gizlilik-ve-guvenlik-politikasi' },
+                { label: 'Teslimat Koşulları', url: '/policy/teslimat-kosullari' },
+                { label: 'Kullanım Şartları', url: '/policy/kullanim-sartlari' }
+              ]
+            },
+            {
+              title: 'Kurumsal',
+              links: [
+                { label: 'Hakkımızda', url: '/policy/hakkimizda' },
+                { label: 'İletişim', url: '/policy/iletisim' },
+                { label: 'Kariyer', url: '#' },
+                { label: 'Destek Merkezi', url: '#' }
+              ]
+            }
+          ]).map((section, idx) => (
+            <div key={idx}>
+              <h4>{section.title}</h4>
+              <ul>
+                {(Array.isArray(section.links) ? section.links : JSON.parse(section.links || '[]')).map((link, lIdx) => (
+                  <li key={lIdx}>
+                    {link.url.startsWith('#') ? (
+                      <a href={link.url}>{link.label}</a>
+                    ) : (
+                      <Link to={link.url}>{link.label}</Link>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
         
         <div className="lp-footer-bottom">
