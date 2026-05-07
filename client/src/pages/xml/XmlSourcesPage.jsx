@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, RefreshCw, Trash2, FileCode2, Clock, CheckCircle, XCircle, Settings, Eye, ArrowRight, Link2, Send, Tag, DollarSign, Search, Check, FolderTree, Loader2, AlertCircle } from 'lucide-react';
+import { Plus, RefreshCw, Trash2, FileCode2, Clock, CheckCircle, XCircle, Settings, Eye, ArrowRight, Link2, Send, Tag, DollarSign, Search, Check, FolderTree, Loader2, AlertCircle, Package } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
