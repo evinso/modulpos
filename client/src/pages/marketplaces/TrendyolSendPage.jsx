@@ -136,6 +136,14 @@ export default function TrendyolSendPage() {
     } finally { setSending(false); }
   };
 
+  const getFirstImage = (p) => {
+    if (!p.images) return null;
+    try {
+      const imgs = JSON.parse(p.images);
+      return Array.isArray(imgs) ? imgs[0] : null;
+    } catch { return null; }
+  };
+
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
 
   if (connections.length === 0) {
@@ -240,6 +248,7 @@ export default function TrendyolSendPage() {
               const status = getProductStatus(p);
               const isSelected = selectedIds.has(p.id);
               const catMapping = p.category ? mappedCategories[p.category] : null;
+              const thumbImg = getFirstImage(p);
               const hasPricingRule = !!pricingLookup[p.xmlSourceId];
               const issues = [];
               if (!p.barcode) issues.push('Barkod yok');
@@ -258,7 +267,30 @@ export default function TrendyolSendPage() {
                     )}
                   </td>
                   <td style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-muted)' }}>{p.sku}</td>
-                  <td style={{ fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{
+                        width: 36, height: 36, borderRadius: 6, flexShrink: 0,
+                        background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden'
+                      }}>
+                        {thumbImg ? (
+                          <>
+                            <img src={thumbImg} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                              onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }} />
+                            <div style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                              <Package size={15} color="var(--text-muted)" />
+                            </div>
+                          </>
+                        ) : (
+                          <Package size={15} color="var(--text-muted)" />
+                        )}
+                      </div>
+                      <span style={{ fontWeight: 500, maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {p.title}
+                      </span>
+                    </div>
+                  </td>
                   <td style={{ fontWeight: 600 }}>₺{(getCalculatedPrice(p) || 0).toLocaleString('tr-TR')}</td>
                   <td style={{ fontFamily: 'monospace', fontSize: 12, color: p.barcode ? 'var(--text-secondary)' : 'var(--danger)' }}>
                     {p.barcode || '⚠ Eksik'}

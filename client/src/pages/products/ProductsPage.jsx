@@ -278,6 +278,42 @@ export default function ProductsPage() {
   const allSelected = products.length > 0 && selectedIds.size === products.length;
   const someSelected = selectedIds.size > 0;
 
+  const getFirstImage = (p) => {
+    if (!p.images) return null;
+    try {
+      const imgs = JSON.parse(p.images);
+      return Array.isArray(imgs) ? imgs[0] : null;
+    } catch { return null; }
+  };
+
+  const ProductThumb = ({ p, title }) => {
+    const img = getFirstImage(p);
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{
+          width: 36, height: 36, borderRadius: 6, flexShrink: 0,
+          background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden'
+        }}>
+          {img ? (
+            <>
+              <img src={img} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }} />
+              <div style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                <Package size={15} color="var(--text-muted)" />
+              </div>
+            </>
+          ) : (
+            <Package size={15} color="var(--text-muted)" />
+          )}
+        </div>
+        <span style={{ fontWeight: 500, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {title}
+        </span>
+      </div>
+    );
+  };
+
   return (
     <div>
       <div className="page-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -504,7 +540,7 @@ export default function ProductsPage() {
                       {p.xmlSource?.globalProviderId ? (
                         <>
                           <td style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-muted)' }}>{p.sku}</td>
-                          <td style={{ fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</td>
+                          <td><ProductThumb p={p} title={p.title} /></td>
                           <td colSpan="5" style={{ textAlign: 'center', color: 'var(--accent-primary)', fontSize: 13, fontStyle: 'italic', padding: '12px' }}>
                             ✨ Tedarikçi Havuzundan Eklendi (Orijinal veriler gizlidir)
                           </td>
@@ -517,7 +553,7 @@ export default function ProductsPage() {
                       ) : (
                         <>
                           <td style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-muted)' }}>{xmlD.sku || p.sku}</td>
-                          <td style={{ fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{xmlD.title || p.title}</td>
+                          <td><ProductThumb p={p} title={xmlD.title || p.title} /></td>
                           <td style={{ fontWeight: 600 }}>₺{(xmlD.price || 0).toLocaleString('tr-TR')}</td>
                           <td>{xmlD.stock ?? p.stock}</td>
                           <td>{xmlD.brand || p.brand || '-'}</td>
@@ -609,7 +645,7 @@ export default function ProductsPage() {
                         </td>
                       )}
                       <td style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-muted)' }}>{p.sku}</td>
-                      <td style={{ fontWeight: 500, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</td>
+                      <td><ProductThumb p={p} title={p.title} /></td>
                       <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                         {xmlPrice > 0 ? `₺${xmlPrice.toLocaleString('tr-TR')}` : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                       </td>
