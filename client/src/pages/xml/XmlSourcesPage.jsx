@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, RefreshCw, Trash2, FileCode2, Clock, CheckCircle, XCircle, Settings, Eye, ArrowRight, Link2, Send, Tag, DollarSign, Search, Check, FolderTree, Loader2, AlertCircle, Package } from 'lucide-react';
+import { Plus, RefreshCw, Trash2, FileCode2, Clock, CheckCircle, XCircle, Settings, Eye, ArrowRight, Link2, Send, Tag, DollarSign, Search, Check, FolderTree, Loader2, AlertCircle, ImageOff, X } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -25,9 +25,9 @@ export default function XmlSourcesPage() {
   const [showMappingModal, setShowMappingModal] = useState(null); // source id
   const [syncing, setSyncing] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [showProductsPreview, setShowProductsPreview] = useState(null); // source id
-  const [previewProducts, setPreviewProducts] = useState([]);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const [xmlPreviewSource, setXmlPreviewSource] = useState(null);
+  const [xmlPreviewData, setXmlPreviewData] = useState(null);
+  const [xmlPreviewLoading, setXmlPreviewLoading] = useState(false);
 
   // Add form
   const [addForm, setAddForm] = useState({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10' });
@@ -142,17 +142,18 @@ export default function XmlSourcesPage() {
     });
   };
   
-  const handleOpenProductsPreview = async (source) => {
-    setShowProductsPreview(source);
-    setPreviewLoading(true);
+  const handleOpenXmlPreview = async (source) => {
+    setXmlPreviewSource(source);
+    setXmlPreviewData(null);
+    setXmlPreviewLoading(true);
     try {
-      const res = await api.get('/products', { params: { xmlSourceId: source.id, limit: 10 } });
-      setPreviewProducts(res.data.products);
+      const res = await api.get(`/xml-sources/${source.id}/xml-preview`);
+      setXmlPreviewData(res.data);
     } catch {
-      toast.error('Ürün önizlemesi alınamadı');
-      setShowProductsPreview(null);
+      toast.error('XML önizlemesi alınamadı');
+      setXmlPreviewSource(null);
     } finally {
-      setPreviewLoading(false);
+      setXmlPreviewLoading(false);
     }
   };
 
@@ -586,8 +587,8 @@ export default function XmlSourcesPage() {
                         <Settings size={14} /> Alan Eşleştir
                       </button>
                     )}
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleOpenProductsPreview(s)} title="Ürünleri Önizle">
-                      <Eye size={14} /> Ürünler
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleOpenXmlPreview(s)}>
+                      <Eye size={14} /> Önizle
                     </button>
                     <button className="btn btn-primary btn-sm" onClick={() => handleSync(s.id)} disabled={syncing === s.id}>
                       <RefreshCw size={14} className={syncing === s.id ? 'spinning' : ''} />

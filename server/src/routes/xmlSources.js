@@ -267,6 +267,31 @@ router.post('/:id/sync', async (req, res, next) => {
   }
 });
 
+// GET /api/xml-sources/:id/xml-preview — first 20 products + all categories from XML
+router.get('/:id/xml-preview', async (req, res, next) => {
+  try {
+    const xmlSource = await prisma.xmlSource.findUnique({ where: { id: req.params.id } });
+    if (!xmlSource) return res.status(404).json({ error: 'XML kaynağı bulunamadı' });
+
+    const products = await parseXml(xmlSource.url, xmlSource.mappingConfig);
+
+    const categories = [...new Set(
+      products.map(p => p.category).filter(c => c && c.trim())
+    )].sort();
+
+    const preview = products.slice(0, 20).map(p => ({
+      title: p.title || '—',
+      image: Array.isArray(p.images) ? p.images[0] : (p.images || null),
+      category: p.category || '—',
+      price: p.price || 0
+    }));
+
+    res.json({ total: products.length, preview, categories });
+  } catch (error) {
+    res.status(400).json({ error: `Önizleme hatası: ${error.message}` });
+  }
+});
+
 // Delete
 router.delete('/:id', async (req, res, next) => {
   try {
