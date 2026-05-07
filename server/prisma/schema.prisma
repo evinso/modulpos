@@ -352,3 +352,17 @@ model SystemSettings {
   key   String @unique
   value String
 }
+
+model LandingPricingPlan {
+  id          String   @id @default(uuid())
+  name        String
+  price       String
+  period      String
+  features    String   // JSON array of strings
+  ctaText     String   @default("Hemen Başla")
+  isHighlighted Boolean @default(false)
+  order       Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

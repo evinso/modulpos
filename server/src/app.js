@@ -11,6 +11,7 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 
 const authRoutes = require('./routes/auth');
+const publicRoutes = require('./routes/public');
 const dashboardRoutes = require('./routes/dashboard');
 const productRoutes = require('./routes/products');
 const xmlSourceRoutes = require('./routes/xmlSources');
@@ -73,6 +74,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Routes
+app.use('/api/public', publicRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/products', productRoutes);

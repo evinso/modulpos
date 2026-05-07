@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { FileCode2, Store, Tags, ArrowRight, CheckCircle, Zap, ShieldCheck, BarChart3, RefreshCw, FolderTree, ArrowLeftRight, Package } from 'lucide-react';
+import api from '../../services/api';
 import './LandingPage.css';
 
 const features = [
@@ -25,6 +27,24 @@ const stats = [
 ];
 
 export default function LandingPage() {
+  const [plans, setPlans] = useState([]);
+  const [loadingPlans, setLoadingPlans] = useState(true);
+
+  useEffect(() => {
+    fetchPlans();
+  }, []);
+
+  const fetchPlans = async () => {
+    try {
+      const res = await api.get('/public/pricing-plans');
+      setPlans(res.data);
+    } catch (error) {
+      console.error('Planlar yüklenemedi:', error);
+    } finally {
+      setLoadingPlans(false);
+    }
+  };
+
   return (
     <div className="lp-root">
       {/* NAV */}
@@ -176,37 +196,37 @@ export default function LandingPage() {
             <p>İhtiyacınıza göre plan seçin, istediğiniz zaman değiştirin</p>
           </div>
           <div className="lp-pricing-grid">
-            {[
+            {(plans.length > 0 ? plans : [
               {
                 name: 'Başlangıç', price: 'Ücretsiz', period: 'sonsuza kadar',
                 features: ['1 XML Kaynağı', '500 Ürün', '1 Pazaryeri', 'Temel destek'],
-                cta: 'Ücretsiz Başla', highlight: false,
+                ctaText: 'Ücretsiz Başla', isHighlighted: false,
               },
               {
                 name: 'Profesyonel', price: '₺499', period: '/ ay',
                 features: ['10 XML Kaynağı', '10.000 Ürün', '3 Pazaryeri', 'Öncelikli destek', 'XML Dönüştürücü', 'Otomatik senkronizasyon'],
-                cta: 'Hemen Başla', highlight: true,
+                ctaText: 'Hemen Başla', isHighlighted: true,
               },
               {
                 name: 'Kurumsal', price: 'Özel', period: 'fiyatlandırma',
                 features: ['Sınırsız XML Kaynağı', 'Sınırsız Ürün', 'Sınırsız Pazaryeri', '7/24 destek', 'Özel entegrasyon', 'SLA garantisi'],
-                cta: 'Bize Ulaşın', highlight: false,
+                ctaText: 'Bize Ulaşın', isHighlighted: false,
               },
-            ].map((plan, i) => (
-              <div key={i} className={`lp-price-card ${plan.highlight ? 'highlighted' : ''}`}>
-                {plan.highlight && <div className="lp-popular-badge">En Popüler</div>}
+            ]).map((plan, i) => (
+              <div key={i} className={`lp-price-card ${plan.isHighlighted ? 'highlighted' : ''}`}>
+                {plan.isHighlighted && <div className="lp-popular-badge">En Popüler</div>}
                 <div className="lp-price-name">{plan.name}</div>
                 <div className="lp-price-amount">
                   <span className="lp-price-value">{plan.price}</span>
                   <span className="lp-price-period">{plan.period}</span>
                 </div>
                 <ul className="lp-price-features">
-                  {plan.features.map(f => (
+                  {(Array.isArray(plan.features) ? plan.features : JSON.parse(plan.features || '[]')).map(f => (
                     <li key={f}><CheckCircle size={14} /> {f}</li>
                   ))}
                 </ul>
-                <Link to="/register" className={`lp-price-cta ${plan.highlight ? 'primary' : 'ghost'}`}>
-                  {plan.cta}
+                <Link to="/register" className={`lp-price-cta ${plan.isHighlighted ? 'primary' : 'ghost'}`}>
+                  {plan.ctaText}
                 </Link>
               </div>
             ))}

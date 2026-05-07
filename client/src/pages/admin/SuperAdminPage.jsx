@@ -3,7 +3,7 @@ import api from '../../services/api';
 import { 
   Users, Store, Package, ShoppingCart, CreditCard, Shield, Search, 
   MoreVertical, CheckCircle, XCircle, UserPlus, Mail, Calendar, 
-  Trash2, Edit, Check, X, RefreshCcw, Settings
+  Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './SuperAdminPage.css';
@@ -26,6 +26,10 @@ export default function SuperAdminPage() {
   const [quotaModalUser, setQuotaModalUser] = useState(null);
   const [quotaData, setQuotaData] = useState({ maxProducts: 5000, maxXmlSources: 3 });
 
+  const [pricingPlans, setPricingPlans] = useState([]);
+  const [showPlanModal, setShowPlanModal] = useState(null); // { id, name, price, ... } or 'new'
+  const [planForm, setPlanForm] = useState({ name: '', price: '', period: '', features: '', ctaText: 'Hemen Başla', isHighlighted: false, order: 0, isActive: true });
+
   useEffect(() => {
     fetchData();
   }, [activeTab]);
@@ -45,6 +49,9 @@ export default function SuperAdminPage() {
       } else if (activeTab === 'auditLogs') {
         const logsRes = await api.get('/admin/audit-logs');
         setAuditLogs(logsRes.data);
+      } else if (activeTab === 'pricing') {
+        const plansRes = await api.get('/admin/pricing-plans');
+        setPricingPlans(plansRes.data);
       }
     } catch (error) {
       console.error('Admin verileri yüklenemedi:', error);
@@ -158,6 +165,39 @@ export default function SuperAdminPage() {
     }
   };
 
+  const handleSavePlan = async (e) => {
+    e.preventDefault();
+    try {
+      const data = {
+        ...planForm,
+        features: planForm.features.split('\n').filter(f => f.trim())
+      };
+
+      if (showPlanModal === 'new') {
+        await api.post('/admin/pricing-plans', data);
+        toast.success('Yeni plan oluşturuldu');
+      } else {
+        await api.put(`/admin/pricing-plans/${showPlanModal.id}`, data);
+        toast.success('Plan güncellendi');
+      }
+      setShowPlanModal(null);
+      fetchData();
+    } catch (error) {
+      toast.error('Plan kaydedilemedi');
+    }
+  };
+
+  const handleDeletePlan = async (id) => {
+    if (!window.confirm('Bu planı silmek istediğinize emin misiniz?')) return;
+    try {
+      await api.delete(`/admin/pricing-plans/${id}`);
+      toast.success('Plan silindi');
+      fetchData();
+    } catch (error) {
+      toast.error('Plan silinemedi');
+    }
+  };
+
   let filteredUsers = users.filter(u => 
     u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     u.email.toLowerCase().includes(searchTerm.toLowerCase())
@@ -236,11 +276,11 @@ export default function SuperAdminPage() {
         >
           <Store size={16} /> Mağazalar
         </button>
-        <button 
-          className={`admin-tab ${activeTab === 'auditLogs' ? 'active' : ''}`}
-          onClick={() => setActiveTab('auditLogs')}
-        >
-          <Shield size={16} /> Sistem Logları
+        <button className={`tab-btn ${activeTab === 'auditLogs' ? 'active' : ''}`} onClick={() => setActiveTab('auditLogs')}>
+          <Settings size={18} /> Sistem Logları
+        </button>
+        <button className={`tab-btn ${activeTab === 'pricing' ? 'active' : ''}`} onClick={() => setActiveTab('pricing')}>
+          <Tags size={18} /> Fiyat Planları
         </button>
       </div>
 
@@ -439,9 +479,148 @@ export default function SuperAdminPage() {
                 )}
               </tbody>
             </table>
+          ) : activeTab === 'pricing' ? (
+            <div className="pricing-admin-view">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <h3>Landing Page Fiyat Planları</h3>
+                <button className="btn btn-primary" onClick={() => {
+                  setPlanForm({ name: '', price: '', period: '', features: '', ctaText: 'Hemen Başla', isHighlighted: false, order: pricingPlans.length, isActive: true });
+                  setShowPlanModal('new');
+                }}>
+                  <Plus size={16} /> Yeni Plan Ekle
+                </button>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Sıra</th>
+                    <th>Plan Adı</th>
+                    <th>Fiyat</th>
+                    <th>Periyot</th>
+                    <th>Özellikler</th>
+                    <th>Durum</th>
+                    <th>İşlem</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pricingPlans.map(plan => (
+                    <tr key={plan.id}>
+                      <td style={{ width: 60 }}>{plan.order}</td>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold">{plan.name}</span>
+                          {plan.isHighlighted && <span className="badge badge-info" style={{ fontSize: 10 }}>Öne Çıkan</span>}
+                        </div>
+                      </td>
+                      <td><span className="font-semibold">{plan.price}</span></td>
+                      <td><span className="text-muted text-xs">{plan.period}</span></td>
+                      <td>
+                        <div className="text-xs text-muted" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {JSON.parse(plan.features || '[]').join(', ')}
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge ${plan.isActive ? 'badge-success' : 'badge-danger'}`}>
+                          {plan.isActive ? 'Yayında' : 'Taslak'}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="flex gap-2">
+                          <button className="header-icon-btn" onClick={() => {
+                            setPlanForm({
+                              ...plan,
+                              features: JSON.parse(plan.features || '[]').join('\n')
+                            });
+                            setShowPlanModal(plan);
+                          }}>
+                            <Edit size={16} />
+                          </button>
+                          <button className="header-icon-btn text-danger" onClick={() => handleDeletePlan(plan.id)}>
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {pricingPlans.length === 0 && (
+                    <tr>
+                      <td colSpan="7" style={{ textAlign: 'center', padding: 20 }}>Henüz bir fiyat planı eklenmemiş.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           ) : null}
         </div>
       </div>
+
+      {/* Plan Modal */}
+      {showPlanModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+        }}>
+          <div className="card" style={{ width: '100%', maxWidth: 500, padding: 0 }}>
+            <div className="table-header">
+              <h3>{showPlanModal === 'new' ? 'Yeni Plan Ekle' : 'Planı Düzenle'}</h3>
+              <button className="text-btn" onClick={() => setShowPlanModal(null)}>İptal</button>
+            </div>
+            <form onSubmit={handleSavePlan} style={{ padding: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                <div className="form-group">
+                  <label>Plan Adı</label>
+                  <input type="text" className="input" value={planForm.name} onChange={e => setPlanForm({...planForm, name: e.target.value})} placeholder="Örn: Profesyonel" required />
+                </div>
+                <div className="form-group">
+                  <label>Fiyat Etiketi</label>
+                  <input type="text" className="input" value={planForm.price} onChange={e => setPlanForm({...planForm, price: e.target.value})} placeholder="Örn: ₺499" required />
+                </div>
+                <div className="form-group">
+                  <label>Periyot</label>
+                  <input type="text" className="input" value={planForm.period} onChange={e => setPlanForm({...planForm, period: e.target.value})} placeholder="Örn: / ay" required />
+                </div>
+                <div className="form-group">
+                  <label>Sıralama</label>
+                  <input type="number" className="input" value={planForm.order} onChange={e => setPlanForm({...planForm, order: e.target.value})} />
+                </div>
+              </div>
+              
+              <div className="form-group">
+                <label>Buton Metni</label>
+                <input type="text" className="input" value={planForm.ctaText} onChange={e => setPlanForm({...planForm, ctaText: e.target.value})} placeholder="Örn: Hemen Başla" />
+              </div>
+
+              <div className="form-group">
+                <label>Özellikler (Her satıra bir tane)</label>
+                <textarea 
+                  className="input" 
+                  style={{ minHeight: 120, resize: 'vertical' }}
+                  value={planForm.features} 
+                  onChange={e => setPlanForm({...planForm, features: e.target.value})}
+                  placeholder="10 XML Kaynağı&#10;10.000 Ürün&#10;Öncelikli Destek"
+                />
+              </div>
+
+              <div className="flex gap-4" style={{ marginBottom: 20 }}>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={planForm.isHighlighted} onChange={e => setPlanForm({...planForm, isHighlighted: e.target.checked})} />
+                  <span className="text-sm">Öne Çıkan Plan (En Popüler)</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={planForm.isActive} onChange={e => setPlanForm({...planForm, isActive: e.target.checked})} />
+                  <span className="text-sm">Yayında</span>
+                </label>
+              </div>
+
+              <div className="flex gap-3">
+                <button type="button" className="btn btn-secondary flex-1" onClick={() => setShowPlanModal(null)}>Vazgeç</button>
+                <button type="submit" className="btn btn-primary flex-1">Kaydet</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Quota Modal */}
       {quotaModalUser && (

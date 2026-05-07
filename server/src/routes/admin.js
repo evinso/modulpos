@@ -250,4 +250,81 @@ router.get('/audit-logs', auth, isAdmin, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/admin/pricing-plans
+ */
+router.get('/pricing-plans', auth, isAdmin, async (req, res) => {
+  try {
+    const plans = await prisma.landingPricingPlan.findMany({
+      orderBy: { order: 'asc' }
+    });
+    res.json(plans);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/pricing-plans
+ */
+router.post('/pricing-plans', auth, isAdmin, async (req, res) => {
+  try {
+    const { name, price, period, features, ctaText, isHighlighted, order, isActive } = req.body;
+    const plan = await prisma.landingPricingPlan.create({
+      data: {
+        name,
+        price,
+        period,
+        features: Array.isArray(features) ? JSON.stringify(features) : features,
+        ctaText,
+        isHighlighted,
+        order: parseInt(order) || 0,
+        isActive: isActive !== undefined ? isActive : true
+      }
+    });
+    res.status(201).json(plan);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/admin/pricing-plans/:id
+ */
+router.put('/pricing-plans/:id', auth, isAdmin, async (req, res) => {
+  try {
+    const { name, price, period, features, ctaText, isHighlighted, order, isActive } = req.body;
+    const plan = await prisma.landingPricingPlan.update({
+      where: { id: req.params.id },
+      data: {
+        name,
+        price,
+        period,
+        features: Array.isArray(features) ? JSON.stringify(features) : features,
+        ctaText,
+        isHighlighted,
+        order: parseInt(order) || 0,
+        isActive
+      }
+    });
+    res.json(plan);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/admin/pricing-plans/:id
+ */
+router.delete('/pricing-plans/:id', auth, isAdmin, async (req, res) => {
+  try {
+    await prisma.landingPricingPlan.delete({
+      where: { id: req.params.id }
+    });
+    res.json({ message: 'Plan silindi' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
