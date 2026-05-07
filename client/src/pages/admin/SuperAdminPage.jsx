@@ -347,48 +347,71 @@ export default function SuperAdminPage() {
 
       {/* Tabs */}
       <div className="admin-tabs">
-        <button 
+        <button
           className={`admin-tab ${activeTab === 'users' ? 'active' : ''}`}
           onClick={() => setActiveTab('users')}
         >
           <Users size={16} /> Kullanıcılar
         </button>
-        <button 
+        <button
           className={`admin-tab ${activeTab === 'stores' ? 'active' : ''}`}
           onClick={() => setActiveTab('stores')}
         >
           <Store size={16} /> Mağazalar
         </button>
-        <button className={`tab-btn ${activeTab === 'auditLogs' ? 'active' : ''}`} onClick={() => setActiveTab('auditLogs')}>
-          <Settings size={18} /> Sistem Logları
+        <button className={`admin-tab ${activeTab === 'auditLogs' ? 'active' : ''}`} onClick={() => setActiveTab('auditLogs')}>
+          <Settings size={16} /> Sistem Logları
         </button>
-        <button className={`tab-btn ${activeTab === 'pricing' ? 'active' : ''}`} onClick={() => setActiveTab('pricing')}>
-          <Tags size={18} /> Fiyat Planları
+        <button className={`admin-tab ${activeTab === 'pricing' ? 'active' : ''}`} onClick={() => setActiveTab('pricing')}>
+          <Tags size={16} /> Fiyat Planları
         </button>
-        <button className={`tab-btn ${activeTab === 'footer' ? 'active' : ''}`} onClick={() => setActiveTab('footer')}>
-          <List size={18} /> Footer Yönetimi
+        <button className={`admin-tab ${activeTab === 'footer' ? 'active' : ''}`} onClick={() => setActiveTab('footer')}>
+          <List size={16} /> Footer Yönetimi
         </button>
       </div>
 
       <div className="admin-content">
         <div className="table-container">
           <div className="table-header" style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
-            <h3 style={{ margin: 0, flex: 1, minWidth: 200 }}>{activeTab === 'users' ? 'Kullanıcı Yönetimi' : 'Tüm Mağazalar'}</h3>
+            <h3 style={{ margin: 0, flex: 1, minWidth: 200 }}>
+              {activeTab === 'users' ? 'Kullanıcı Yönetimi' :
+               activeTab === 'stores' ? 'Tüm Mağazalar' :
+               activeTab === 'auditLogs' ? 'Sistem Logları' :
+               activeTab === 'pricing' ? 'Fiyat Planları' : 'Footer Yönetimi'}
+            </h3>
             {activeTab === 'users' && (
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', background: 'rgba(59,130,246,0.1)', padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(59,130,246,0.2)', color: 'var(--accent-primary)' }}>
                 <input type="checkbox" checked={showOnlyPremium} onChange={e => setShowOnlyPremium(e.target.checked)} />
                 Sadece Premium
               </label>
             )}
-            <div className="header-search">
-              <Search size={14} className="search-icon" />
-              <input 
-                type="text" 
-                placeholder={activeTab === 'users' ? "Kullanıcı veya e-posta ara..." : "Mağaza veya sahip ara..."}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
+            {(activeTab === 'users' || activeTab === 'stores') && (
+              <div className="header-search">
+                <Search size={14} className="search-icon" />
+                <input
+                  type="text"
+                  placeholder={activeTab === 'users' ? "Kullanıcı veya e-posta ara..." : "Mağaza veya sahip ara..."}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+            )}
+            {activeTab === 'pricing' && (
+              <button className="btn btn-primary" onClick={() => {
+                setPlanForm({ name: '', price: '', period: '', features: '', ctaText: 'Hemen Başla', isHighlighted: false, order: pricingPlans.length, isActive: true });
+                setShowPlanModal('new');
+              }}>
+                <Plus size={16} /> Yeni Plan Ekle
+              </button>
+            )}
+            {activeTab === 'footer' && (
+              <button className="btn btn-primary" onClick={() => {
+                setFooterForm({ title: '', links: [{ label: '', url: '', isExternal: false }], order: footerSections.length, isActive: true });
+                setShowFooterModal('new');
+              }}>
+                <Plus size={16} /> Yeni Grup Ekle
+              </button>
+            )}
           </div>
 
           {activeTab === 'users' ? (
@@ -567,15 +590,6 @@ export default function SuperAdminPage() {
             </table>
           ) : activeTab === 'pricing' ? (
             <div className="pricing-admin-view">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <h3>Landing Page Fiyat Planları</h3>
-                <button className="btn btn-primary" onClick={() => {
-                  setPlanForm({ name: '', price: '', period: '', features: '', ctaText: 'Hemen Başla', isHighlighted: false, order: pricingPlans.length, isActive: true });
-                  setShowPlanModal('new');
-                }}>
-                  <Plus size={16} /> Yeni Plan Ekle
-                </button>
-              </div>
               <table>
                 <thead>
                   <tr>
@@ -670,15 +684,7 @@ export default function SuperAdminPage() {
                 </form>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <h3>Footer Link Grupları</h3>
-                <button className="btn btn-primary" onClick={() => {
-                  setFooterForm({ title: '', links: [{ label: '', url: '', isExternal: false }], order: footerSections.length, isActive: true });
-                  setShowFooterModal('new');
-                }}>
-                  <Plus size={16} /> Yeni Grup Ekle
-                </button>
-              </div>
+              <h4 style={{ marginBottom: 16, marginTop: 8 }}>Footer Link Grupları</h4>
               <table>
                 <thead>
                   <tr>

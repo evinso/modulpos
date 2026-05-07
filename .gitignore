@@ -31,3 +31,6 @@ npm-debug.log*
 # Test files
 server/test-*.js
 server/test2.js
+
+# Claude Code memory
+.claude/
