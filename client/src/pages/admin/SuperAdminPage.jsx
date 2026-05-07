@@ -659,24 +659,24 @@ export default function SuperAdminPage() {
                 </h4>
                 <form onSubmit={handleSaveFooterBrand} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label>Firma Adı</label>
-                    <input type="text" className="input" value={footerBrandSettings.footer_company_name} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_company_name: e.target.value})} />
+                    <label className="form-label">Firma Adı</label>
+                    <input type="text" className="form-input" value={footerBrandSettings.footer_company_name} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_company_name: e.target.value})} />
                   </div>
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label>Footer Açıklama Metni</label>
-                    <textarea className="input" style={{ minHeight: 60 }} value={footerBrandSettings.footer_description} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_description: e.target.value})} />
+                    <label className="form-label">Footer Açıklama Metni</label>
+                    <textarea className="form-textarea" style={{ minHeight: 60 }} value={footerBrandSettings.footer_description} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_description: e.target.value})} />
                   </div>
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label>Adres Bilgisi</label>
-                    <input type="text" className="input" value={footerBrandSettings.footer_address} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_address: e.target.value})} />
+                    <label className="form-label">Adres Bilgisi</label>
+                    <input type="text" className="form-input" value={footerBrandSettings.footer_address} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_address: e.target.value})} />
                   </div>
                   <div className="form-group">
-                    <label>E-posta</label>
-                    <input type="email" className="input" value={footerBrandSettings.footer_email} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_email: e.target.value})} />
+                    <label className="form-label">E-posta</label>
+                    <input type="email" className="form-input" value={footerBrandSettings.footer_email} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_email: e.target.value})} />
                   </div>
                   <div className="form-group">
-                    <label>Telefon</label>
-                    <input type="text" className="input" value={footerBrandSettings.footer_phone} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_phone: e.target.value})} />
+                    <label className="form-label">Telefon</label>
+                    <input type="text" className="form-input" value={footerBrandSettings.footer_phone} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_phone: e.target.value})} />
                   </div>
                   <div style={{ gridColumn: 'span 2', textAlign: 'right' }}>
                     <button type="submit" className="btn btn-primary">Bilgileri Güncelle</button>
@@ -751,25 +751,25 @@ export default function SuperAdminPage() {
             <form onSubmit={handleSaveFooter} style={{ padding: 20 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: 15 }}>
                 <div className="form-group">
-                  <label>Bölüm Başlığı</label>
-                  <input type="text" className="input" value={footerForm.title} onChange={e => setFooterForm({...footerForm, title: e.target.value})} placeholder="Örn: Yasal Sözleşmeler" required />
+                  <label className="form-label">Bölüm Başlığı</label>
+                  <input type="text" className="form-input" value={footerForm.title} onChange={e => setFooterForm({...footerForm, title: e.target.value})} placeholder="Örn: Yasal Sözleşmeler" required />
                 </div>
                 <div className="form-group">
-                  <label>Sıralama</label>
-                  <input type="number" className="input" value={footerForm.order} onChange={e => setFooterForm({...footerForm, order: e.target.value})} />
+                  <label className="form-label">Sıralama</label>
+                  <input type="number" className="form-input" value={footerForm.order} onChange={e => setFooterForm({...footerForm, order: e.target.value})} />
                 </div>
               </div>
 
               <div className="form-group">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <label>Linkler</label>
+                  <label className="form-label" style={{ marginBottom: 0 }}>Linkler</label>
                   <button type="button" className="text-btn" onClick={addFooterLink} style={{ fontSize: 12 }}>+ Link Ekle</button>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 250, overflowY: 'auto', paddingRight: 5 }}>
                   {footerForm.links.map((link, idx) => (
                     <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 40px', gap: 10, alignItems: 'center', background: 'var(--bg-tertiary)', padding: 10, borderRadius: 8 }}>
-                      <input type="text" className="input" value={link.label} onChange={e => updateFooterLink(idx, 'label', e.target.value)} placeholder="Etiket (Örn: Hakkımızda)" required />
-                      <input type="text" className="input" value={link.url} onChange={e => updateFooterLink(idx, 'url', e.target.value)} placeholder="URL (Örn: /policy/hakkimizda)" required />
+                      <input type="text" className="form-input" value={link.label} onChange={e => updateFooterLink(idx, 'label', e.target.value)} placeholder="Etiket (Örn: Hakkımızda)" required />
+                      <input type="text" className="form-input" value={link.url} onChange={e => updateFooterLink(idx, 'url', e.target.value)} placeholder="URL (Örn: /policy/hakkimizda)" required />
                       <button type="button" className="text-danger" onClick={() => removeFooterLink(idx)} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
                         <Trash2 size={16} />
                       </button>
@@ -779,15 +779,15 @@ export default function SuperAdminPage() {
               </div>
 
               <div className="form-group" style={{ marginTop: 10 }}>
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>
                   <input type="checkbox" checked={footerForm.isActive} onChange={e => setFooterForm({...footerForm, isActive: e.target.checked})} />
-                  <span className="text-sm">Yayında</span>
+                  Yayında
                 </label>
               </div>
 
-              <div className="flex gap-3">
-                <button type="button" className="btn btn-secondary flex-1" onClick={() => setShowFooterModal(null)}>Vazgeç</button>
-                <button type="submit" className="btn btn-primary flex-1">Kaydet</button>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowFooterModal(null)}>Vazgeç</button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>Kaydet</button>
               </div>
             </form>
           </div>
@@ -809,53 +809,53 @@ export default function SuperAdminPage() {
             <form onSubmit={handleSavePlan} style={{ padding: 20 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
                 <div className="form-group">
-                  <label>Plan Adı</label>
-                  <input type="text" className="input" value={planForm.name} onChange={e => setPlanForm({...planForm, name: e.target.value})} placeholder="Örn: Profesyonel" required />
+                  <label className="form-label">Plan Adı</label>
+                  <input type="text" className="form-input" value={planForm.name} onChange={e => setPlanForm({...planForm, name: e.target.value})} placeholder="Örn: Profesyonel" required />
                 </div>
                 <div className="form-group">
-                  <label>Fiyat Etiketi</label>
-                  <input type="text" className="input" value={planForm.price} onChange={e => setPlanForm({...planForm, price: e.target.value})} placeholder="Örn: ₺499" required />
+                  <label className="form-label">Fiyat Etiketi</label>
+                  <input type="text" className="form-input" value={planForm.price} onChange={e => setPlanForm({...planForm, price: e.target.value})} placeholder="Örn: ₺499" required />
                 </div>
                 <div className="form-group">
-                  <label>Periyot</label>
-                  <input type="text" className="input" value={planForm.period} onChange={e => setPlanForm({...planForm, period: e.target.value})} placeholder="Örn: / ay" required />
+                  <label className="form-label">Periyot</label>
+                  <input type="text" className="form-input" value={planForm.period} onChange={e => setPlanForm({...planForm, period: e.target.value})} placeholder="Örn: / ay" required />
                 </div>
                 <div className="form-group">
-                  <label>Sıralama</label>
-                  <input type="number" className="input" value={planForm.order} onChange={e => setPlanForm({...planForm, order: e.target.value})} />
+                  <label className="form-label">Sıralama</label>
+                  <input type="number" className="form-input" value={planForm.order} onChange={e => setPlanForm({...planForm, order: e.target.value})} />
                 </div>
-              </div>
-              
-              <div className="form-group">
-                <label>Buton Metni</label>
-                <input type="text" className="input" value={planForm.ctaText} onChange={e => setPlanForm({...planForm, ctaText: e.target.value})} placeholder="Örn: Hemen Başla" />
               </div>
 
               <div className="form-group">
-                <label>Özellikler (Her satıra bir tane)</label>
-                <textarea 
-                  className="input" 
+                <label className="form-label">Buton Metni</label>
+                <input type="text" className="form-input" value={planForm.ctaText} onChange={e => setPlanForm({...planForm, ctaText: e.target.value})} placeholder="Örn: Hemen Başla" />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Özellikler (Her satıra bir tane)</label>
+                <textarea
+                  className="form-textarea"
                   style={{ minHeight: 120, resize: 'vertical' }}
-                  value={planForm.features} 
+                  value={planForm.features}
                   onChange={e => setPlanForm({...planForm, features: e.target.value})}
                   placeholder="10 XML Kaynağı&#10;10.000 Ürün&#10;Öncelikli Destek"
                 />
               </div>
 
-              <div className="flex gap-4" style={{ marginBottom: 20 }}>
-                <label className="flex items-center gap-2 cursor-pointer">
+              <div style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>
                   <input type="checkbox" checked={planForm.isHighlighted} onChange={e => setPlanForm({...planForm, isHighlighted: e.target.checked})} />
-                  <span className="text-sm">Öne Çıkan Plan (En Popüler)</span>
+                  Öne Çıkan Plan (En Popüler)
                 </label>
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>
                   <input type="checkbox" checked={planForm.isActive} onChange={e => setPlanForm({...planForm, isActive: e.target.checked})} />
-                  <span className="text-sm">Yayında</span>
+                  Yayında
                 </label>
               </div>
 
-              <div className="flex gap-3">
-                <button type="button" className="btn btn-secondary flex-1" onClick={() => setShowPlanModal(null)}>Vazgeç</button>
-                <button type="submit" className="btn btn-primary flex-1">Kaydet</button>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowPlanModal(null)}>Vazgeç</button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>Kaydet</button>
               </div>
             </form>
           </div>

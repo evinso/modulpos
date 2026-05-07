@@ -126,8 +126,15 @@
 .font-semibold { font-weight: 600; }
 .text-danger { color: var(--danger); }
 .flex { display: flex; }
+.flex-1 { flex: 1; }
+.items-center { align-items: center; }
 .gap-2 { gap: 8px; }
+.gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; }
 .mb-8 { margin-bottom: 32px; }
+.text-sm { font-size: 13px; }
+.text-xs { font-size: 11px; }
+.cursor-pointer { cursor: pointer; }
 
 @keyframes spinning {
   from { transform: rotate(0deg); }
