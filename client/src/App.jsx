@@ -23,6 +23,7 @@ import LogsPage from './pages/activity/LogsPage';
 import './index.css';
 
 import LandingPage from './pages/landing/LandingPage';
+import PolicyPage from './pages/legal/PolicyPage';
 
 function PrivateRoute({ children }) {
   const { token } = useAuthStore();
@@ -44,6 +45,7 @@ function App() {
       }} />
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/policy/:slug" element={<PolicyPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route element={<PrivateRoute><Layout /></PrivateRoute>}>

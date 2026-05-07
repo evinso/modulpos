@@ -678,3 +678,21 @@
   .lp-nav-links { display: none; }
   .lp-footer-inner { grid-template-columns: 1fr; gap: 32px; }
 }
+
+/* ─── POLICY PAGE ─── */
+.policy-content h3 {
+  color: #f1f5f9;
+  margin: 32px 0 16px;
+  font-size: 20px;
+  font-weight: 700;
+}
+.policy-content p {
+  margin-bottom: 16px;
+}
+.policy-content ul {
+  margin: 16px 0;
+  padding-left: 20px;
+}
+.policy-content li {
+  margin-bottom: 8px;
+}

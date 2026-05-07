@@ -258,19 +258,19 @@ export default function LandingPage() {
           <div>
             <h4>Yasal Sözleşmeler</h4>
             <ul>
-              <li><a href="#">Mesafeli Satış Sözleşmesi</a></li>
-              <li><a href="#">İptal ve İade Koşulları</a></li>
-              <li><a href="#">Gizlilik ve Güvenlik Politikası</a></li>
-              <li><a href="#">Teslimat Koşulları</a></li>
-              <li><a href="#">Kullanım Şartları</a></li>
+              <li><Link to="/policy/mesafeli-satis-sozlesmesi">Mesafeli Satış Sözleşmesi</Link></li>
+              <li><Link to="/policy/iptal-ve-iade-kosullari">İptal ve İade Koşulları</Link></li>
+              <li><Link to="/policy/gizlilik-ve-guvenlik-politikasi">Gizlilik ve Güvenlik Politikası</Link></li>
+              <li><Link to="/policy/teslimat-kosullari">Teslimat Koşulları</Link></li>
+              <li><Link to="/policy/kullanim-sartlari">Kullanım Şartları</Link></li>
             </ul>
           </div>
-
+          
           <div>
             <h4>Kurumsal</h4>
             <ul>
-              <li><a href="#">Hakkımızda</a></li>
-              <li><a href="#">İletişim</a></li>
+              <li><Link to="/policy/hakkimizda">Hakkımızda</Link></li>
+              <li><Link to="/policy/iletisim">İletişim</Link></li>
               <li><a href="#">Kariyer</a></li>
               <li><a href="#">Destek Merkezi</a></li>
             </ul>
