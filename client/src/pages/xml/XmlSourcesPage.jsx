@@ -841,72 +841,101 @@ export default function XmlSourcesPage() {
           </div>
         </div>
       )}
-      {/* ===== PRODUCTS PREVIEW MODAL ===== */}
-      {showProductsPreview && (
-        <div className="modal-overlay" onClick={() => setShowProductsPreview(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 800 }}>
-            <div className="modal-header">
-              <h3><Eye size={18} /> {showProductsPreview.name} — Ürün Önizleme</h3>
-              <button className="modal-close" onClick={() => setShowProductsPreview(null)}>×</button>
-            </div>
-            <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
-              {previewLoading ? (
-                <div className="loading-spinner"><div className="spinner"></div></div>
-              ) : previewProducts.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)' }}>
-                  <Package size={48} style={{ margin: '0 auto 16px', opacity: 0.3 }} />
-                  <p>Bu kaynağa ait henüz çekilmiş ürün bulunmuyor. "Şimdi Çek" butonunu kullanarak ürünleri içe aktarabilirsiniz.</p>
-                </div>
-              ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                        <th style={{ padding: '12px', textAlign: 'left' }}>Görsel</th>
-                        <th style={{ padding: '12px', textAlign: 'left' }}>Ürün Adı</th>
-                        <th style={{ padding: '12px', textAlign: 'left' }}>SKU</th>
-                        <th style={{ padding: '12px', textAlign: 'right' }}>Fiyat</th>
-                        <th style={{ padding: '12px', textAlign: 'right' }}>Stok</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {previewProducts.map((p) => {
-                        let images = [];
-                        try { images = p.images ? JSON.parse(p.images) : []; } catch(e) {}
-                        const firstImage = Array.isArray(images) ? images[0] : images;
-
-                        return (
-                          <tr key={p.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                            <td style={{ padding: '12px' }}>
-                              {firstImage ? (
-                                <img src={firstImage} alt="" style={{ width: 40, height: 40, objectFit: 'contain', borderRadius: 4, background: '#fff' }} />
-                              ) : (
-                                <div style={{ width: 40, height: 40, background: 'var(--bg-tertiary)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                  <Package size={16} style={{ opacity: 0.3 }} />
-                                </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: 13, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {p.title}
-                            </td>
-                            <td style={{ padding: '12px', fontSize: 12, color: 'var(--text-secondary)' }}>{p.sku}</td>
-                            <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>₺{p.price?.toLocaleString('tr-TR')}</td>
-                            <td style={{ padding: '12px', textAlign: 'right' }}>
-                              <span className={`badge ${p.stock > 0 ? 'badge-success' : 'badge-danger'}`}>{p.stock}</span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                  <p style={{ marginTop: 16, fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
-                    Yalnızca ilk 10 ürün gösterilmektedir. Tüm ürünleri görmek için <strong>Ürünler</strong> sayfasına gidin.
+      {/* ===== XML PREVIEW MODAL ===== */}
+      {xmlPreviewSource && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.6)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+        }}>
+          <div className="card" style={{ width: '100%', maxWidth: 960, maxHeight: '88vh', padding: 0, display: 'flex', flexDirection: 'column' }}>
+            <div className="table-header" style={{ flexShrink: 0 }}>
+              <div>
+                <h3 style={{ margin: 0 }}>{xmlPreviewSource.name} — Önizleme</h3>
+                {xmlPreviewData && (
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+                    Toplam {xmlPreviewData.total} ürün · İlk 20 gösteriliyor
                   </p>
-                </div>
-              )}
+                )}
+              </div>
+              <button className="text-btn" onClick={() => { setXmlPreviewSource(null); setXmlPreviewData(null); }}>
+                <X size={20} />
+              </button>
             </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowProductsPreview(null)}>Kapat</button>
+
+            <div style={{ overflowY: 'auto', padding: 20, flex: 1 }}>
+              {xmlPreviewLoading ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)' }}>
+                  XML yükleniyor, lütfen bekleyin...
+                </div>
+              ) : xmlPreviewData ? (
+                <>
+                  {/* Ürün kartları */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12, marginBottom: 28 }}>
+                    {xmlPreviewData.preview.map((p, i) => (
+                      <div key={i} style={{
+                        background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-color)', overflow: 'hidden',
+                        display: 'flex', flexDirection: 'column'
+                      }}>
+                        <div style={{ width: '100%', aspectRatio: '1', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                          {p.image ? (
+                            <>
+                              <img
+                                src={p.image}
+                                alt={p.title}
+                                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                                onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
+                              />
+                              <div style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                                <ImageOff size={28} color="var(--text-muted)" />
+                              </div>
+                            </>
+                          ) : (
+                            <ImageOff size={28} color="var(--text-muted)" />
+                          )}
+                        </div>
+                        <div style={{ padding: '8px 10px 10px' }}>
+                          <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                            {p.title}
+                          </p>
+                          {p.category && p.category !== '—' && (
+                            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {p.category}
+                            </p>
+                          )}
+                          <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-primary)' }}>
+                            {p.price > 0 ? `₺${p.price.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Kategoriler */}
+                  {xmlPreviewData.categories?.length > 0 && (
+                    <div>
+                      <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <FolderTree size={16} style={{ color: 'var(--accent-primary)' }} />
+                        XML Kategorileri ({xmlPreviewData.categories.length})
+                      </h4>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {xmlPreviewData.categories.map((cat, i) => (
+                          <span key={i} style={{
+                            fontSize: 12, padding: '4px 10px', borderRadius: 20,
+                            background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                            color: 'var(--text-secondary)'
+                          }}>{cat}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : null}
+            </div>
+
+            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
+              <button className="btn btn-secondary" onClick={() => { setXmlPreviewSource(null); setXmlPreviewData(null); }}>Kapat</button>
             </div>
           </div>
         </div>
