@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Search, Tag, AlertCircle, CheckCircle2, PackageSearch, Wallet } from 'lucide-react';
+import { Download, Search, Tag, CheckCircle2, PackageSearch, Wallet, Eye, X, ImageOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 import { useNavigate } from 'react-router-dom';
@@ -18,6 +18,11 @@ export default function GlobalXmlMarketPage() {
 
   const [creditBalance, setCreditBalance] = useState(0);
   const [defaultCost, setDefaultCost] = useState(0);
+
+  const [previewProvider, setPreviewProvider] = useState(null);
+  const [previewProducts, setPreviewProducts] = useState([]);
+  const [previewTotal, setPreviewTotal] = useState(0);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const navigate = useNavigate();
 
@@ -45,6 +50,23 @@ export default function GlobalXmlMarketPage() {
       toast.error('Global XML listesi alınamadı');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePreview = async (provider) => {
+    setPreviewProvider(provider);
+    setPreviewProducts([]);
+    setPreviewTotal(0);
+    setPreviewLoading(true);
+    try {
+      const res = await api.get(`/global-xml/${provider.id}/preview`);
+      setPreviewProducts(res.data.preview);
+      setPreviewTotal(res.data.total);
+    } catch {
+      toast.error('Önizleme yüklenemedi');
+      setPreviewProvider(null);
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -147,15 +169,100 @@ export default function GlobalXmlMarketPage() {
                 <span className="badge badge-success" style={{ marginTop: 0 }}>Hazır Eşleştirme</span>
               </div>
               
-              <button 
-                className="btn btn-primary" 
-                style={{ width: '100%' }}
-                onClick={() => setSelectedProvider(provider)}
-              >
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  className="btn btn-secondary"
+                  style={{ flex: 1 }}
+                  onClick={() => handlePreview(provider)}
+                >
+                  <Eye size={16} /> Önizle
+                </button>
+                <button
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                  onClick={() => setSelectedProvider(provider)}
+                >
+                  <Download size={16} /> Ekle
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {previewProvider && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.6)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+        }}>
+          <div className="card" style={{ width: '100%', maxWidth: 900, maxHeight: '85vh', padding: 0, display: 'flex', flexDirection: 'column' }}>
+            <div className="table-header" style={{ flexShrink: 0 }}>
+              <div>
+                <h3 style={{ margin: 0 }}>{previewProvider.name} — Önizleme</h3>
+                {previewTotal > 0 && (
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+                    Toplam {previewTotal} ürün · İlk 20 gösteriliyor
+                  </p>
+                )}
+              </div>
+              <button className="text-btn" onClick={() => setPreviewProvider(null)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ overflowY: 'auto', padding: 20, flex: 1 }}>
+              {previewLoading ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)' }}>
+                  XML yükleniyor, lütfen bekleyin...
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+                  {previewProducts.map((p, i) => (
+                    <div key={i} style={{
+                      background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-color)', overflow: 'hidden',
+                      display: 'flex', flexDirection: 'column'
+                    }}>
+                      <div style={{ width: '100%', aspectRatio: '1', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                        {p.image ? (
+                          <img
+                            src={p.image}
+                            alt={p.title}
+                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                            onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
+                          />
+                        ) : null}
+                        <div style={{ display: p.image ? 'none' : 'flex', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                          <ImageOff size={32} color="var(--text-muted)" />
+                        </div>
+                      </div>
+                      <div style={{ padding: '10px 10px 12px' }}>
+                        <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                          {p.title}
+                        </p>
+                        {p.category && p.category !== '—' && (
+                          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {p.category}
+                          </p>
+                        )}
+                        <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-primary)' }}>
+                          {p.price > 0 ? `₺${p.price.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: 10, flexShrink: 0 }}>
+              <button className="btn btn-secondary" onClick={() => setPreviewProvider(null)}>Kapat</button>
+              <button className="btn btn-primary" onClick={() => { setPreviewProvider(null); setSelectedProvider(previewProvider); }}>
                 <Download size={16} /> Mağazama Ekle
               </button>
             </div>
-          ))}
+          </div>
         </div>
       )}
 

@@ -147,6 +147,33 @@ router.delete('/:id', auth, requireAdmin, async (req, res, next) => {
   }
 });
 
+// GET /api/global-xml/:id/preview - Fetch first 20 products from provider XML
+router.get('/:id/preview', auth, async (req, res, next) => {
+  try {
+    const provider = await prisma.globalXmlProvider.findUnique({
+      where: { id: req.params.id }
+    });
+
+    if (!provider || !provider.isActive) {
+      return res.status(404).json({ error: 'Aktif Global XML bulunamadı' });
+    }
+
+    const { parseXml } = require('../services/xml/xmlParser');
+    const products = await parseXml(provider.url, provider.mappingConfig);
+
+    const preview = products.slice(0, 20).map(p => ({
+      title: p.title || '—',
+      image: Array.isArray(p.images) ? p.images[0] : (p.images || null),
+      category: p.category || '—',
+      price: p.price || 0
+    }));
+
+    res.json({ total: products.length, preview });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // POST /api/global-xml/:id/import - User imports a global XML to their store
 router.post('/:id/import', auth, async (req, res, next) => {
   try {
