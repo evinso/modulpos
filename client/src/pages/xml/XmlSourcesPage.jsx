@@ -25,6 +25,9 @@ export default function XmlSourcesPage() {
   const [showMappingModal, setShowMappingModal] = useState(null); // source id
   const [syncing, setSyncing] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [showProductsPreview, setShowProductsPreview] = useState(null); // source id
+  const [previewProducts, setPreviewProducts] = useState([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   // Add form
   const [addForm, setAddForm] = useState({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10' });
@@ -137,6 +140,20 @@ export default function XmlSourcesPage() {
       delete next[localCat];
       return next;
     });
+  };
+  
+  const handleOpenProductsPreview = async (source) => {
+    setShowProductsPreview(source);
+    setPreviewLoading(true);
+    try {
+      const res = await api.get('/products', { params: { xmlSourceId: source.id, limit: 10 } });
+      setPreviewProducts(res.data.products);
+    } catch {
+      toast.error('Ürün önizlemesi alınamadı');
+      setShowProductsPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
   };
 
   const fetchSources = async () => {
@@ -563,14 +580,17 @@ export default function XmlSourcesPage() {
                   <span>🕐 {s.lastSyncedAt ? new Date(s.lastSyncedAt).toLocaleString('tr-TR') : 'Henüz yok'}</span>
                 </div>
                 {s.errorMessage && <div className="alert alert-error" style={{ marginBottom: 12 }}>{s.errorMessage}</div>}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {!isGlobal && (
-                    <button className="btn btn-secondary btn-sm" onClick={() => openMapping(s)}>
-                      <Settings size={14} /> Alan Eşleştir
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {!isGlobal && (
+                      <button className="btn btn-secondary btn-sm" onClick={() => openMapping(s)}>
+                        <Settings size={14} /> Alan Eşleştir
+                      </button>
+                    )}
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleOpenProductsPreview(s)} title="Ürünleri Önizle">
+                      <Eye size={14} /> Ürünler
                     </button>
-                  )}
-                  <button className="btn btn-primary btn-sm" onClick={() => handleSync(s.id)} disabled={syncing === s.id}>
-                    <RefreshCw size={14} className={syncing === s.id ? 'spinning' : ''} />
+                    <button className="btn btn-primary btn-sm" onClick={() => handleSync(s.id)} disabled={syncing === s.id}>
+                      <RefreshCw size={14} className={syncing === s.id ? 'spinning' : ''} />
                     {syncing === s.id ? 'Çekiliyor...' : 'Şimdi Çek'}
                   </button>
                   <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(s.id)}><Trash2 size={14} /> Sil</button>
@@ -816,6 +836,76 @@ export default function XmlSourcesPage() {
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>İptal</button>
               <button className="btn btn-danger" onClick={handleDelete}>Evet, Sil</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ===== PRODUCTS PREVIEW MODAL ===== */}
+      {showProductsPreview && (
+        <div className="modal-overlay" onClick={() => setShowProductsPreview(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 800 }}>
+            <div className="modal-header">
+              <h3><Eye size={18} /> {showProductsPreview.name} — Ürün Önizleme</h3>
+              <button className="modal-close" onClick={() => setShowProductsPreview(null)}>×</button>
+            </div>
+            <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+              {previewLoading ? (
+                <div className="loading-spinner"><div className="spinner"></div></div>
+              ) : previewProducts.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)' }}>
+                  <Package size={48} style={{ margin: '0 auto 16px', opacity: 0.3 }} />
+                  <p>Bu kaynağa ait henüz çekilmiş ürün bulunmuyor. "Şimdi Çek" butonunu kullanarak ürünleri içe aktarabilirsiniz.</p>
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                        <th style={{ padding: '12px', textAlign: 'left' }}>Görsel</th>
+                        <th style={{ padding: '12px', textAlign: 'left' }}>Ürün Adı</th>
+                        <th style={{ padding: '12px', textAlign: 'left' }}>SKU</th>
+                        <th style={{ padding: '12px', textAlign: 'right' }}>Fiyat</th>
+                        <th style={{ padding: '12px', textAlign: 'right' }}>Stok</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewProducts.map((p) => {
+                        let images = [];
+                        try { images = p.images ? JSON.parse(p.images) : []; } catch(e) {}
+                        const firstImage = Array.isArray(images) ? images[0] : images;
+
+                        return (
+                          <tr key={p.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                            <td style={{ padding: '12px' }}>
+                              {firstImage ? (
+                                <img src={firstImage} alt="" style={{ width: 40, height: 40, objectFit: 'contain', borderRadius: 4, background: '#fff' }} />
+                              ) : (
+                                <div style={{ width: 40, height: 40, background: 'var(--bg-tertiary)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <Package size={16} style={{ opacity: 0.3 }} />
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ padding: '12px', fontSize: 13, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {p.title}
+                            </td>
+                            <td style={{ padding: '12px', fontSize: 12, color: 'var(--text-secondary)' }}>{p.sku}</td>
+                            <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>₺{p.price?.toLocaleString('tr-TR')}</td>
+                            <td style={{ padding: '12px', textAlign: 'right' }}>
+                              <span className={`badge ${p.stock > 0 ? 'badge-success' : 'badge-danger'}`}>{p.stock}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <p style={{ marginTop: 16, fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
+                    Yalnızca ilk 10 ürün gösterilmektedir. Tüm ürünleri görmek için <strong>Ürünler</strong> sayfasına gidin.
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowProductsPreview(null)}>Kapat</button>
             </div>
           </div>
         </div>
