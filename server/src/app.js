@@ -1,5 +1,9 @@
 require('dotenv').config();
 
+/**
+ * ModulPOS API Server
+ * Version: 1.0.1
+ */
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
