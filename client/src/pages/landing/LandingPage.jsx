@@ -30,6 +30,7 @@ export default function LandingPage() {
   const [plans, setPlans] = useState([]);
   const [loadingPlans, setLoadingPlans] = useState(true);
   const [footerSections, setFooterSections] = useState([]);
+  const [footerSettings, setFooterSettings] = useState({});
 
   useEffect(() => {
     fetchPlans();
@@ -50,7 +51,8 @@ export default function LandingPage() {
   const fetchFooter = async () => {
     try {
       const res = await api.get('/public/footer-sections');
-      setFooterSections(res.data);
+      if (res.data.sections) setFooterSections(res.data.sections);
+      if (res.data.settings) setFooterSettings(res.data.settings);
     } catch (error) {
       console.error('Footer yüklenemedi:', error);
     }
@@ -266,13 +268,12 @@ export default function LandingPage() {
               <span>ModulPOS</span>
             </Link>
             <p>
-              Tüm pazaryerlerinizi tek platformdan yönetin. E-ticaret operasyonlarınızı otomatikleştirin ve satışlarınızı artırın.
+              {footerSettings.footer_description || 'Tüm pazaryerlerinizi tek platformdan yönetin. E-ticaret operasyonlarınızı otomatikleştirin ve satışlarınızı artırın.'}
             </p>
             <div style={{ marginTop: 16, fontSize: 13, color: '#64748b' }}>
-              <strong>ModulPOS Yazılım A.Ş.</strong><br/>
-              Bilişim Vadisi, Teknoloji Blv. No:1<br/>
-              Gebze / Kocaeli<br/>
-              info@modulpos.com | 0850 000 00 00
+              <strong>{footerSettings.footer_company_name || 'ModulPOS Yazılım A.Ş.'}</strong><br/>
+              {footerSettings.footer_address || 'Bilişim Vadisi, Teknoloji Blv. No:1, Gebze / Kocaeli'}<br/>
+              {footerSettings.footer_email || 'info@modulpos.com'} | {footerSettings.footer_phone || '0850 000 00 00'}
             </div>
           </div>
           

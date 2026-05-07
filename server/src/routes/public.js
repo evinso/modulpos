@@ -30,13 +30,29 @@ router.get('/footer-sections', async (req, res) => {
       orderBy: { order: 'asc' }
     });
     
+    const settings = await prisma.systemSettings.findMany({
+      where: {
+        key: {
+          in: ['footer_description', 'footer_address', 'footer_email', 'footer_phone', 'footer_company_name']
+        }
+      }
+    });
+
+    const settingsObj = {};
+    settings.forEach(s => {
+      settingsObj[s.key] = s.value;
+    });
+
     // Parse links JSON
     const formattedSections = sections.map(s => ({
       ...s,
       links: JSON.parse(s.links || '[]')
     }));
     
-    res.json(formattedSections);
+    res.json({
+      sections: formattedSections,
+      settings: settingsObj
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

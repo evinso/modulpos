@@ -396,4 +396,48 @@ router.delete('/footer-sections/:id', auth, isAdmin, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/admin/system-settings
+ */
+router.get('/system-settings', auth, isAdmin, async (req, res) => {
+  try {
+    const { keys } = req.query;
+    const keyList = keys ? keys.split(',') : [];
+    
+    const settings = await prisma.systemSettings.findMany({
+      where: keyList.length > 0 ? { key: { in: keyList } } : {}
+    });
+    
+    const settingsObj = {};
+    settings.forEach(s => {
+      settingsObj[s.key] = s.value;
+    });
+    
+    res.json(settingsObj);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/system-settings
+ */
+router.post('/system-settings', auth, isAdmin, async (req, res) => {
+  try {
+    const settings = req.body; // { key: value, key2: value2 }
+    
+    for (const [key, value] of Object.entries(settings)) {
+      await prisma.systemSettings.upsert({
+        where: { key },
+        update: { value: String(value) },
+        create: { key, value: String(value) }
+      });
+    }
+    
+    res.json({ message: 'Ayarlar güncellendi' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

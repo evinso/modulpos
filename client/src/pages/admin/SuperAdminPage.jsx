@@ -33,6 +33,13 @@ export default function SuperAdminPage() {
   const [footerSections, setFooterSections] = useState([]);
   const [showFooterModal, setShowFooterModal] = useState(null);
   const [footerForm, setFooterForm] = useState({ title: '', links: [{ label: '', url: '', isExternal: false }], order: 0, isActive: true });
+  const [footerBrandSettings, setFooterBrandSettings] = useState({
+    footer_company_name: 'ModulPOS Yazılım A.Ş.',
+    footer_description: 'Tüm pazaryerlerinizi tek platformdan yönetin. E-ticaret operasyonlarınızı otomatikleştirin ve satışlarınızı artırın.',
+    footer_address: 'Bilişim Vadisi, Teknoloji Blv. No:1, Gebze / Kocaeli',
+    footer_email: 'info@modulpos.com',
+    footer_phone: '0850 000 00 00'
+  });
 
   useEffect(() => {
     fetchData();
@@ -59,6 +66,11 @@ export default function SuperAdminPage() {
       } else if (activeTab === 'footer') {
         const footerRes = await api.get('/admin/footer-sections');
         setFooterSections(footerRes.data);
+        
+        const settingsRes = await api.get('/admin/system-settings?keys=footer_description,footer_address,footer_email,footer_phone,footer_company_name');
+        if (Object.keys(settingsRes.data).length > 0) {
+          setFooterBrandSettings(prev => ({ ...prev, ...settingsRes.data }));
+        }
       }
     } catch (error) {
       console.error('Admin verileri yüklenemedi:', error);
@@ -235,6 +247,17 @@ export default function SuperAdminPage() {
       fetchData();
     } catch (error) {
       toast.error('Bölüm silinemedi');
+    }
+  };
+
+  const handleSaveFooterBrand = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post('/admin/system-settings', footerBrandSettings);
+      toast.success('Footer marka bilgileri güncellendi');
+      fetchData();
+    } catch (error) {
+      toast.error('Bilgiler kaydedilemedi');
     }
   };
 
@@ -615,13 +638,45 @@ export default function SuperAdminPage() {
             </div>
           ) : activeTab === 'footer' ? (
             <div className="footer-admin-view">
+              {/* Brand Settings Section */}
+              <div className="card" style={{ marginBottom: 30, padding: 20 }}>
+                <h4 style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Shield size={18} /> Footer Marka & İletişim Bilgileri
+                </h4>
+                <form onSubmit={handleSaveFooterBrand} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                    <label>Firma Adı</label>
+                    <input type="text" className="input" value={footerBrandSettings.footer_company_name} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_company_name: e.target.value})} />
+                  </div>
+                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                    <label>Footer Açıklama Metni</label>
+                    <textarea className="input" style={{ minHeight: 60 }} value={footerBrandSettings.footer_description} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_description: e.target.value})} />
+                  </div>
+                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                    <label>Adres Bilgisi</label>
+                    <input type="text" className="input" value={footerBrandSettings.footer_address} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_address: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>E-posta</label>
+                    <input type="email" className="input" value={footerBrandSettings.footer_email} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_email: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Telefon</label>
+                    <input type="text" className="input" value={footerBrandSettings.footer_phone} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_phone: e.target.value})} />
+                  </div>
+                  <div style={{ gridColumn: 'span 2', textAlign: 'right' }}>
+                    <button type="submit" className="btn btn-primary">Bilgileri Güncelle</button>
+                  </div>
+                </form>
+              </div>
+
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <h3>Landing Page Footer Bölümleri</h3>
+                <h3>Footer Link Grupları</h3>
                 <button className="btn btn-primary" onClick={() => {
                   setFooterForm({ title: '', links: [{ label: '', url: '', isExternal: false }], order: footerSections.length, isActive: true });
                   setShowFooterModal('new');
                 }}>
-                  <Plus size={16} /> Yeni Bölüm Ekle
+                  <Plus size={16} /> Yeni Grup Ekle
                 </button>
               </div>
               <table>
