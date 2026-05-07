@@ -3,7 +3,7 @@ import api from '../../services/api';
 import { 
   Users, Store, Package, ShoppingCart, CreditCard, Shield, Search, 
   MoreVertical, CheckCircle, XCircle, UserPlus, Mail, Calendar, 
-  Trash2, Edit, Check, X, RefreshCcw
+  Trash2, Edit, Check, X, RefreshCcw, Settings
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './SuperAdminPage.css';
