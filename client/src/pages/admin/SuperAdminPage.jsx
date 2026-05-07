@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import api from '../../services/api';
-import { 
-  Users, Store, Package, ShoppingCart, CreditCard, Shield, Search, 
-  MoreVertical, CheckCircle, XCircle, UserPlus, Mail, Calendar, 
-  Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus, List
+import {
+  Users, Store, Package, ShoppingCart, CreditCard, Shield, Search,
+  MoreVertical, CheckCircle, XCircle, UserPlus, Mail, Calendar,
+  Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus, List, Sliders
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './SuperAdminPage.css';
@@ -41,6 +41,8 @@ export default function SuperAdminPage() {
     footer_phone: '0850 000 00 00'
   });
 
+  const [generalSettings, setGeneralSettings] = useState({ trial_days: '3' });
+
   useEffect(() => {
     fetchData();
   }, [activeTab]);
@@ -66,17 +68,30 @@ export default function SuperAdminPage() {
       } else if (activeTab === 'footer') {
         const footerRes = await api.get('/admin/footer-sections');
         setFooterSections(footerRes.data);
-        
+
         const settingsRes = await api.get('/admin/system-settings?keys=footer_description,footer_address,footer_email,footer_phone,footer_company_name');
         if (Object.keys(settingsRes.data).length > 0) {
           setFooterBrandSettings(prev => ({ ...prev, ...settingsRes.data }));
         }
+      } else if (activeTab === 'settings') {
+        const settingsRes = await api.get('/admin/system-settings?keys=trial_days');
+        setGeneralSettings({ trial_days: settingsRes.data.trial_days || '3' });
       }
     } catch (error) {
       console.error('Admin verileri yüklenemedi:', error);
       toast.error('Veriler yüklenirken hata oluştu');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveGeneralSettings = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post('/admin/system-settings', { trial_days: generalSettings.trial_days });
+      toast.success('Genel ayarlar kaydedildi');
+    } catch {
+      toast.error('Ayarlar kaydedilemedi');
     }
   };
 
@@ -368,6 +383,9 @@ export default function SuperAdminPage() {
         <button className={`admin-tab ${activeTab === 'footer' ? 'active' : ''}`} onClick={() => setActiveTab('footer')}>
           <List size={16} /> Footer Yönetimi
         </button>
+        <button className={`admin-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
+          <Sliders size={16} /> Genel Ayarlar
+        </button>
       </div>
 
       <div className="admin-content">
@@ -377,7 +395,8 @@ export default function SuperAdminPage() {
               {activeTab === 'users' ? 'Kullanıcı Yönetimi' :
                activeTab === 'stores' ? 'Tüm Mağazalar' :
                activeTab === 'auditLogs' ? 'Sistem Logları' :
-               activeTab === 'pricing' ? 'Fiyat Planları' : 'Footer Yönetimi'}
+               activeTab === 'pricing' ? 'Fiyat Planları' :
+               activeTab === 'footer' ? 'Footer Yönetimi' : 'Genel Ayarlar'}
             </h3>
             {activeTab === 'users' && (
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', background: 'rgba(59,130,246,0.1)', padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(59,130,246,0.2)', color: 'var(--accent-primary)' }}>
@@ -731,6 +750,34 @@ export default function SuperAdminPage() {
                   )}
                 </tbody>
               </table>
+            </div>
+          ) : activeTab === 'settings' ? (
+            <div style={{ padding: '8px 0' }}>
+              <div className="card" style={{ padding: 24, maxWidth: 560 }}>
+                <h4 style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Sliders size={18} /> Üyelik &amp; Deneme Süresi
+                </h4>
+                <form onSubmit={handleSaveGeneralSettings}>
+                  <div className="form-group">
+                    <label className="form-label">Ücretsiz Deneme Süresi (Gün)</label>
+                    <input
+                      type="number"
+                      className="form-input"
+                      style={{ maxWidth: 160 }}
+                      min="0"
+                      max="365"
+                      value={generalSettings.trial_days}
+                      onChange={e => setGeneralSettings({ ...generalSettings, trial_days: e.target.value })}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 6 }}>
+                      Yeni üye olan kullanıcılara otomatik verilen ücretsiz deneme süresi. 0 girersen deneme verilmez.
+                    </span>
+                  </div>
+                  <div style={{ textAlign: 'right', marginTop: 8 }}>
+                    <button type="submit" className="btn btn-primary">Kaydet</button>
+                  </div>
+                </form>
+              </div>
             </div>
           ) : null}
         </div>

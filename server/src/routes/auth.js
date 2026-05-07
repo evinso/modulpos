@@ -22,6 +22,9 @@ router.post('/register', async (req, res, next) => {
 
     const passwordHash = await bcrypt.hash(password, 12);
 
+    const trialSetting = await prisma.systemSettings.findUnique({ where: { key: 'trial_days' } });
+    const trialDays = trialSetting ? parseInt(trialSetting.value) || 3 : 3;
+
     const user = await prisma.user.create({
       data: {
         email,
@@ -37,7 +40,7 @@ router.post('/register', async (req, res, next) => {
           create: {
             plan: 'trial',
             status: 'trial',
-            endDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 gün deneme
+            endDate: new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000),
           }
         }
       },
@@ -56,7 +59,7 @@ router.post('/register', async (req, res, next) => {
     const { passwordHash: _, ...userWithoutPassword } = user;
 
     res.status(201).json({
-      message: 'Kayıt başarılı! 3 günlük deneme süreniz başladı.',
+      message: `Kayıt başarılı! ${trialDays} günlük deneme süreniz başladı.`,
       user: userWithoutPassword,
       token
     });
