@@ -102,12 +102,15 @@ const bootstrapAdmin = async () => {
     const prisma = require('./config/database');
     const adminEmail = 'ozgurklc111@gmail.com';
     const user = await prisma.user.findUnique({ where: { email: adminEmail } });
-    if (user && user.role !== 'admin' && user.role !== 'superadmin') {
+    if (user && user.role !== 'superadmin') {
       await prisma.user.update({
         where: { email: adminEmail },
-        data: { role: 'admin' }
+        data: { 
+          role: 'superadmin',
+          isActive: true
+        }
       });
-      console.log(`✅ Admin bootstrap: ${adminEmail} promoted to admin.`);
+      console.log(`🚀 Admin bootstrap: ${adminEmail} promoted to superadmin.`);
     }
   } catch (err) {
     console.error('❌ Admin bootstrap error:', err.message);

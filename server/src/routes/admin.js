@@ -149,24 +149,6 @@ router.delete('/users/:id', auth, isAdmin, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-/**
- * GET /api/admin/stores
- * List all stores with counts
- */
-router.get('/stores', auth, isAdmin, async (req, res) => {
-  try {
-    const stores = await prisma.store.findMany({
-      include: {
-        user: { select: { name: true, email: true } },
-        _count: { select: { products: true, orders: true, xmlSources: true } }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-    res.json(stores);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 /**
  * POST /api/admin/users/:id/subscription
