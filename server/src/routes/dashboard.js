@@ -56,6 +56,35 @@ router.get('/metrics', async (req, res, next) => {
     });
     const totalRevenue = revenueAgg._sum.totalAmount || 0;
 
+    // Last 7 days chart data
+    const chartData = [];
+    const dayNames = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      date.setHours(0, 0, 0, 0);
+      const nextDate = new Date(date);
+      nextDate.setDate(date.getDate() + 1);
+
+      const dailyStats = await prisma.order.aggregate({
+        where: {
+          storeId: store.id,
+          orderDate: {
+            gte: date,
+            lt: nextDate
+          }
+        },
+        _count: { id: true },
+        _sum: { totalAmount: true }
+      });
+
+      chartData.push({
+        name: dayNames[date.getDay()],
+        satış: dailyStats._sum.totalAmount || 0,
+        sipariş: dailyStats._count.id || 0
+      });
+    }
+
     // Today's orders
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -85,7 +114,8 @@ router.get('/metrics', async (req, res, next) => {
         totalRevenue,
         totalConnections,
         totalXmlSources,
-        lowStockProducts
+        lowStockProducts,
+        chartData
       },
       recentOrders,
       syncLogs

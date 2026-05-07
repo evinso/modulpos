@@ -3,13 +3,6 @@ import { Package, ShoppingCart, TrendingUp, AlertTriangle, FileCode2, Store, Arr
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import api from '../../services/api';
 
-const mockChartData = [
-  { name: 'Pzt', satış: 12, sipariş: 8 }, { name: 'Sal', satış: 19, sipariş: 14 },
-  { name: 'Çar', satış: 15, sipariş: 11 }, { name: 'Per', satış: 25, sipariş: 18 },
-  { name: 'Cum', satış: 32, sipariş: 24 }, { name: 'Cmt', satış: 28, sipariş: 20 },
-  { name: 'Paz', satış: 22, sipariş: 16 },
-];
-
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -39,9 +32,9 @@ export default function DashboardPage() {
   }
 
   const stats = [
-    { label: 'Toplam Ürün', value: metrics?.totalProducts || 0, icon: Package, color: 'blue', change: '+12%', positive: true },
-    { label: 'Toplam Sipariş', value: metrics?.totalOrders || 0, icon: ShoppingCart, color: 'purple', change: '+8%', positive: true },
-    { label: 'Toplam Ciro', value: `₺${(metrics?.totalRevenue || 0).toLocaleString('tr-TR')}`, icon: TrendingUp, color: 'green', change: '+15%', positive: true },
+    { label: 'Toplam Ürün', value: metrics?.totalProducts || 0, icon: Package, color: 'blue' },
+    { label: 'Toplam Sipariş', value: metrics?.totalOrders || 0, icon: ShoppingCart, color: 'purple' },
+    { label: 'Toplam Ciro', value: `₺${(metrics?.totalRevenue || 0).toLocaleString('tr-TR')}`, icon: TrendingUp, color: 'green' },
     { label: 'Bekleyen Sipariş', value: metrics?.pendingOrders || 0, icon: AlertTriangle, color: 'orange' },
     { label: 'Bugünkü Sipariş', value: metrics?.todayOrders || 0, icon: ShoppingCart, color: 'cyan' },
     { label: 'Aktif Bağlantı', value: metrics?.totalConnections || 0, icon: Store, color: 'purple' },
@@ -66,12 +59,6 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="stat-value">{stat.value}</div>
-            {stat.change && (
-              <div className={`stat-change ${stat.positive ? 'positive' : 'negative'}`}>
-                {stat.positive ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                {stat.change} son 7 gün
-              </div>
-            )}
           </div>
         ))}
       </div>
@@ -80,7 +67,7 @@ export default function DashboardPage() {
         <div className="card">
           <h3 style={{ marginBottom: 20, fontSize: 16, fontWeight: 600 }}>Haftalık Satış Grafiği</h3>
           <ResponsiveContainer width="100%" height={250}>
-            <AreaChart data={mockChartData}>
+            <AreaChart data={metrics?.chartData || []}>
               <defs>
                 <linearGradient id="colorSatis" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
