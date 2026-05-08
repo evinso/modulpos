@@ -45,6 +45,10 @@ export default function SuperAdminPage() {
 
   const [dropshipOrders, setDropshipOrders] = useState([]);
   const [dropshipStatusFilter, setDropshipStatusFilter] = useState('');
+  const [dropshipEditingStatus, setDropshipEditingStatus] = useState(null);
+  const [dropshipCargoModal, setDropshipCargoModal] = useState(null);
+  const [dropshipCargoForm, setDropshipCargoForm] = useState({ trackingNumber: '', cargoCompany: '', supplierOrderId: '', notes: '' });
+  const [dropshipCargoSaving, setDropshipCargoSaving] = useState(false);
 
   const [invoiceModalUser, setInvoiceModalUser] = useState(null);
   const [invoiceForm, setInvoiceForm] = useState({ title: '', amount: '', period: '', notes: '', fileUrl: '' });
@@ -284,6 +288,46 @@ export default function SuperAdminPage() {
       fetchData();
     } catch (error) {
       toast.error('Bilgiler kaydedilemedi');
+    }
+  };
+
+  const handleDropshipStatusChange = async (orderId, newStatus) => {
+    try {
+      await api.put(`/admin/dropship-orders/${orderId}`, { status: newStatus });
+      toast.success('Durum güncellendi');
+      setDropshipEditingStatus(null);
+      setDropshipOrders(prev => prev.map(o =>
+        o.id === orderId ? { ...o, status: newStatus } : o
+      ));
+    } catch {
+      toast.error('Güncelleme başarısız');
+    }
+  };
+
+  const openDropshipCargoModal = (order) => {
+    setDropshipCargoForm({
+      trackingNumber: order.trackingNumber || '',
+      cargoCompany: order.cargoCompany || '',
+      supplierOrderId: order.supplierOrderId || '',
+      notes: order.notes || ''
+    });
+    setDropshipCargoModal(order);
+  };
+
+  const handleDropshipCargoSave = async (e) => {
+    e.preventDefault();
+    setDropshipCargoSaving(true);
+    try {
+      const updated = await api.put(`/admin/dropship-orders/${dropshipCargoModal.id}`, dropshipCargoForm);
+      toast.success('Kargo bilgileri güncellendi');
+      setDropshipOrders(prev => prev.map(o =>
+        o.id === dropshipCargoModal.id ? { ...o, ...updated.data } : o
+      ));
+      setDropshipCargoModal(null);
+    } catch {
+      toast.error('Güncelleme başarısız');
+    } finally {
+      setDropshipCargoSaving(false);
     }
   };
 
@@ -813,69 +857,123 @@ export default function SuperAdminPage() {
               </table>
             </div>
           ) : activeTab === 'dropship' ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>Kullanıcı / Mağaza</th>
-                  <th>Ürün</th>
-                  <th>Tedarikçi</th>
-                  <th>Müşteri</th>
-                  <th>Adet / Fiyat</th>
-                  <th>Pz. Sipariş No</th>
-                  <th>Durum</th>
-                  <th>Takip No</th>
-                  <th>Tarih</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dropshipOrders.map(order => {
-                  const statusMap = {
-                    pending: { label: 'Bekliyor', cls: 'badge-warning' },
-                    ordered: { label: 'Sipariş Verildi', cls: 'badge-info' },
-                    shipped: { label: 'Kargoda', cls: 'badge-primary' },
-                    delivered: { label: 'Teslim Edildi', cls: 'badge-success' },
-                    cancelled: { label: 'İptal', cls: 'badge-danger' },
-                  };
-                  const st = statusMap[order.status] || statusMap.pending;
-                  return (
-                    <tr key={order.id}>
-                      <td>
-                        <div className="user-name" style={{ fontSize: 13 }}>{order.user?.name}</div>
-                        <div className="user-email">{order.store?.name}</div>
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>{order.productName}</div>
-                        {order.productCode && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{order.productCode}</div>}
-                      </td>
-                      <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{order.supplierName || '—'}</td>
-                      <td style={{ fontSize: 13 }}>
-                        <div>{order.customerName || '—'}</div>
-                        {order.customerPhone && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{order.customerPhone}</div>}
-                      </td>
-                      <td style={{ fontSize: 13 }}>
-                        <div>{order.quantity} adet</div>
-                        {order.unitPrice > 0 && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>₺{Number(order.unitPrice).toLocaleString('tr-TR')}</div>}
-                      </td>
-                      <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{order.orderRef || '—'}</td>
-                      <td>
-                        <span className={`badge ${st.cls}`}>{st.label}</span>
-                      </td>
-                      <td style={{ fontSize: 12 }}>{order.trackingNumber || '—'}</td>
-                      <td style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                        {new Date(order.createdAt).toLocaleDateString('tr-TR')}
-                      </td>
+            (() => {
+              const DS = {
+                pending:   { label: 'Bekliyor',        cls: 'badge-warning' },
+                ordered:   { label: 'Sipariş Verildi', cls: 'badge-info' },
+                shipped:   { label: 'Kargoda',         cls: 'badge-primary' },
+                delivered: { label: 'Teslim Edildi',   cls: 'badge-success' },
+                cancelled: { label: 'İptal',           cls: 'badge-danger' },
+              };
+              return (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Kullanıcı</th>
+                      <th>Ürün</th>
+                      <th>XML Kaynağı</th>
+                      <th>Kampanya Kodu</th>
+                      <th>Ödenen (₺)</th>
+                      <th>Miktar</th>
+                      <th>Müşteri</th>
+                      <th>Durum</th>
+                      <th>Takip No</th>
+                      <th>Tarih</th>
+                      <th>İşlem</th>
                     </tr>
-                  );
-                })}
-                {dropshipOrders.length === 0 && (
-                  <tr>
-                    <td colSpan="9" style={{ textAlign: 'center', padding: 24, color: 'var(--text-secondary)' }}>
-                      Henüz tedarikçi siparişi bulunmuyor.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {dropshipOrders.map(order => {
+                      const st = DS[order.status] || DS.pending;
+                      const xmlSource = order.product?.xmlSource?.name || order.supplierName || '—';
+                      return (
+                        <tr key={order.id}>
+                          <td>
+                            <div className="user-name" style={{ fontSize: 13 }}>{order.user?.name}</div>
+                            <div className="user-email">{order.user?.email}</div>
+                          </td>
+                          <td style={{ maxWidth: 180 }}>
+                            <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {order.productName}
+                            </div>
+                            {order.productCode && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{order.productCode}</div>}
+                          </td>
+                          <td>
+                            <span className="badge badge-info" style={{ fontSize: 11 }}>{xmlSource}</span>
+                          </td>
+                          <td style={{ fontSize: 13, fontWeight: 500 }}>
+                            {order.campaignCode || <span style={{ color: 'var(--text-secondary)' }}>—</span>}
+                          </td>
+                          <td style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent-primary)' }}>
+                            {order.creditAmount > 0
+                              ? `₺${Number(order.creditAmount).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`
+                              : '—'}
+                          </td>
+                          <td style={{ fontSize: 13 }}>{order.quantity} adet</td>
+                          <td style={{ fontSize: 12 }}>
+                            <div>{order.customerName || '—'}</div>
+                            {order.customerPhone && <div style={{ color: 'var(--text-secondary)' }}>{order.customerPhone}</div>}
+                          </td>
+                          <td>
+                            <div style={{ position: 'relative', display: 'inline-block' }}>
+                              <button
+                                className={`badge ${st.cls}`}
+                                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, border: 'none', padding: '4px 8px' }}
+                                onClick={() => setDropshipEditingStatus(dropshipEditingStatus === order.id ? null : order.id)}
+                              >
+                                {st.label} <ChevronDown size={11} />
+                              </button>
+                              {dropshipEditingStatus === order.id && (
+                                <div style={{
+                                  position: 'absolute', top: '100%', left: 0, zIndex: 50,
+                                  background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+                                  borderRadius: 8, padding: 4, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.3)'
+                                }}>
+                                  {Object.entries(DS).map(([k, v]) => (
+                                    <button
+                                      key={k}
+                                      onClick={() => handleDropshipStatusChange(order.id, k)}
+                                      className="dropdown-item"
+                                      style={{ width: '100%', textAlign: 'left', padding: '6px 10px', fontSize: 12, background: order.status === k ? 'var(--bg-hover)' : 'transparent' }}
+                                    >
+                                      {v.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ fontSize: 12 }}>
+                            {order.trackingNumber
+                              ? <><div style={{ fontWeight: 500 }}>{order.trackingNumber}</div><div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>{order.cargoCompany}</div></>
+                              : <span style={{ color: 'var(--text-secondary)' }}>—</span>}
+                          </td>
+                          <td style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                            {new Date(order.createdAt).toLocaleDateString('tr-TR')}
+                          </td>
+                          <td>
+                            <button
+                              className="btn btn-secondary"
+                              style={{ padding: '4px 10px', fontSize: 12, height: 'auto' }}
+                              onClick={() => openDropshipCargoModal(order)}
+                            >
+                              <Truck size={13} style={{ marginRight: 4 }} /> Kargo
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {dropshipOrders.length === 0 && (
+                      <tr>
+                        <td colSpan="11" style={{ textAlign: 'center', padding: 24, color: 'var(--text-secondary)' }}>
+                          Henüz tedarikçi siparişi bulunmuyor.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              );
+            })()
           ) : activeTab === 'settings' ? (
             <div style={{ padding: '8px 0' }}>
               <div className="card" style={{ padding: 24, maxWidth: 560 }}>
@@ -1189,6 +1287,59 @@ export default function SuperAdminPage() {
                 <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setInvoiceModalUser(null)}>Vazgeç</button>
                 <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={invoiceLoading}>
                   {invoiceLoading ? 'Oluşturuluyor...' : 'Fatura Oluştur'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Dropship Cargo Modal */}
+      {dropshipCargoModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 460, padding: 0 }}>
+            <div className="table-header">
+              <h3><Truck size={16} style={{ marginRight: 8 }} />Kargo Bilgilerini Güncelle</h3>
+              <button className="text-btn" onClick={() => setDropshipCargoModal(null)}>Kapat</button>
+            </div>
+            <form onSubmit={handleDropshipCargoSave} style={{ padding: 20 }}>
+              <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{dropshipCargoModal.productName}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                  {dropshipCargoModal.user?.name} · {dropshipCargoModal.campaignCode || 'Kampanya kodu yok'}
+                  {dropshipCargoModal.creditAmount > 0 && ` · ₺${Number(dropshipCargoModal.creditAmount).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`}
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                <div className="form-group">
+                  <label className="form-label">Kargo Firması</label>
+                  <input type="text" className="form-input" value={dropshipCargoForm.cargoCompany}
+                    onChange={e => setDropshipCargoForm({ ...dropshipCargoForm, cargoCompany: e.target.value })}
+                    placeholder="Yurtiçi, Aras, MNG..." />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Takip Numarası</label>
+                  <input type="text" className="form-input" value={dropshipCargoForm.trackingNumber}
+                    onChange={e => setDropshipCargoForm({ ...dropshipCargoForm, trackingNumber: e.target.value })}
+                    placeholder="Kargo takip kodu" />
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label className="form-label">Tedarikçi Sipariş No</label>
+                <input type="text" className="form-input" value={dropshipCargoForm.supplierOrderId}
+                  onChange={e => setDropshipCargoForm({ ...dropshipCargoForm, supplierOrderId: e.target.value })}
+                  placeholder="Tedarikçinin verdiği sipariş numarası" />
+              </div>
+              <div className="form-group" style={{ marginBottom: 20 }}>
+                <label className="form-label">Notlar</label>
+                <textarea className="form-input" rows={2} value={dropshipCargoForm.notes}
+                  onChange={e => setDropshipCargoForm({ ...dropshipCargoForm, notes: e.target.value })}
+                  placeholder="Ek açıklamalar..." />
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setDropshipCargoModal(null)}>Vazgeç</button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={dropshipCargoSaving}>
+                  {dropshipCargoSaving ? 'Kaydediliyor...' : 'Bilgileri Kaydet'}
                 </button>
               </div>
             </form>

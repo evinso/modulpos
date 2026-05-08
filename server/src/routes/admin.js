@@ -487,7 +487,7 @@ router.post('/invoices/:userId', auth, isAdmin, async (req, res) => {
 
 /**
  * GET /api/admin/dropship-orders
- * List all dropship orders across all users
+ * List all dropship orders across all users — includes user, store, product+xmlSource
  */
 router.get('/dropship-orders', auth, isAdmin, async (req, res) => {
   try {
@@ -498,7 +498,14 @@ router.get('/dropship-orders', auth, isAdmin, async (req, res) => {
       orderBy: { createdAt: 'desc' },
       include: {
         user: { select: { name: true, email: true } },
-        store: { select: { name: true } }
+        store: { select: { name: true } },
+        product: {
+          select: {
+            title: true,
+            sku: true,
+            xmlSource: { select: { name: true } }
+          }
+        }
       }
     });
     res.json(orders);
@@ -508,19 +515,28 @@ router.get('/dropship-orders', auth, isAdmin, async (req, res) => {
 });
 
 /**
- * PUT /api/admin/dropship-orders/:id/status
- * Update status of any dropship order
+ * PUT /api/admin/dropship-orders/:id
+ * Update any field of a dropship order (status, tracking, cargo, notes, campaignCode)
  */
-router.put('/dropship-orders/:id/status', auth, isAdmin, async (req, res) => {
+router.put('/dropship-orders/:id', auth, isAdmin, async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, trackingNumber, cargoCompany, supplierOrderId, notes, campaignCode } = req.body;
     const existing = await prisma.dropshipOrder.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Sipariş bulunamadı' });
 
-    const updateData = { status };
-    if (status === 'ordered' && !existing.orderedAt) updateData.orderedAt = new Date();
-    if (status === 'shipped' && !existing.shippedAt) updateData.shippedAt = new Date();
-    if (status === 'delivered' && !existing.deliveredAt) updateData.deliveredAt = new Date();
+    const updateData = {};
+    if (campaignCode !== undefined) updateData.campaignCode = campaignCode;
+    if (trackingNumber !== undefined) updateData.trackingNumber = trackingNumber;
+    if (cargoCompany !== undefined) updateData.cargoCompany = cargoCompany;
+    if (supplierOrderId !== undefined) updateData.supplierOrderId = supplierOrderId;
+    if (notes !== undefined) updateData.notes = notes;
+
+    if (status && status !== existing.status) {
+      updateData.status = status;
+      if (status === 'ordered' && !existing.orderedAt) updateData.orderedAt = new Date();
+      if (status === 'shipped' && !existing.shippedAt) updateData.shippedAt = new Date();
+      if (status === 'delivered' && !existing.deliveredAt) updateData.deliveredAt = new Date();
+    }
 
     const updated = await prisma.dropshipOrder.update({ where: { id: req.params.id }, data: updateData });
     res.json(updated);
