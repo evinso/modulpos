@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../../store/authStore';
-import { User, Settings, Shield, CreditCard, Save } from 'lucide-react';
+import { User, Settings, Shield, CreditCard, Save, FileText, Download, ExternalLink } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
@@ -39,9 +39,22 @@ export default function SettingsPage() {
   });
   const [storeLoading, setStoreLoading] = useState(false);
 
+  const [invoices, setInvoices] = useState([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(false);
+
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  useEffect(() => {
+    if (activeTab === 'billing') {
+      setInvoicesLoading(true);
+      api.get('/auth/invoices')
+        .then(res => setInvoices(res.data))
+        .catch(() => toast.error('Faturalar yüklenemedi'))
+        .finally(() => setInvoicesLoading(false));
+    }
+  }, [activeTab]);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
@@ -247,15 +260,69 @@ export default function SettingsPage() {
           {activeTab === 'billing' && (
             <div>
               <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 24 }}>Faturalandırma & Abonelik</h2>
-              <div className="alert alert-info" style={{ marginBottom: 24 }}>
-                Aboneliğiniz şu an <strong>{user?.subscriptions?.[0]?.plan === 'trial' ? 'Deneme Sürümü' : 'Premium'}</strong> planında.
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                  Aktif Plan: <strong style={{ color: 'var(--text-primary)' }}>
+                    {user?.subscriptions?.[0]?.plan === 'trial' ? 'Deneme Sürümü' : user?.subscriptions?.[0]?.plan === 'premium' ? 'Premium' : 'Aktif Abonelik Yok'}
+                  </strong>
+                  {user?.subscriptions?.[0]?.endDate && (
+                    <span style={{ marginLeft: 8 }}>
+                      — Bitiş: {new Date(user.subscriptions[0].endDate).toLocaleDateString('tr-TR')}
+                    </span>
+                  )}
+                </div>
+                <button className="btn btn-primary" style={{ fontSize: 13 }} onClick={() => navigate('/credits')}>
+                  Abonelik & Kredi Yönetimi
+                </button>
               </div>
-              <p style={{ color: 'var(--text-secondary)', marginBottom: 24 }}>
-                Bakiye ve kredi yükleme işlemleri için sol menüdeki <strong>Kredi Yönetimi</strong> sayfasına gidebilirsiniz. Kredi yönetimi üzerinden modülPOS hizmetlerini kesintisiz kullanabilirsiniz.
-              </p>
-              <button className="btn btn-primary" onClick={() => navigate('/credits')}>
-                Kredi Yönetimine Git
-              </button>
+
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 20 }}>
+                <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <FileText size={16} /> Faturalarım
+                </h3>
+                {invoicesLoading ? (
+                  <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-secondary)' }}>Yükleniyor...</div>
+                ) : invoices.length === 0 ? (
+                  <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-secondary)', background: 'var(--bg-secondary)', borderRadius: 10 }}>
+                    Henüz fatura bulunmuyor.
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Başlık</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Tutar</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Dönem</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Tarih</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-secondary)', fontWeight: 600 }}>İndir</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {invoices.map(inv => (
+                          <tr key={inv.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                            <td style={{ padding: '10px 12px', fontWeight: 500 }}>{inv.title}</td>
+                            <td style={{ padding: '10px 12px' }}>₺{Number(inv.amount).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</td>
+                            <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{inv.period || '—'}</td>
+                            <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{new Date(inv.createdAt).toLocaleDateString('tr-TR')}</td>
+                            <td style={{ padding: '10px 12px' }}>
+                              {inv.fileUrl ? (
+                                <a href={inv.fileUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--accent-primary)', textDecoration: 'none', fontSize: 12 }}>
+                                  <Download size={14} /> İndir
+                                  <ExternalLink size={11} />
+                                </a>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

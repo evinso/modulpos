@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Search, Tag, CheckCircle2, PackageSearch, Wallet, Eye, X, ImageOff } from 'lucide-react';
+import { Download, Search, Tag, CheckCircle2, PackageSearch, Wallet, Eye, X, ImageOff, FolderTree } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 import { useNavigate } from 'react-router-dom';
@@ -22,6 +22,7 @@ export default function GlobalXmlMarketPage() {
   const [previewProvider, setPreviewProvider] = useState(null);
   const [previewProducts, setPreviewProducts] = useState([]);
   const [previewTotal, setPreviewTotal] = useState(0);
+  const [previewCategories, setPreviewCategories] = useState([]);
   const [previewLoading, setPreviewLoading] = useState(false);
 
   const navigate = useNavigate();
@@ -57,11 +58,13 @@ export default function GlobalXmlMarketPage() {
     setPreviewProvider(provider);
     setPreviewProducts([]);
     setPreviewTotal(0);
+    setPreviewCategories([]);
     setPreviewLoading(true);
     try {
       const res = await api.get(`/global-xml/${provider.id}/preview`);
       setPreviewProducts(res.data.preview);
       setPreviewTotal(res.data.total);
+      setPreviewCategories(res.data.categories || []);
     } catch {
       toast.error('Önizleme yüklenemedi');
       setPreviewProvider(null);
@@ -217,42 +220,61 @@ export default function GlobalXmlMarketPage() {
                   XML yükleniyor, lütfen bekleyin...
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
-                  {previewProducts.map((p, i) => (
-                    <div key={i} style={{
-                      background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-color)', overflow: 'hidden',
-                      display: 'flex', flexDirection: 'column'
-                    }}>
-                      <div style={{ width: '100%', aspectRatio: '1', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                        {p.image ? (
-                          <img
-                            src={p.image}
-                            alt={p.title}
-                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                            onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
-                          />
-                        ) : null}
-                        <div style={{ display: p.image ? 'none' : 'flex', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
-                          <ImageOff size={32} color="var(--text-muted)" />
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: previewCategories.length > 0 ? 28 : 0 }}>
+                    {previewProducts.map((p, i) => (
+                      <div key={i} style={{
+                        background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-color)', overflow: 'hidden',
+                        display: 'flex', flexDirection: 'column'
+                      }}>
+                        <div style={{ width: '100%', aspectRatio: '1', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                          {p.image ? (
+                            <img
+                              src={p.image}
+                              alt={p.title}
+                              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                              onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
+                            />
+                          ) : null}
+                          <div style={{ display: p.image ? 'none' : 'flex', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                            <ImageOff size={32} color="var(--text-muted)" />
+                          </div>
+                        </div>
+                        <div style={{ padding: '10px 10px 12px' }}>
+                          <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                            {p.title}
+                          </p>
+                          {p.category && p.category !== '—' && (
+                            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {p.category}
+                            </p>
+                          )}
+                          <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-primary)' }}>
+                            {p.price > 0 ? `₺${p.price.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                          </p>
                         </div>
                       </div>
-                      <div style={{ padding: '10px 10px 12px' }}>
-                        <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                          {p.title}
-                        </p>
-                        {p.category && p.category !== '—' && (
-                          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {p.category}
-                          </p>
-                        )}
-                        <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-primary)' }}>
-                          {p.price > 0 ? `₺${p.price.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
-                        </p>
+                    ))}
+                  </div>
+                  {previewCategories.length > 0 && (
+                    <div>
+                      <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <FolderTree size={16} style={{ color: 'var(--accent-primary)' }} />
+                        XML Kategorileri ({previewCategories.length})
+                      </h4>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {previewCategories.map((cat, i) => (
+                          <span key={i} style={{
+                            fontSize: 12, padding: '4px 10px', borderRadius: 20,
+                            background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                            color: 'var(--text-secondary)'
+                          }}>{cat}</span>
+                        ))}
                       </div>
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               )}
             </div>
 

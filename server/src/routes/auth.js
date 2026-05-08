@@ -240,4 +240,17 @@ router.put('/store', auth, async (req, res, next) => {
   }
 });
 
+// Get user's invoices
+router.get('/invoices', auth, async (req, res, next) => {
+  try {
+    const invoices = await prisma.invoice.findMany({
+      where: { userId: req.user.id },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(invoices);
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

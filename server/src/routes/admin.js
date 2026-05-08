@@ -440,4 +440,62 @@ router.post('/system-settings', auth, isAdmin, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/admin/invoices
+ * List all invoices
+ */
+router.get('/invoices', auth, isAdmin, async (req, res) => {
+  try {
+    const invoices = await prisma.invoice.findMany({
+      include: { user: { select: { name: true, email: true } } },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(invoices);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/invoices/:userId
+ * Create invoice for a user
+ */
+router.post('/invoices/:userId', auth, isAdmin, async (req, res) => {
+  try {
+    const { title, amount, period, notes, fileUrl } = req.body;
+    if (!title || !amount) {
+      return res.status(400).json({ error: 'Başlık ve tutar zorunludur' });
+    }
+    const user = await prisma.user.findUnique({ where: { id: req.params.userId } });
+    if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+
+    const invoice = await prisma.invoice.create({
+      data: {
+        userId: req.params.userId,
+        title,
+        amount: parseFloat(amount),
+        period: period || null,
+        notes: notes || null,
+        fileUrl: fileUrl || null
+      }
+    });
+    res.status(201).json(invoice);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/admin/invoices/:id
+ * Delete an invoice
+ */
+router.delete('/invoices/:id', auth, isAdmin, async (req, res) => {
+  try {
+    await prisma.invoice.delete({ where: { id: req.params.id } });
+    res.json({ message: 'Fatura silindi' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

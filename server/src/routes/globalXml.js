@@ -161,6 +161,10 @@ router.get('/:id/preview', auth, async (req, res, next) => {
     const { parseXml } = require('../services/xml/xmlParser');
     const products = await parseXml(provider.url, provider.mappingConfig);
 
+    const categories = [...new Set(
+      products.map(p => p.category).filter(c => c && c.trim())
+    )].sort();
+
     const preview = products.slice(0, 20).map(p => ({
       title: p.title || '—',
       image: Array.isArray(p.images) ? p.images[0] : (p.images || null),
@@ -168,7 +172,7 @@ router.get('/:id/preview', auth, async (req, res, next) => {
       price: p.price || 0
     }));
 
-    res.json({ total: products.length, preview });
+    res.json({ total: products.length, preview, categories });
   } catch (error) {
     next(error);
   }

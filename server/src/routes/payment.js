@@ -107,6 +107,69 @@ router.post('/paytr-token', auth, async (req, res, next) => {
 });
 
 /**
+ * POST /payment/subscription-token
+ * Create PayTR iframe token for subscription purchase.
+ * merchant_oid format: SUB_userId_days_timestamp
+ */
+router.post('/subscription-token', auth, async (req, res, next) => {
+  try {
+    const { amount, planName, days } = req.body;
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount < 1) {
+      return res.status(400).json({ error: 'Geçersiz tutar.' });
+    }
+
+    const { getSetting } = require('./credits');
+    const MERCHANT_ID = await getSetting('paytr_merchant_id', process.env.PAYTR_MERCHANT_ID || 'XXXXXX');
+    const MERCHANT_KEY = await getSetting('paytr_merchant_key', process.env.PAYTR_MERCHANT_KEY || 'XXXXXXXXXXXXXXXX');
+    const MERCHANT_SALT = await getSetting('paytr_merchant_salt', process.env.PAYTR_MERCHANT_SALT || 'XXXXXXXXXXXXXXXX');
+
+    if (MERCHANT_ID === 'XXXXXX') {
+      return res.status(500).json({ error: 'PayTR entegrasyonu yapılandırılmamış.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı.' });
+
+    const user_ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+    const subDays = parseInt(days) || 30;
+    const merchant_oid = `SUB_${req.user.id}_${subDays}_${Date.now()}`;
+    const payment_amount = Math.round(numAmount * 100);
+    const user_basket = JSON.stringify([[planName || 'ModulPOS Abonelik', numAmount.toString(), 1]]);
+    const no_installment = 0;
+    const max_installment = 0;
+    const currency = 'TL';
+    const test_mode = process.env.NODE_ENV === 'production' ? 0 : 1;
+    const merchant_ok_url = `${process.env.FRONTEND_URL || 'https://modulpos.com'}/credits?payment=sub_success`;
+    const merchant_fail_url = `${process.env.FRONTEND_URL || 'https://modulpos.com'}/credits?payment=sub_fail`;
+
+    const hash_str = MERCHANT_ID + user_ip + merchant_oid + user.email + payment_amount + user_basket + no_installment + max_installment + currency + test_mode;
+    const paytr_token = crypto.createHmac('sha256', MERCHANT_KEY).update(hash_str + MERCHANT_SALT).digest('base64');
+
+    const axios = require('axios');
+    const FormData = require('form-data');
+    const formData = new FormData();
+    const form_data = {
+      merchant_id: MERCHANT_ID, user_ip, merchant_oid, email: user.email, payment_amount,
+      paytr_token, user_basket, debug_on: 1, no_installment, max_installment,
+      user_name: user.name || 'Müşteri', user_address: 'Belirtilmedi',
+      user_phone: user.phone || '05000000000', merchant_ok_url, merchant_fail_url,
+      timeout_limit: 30, currency, test_mode
+    };
+    for (const key in form_data) formData.append(key, form_data[key]);
+
+    const response = await axios.post('https://www.paytr.com/odeme/api/get-token', formData, { headers: formData.getHeaders() });
+    if (response.data?.status === 'success') {
+      res.json({ token: response.data.token });
+    } else {
+      res.status(500).json({ error: 'Ödeme sistemi başlatılamadı: ' + response.data?.reason });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * PayTR Callback / Webhook Endpoint
  * Must be public, no auth. PayTR sends POST here.
  */
@@ -127,26 +190,18 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
     }
 
     if (status === 'success') {
-      // Find user from merchant_oid. In real app, we should save merchant_oid in DB.
-      // Here we didn't save it, so we need a way to know the user. 
-      // Actually, we can append userId to merchant_oid when generating it: MP_USERID_TIMESTAMP
-      // Example: merchant_oid = "MP_user-uuid-123_173000000"
-      
       const parts = merchant_oid.split('_');
-      // If we didn't include userId, we can't easily find who paid. 
-      // Let's assume we change our merchant_oid format above to: `MP_${req.user.id}_${Date.now()}`
-      if (parts.length >= 3 && parts[0] === 'MP') {
+      const prefix = parts[0];
+
+      if (prefix === 'MP' && parts.length >= 3) {
+        // Credit top-up: MP_userId_timestamp
         const userId = parts[1];
-        const amountTL = parseFloat(total_amount) / 100; // total_amount is in kurus
-        
-        // Add credits
+        const amountTL = parseFloat(total_amount) / 100;
         const balance = await getOrCreateBalance(userId);
-        
         await prisma.creditBalance.update({
           where: { id: balance.id },
           data: { balance: balance.balance + amountTL }
         });
-
         await prisma.creditTransaction.create({
           data: {
             balanceId: balance.id,
@@ -155,8 +210,34 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
             description: `PayTR Kredi Kartı ile Yükleme (${merchant_oid})`
           }
         });
+      } else if (prefix === 'SUB' && parts.length >= 4) {
+        // Subscription purchase: SUB_userId_days_timestamp
+        const userId = parts[1];
+        const days = parseInt(parts[2]) || 30;
+        const amountTL = parseFloat(total_amount) / 100;
+
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          include: { subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 } }
+        });
+
+        if (user) {
+          let currentEndDate = new Date();
+          if (user.subscriptions[0]?.endDate && new Date(user.subscriptions[0].endDate) > new Date()) {
+            currentEndDate = new Date(user.subscriptions[0].endDate);
+          }
+          const newEndDate = new Date(currentEndDate.getTime() + days * 24 * 60 * 60 * 1000);
+
+          await prisma.subscription.create({
+            data: { userId, plan: 'premium', status: 'active', endDate: newEndDate, amount: amountTL }
+          });
+
+          if (!user.isActive) {
+            await prisma.user.update({ where: { id: userId }, data: { isActive: true } });
+          }
+        }
       }
-      
+
       res.send('OK');
     } else {
       console.log('Payment failed:', failed_reason_code, failed_reason_msg);

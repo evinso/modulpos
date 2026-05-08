@@ -3,7 +3,7 @@ import api from '../../services/api';
 import {
   Users, Store, Package, ShoppingCart, CreditCard, Shield, Search,
   MoreVertical, CheckCircle, XCircle, UserPlus, Mail, Calendar,
-  Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus, List, Sliders
+  Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus, List, Sliders, FileText
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './SuperAdminPage.css';
@@ -42,6 +42,10 @@ export default function SuperAdminPage() {
   });
 
   const [generalSettings, setGeneralSettings] = useState({ trial_days: '3' });
+
+  const [invoiceModalUser, setInvoiceModalUser] = useState(null);
+  const [invoiceForm, setInvoiceForm] = useState({ title: '', amount: '', period: '', notes: '', fileUrl: '' });
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -273,6 +277,25 @@ export default function SuperAdminPage() {
       fetchData();
     } catch (error) {
       toast.error('Bilgiler kaydedilemedi');
+    }
+  };
+
+  const handleCreateInvoice = async (e) => {
+    e.preventDefault();
+    if (!invoiceModalUser) return;
+    setInvoiceLoading(true);
+    try {
+      await api.post(`/admin/invoices/${invoiceModalUser.id}`, {
+        ...invoiceForm,
+        amount: parseFloat(invoiceForm.amount)
+      });
+      toast.success('Fatura başarıyla oluşturuldu');
+      setInvoiceModalUser(null);
+      setInvoiceForm({ title: '', amount: '', period: '', notes: '', fileUrl: '' });
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Fatura oluşturulamadı');
+    } finally {
+      setInvoiceLoading(false);
     }
   };
 
@@ -518,7 +541,19 @@ export default function SuperAdminPage() {
                         >
                           <Calendar size={14} style={{ marginRight: 4 }} /> Aktivasyon
                         </button>
-                        <button 
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '4px 8px', fontSize: 12, height: 'auto' }}
+                          title="Fatura Oluştur"
+                          onClick={() => {
+                            setInvoiceForm({ title: '', amount: '', period: '', notes: '', fileUrl: '' });
+                            setInvoiceModalUser(user);
+                          }}
+                          disabled={actionLoading === user.id}
+                        >
+                          <FileText size={14} style={{ marginRight: 4 }} /> Fatura
+                        </button>
+                        <button
                           className="header-icon-btn text-danger"
                           title="Kullanıcıyı Sil"
                           onClick={() => handleDeleteUser(user)}
@@ -984,6 +1019,89 @@ export default function SuperAdminPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invoice Modal */}
+      {invoiceModalUser && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+        }}>
+          <div className="card" style={{ width: '100%', maxWidth: 480, padding: 0 }}>
+            <div className="table-header">
+              <h3><FileText size={16} style={{ marginRight: 8 }} />Fatura Oluştur</h3>
+              <button className="text-btn" onClick={() => setInvoiceModalUser(null)}>Kapat</button>
+            </div>
+            <form onSubmit={handleCreateInvoice} style={{ padding: 20 }}>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                <strong>{invoiceModalUser.name}</strong> ({invoiceModalUser.email}) için fatura oluşturulacak.
+              </p>
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label className="form-label">Başlık</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={invoiceForm.title}
+                  onChange={e => setInvoiceForm({ ...invoiceForm, title: e.target.value })}
+                  placeholder="Örn: Aylık Abonelik - Mayıs 2026"
+                  required
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                <div className="form-group">
+                  <label className="form-label">Tutar (₺)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={invoiceForm.amount}
+                    onChange={e => setInvoiceForm({ ...invoiceForm, amount: e.target.value })}
+                    placeholder="499"
+                    min="0"
+                    step="0.01"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Dönem (İsteğe Bağlı)</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={invoiceForm.period}
+                    onChange={e => setInvoiceForm({ ...invoiceForm, period: e.target.value })}
+                    placeholder="Mayıs 2026"
+                  />
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label className="form-label">Notlar (İsteğe Bağlı)</label>
+                <textarea
+                  className="form-input"
+                  rows={2}
+                  value={invoiceForm.notes}
+                  onChange={e => setInvoiceForm({ ...invoiceForm, notes: e.target.value })}
+                  placeholder="Ek açıklamalar..."
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 20 }}>
+                <label className="form-label">Fatura URL (İsteğe Bağlı)</label>
+                <input
+                  type="url"
+                  className="form-input"
+                  value={invoiceForm.fileUrl}
+                  onChange={e => setInvoiceForm({ ...invoiceForm, fileUrl: e.target.value })}
+                  placeholder="https://..."
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setInvoiceModalUser(null)}>Vazgeç</button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={invoiceLoading}>
+                  {invoiceLoading ? 'Oluşturuluyor...' : 'Fatura Oluştur'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

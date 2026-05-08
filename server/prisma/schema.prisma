@@ -27,6 +27,7 @@ model User {
   stores        Store[]
   subscriptions Subscription[]
   auditLogs     AuditLog[]
+  invoices      Invoice[]
 }
 
 model AuditLog {
@@ -375,4 +376,17 @@ model LandingFooterSection {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Invoice {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  amount    Float
+  period    String?
+  notes     String?
+  fileUrl   String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
