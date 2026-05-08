@@ -465,8 +465,8 @@ export default function SuperAdminPage() {
         </button>
       </div>
 
-      <div className="admin-content">
-        <div className="table-container">
+      <div className="admin-content" style={{ overflowX: 'auto' }}>
+        <div className="table-container" style={{ overflowX: 'auto', minWidth: activeTab === 'dropship' ? 1100 : undefined }}>
           <div className="table-header" style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
             <h3 style={{ margin: 0, flex: 1, minWidth: 200 }}>
               {activeTab === 'users' ? 'Kullanıcı Yönetimi' :
@@ -866,20 +866,20 @@ export default function SuperAdminPage() {
                 cancelled: { label: 'İptal',           cls: 'badge-danger' },
               };
               return (
-                <table>
+                <table style={{ minWidth: 1200, tableLayout: 'auto' }}>
                   <thead>
                     <tr>
-                      <th>Kullanıcı</th>
-                      <th>Ürün</th>
-                      <th>XML Kaynağı</th>
-                      <th>Kampanya Kodu</th>
-                      <th>Ödenen (₺)</th>
-                      <th>Miktar</th>
-                      <th>Müşteri</th>
-                      <th>Durum</th>
-                      <th>Takip No</th>
-                      <th>Tarih</th>
-                      <th>İşlem</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>Kullanıcı</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>Ürün</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>XML Kaynağı</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>Kampanya Kodu</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>Ödenen (₺)</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>Miktar</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>Müşteri</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>Durum</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>Takip No</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>Tarih</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>İşlem</th>
                     </tr>
                   </thead>
                   <tbody>
