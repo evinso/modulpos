@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
+const { deductCredits, getOrCreateBalance } = require('./credits');
 
 const router = express.Router();
 
@@ -34,49 +35,80 @@ router.get('/', auth, async (req, res, next) => {
 });
 
 /**
- * POST /dropship-orders
- * Create a new dropship order
+ * POST /dropship-orders/place
+ * Place a dropship order: find product, deduct xmlPrice from credits, create order
  */
-router.post('/', auth, async (req, res, next) => {
+router.post('/place', auth, async (req, res, next) => {
   try {
-    const {
-      orderRef, productName, productCode, supplierName,
-      quantity, unitPrice, customerName, customerPhone,
-      shippingAddress, notes
-    } = req.body;
+    const { productId, campaignCode, quantity, customerName, customerPhone, shippingAddress, notes } = req.body;
 
-    if (!productName) return res.status(400).json({ error: 'Ürün adı zorunludur' });
+    if (!productId) return res.status(400).json({ error: 'Ürün seçimi zorunludur' });
+    if (!campaignCode || !campaignCode.trim()) return res.status(400).json({ error: 'Kampanya / kargo kodu zorunludur' });
 
     const store = await prisma.store.findFirst({ where: { userId: req.user.id } });
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
 
+    const product = await prisma.product.findFirst({
+      where: { id: productId, storeId: store.id },
+      include: { xmlSource: { select: { name: true } } }
+    });
+    if (!product) return res.status(404).json({ error: 'Ürün bulunamadı' });
+
+    const qty = Math.max(1, parseInt(quantity) || 1);
+    const unitCost = product.xmlPrice > 0 ? product.xmlPrice : product.price;
+    const totalCost = parseFloat((unitCost * qty).toFixed(2));
+
+    if (totalCost <= 0) return res.status(400).json({ error: 'Ürün XML fiyatı geçersiz veya sıfır' });
+
+    // Check balance first (before deducting)
+    const balance = await getOrCreateBalance(req.user.id);
+    if (balance.balance < totalCost) {
+      return res.status(402).json({
+        error: `Yetersiz kredi. Gerekli: ₺${totalCost}, Mevcut: ₺${balance.balance.toFixed(2)}`
+      });
+    }
+
+    // Deduct credits
+    await deductCredits(
+      req.user.id,
+      totalCost,
+      'dropship_order',
+      `Tedarikçi Siparişi: ${product.title.substring(0, 60)} (${campaignCode.trim()})`,
+      productId
+    );
+
+    // Create dropship order
     const order = await prisma.dropshipOrder.create({
       data: {
         userId: req.user.id,
         storeId: store.id,
-        orderRef: orderRef || null,
-        productName,
-        productCode: productCode || null,
-        supplierName: supplierName || null,
-        quantity: parseInt(quantity) || 1,
-        unitPrice: parseFloat(unitPrice) || 0,
+        productId,
+        campaignCode: campaignCode.trim(),
+        productName: product.title,
+        productCode: product.sku || product.barcode || null,
+        supplierName: product.xmlSource?.name || null,
+        quantity: qty,
+        unitPrice: unitCost,
+        creditAmount: totalCost,
         customerName: customerName || null,
         customerPhone: customerPhone || null,
         shippingAddress: shippingAddress || null,
         notes: notes || null,
-        status: 'pending'
+        status: 'ordered',
+        orderedAt: new Date()
       }
     });
 
-    res.status(201).json(order);
+    res.status(201).json({ order, deducted: totalCost });
   } catch (error) {
+    if (error.statusCode === 402) return res.status(402).json({ error: error.message });
     next(error);
   }
 });
 
 /**
  * PUT /dropship-orders/:id
- * Update dropship order (status, tracking info, notes)
+ * Update dropship order (status, tracking info, notes, campaign code)
  */
 router.put('/:id', auth, async (req, res, next) => {
   try {
@@ -88,19 +120,11 @@ router.put('/:id', auth, async (req, res, next) => {
 
     const {
       status, supplierOrderId, trackingNumber, cargoCompany,
-      notes, productName, productCode, supplierName, quantity,
-      unitPrice, customerName, customerPhone, shippingAddress, orderRef
+      notes, campaignCode, orderRef
     } = req.body;
 
     const updateData = {};
-    if (productName !== undefined) updateData.productName = productName;
-    if (productCode !== undefined) updateData.productCode = productCode;
-    if (supplierName !== undefined) updateData.supplierName = supplierName;
-    if (quantity !== undefined) updateData.quantity = parseInt(quantity);
-    if (unitPrice !== undefined) updateData.unitPrice = parseFloat(unitPrice);
-    if (customerName !== undefined) updateData.customerName = customerName;
-    if (customerPhone !== undefined) updateData.customerPhone = customerPhone;
-    if (shippingAddress !== undefined) updateData.shippingAddress = shippingAddress;
+    if (campaignCode !== undefined) updateData.campaignCode = campaignCode;
     if (orderRef !== undefined) updateData.orderRef = orderRef;
     if (supplierOrderId !== undefined) updateData.supplierOrderId = supplierOrderId;
     if (trackingNumber !== undefined) updateData.trackingNumber = trackingNumber;
