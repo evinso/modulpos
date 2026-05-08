@@ -24,10 +24,11 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  stores        Store[]
-  subscriptions Subscription[]
-  auditLogs     AuditLog[]
-  invoices      Invoice[]
+  stores          Store[]
+  subscriptions   Subscription[]
+  auditLogs       AuditLog[]
+  invoices        Invoice[]
+  dropshipOrders  DropshipOrder[]
 }
 
 model AuditLog {
@@ -62,6 +63,7 @@ model Store {
   customerQuestions     CustomerQuestion[]
   syncLogs              SyncLog[]
   notifications         Notification[]
+  dropshipOrders        DropshipOrder[]
 }
 
 model XmlSource {
@@ -376,6 +378,38 @@ model LandingFooterSection {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model DropshipOrder {
+  id              String    @id @default(uuid())
+  userId          String
+  storeId         String
+  orderRef        String?   // Pazaryeri sipariş numarası (referans)
+  productName     String
+  productCode     String?
+  supplierName    String?
+  quantity        Int       @default(1)
+  unitPrice       Float     @default(0)
+  customerName    String?
+  customerPhone   String?
+  shippingAddress String?
+  status          String    @default("pending") // pending, ordered, shipped, delivered, cancelled
+  supplierOrderId String?
+  trackingNumber  String?
+  cargoCompany    String?
+  notes           String?
+  orderedAt       DateTime?
+  shippedAt       DateTime?
+  deliveredAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([storeId])
+  @@index([status])
 }
 
 model Invoice {

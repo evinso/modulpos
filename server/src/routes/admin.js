@@ -486,6 +486,50 @@ router.post('/invoices/:userId', auth, isAdmin, async (req, res) => {
 });
 
 /**
+ * GET /api/admin/dropship-orders
+ * List all dropship orders across all users
+ */
+router.get('/dropship-orders', auth, isAdmin, async (req, res) => {
+  try {
+    const { status } = req.query;
+    const where = status ? { status } : {};
+    const orders = await prisma.dropshipOrder.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: { select: { name: true, email: true } },
+        store: { select: { name: true } }
+      }
+    });
+    res.json(orders);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/admin/dropship-orders/:id/status
+ * Update status of any dropship order
+ */
+router.put('/dropship-orders/:id/status', auth, isAdmin, async (req, res) => {
+  try {
+    const { status } = req.body;
+    const existing = await prisma.dropshipOrder.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Sipariş bulunamadı' });
+
+    const updateData = { status };
+    if (status === 'ordered' && !existing.orderedAt) updateData.orderedAt = new Date();
+    if (status === 'shipped' && !existing.shippedAt) updateData.shippedAt = new Date();
+    if (status === 'delivered' && !existing.deliveredAt) updateData.deliveredAt = new Date();
+
+    const updated = await prisma.dropshipOrder.update({ where: { id: req.params.id }, data: updateData });
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * DELETE /api/admin/invoices/:id
  * Delete an invoice
  */

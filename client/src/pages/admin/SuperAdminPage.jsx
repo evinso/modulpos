@@ -3,7 +3,7 @@ import api from '../../services/api';
 import {
   Users, Store, Package, ShoppingCart, CreditCard, Shield, Search,
   MoreVertical, CheckCircle, XCircle, UserPlus, Mail, Calendar,
-  Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus, List, Sliders, FileText
+  Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus, List, Sliders, FileText, Truck, ChevronDown
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './SuperAdminPage.css';
@@ -43,6 +43,9 @@ export default function SuperAdminPage() {
 
   const [generalSettings, setGeneralSettings] = useState({ trial_days: '3' });
 
+  const [dropshipOrders, setDropshipOrders] = useState([]);
+  const [dropshipStatusFilter, setDropshipStatusFilter] = useState('');
+
   const [invoiceModalUser, setInvoiceModalUser] = useState(null);
   const [invoiceForm, setInvoiceForm] = useState({ title: '', amount: '', period: '', notes: '', fileUrl: '' });
   const [invoiceLoading, setInvoiceLoading] = useState(false);
@@ -77,6 +80,10 @@ export default function SuperAdminPage() {
         if (Object.keys(settingsRes.data).length > 0) {
           setFooterBrandSettings(prev => ({ ...prev, ...settingsRes.data }));
         }
+      } else if (activeTab === 'dropship') {
+        const params = dropshipStatusFilter ? `?status=${dropshipStatusFilter}` : '';
+        const res = await api.get(`/admin/dropship-orders${params}`);
+        setDropshipOrders(res.data);
       } else if (activeTab === 'settings') {
         const settingsRes = await api.get('/admin/system-settings?keys=trial_days');
         setGeneralSettings({ trial_days: settingsRes.data.trial_days || '3' });
@@ -406,6 +413,9 @@ export default function SuperAdminPage() {
         <button className={`admin-tab ${activeTab === 'footer' ? 'active' : ''}`} onClick={() => setActiveTab('footer')}>
           <List size={16} /> Footer Yönetimi
         </button>
+        <button className={`admin-tab ${activeTab === 'dropship' ? 'active' : ''}`} onClick={() => setActiveTab('dropship')}>
+          <Truck size={16} /> Tedarikçi Siparişleri
+        </button>
         <button className={`admin-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
           <Sliders size={16} /> Genel Ayarlar
         </button>
@@ -419,7 +429,8 @@ export default function SuperAdminPage() {
                activeTab === 'stores' ? 'Tüm Mağazalar' :
                activeTab === 'auditLogs' ? 'Sistem Logları' :
                activeTab === 'pricing' ? 'Fiyat Planları' :
-               activeTab === 'footer' ? 'Footer Yönetimi' : 'Genel Ayarlar'}
+               activeTab === 'footer' ? 'Footer Yönetimi' :
+               activeTab === 'dropship' ? 'Tedarikçi Siparişleri' : 'Genel Ayarlar'}
             </h3>
             {activeTab === 'users' && (
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', background: 'rgba(59,130,246,0.1)', padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(59,130,246,0.2)', color: 'var(--accent-primary)' }}>
@@ -437,6 +448,21 @@ export default function SuperAdminPage() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
+            )}
+            {activeTab === 'dropship' && (
+              <select
+                className="form-input"
+                style={{ width: 'auto', minWidth: 160 }}
+                value={dropshipStatusFilter}
+                onChange={e => { setDropshipStatusFilter(e.target.value); fetchData(); }}
+              >
+                <option value="">Tüm Durumlar</option>
+                <option value="pending">Bekliyor</option>
+                <option value="ordered">Sipariş Verildi</option>
+                <option value="shipped">Kargoda</option>
+                <option value="delivered">Teslim Edildi</option>
+                <option value="cancelled">İptal</option>
+              </select>
             )}
             {activeTab === 'pricing' && (
               <button className="btn btn-primary" onClick={() => {
@@ -786,6 +812,70 @@ export default function SuperAdminPage() {
                 </tbody>
               </table>
             </div>
+          ) : activeTab === 'dropship' ? (
+            <table>
+              <thead>
+                <tr>
+                  <th>Kullanıcı / Mağaza</th>
+                  <th>Ürün</th>
+                  <th>Tedarikçi</th>
+                  <th>Müşteri</th>
+                  <th>Adet / Fiyat</th>
+                  <th>Pz. Sipariş No</th>
+                  <th>Durum</th>
+                  <th>Takip No</th>
+                  <th>Tarih</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dropshipOrders.map(order => {
+                  const statusMap = {
+                    pending: { label: 'Bekliyor', cls: 'badge-warning' },
+                    ordered: { label: 'Sipariş Verildi', cls: 'badge-info' },
+                    shipped: { label: 'Kargoda', cls: 'badge-primary' },
+                    delivered: { label: 'Teslim Edildi', cls: 'badge-success' },
+                    cancelled: { label: 'İptal', cls: 'badge-danger' },
+                  };
+                  const st = statusMap[order.status] || statusMap.pending;
+                  return (
+                    <tr key={order.id}>
+                      <td>
+                        <div className="user-name" style={{ fontSize: 13 }}>{order.user?.name}</div>
+                        <div className="user-email">{order.store?.name}</div>
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{order.productName}</div>
+                        {order.productCode && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{order.productCode}</div>}
+                      </td>
+                      <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{order.supplierName || '—'}</td>
+                      <td style={{ fontSize: 13 }}>
+                        <div>{order.customerName || '—'}</div>
+                        {order.customerPhone && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{order.customerPhone}</div>}
+                      </td>
+                      <td style={{ fontSize: 13 }}>
+                        <div>{order.quantity} adet</div>
+                        {order.unitPrice > 0 && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>₺{Number(order.unitPrice).toLocaleString('tr-TR')}</div>}
+                      </td>
+                      <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{order.orderRef || '—'}</td>
+                      <td>
+                        <span className={`badge ${st.cls}`}>{st.label}</span>
+                      </td>
+                      <td style={{ fontSize: 12 }}>{order.trackingNumber || '—'}</td>
+                      <td style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {new Date(order.createdAt).toLocaleDateString('tr-TR')}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {dropshipOrders.length === 0 && (
+                  <tr>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: 24, color: 'var(--text-secondary)' }}>
+                      Henüz tedarikçi siparişi bulunmuyor.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           ) : activeTab === 'settings' ? (
             <div style={{ padding: '8px 0' }}>
               <div className="card" style={{ padding: 24, maxWidth: 560 }}>

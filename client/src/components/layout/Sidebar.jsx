@@ -1,5 +1,5 @@
 import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send, ArrowLeftRight, Shield, Sparkles, Globe, Wallet, CreditCard, Activity } from 'lucide-react';
+import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send, ArrowLeftRight, Shield, Sparkles, Globe, Wallet, CreditCard, Activity, Truck } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 
 const navItems = [
@@ -7,6 +7,7 @@ const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/products', icon: Package, label: 'Ürünler' },
     { to: '/orders', icon: ShoppingCart, label: 'Siparişler' },
+    { to: '/dropship-orders', icon: Truck, label: 'Tedarikçi Siparişleri' },
   ]},
   { section: 'Entegrasyon', items: [
     { to: '/xml-sources', icon: FileCode2, label: 'XML Kaynakları' },
