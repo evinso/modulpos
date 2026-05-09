@@ -175,8 +175,8 @@ router.post('/subscription-token', auth, async (req, res, next) => {
  */
 router.post('/paytr-callback', express.urlencoded({ extended: true }), async (req, res) => {
   try {
-    const { merchant_oid, status, total_amount, hash, merchant_id, failed_reason_code, failed_reason_msg } = req.body;
-    
+    const { merchant_oid, status, total_amount, hash, failed_reason_code, failed_reason_msg } = req.body;
+
     const { getSetting } = require('./credits');
     const MERCHANT_KEY = await getSetting('paytr_merchant_key', process.env.PAYTR_MERCHANT_KEY || 'XXXXXXXXXXXXXXXX');
     const MERCHANT_SALT = await getSetting('paytr_merchant_salt', process.env.PAYTR_MERCHANT_SALT || 'XXXXXXXXXXXXXXXX');
@@ -184,20 +184,29 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
     // Validate hash
     const hash_str = merchant_oid + MERCHANT_SALT + status + total_amount;
     const computed_hash = crypto.createHmac('sha256', MERCHANT_KEY).update(hash_str).digest('base64');
-    
+
     if (hash !== computed_hash) {
       return res.status(400).send('PAYTR notification failed: bad hash');
     }
 
-    if (status === 'success') {
-      const parts = merchant_oid.split('_');
-      const prefix = parts[0];
+    const parts = merchant_oid.split('_');
+    const prefix = parts[0];
+    const logUserId = parts[1] || null;
+    const logType = prefix === 'SUB' ? 'subscription' : prefix === 'MP' ? 'topup' : null;
+    const amountTL = parseFloat(total_amount) / 100;
 
+    // Resolve user email for the log
+    let logUserEmail = null;
+    if (logUserId) {
+      try {
+        const u = await prisma.user.findUnique({ where: { id: logUserId }, select: { email: true } });
+        logUserEmail = u?.email || null;
+      } catch {}
+    }
+
+    if (status === 'success') {
       if (prefix === 'MP' && parts.length >= 3) {
-        // Credit top-up: MP_userId_timestamp
-        const userId = parts[1];
-        const amountTL = parseFloat(total_amount) / 100;
-        const balance = await getOrCreateBalance(userId);
+        const balance = await getOrCreateBalance(logUserId);
         await prisma.creditBalance.update({
           where: { id: balance.id },
           data: { balance: balance.balance + amountTL }
@@ -211,36 +220,43 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
           }
         });
       } else if (prefix === 'SUB' && parts.length >= 4) {
-        // Subscription purchase: SUB_userId_days_timestamp
-        const userId = parts[1];
         const days = parseInt(parts[2]) || 30;
-        const amountTL = parseFloat(total_amount) / 100;
-
         const user = await prisma.user.findUnique({
-          where: { id: userId },
+          where: { id: logUserId },
           include: { subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 } }
         });
-
         if (user) {
           let currentEndDate = new Date();
           if (user.subscriptions[0]?.endDate && new Date(user.subscriptions[0].endDate) > new Date()) {
             currentEndDate = new Date(user.subscriptions[0].endDate);
           }
           const newEndDate = new Date(currentEndDate.getTime() + days * 24 * 60 * 60 * 1000);
-
           await prisma.subscription.create({
-            data: { userId, plan: 'premium', status: 'active', endDate: newEndDate, amount: amountTL }
+            data: { userId: logUserId, plan: 'premium', status: 'active', endDate: newEndDate, amount: amountTL }
           });
-
           if (!user.isActive) {
-            await prisma.user.update({ where: { id: userId }, data: { isActive: true } });
+            await prisma.user.update({ where: { id: logUserId }, data: { isActive: true } });
           }
         }
       }
 
+      await prisma.paytrLog.create({
+        data: { merchantOid: merchant_oid, status: 'success', totalAmount: amountTL,
+          userId: logUserId, userEmail: logUserEmail, type: logType,
+          rawBody: JSON.stringify(req.body) }
+      });
+
       res.send('OK');
     } else {
-      console.log('Payment failed:', failed_reason_code, failed_reason_msg);
+      const failReason = [failed_reason_code, failed_reason_msg].filter(Boolean).join(' - ');
+      console.log('Payment failed:', failReason);
+
+      await prisma.paytrLog.create({
+        data: { merchantOid: merchant_oid, status: 'failed', totalAmount: amountTL,
+          userId: logUserId, userEmail: logUserEmail, type: logType,
+          failReason: failReason || null, rawBody: JSON.stringify(req.body) }
+      });
+
       res.send('OK');
     }
   } catch (error) {

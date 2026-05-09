@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, Settings, Users, Plus, Save, Search, CreditCard, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Wallet, Settings, Users, Plus, Save, Search, CreditCard, ArrowUpRight, ArrowDownRight, Activity, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 
@@ -21,10 +21,26 @@ export default function CreditAdminPage() {
 
   const [userSearch, setUserSearch] = useState('');
 
+  // PayTR logs
+  const [logs, setLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+
   useEffect(() => {
     fetchSettings();
     fetchUsers();
   }, []);
+
+  const fetchLogs = async () => {
+    setLogsLoading(true);
+    try {
+      const res = await api.get('/credits/admin/paytr-logs');
+      setLogs(res.data);
+    } catch {
+      toast.error('Loglar yüklenemedi');
+    } finally {
+      setLogsLoading(false);
+    }
+  };
 
   const fetchSettings = async () => {
     try {
@@ -109,6 +125,12 @@ export default function CreditAdminPage() {
           onClick={() => setActiveTab('users')}
         >
           <Users size={16} /> Kullanıcı Bakiyeleri
+        </button>
+        <button
+          className={`btn ${activeTab === 'logs' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => { setActiveTab('logs'); fetchLogs(); }}
+        >
+          <Activity size={16} /> PayTR Bildirimleri
         </button>
       </div>
 
@@ -256,6 +278,72 @@ export default function CreditAdminPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* PayTR Logs Tab */}
+      {activeTab === 'logs' && (
+        <div className="card" style={{ padding: 0 }}>
+          <div className="table-header">
+            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Activity size={18} /> PayTR Bildirimleri
+            </h3>
+            <button className="btn btn-secondary" onClick={fetchLogs} disabled={logsLoading}>
+              <RefreshCw size={14} className={logsLoading ? 'spinning' : ''} />
+            </button>
+          </div>
+
+          {logsLoading ? (
+            <div style={{ padding: 40, textAlign: 'center' }}><div className="spinner" /></div>
+          ) : logs.length === 0 ? (
+            <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 14 }}>
+              Henüz PayTR bildirimi alınmamış.
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                    {['Durum', 'Kullanıcı', 'Tür', 'Tutar', 'Merchant OID', 'Hata', 'Tarih'].map(h => (
+                      <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {logs.map(log => (
+                    <tr key={log.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: '10px 14px' }}>
+                        {log.status === 'success'
+                          ? <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle size={11} /> Başarılı</span>
+                          : <span className="badge badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><XCircle size={11} /> Başarısız</span>}
+                      </td>
+                      <td style={{ padding: '10px 14px', fontSize: 13 }}>
+                        <div style={{ fontWeight: 500 }}>{log.userEmail || '—'}</div>
+                        {log.userId && <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{log.userId.slice(0, 8)}…</div>}
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span className={`badge ${log.type === 'subscription' ? 'badge-primary' : 'badge-info'}`}>
+                          {log.type === 'subscription' ? 'Abonelik' : log.type === 'topup' ? 'Kredi Yükleme' : '—'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--accent-primary)', whiteSpace: 'nowrap' }}>
+                        ₺{Number(log.totalAmount).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ padding: '10px 14px', fontSize: 12, fontFamily: 'monospace', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {log.merchantOid}
+                      </td>
+                      <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--danger)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {log.failReason || '—'}
+                      </td>
+                      <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {new Date(log.createdAt).toLocaleString('tr-TR')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

@@ -431,6 +431,22 @@ model Invoice {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model PaytrLog {
+  id          String   @id @default(uuid())
+  merchantOid String
+  status      String   // 'success' | 'failed'
+  totalAmount Float
+  userId      String?
+  userEmail   String?
+  type        String?  // 'topup' | 'subscription'
+  failReason  String?
+  rawBody     String?
+  createdAt   DateTime @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+}
+
 model SupportTicket {
   id        String           @id @default(uuid())
   userId    String

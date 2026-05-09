@@ -221,6 +221,19 @@ async function deductCredits(userId, amount, type, description, referenceId = nu
   return balance.balance - amount;
 }
 
+// GET /api/credits/admin/paytr-logs
+router.get('/admin/paytr-logs', auth, requireAdmin, async (req, res, next) => {
+  try {
+    const logs = await prisma.paytrLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 200
+    });
+    res.json(logs);
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;
 module.exports.deductCredits = deductCredits;
 module.exports.getSetting = getSetting;
