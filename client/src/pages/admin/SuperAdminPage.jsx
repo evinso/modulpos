@@ -3,7 +3,7 @@ import api from '../../services/api';
 import {
   Users, Store, Package, ShoppingCart, CreditCard, Shield, Search,
   MoreVertical, CheckCircle, XCircle, UserPlus, Mail, Calendar,
-  Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus, List, Sliders, FileText, Truck, ChevronDown
+  Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus, List, Sliders, FileText, Truck
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './SuperAdminPage.css';
@@ -45,10 +45,9 @@ export default function SuperAdminPage() {
 
   const [dropshipOrders, setDropshipOrders] = useState([]);
   const [dropshipStatusFilter, setDropshipStatusFilter] = useState('');
-  const [dropshipEditingStatus, setDropshipEditingStatus] = useState(null);
-  const [dropshipCargoModal, setDropshipCargoModal] = useState(null);
-  const [dropshipCargoForm, setDropshipCargoForm] = useState({ trackingNumber: '', cargoCompany: '', supplierOrderId: '', notes: '' });
-  const [dropshipCargoSaving, setDropshipCargoSaving] = useState(false);
+  const [dropshipEditModal, setDropshipEditModal] = useState(null);
+  const [dropshipEditForm, setDropshipEditForm] = useState({ status: '', campaignCode: '', trackingNumber: '', cargoCompany: '', supplierOrderId: '', notes: '' });
+  const [dropshipEditSaving, setDropshipEditSaving] = useState(false);
 
   const [invoiceModalUser, setInvoiceModalUser] = useState(null);
   const [invoiceForm, setInvoiceForm] = useState({ title: '', amount: '', period: '', notes: '', fileUrl: '' });
@@ -291,43 +290,32 @@ export default function SuperAdminPage() {
     }
   };
 
-  const handleDropshipStatusChange = async (orderId, newStatus) => {
-    try {
-      await api.put(`/admin/dropship-orders/${orderId}`, { status: newStatus });
-      toast.success('Durum güncellendi');
-      setDropshipEditingStatus(null);
-      setDropshipOrders(prev => prev.map(o =>
-        o.id === orderId ? { ...o, status: newStatus } : o
-      ));
-    } catch {
-      toast.error('Güncelleme başarısız');
-    }
-  };
-
-  const openDropshipCargoModal = (order) => {
-    setDropshipCargoForm({
+  const openDropshipEditModal = (order) => {
+    setDropshipEditForm({
+      status: order.status || 'ordered',
+      campaignCode: order.campaignCode || '',
       trackingNumber: order.trackingNumber || '',
       cargoCompany: order.cargoCompany || '',
       supplierOrderId: order.supplierOrderId || '',
       notes: order.notes || ''
     });
-    setDropshipCargoModal(order);
+    setDropshipEditModal(order);
   };
 
-  const handleDropshipCargoSave = async (e) => {
+  const handleDropshipEditSave = async (e) => {
     e.preventDefault();
-    setDropshipCargoSaving(true);
+    setDropshipEditSaving(true);
     try {
-      const updated = await api.put(`/admin/dropship-orders/${dropshipCargoModal.id}`, dropshipCargoForm);
-      toast.success('Kargo bilgileri güncellendi');
+      const updated = await api.put(`/admin/dropship-orders/${dropshipEditModal.id}`, dropshipEditForm);
+      toast.success('Sipariş güncellendi');
       setDropshipOrders(prev => prev.map(o =>
-        o.id === dropshipCargoModal.id ? { ...o, ...updated.data } : o
+        o.id === dropshipEditModal.id ? { ...o, ...updated.data } : o
       ));
-      setDropshipCargoModal(null);
+      setDropshipEditModal(null);
     } catch {
       toast.error('Güncelleme başarısız');
     } finally {
-      setDropshipCargoSaving(false);
+      setDropshipEditSaving(false);
     }
   };
 
@@ -915,33 +903,9 @@ export default function SuperAdminPage() {
                             {order.customerPhone && <div style={{ color: 'var(--text-secondary)' }}>{order.customerPhone}</div>}
                           </td>
                           <td>
-                            <div style={{ position: 'relative', display: 'inline-block' }}>
-                              <button
-                                className={`badge ${st.cls}`}
-                                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, border: 'none', padding: '4px 8px' }}
-                                onClick={() => setDropshipEditingStatus(dropshipEditingStatus === order.id ? null : order.id)}
-                              >
-                                {st.label} <ChevronDown size={11} />
-                              </button>
-                              {dropshipEditingStatus === order.id && (
-                                <div style={{
-                                  position: 'absolute', top: '100%', left: 0, zIndex: 50,
-                                  background: 'var(--bg-card)', border: '1px solid var(--border-color)',
-                                  borderRadius: 8, padding: 4, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.3)'
-                                }}>
-                                  {Object.entries(DS).map(([k, v]) => (
-                                    <button
-                                      key={k}
-                                      onClick={() => handleDropshipStatusChange(order.id, k)}
-                                      className="dropdown-item"
-                                      style={{ width: '100%', textAlign: 'left', padding: '6px 10px', fontSize: 12, background: order.status === k ? 'var(--bg-hover)' : 'transparent' }}
-                                    >
-                                      {v.label}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
+                            <span className={`badge ${st.cls}`} style={{ padding: '4px 8px' }}>
+                              {st.label}
+                            </span>
                           </td>
                           <td style={{ fontSize: 12 }}>
                             {order.trackingNumber
@@ -955,9 +919,9 @@ export default function SuperAdminPage() {
                             <button
                               className="btn btn-secondary"
                               style={{ padding: '4px 10px', fontSize: 12, height: 'auto' }}
-                              onClick={() => openDropshipCargoModal(order)}
+                              onClick={() => openDropshipEditModal(order)}
                             >
-                              <Truck size={13} style={{ marginRight: 4 }} /> Kargo
+                              <Edit size={13} style={{ marginRight: 4 }} /> Düzenle
                             </button>
                           </td>
                         </tr>
@@ -1294,58 +1258,89 @@ export default function SuperAdminPage() {
         </div>
       )}
 
-      {/* Dropship Cargo Modal */}
-      {dropshipCargoModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div className="card" style={{ width: '100%', maxWidth: 460, padding: 0 }}>
-            <div className="table-header">
-              <h3><Truck size={16} style={{ marginRight: 8 }} />Kargo Bilgilerini Güncelle</h3>
-              <button className="text-btn" onClick={() => setDropshipCargoModal(null)}>Kapat</button>
+      {/* Dropship Edit Modal */}
+      {dropshipEditModal && (() => {
+        const DS = {
+          pending:   'Bekliyor',
+          ordered:   'Sipariş Verildi',
+          shipped:   'Kargoda',
+          delivered: 'Teslim Edildi',
+          cancelled: 'İptal',
+        };
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+            <div className="card" style={{ width: '100%', maxWidth: 500, padding: 0, maxHeight: '90vh', overflowY: 'auto' }}>
+              <div className="table-header">
+                <h3><Truck size={16} style={{ marginRight: 8 }} />Siparişi Düzenle</h3>
+                <button className="text-btn" onClick={() => setDropshipEditModal(null)}>Kapat</button>
+              </div>
+              <form onSubmit={handleDropshipEditSave} style={{ padding: 20 }}>
+                <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{dropshipEditModal.productName}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                    {dropshipEditModal.user?.name} · {dropshipEditModal.user?.email}
+                    {dropshipEditModal.creditAmount > 0 && ` · ₺${Number(dropshipEditModal.creditAmount).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                  <div className="form-group">
+                    <label className="form-label">Sipariş Durumu</label>
+                    <select className="form-input" value={dropshipEditForm.status}
+                      onChange={e => setDropshipEditForm({ ...dropshipEditForm, status: e.target.value })}>
+                      {Object.entries(DS).map(([k, v]) => (
+                        <option key={k} value={k}>{v}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Kampanya / Kargo Kodu</label>
+                    <input type="text" className="form-input" value={dropshipEditForm.campaignCode}
+                      onChange={e => setDropshipEditForm({ ...dropshipEditForm, campaignCode: e.target.value })}
+                      placeholder="Trendyol kampanya kodu" />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                  <div className="form-group">
+                    <label className="form-label">Kargo Firması</label>
+                    <input type="text" className="form-input" value={dropshipEditForm.cargoCompany}
+                      onChange={e => setDropshipEditForm({ ...dropshipEditForm, cargoCompany: e.target.value })}
+                      placeholder="Yurtiçi, Aras, MNG..." />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Takip Numarası</label>
+                    <input type="text" className="form-input" value={dropshipEditForm.trackingNumber}
+                      onChange={e => setDropshipEditForm({ ...dropshipEditForm, trackingNumber: e.target.value })}
+                      placeholder="Kargo takip kodu" />
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 14 }}>
+                  <label className="form-label">Tedarikçi Sipariş No</label>
+                  <input type="text" className="form-input" value={dropshipEditForm.supplierOrderId}
+                    onChange={e => setDropshipEditForm({ ...dropshipEditForm, supplierOrderId: e.target.value })}
+                    placeholder="Tedarikçinin verdiği sipariş numarası" />
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 20 }}>
+                  <label className="form-label">Notlar</label>
+                  <textarea className="form-input" rows={2} value={dropshipEditForm.notes}
+                    onChange={e => setDropshipEditForm({ ...dropshipEditForm, notes: e.target.value })}
+                    placeholder="Ek açıklamalar..." />
+                </div>
+
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setDropshipEditModal(null)}>Vazgeç</button>
+                  <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={dropshipEditSaving}>
+                    {dropshipEditSaving ? 'Kaydediliyor...' : 'Kaydet'}
+                  </button>
+                </div>
+              </form>
             </div>
-            <form onSubmit={handleDropshipCargoSave} style={{ padding: 20 }}>
-              <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{dropshipCargoModal.productName}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-                  {dropshipCargoModal.user?.name} · {dropshipCargoModal.campaignCode || 'Kampanya kodu yok'}
-                  {dropshipCargoModal.creditAmount > 0 && ` · ₺${Number(dropshipCargoModal.creditAmount).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}`}
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-                <div className="form-group">
-                  <label className="form-label">Kargo Firması</label>
-                  <input type="text" className="form-input" value={dropshipCargoForm.cargoCompany}
-                    onChange={e => setDropshipCargoForm({ ...dropshipCargoForm, cargoCompany: e.target.value })}
-                    placeholder="Yurtiçi, Aras, MNG..." />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Takip Numarası</label>
-                  <input type="text" className="form-input" value={dropshipCargoForm.trackingNumber}
-                    onChange={e => setDropshipCargoForm({ ...dropshipCargoForm, trackingNumber: e.target.value })}
-                    placeholder="Kargo takip kodu" />
-                </div>
-              </div>
-              <div className="form-group" style={{ marginBottom: 14 }}>
-                <label className="form-label">Tedarikçi Sipariş No</label>
-                <input type="text" className="form-input" value={dropshipCargoForm.supplierOrderId}
-                  onChange={e => setDropshipCargoForm({ ...dropshipCargoForm, supplierOrderId: e.target.value })}
-                  placeholder="Tedarikçinin verdiği sipariş numarası" />
-              </div>
-              <div className="form-group" style={{ marginBottom: 20 }}>
-                <label className="form-label">Notlar</label>
-                <textarea className="form-input" rows={2} value={dropshipCargoForm.notes}
-                  onChange={e => setDropshipCargoForm({ ...dropshipCargoForm, notes: e.target.value })}
-                  placeholder="Ek açıklamalar..." />
-              </div>
-              <div style={{ display: 'flex', gap: 12 }}>
-                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setDropshipCargoModal(null)}>Vazgeç</button>
-                <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={dropshipCargoSaving}>
-                  {dropshipCargoSaving ? 'Kaydediliyor...' : 'Bilgileri Kaydet'}
-                </button>
-              </div>
-            </form>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Subscription Modal */}
       {subModalUser && (
