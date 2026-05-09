@@ -80,7 +80,6 @@ router.post('/paytr-token', auth, async (req, res, next) => {
     };
 
     // Make request to PayTR API to get the iframe token
-    const fetch = require('node-fetch'); // we can also use axios
     const axios = require('axios');
     const FormData = require('form-data');
     
