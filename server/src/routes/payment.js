@@ -33,8 +33,8 @@ router.post('/paytr-token', auth, async (req, res, next) => {
       .split(',')[0].trim().replace(/^::ffff:/, '');
     const user_ip = rawIp === '::1' ? '127.0.0.1' : rawIp;
 
-    // Create a unique order ID that includes userId so we can parse it in webhook
-    const merchant_oid = `MP_${req.user.id}_${Date.now()}`;
+    // Alphanumeric only: MP + 32-char userId (no hyphens) + 13-digit timestamp
+    const merchant_oid = `MP${req.user.id.replace(/-/g, '')}${Date.now()}`;
     
     const email = user.email;
     const payment_amount = Math.round(parseFloat(amount) * 100); // in kurus
@@ -136,7 +136,8 @@ router.post('/subscription-token', auth, async (req, res, next) => {
       .split(',')[0].trim().replace(/^::ffff:/, '');
     const user_ip = rawIp2 === '::1' ? '127.0.0.1' : rawIp2;
     const subDays = parseInt(days) || 30;
-    const merchant_oid = `SUB_${req.user.id}_${subDays}_${Date.now()}`;
+    // Alphanumeric only: SUB + 32-char userId (no hyphens) + 3-digit days + 13-digit timestamp
+    const merchant_oid = `SUB${req.user.id.replace(/-/g, '')}${String(subDays).padStart(3, '0')}${Date.now()}`;
     const payment_amount = Math.round(numAmount * 100);
     const user_basket = JSON.stringify([[planName || 'ModulPOS Abonelik', numAmount.toString(), 1]]);
     const no_installment = 0;
@@ -192,9 +193,27 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
       return res.status(400).send('PAYTR notification failed: bad hash');
     }
 
-    const parts = merchant_oid.split('_');
-    const prefix = parts[0];
-    const logUserId = parts[1] || null;
+    // Parse merchant_oid — new alphanumeric format OR legacy underscore format
+    const restoreUuid = s => s.replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5');
+    let prefix, logUserId, parsedDays;
+    if (merchant_oid.includes('_')) {
+      // Legacy: MP_uuid_ts or SUB_uuid_days_ts
+      const parts = merchant_oid.split('_');
+      prefix     = parts[0];
+      logUserId  = parts[1] || null;
+      parsedDays = parseInt(parts[2]) || 30;
+    } else if (merchant_oid.startsWith('SUB')) {
+      prefix     = 'SUB';
+      logUserId  = restoreUuid(merchant_oid.slice(3, 35));
+      parsedDays = parseInt(merchant_oid.slice(35, 38)) || 30;
+    } else if (merchant_oid.startsWith('MP')) {
+      prefix     = 'MP';
+      logUserId  = restoreUuid(merchant_oid.slice(2, 34));
+      parsedDays = 30;
+    } else {
+      prefix = ''; logUserId = null; parsedDays = 30;
+    }
+
     const logType = prefix === 'SUB' ? 'subscription' : prefix === 'MP' ? 'topup' : null;
     const amountTL = parseFloat(total_amount) / 100;
 
@@ -208,7 +227,7 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
     }
 
     if (status === 'success') {
-      if (prefix === 'MP' && parts.length >= 3) {
+      if (prefix === 'MP') {
         const balance = await getOrCreateBalance(logUserId);
         await prisma.creditBalance.update({
           where: { id: balance.id },
@@ -222,8 +241,8 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
             description: `PayTR Kredi Kartı ile Yükleme (${merchant_oid})`
           }
         });
-      } else if (prefix === 'SUB' && parts.length >= 4) {
-        const days = parseInt(parts[2]) || 30;
+      } else if (prefix === 'SUB') {
+        const days = parsedDays;
         const user = await prisma.user.findUnique({
           where: { id: logUserId },
           include: { subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 } }
