@@ -307,7 +307,7 @@ async function parseXml(url, mappingConfigStr) {
     stock: parseInt(getFieldValue(p, mc.stock, ['Stock', 'stock', 'Stok', 'stok', 'Quantity', 'quantity', 'Adet', 'Miktar', 'g:quantity']) || 0),
     brand: getFieldValue(p, mc.brand, ['Brand', 'brand', 'Marka', 'marka', 'BrandName', 'g:brand']),
     category: getFieldValue(p, mc.category, ['Category', 'category', 'Kategori', 'kategori', 'CategoryName', 'KategoriAdi', 'product_type', 'google_product_category', 'g:product_type', 'g:google_product_category']),
-    images: getImagesValue(p, mc.images, ['Images', 'images', 'Resimler', 'Image', 'image', 'Resim', 'ImageUrl', 'img', 'Img', 'Pictures', 'Gorsel', 'image_link', 'g:image_link', 'additional_image_link', 'g:additional_image_link']),
+    images: getImagesValue(p, mc.images, ['Images', 'images', 'Resimler', 'Image', 'image', 'Resim', 'ImageUrl', 'imageUrl', 'img', 'Img', 'Pictures', 'Gorsel', 'gorsel', 'image_link', 'g:image_link', 'additional_image_link', 'g:additional_image_link', 'ProductImage', 'productImage', 'UrunResim', 'urunResim', 'BigImage', 'bigImage', 'MainImage', 'mainImage', 'Thumbnail', 'thumbnail', 'resim_url', 'gorsel_url', 'image_url', 'ImageURL', 'Photo', 'photo', 'Picture', 'picture', 'Foto', 'foto']),
     attributes: {}
   }));
 }
@@ -375,8 +375,22 @@ function getImagesValue(obj, mappedField, fallbackFields) {
         return v?.url || v?.Url || v?.URL || v?.src || '';
       }).filter(Boolean));
     } else if (typeof val === 'object' && !Array.isArray(val)) {
-      const imgs = Object.values(val).filter(v => typeof v === 'string' && (v.startsWith('http') || v.startsWith('//')));
-      collectedImages.push(...imgs);
+      // Handle nested structures like { Image: "url" } or { Image: ["url1","url2"] }
+      for (const v of Object.values(val)) {
+        if (typeof v === 'string' && (v.startsWith('http') || v.startsWith('//'))) {
+          collectedImages.push(v);
+        } else if (Array.isArray(v)) {
+          collectedImages.push(...v.map(item => {
+            if (typeof item === 'string') return item;
+            return item?.url || item?.Url || item?.URL || item?.src || item?.['#text'] || '';
+          }).filter(s => typeof s === 'string' && (s.startsWith('http') || s.startsWith('//'))));
+        } else if (typeof v === 'object' && v !== null) {
+          const nested = v?.url || v?.Url || v?.URL || v?.src || v?.['#text'] || '';
+          if (typeof nested === 'string' && (nested.startsWith('http') || nested.startsWith('//'))) {
+            collectedImages.push(nested);
+          }
+        }
+      }
     }
   }
 

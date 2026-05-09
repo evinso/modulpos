@@ -137,11 +137,23 @@ export default function TrendyolSendPage() {
   };
 
   const getFirstImage = (p) => {
-    if (!p.images) return null;
-    try {
-      const imgs = JSON.parse(p.images);
-      return Array.isArray(imgs) ? imgs[0] : null;
-    } catch { return null; }
+    if (p.images) {
+      try {
+        const imgs = JSON.parse(p.images);
+        if (Array.isArray(imgs) && imgs[0]) return imgs[0];
+        if (typeof imgs === 'string' && imgs.startsWith('http')) return imgs;
+      } catch {
+        if (typeof p.images === 'string' && p.images.startsWith('http')) return p.images;
+      }
+    }
+    if (p.rawXmlData) {
+      try {
+        const raw = JSON.parse(p.rawXmlData);
+        if (Array.isArray(raw.images) && raw.images[0]) return raw.images[0];
+        if (typeof raw.images === 'string' && raw.images.startsWith('http')) return raw.images;
+      } catch {}
+    }
+    return null;
   };
 
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
@@ -277,6 +289,7 @@ export default function TrendyolSendPage() {
                         {thumbImg ? (
                           <>
                             <img src={thumbImg} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                              referrerPolicy="no-referrer"
                               onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }} />
                             <div style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
                               <Package size={15} color="var(--text-muted)" />

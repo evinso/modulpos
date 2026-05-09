@@ -885,6 +885,7 @@ export default function XmlSourcesPage() {
                                 src={p.image}
                                 alt={p.title}
                                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                                referrerPolicy="no-referrer"
                                 onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
                               />
                               <div style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
