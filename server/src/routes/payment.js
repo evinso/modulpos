@@ -29,8 +29,10 @@ router.post('/paytr-token', auth, async (req, res, next) => {
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı.' });
 
-    const user_ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
-    
+    const rawIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1')
+      .split(',')[0].trim().replace(/^::ffff:/, '');
+    const user_ip = rawIp === '::1' ? '127.0.0.1' : rawIp;
+
     // Create a unique order ID that includes userId so we can parse it in webhook
     const merchant_oid = `MP_${req.user.id}_${Date.now()}`;
     
@@ -52,7 +54,7 @@ router.post('/paytr-token', auth, async (req, res, next) => {
     const user_name = user.name || 'Müşteri';
     const user_address = 'Belirtilmedi';
     const user_phone = user.phone || '05000000000';
-    const debug_on = 1;
+    const debug_on = process.env.NODE_ENV === 'production' ? 0 : 1;
 
     // Generate hash
     const hash_str = MERCHANT_ID + user_ip + merchant_oid + email + payment_amount + user_basket + no_installment + max_installment + currency + test_mode;
@@ -130,7 +132,9 @@ router.post('/subscription-token', auth, async (req, res, next) => {
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı.' });
 
-    const user_ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+    const rawIp2 = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1')
+      .split(',')[0].trim().replace(/^::ffff:/, '');
+    const user_ip = rawIp2 === '::1' ? '127.0.0.1' : rawIp2;
     const subDays = parseInt(days) || 30;
     const merchant_oid = `SUB_${req.user.id}_${subDays}_${Date.now()}`;
     const payment_amount = Math.round(numAmount * 100);
@@ -150,7 +154,7 @@ router.post('/subscription-token', auth, async (req, res, next) => {
     const formData = new FormData();
     const form_data = {
       merchant_id: MERCHANT_ID, user_ip, merchant_oid, email: user.email, payment_amount,
-      paytr_token, user_basket, debug_on: 1, no_installment, max_installment,
+      paytr_token, user_basket, debug_on: process.env.NODE_ENV === 'production' ? 0 : 1, no_installment, max_installment,
       user_name: user.name || 'Müşteri', user_address: 'Belirtilmedi',
       user_phone: user.phone || '05000000000', merchant_ok_url, merchant_fail_url,
       timeout_limit: 30, currency, test_mode

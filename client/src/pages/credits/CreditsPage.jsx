@@ -1,49 +1,67 @@
-import React, { useState, useEffect } from 'react';
-import { Wallet, ArrowUpRight, ArrowDownRight, Clock, TrendingUp, CheckCircle2, Star, Zap } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Wallet, ArrowUpRight, ArrowDownRight, Clock, TrendingUp, CheckCircle2, Star, Zap, X, CreditCard, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 
 const TYPE_LABELS = {
-  topup: { label: 'Kredi Yükleme', color: 'var(--success)', icon: '💰' },
-  xml_import: { label: 'XML İçe Aktarma', color: 'var(--warning)', icon: '📦' },
-  xml_convert: { label: 'XML Dönüştürme', color: 'var(--info, #60a5fa)', icon: '🔄' },
-  admin_adjust: { label: 'Admin Düzeltmesi', color: 'var(--accent-primary)', icon: '⚙️' }
+  topup:        { label: 'Kredi Yükleme',    color: 'var(--success)',           icon: '💰' },
+  xml_import:   { label: 'XML İçe Aktarma',  color: 'var(--warning)',           icon: '📦' },
+  xml_convert:  { label: 'XML Dönüştürme',   color: 'var(--info, #60a5fa)',     icon: '🔄' },
+  admin_adjust: { label: 'Admin Düzeltmesi', color: 'var(--accent-primary)',    icon: '⚙️' },
+  subscription: { label: 'Abonelik',         color: 'var(--accent-secondary)',  icon: '⭐' },
 };
 
-export default function CreditsPage() {
-  const [balance, setBalance] = useState(0);
-  const [transactions, setTransactions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [subPlans, setSubPlans] = useState([]);
+const QUICK_AMOUNTS = [50, 100, 200, 500];
 
-  // Credit top-up states
-  const [creditModalOpen, setCreditModalOpen] = useState(false);
-  const [purchaseAmount, setPurchaseAmount] = useState('50');
-  const [iframeToken, setIframeToken] = useState(null);
+export default function CreditsPage() {
+  const [balance, setBalance]       = useState(0);
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [subPlans, setSubPlans]     = useState([]);
+
+  // Credit top-up
+  const [creditModal, setCreditModal]     = useState(false);
+  const [purchaseAmount, setPurchaseAmount] = useState('100');
+  const [iframeToken, setIframeToken]     = useState(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
 
-  // Subscription purchase states
-  const [subModalOpen, setSubModalOpen] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState(null);
+  // Subscription
+  const [subModal, setSubModal]           = useState(false);
+  const [selectedPlan, setSelectedPlan]   = useState(null);
   const [subIframeToken, setSubIframeToken] = useState(null);
   const [subPaymentLoading, setSubPaymentLoading] = useState(false);
 
+  const iframeRef = useRef(null);
+
   useEffect(() => {
     fetchData();
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const paymentStatus = urlParams.get('payment');
-    if (paymentStatus === 'success') {
-      toast.success('Ödemeniz başarıyla alındı ve krediniz hesabınıza yüklendi!');
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (paymentStatus === 'sub_success') {
-      toast.success('Abonelik ödemeniz alındı! Hesabınız kısa süre içinde aktive edilecektir.');
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (paymentStatus === 'fail' || paymentStatus === 'sub_fail') {
-      toast.error('Ödeme işlemi başarısız oldu veya iptal edildi.');
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
+    const p = new URLSearchParams(window.location.search).get('payment');
+    if (p === 'success')      { toast.success('Ödemeniz alındı, krediniz yüklendi!'); }
+    else if (p === 'sub_success') { toast.success('Abonelik ödemesi alındı! Hesabınız kısa süre içinde aktive edilecek.'); }
+    else if (p === 'fail' || p === 'sub_fail') { toast.error('Ödeme başarısız veya iptal edildi.'); }
+    if (p) window.history.replaceState({}, '', window.location.pathname);
   }, []);
+
+  // Load PayTR iframeResizer after token is set
+  useEffect(() => {
+    const token = iframeToken || subIframeToken;
+    if (!token) return;
+    const existing = document.getElementById('paytr-resizer-script');
+    if (existing) { tryResize(); return; }
+    const s = document.createElement('script');
+    s.id = 'paytr-resizer-script';
+    s.src = 'https://www.paytr.com/js/iframeResizer.min.js';
+    s.onload = tryResize;
+    document.body.appendChild(s);
+  }, [iframeToken, subIframeToken]);
+
+  const tryResize = () => {
+    setTimeout(() => {
+      if (window.iFrameResize && iframeRef.current) {
+        window.iFrameResize({}, iframeRef.current);
+      }
+    }, 200);
+  };
 
   const fetchData = async () => {
     try {
@@ -62,13 +80,20 @@ export default function CreditsPage() {
     }
   };
 
-  // Credit top-up
+  const openCreditModal = () => {
+    setIframeToken(null);
+    setPurchaseAmount('100');
+    setCreditModal(true);
+  };
+
+  const closeCreditModal = () => {
+    setCreditModal(false);
+    setIframeToken(null);
+  };
+
   const handleStartCreditPayment = async () => {
     const amount = parseFloat(purchaseAmount);
-    if (isNaN(amount) || amount < 10) {
-      toast.error('Minimum 10 TL yükleyebilirsiniz.');
-      return;
-    }
+    if (isNaN(amount) || amount < 10) return toast.error('Minimum 10 TL yükleyebilirsiniz.');
     setPaymentLoading(true);
     try {
       const res = await api.post('/payment/paytr-token', { amount });
@@ -80,21 +105,13 @@ export default function CreditsPage() {
     }
   };
 
-  // Subscription purchase
   const handleStartSubPayment = async (plan) => {
     const priceNum = parseFloat(String(plan.price).replace(/[^\d.]/g, ''));
-    if (isNaN(priceNum) || priceNum < 1) {
-      toast.error('Bu plan için geçerli bir fiyat bulunamadı.');
-      return;
-    }
-    const days = plan.period && plan.period.includes('yıl') ? 365 : 30;
+    if (isNaN(priceNum) || priceNum < 1) return toast.error('Bu plan için geçerli bir fiyat bulunamadı.');
+    const days = plan.period?.includes('yıl') ? 365 : 30;
     setSubPaymentLoading(true);
     try {
-      const res = await api.post('/payment/subscription-token', {
-        amount: priceNum,
-        planName: plan.name,
-        days
-      });
+      const res = await api.post('/payment/subscription-token', { amount: priceNum, planName: plan.name, days });
       setSubIframeToken(res.data.token);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Ödeme başlatılamadı.');
@@ -103,30 +120,22 @@ export default function CreditsPage() {
     }
   };
 
-  // PayTR iframe resizer
-  useEffect(() => {
-    const token = iframeToken || subIframeToken;
-    if (!token) return;
-    const script = document.createElement('script');
-    script.src = 'https://www.paytr.com/js/iframeResizer.min.js';
-    script.async = true;
-    document.body.appendChild(script);
-    script.onload = () => { if (window.iFrameResize) window.iFrameResize({}, '#paytriframe'); };
-    return () => { if (document.body.contains(script)) document.body.removeChild(script); };
-  }, [iframeToken, subIframeToken]);
-
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
 
   return (
     <div>
+      {/* Header */}
       <div className="page-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1>Abonelik & Kredi</h1>
           <p>Abonelik satın alın veya kredi bakiyenizi yönetin</p>
         </div>
-        <button className="btn btn-secondary" onClick={() => { setCreditModalOpen(true); setIframeToken(null); setPurchaseAmount('50'); }}>
-          <Wallet size={16} /> Kredi Yükle
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={fetchData}><RefreshCw size={15} /></button>
+          <button className="btn btn-primary" onClick={openCreditModal}>
+            <CreditCard size={15} /> Kredi Yükle
+          </button>
+        </div>
       </div>
 
       {/* Balance Card */}
@@ -134,20 +143,22 @@ export default function CreditsPage() {
         marginBottom: 32,
         background: 'linear-gradient(135deg, rgba(59,130,246,0.15), rgba(139,92,246,0.1))',
         border: '1px solid rgba(59,130,246,0.25)',
-        display: 'flex', alignItems: 'center', gap: 16, padding: 24
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: 24, flexWrap: 'wrap'
       }}>
-        <div style={{
-          width: 52, height: 52, borderRadius: 14,
-          background: 'rgba(59,130,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
-        }}>
-          <Wallet size={26} style={{ color: 'var(--accent-primary)' }} />
-        </div>
-        <div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Mevcut Kredi Bakiyesi</div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--text-primary)' }}>
-            {balance.toFixed(2)} <span style={{ fontSize: 18, color: 'var(--text-muted)' }}>Kredi</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'rgba(59,130,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Wallet size={26} style={{ color: 'var(--accent-primary)' }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Mevcut Kredi Bakiyesi</div>
+            <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--text-primary)' }}>
+              {balance.toFixed(2)} <span style={{ fontSize: 18, color: 'var(--text-muted)' }}>Kredi</span>
+            </div>
           </div>
         </div>
+        <button className="btn btn-primary" style={{ padding: '10px 24px', fontSize: 15 }} onClick={openCreditModal}>
+          <CreditCard size={16} /> Kredi Yükle
+        </button>
       </div>
 
       {/* Subscription Plans */}
@@ -155,22 +166,13 @@ export default function CreditsPage() {
         <div style={{ marginBottom: 32 }}>
           <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>Abonelik Planları</h2>
           <p style={{ color: 'var(--text-secondary)', marginBottom: 20, fontSize: 14 }}>
-            ModulPOS'u kesintisiz kullanmak için bir plan seçin. Ödeme onaylandıktan sonra aboneliğiniz aktive edilir.
+            ModulPOS'u kesintisiz kullanmak için bir plan seçin.
           </p>
           <div className="grid grid-3" style={{ gap: 16 }}>
             {subPlans.map(plan => (
-              <div key={plan.id} className="card" style={{
-                display: 'flex', flexDirection: 'column',
-                border: plan.isHighlighted ? '2px solid var(--accent-primary)' : undefined,
-                position: 'relative'
-              }}>
+              <div key={plan.id} className="card" style={{ display: 'flex', flexDirection: 'column', border: plan.isHighlighted ? '2px solid var(--accent-primary)' : undefined, position: 'relative' }}>
                 {plan.isHighlighted && (
-                  <div style={{
-                    position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)',
-                    background: 'var(--accent-gradient)', color: '#fff',
-                    fontSize: 11, fontWeight: 700, padding: '3px 14px', borderRadius: 20,
-                    display: 'flex', alignItems: 'center', gap: 4
-                  }}>
+                  <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', background: 'var(--accent-gradient)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '3px 14px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <Star size={11} /> EN POPÜLER
                   </div>
                 )}
@@ -189,11 +191,9 @@ export default function CreditsPage() {
                     </li>
                   ))}
                 </ul>
-                <button
-                  className={`btn ${plan.isHighlighted ? 'btn-primary' : 'btn-secondary'}`}
-                  onClick={() => { setSelectedPlan(plan); setSubIframeToken(null); setSubModalOpen(true); }}
-                  style={{ width: '100%' }}
-                >
+                <button className={`btn ${plan.isHighlighted ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => { setSelectedPlan(plan); setSubIframeToken(null); setSubModal(true); }}
+                  style={{ width: '100%' }}>
                   <Zap size={15} /> {plan.ctaText || 'Satın Al'}
                 </button>
               </div>
@@ -234,11 +234,7 @@ export default function CreditsPage() {
                         {new Date(tx.createdAt).toLocaleDateString('tr-TR')} {new Date(tx.createdAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
                       </td>
                       <td>
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 6,
-                          padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500,
-                          background: `${typeInfo.color}15`, color: typeInfo.color, border: `1px solid ${typeInfo.color}30`
-                        }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, background: `${typeInfo.color}15`, color: typeInfo.color, border: `1px solid ${typeInfo.color}30` }}>
                           {typeInfo.icon} {typeInfo.label}
                         </span>
                       </td>
@@ -258,102 +254,144 @@ export default function CreditsPage() {
         )}
       </div>
 
-      {/* Credit Top-up Modal */}
-      {creditModalOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div className="card" style={{ width: '100%', maxWidth: 500, padding: 0, background: 'var(--bg-primary)', overflow: 'hidden' }}>
-            <div className="table-header" style={{ borderBottom: '1px solid var(--border-color)' }}>
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Wallet size={18} style={{ color: 'var(--accent-primary)' }} /> Kredi Yükle
-              </h3>
-              <button className="text-btn" onClick={() => setCreditModalOpen(false)}>Kapat</button>
-            </div>
-            <div style={{ padding: 20 }}>
-              {!iframeToken ? (
-                <>
-                  <div className="form-group" style={{ marginBottom: 16 }}>
-                    <label className="form-label">Yüklenecek Tutar (TL)</label>
-                    <div style={{ position: 'relative' }}>
-                      <input type="number" className="form-input" min="10" step="10" value={purchaseAmount}
-                        onChange={e => setPurchaseAmount(e.target.value)}
-                        style={{ fontSize: 18, fontWeight: 600, paddingRight: 40 }} autoFocus />
-                      <span style={{ position: 'absolute', right: 12, top: 12, color: 'var(--text-muted)', fontWeight: 600 }}>TL</span>
-                    </div>
-                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 8 }}>
-                      1 TL = 1 Kredi olarak hesabınıza yansıyacaktır. Minimum 10 TL yükleyebilirsiniz.
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 24 }}>
-                    <button className="btn btn-secondary" onClick={() => setCreditModalOpen(false)}>İptal</button>
-                    <button className="btn btn-primary" onClick={handleStartCreditPayment} disabled={paymentLoading}>
-                      {paymentLoading ? 'Bağlanıyor...' : 'Güvenli Ödeme Yap'}
+      {/* ── Credit Top-up Modal ── */}
+      {creditModal && (
+        <PaytrModal
+          title="Kredi Yükle"
+          icon={<CreditCard size={18} style={{ color: 'var(--accent-primary)' }} />}
+          onClose={closeCreditModal}
+          iframeToken={iframeToken}
+          iframeRef={iframeRef}
+        >
+          {!iframeToken ? (
+            <>
+              {/* Quick amount buttons */}
+              <div style={{ marginBottom: 16 }}>
+                <label className="form-label">Yüklenecek Tutar (TL)</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 10 }}>
+                  {QUICK_AMOUNTS.map(a => (
+                    <button key={a} type="button"
+                      onClick={() => setPurchaseAmount(String(a))}
+                      style={{
+                        padding: '10px 4px', borderRadius: 8, fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                        border: `2px solid ${purchaseAmount === String(a) ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                        background: purchaseAmount === String(a) ? 'rgba(59,130,246,0.12)' : 'var(--bg-tertiary)',
+                        color: purchaseAmount === String(a) ? 'var(--accent-primary)' : 'var(--text-primary)',
+                        transition: 'all 0.15s'
+                      }}>
+                      ₺{a}
                     </button>
-                  </div>
-                  <div style={{ marginTop: 24, textAlign: 'center' }}>
-                    <img src="https://www.paytr.com/img/general/PayTR-Odeme-Altyapisi.svg" alt="PayTR" style={{ height: 30, opacity: 0.8 }} />
-                  </div>
-                </>
-              ) : (
-                <div style={{ width: '100%' }}>
-                  <iframe src={`https://www.paytr.com/odeme/guvenli/${iframeToken}`} id="paytriframe"
-                    frameBorder="0" scrolling="no" style={{ width: '100%', minHeight: '550px' }} />
+                  ))}
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
+                <div style={{ position: 'relative' }}>
+                  <input type="number" className="form-input" min="10" step="10"
+                    value={purchaseAmount}
+                    onChange={e => setPurchaseAmount(e.target.value)}
+                    placeholder="Özel tutar girin..."
+                    style={{ fontSize: 18, fontWeight: 600, paddingRight: 44 }} />
+                  <span style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontWeight: 700, fontSize: 15 }}>TL</span>
+                </div>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 6 }}>
+                  1 TL = 1 Kredi · Minimum 10 TL
+                </span>
+              </div>
+
+              <div style={{ background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 20, fontSize: 13, color: 'var(--text-secondary)' }}>
+                Yüklenecek: <strong style={{ color: 'var(--success)', fontSize: 15 }}>₺{parseFloat(purchaseAmount) > 0 ? parseFloat(purchaseAmount).toFixed(2) : '0.00'}</strong>
+                {' → '}
+                <strong style={{ color: 'var(--success)', fontSize: 15 }}>{parseFloat(purchaseAmount) > 0 ? parseFloat(purchaseAmount).toFixed(2) : '0.00'} Kredi</strong>
+              </div>
+
+              <button className="btn btn-primary" style={{ width: '100%', padding: '12px', fontSize: 15 }}
+                onClick={handleStartCreditPayment} disabled={paymentLoading || !purchaseAmount || parseFloat(purchaseAmount) < 10}>
+                {paymentLoading
+                  ? <><div className="spinner" style={{ width: 16, height: 16, borderWidth: 2, display: 'inline-block', marginRight: 8 }} />Bağlanıyor...</>
+                  : <><CreditCard size={16} /> Güvenli Ödeme Yap</>}
+              </button>
+
+              <div style={{ marginTop: 20, textAlign: 'center' }}>
+                <img src="https://www.paytr.com/img/general/PayTR-Odeme-Altyapisi.svg" alt="PayTR" style={{ height: 28, opacity: 0.7 }} referrerPolicy="no-referrer" />
+              </div>
+            </>
+          ) : null}
+        </PaytrModal>
       )}
 
-      {/* Subscription Purchase Modal */}
-      {subModalOpen && selectedPlan && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div className="card" style={{ width: '100%', maxWidth: 500, padding: 0, background: 'var(--bg-primary)', overflow: 'hidden' }}>
-            <div className="table-header" style={{ borderBottom: '1px solid var(--border-color)' }}>
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Zap size={18} style={{ color: 'var(--accent-primary)' }} /> {selectedPlan.name} Planı
-              </h3>
-              <button className="text-btn" onClick={() => { setSubModalOpen(false); setSubIframeToken(null); }}>Kapat</button>
-            </div>
-            <div style={{ padding: 20 }}>
-              {!subIframeToken ? (
-                <>
-                  <div style={{
-                    background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)',
-                    borderRadius: 10, padding: 16, marginBottom: 20,
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-                  }}>
-                    <div>
-                      <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Seçilen Plan</div>
-                      <div style={{ fontSize: 16, fontWeight: 700 }}>{selectedPlan.name}</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent-primary)' }}>{selectedPlan.price}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{selectedPlan.period}</div>
-                    </div>
-                  </div>
-                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
-                    Ödeme onaylandıktan sonra ekibimiz aboneliğinizi en kısa sürede aktive edecektir.
-                  </p>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                    <button className="btn btn-secondary" onClick={() => { setSubModalOpen(false); setSubIframeToken(null); }}>İptal</button>
-                    <button className="btn btn-primary" onClick={() => handleStartSubPayment(selectedPlan)} disabled={subPaymentLoading}>
-                      {subPaymentLoading ? 'Bağlanıyor...' : 'Güvenli Ödeme Yap'}
-                    </button>
-                  </div>
-                  <div style={{ marginTop: 24, textAlign: 'center' }}>
-                    <img src="https://www.paytr.com/img/general/PayTR-Odeme-Altyapisi.svg" alt="PayTR" style={{ height: 30, opacity: 0.8 }} />
-                  </div>
-                </>
-              ) : (
-                <div style={{ width: '100%' }}>
-                  <iframe src={`https://www.paytr.com/odeme/guvenli/${subIframeToken}`} id="paytriframe"
-                    frameBorder="0" scrolling="no" style={{ width: '100%', minHeight: '550px' }} />
+      {/* ── Subscription Modal ── */}
+      {subModal && selectedPlan && (
+        <PaytrModal
+          title={`${selectedPlan.name} Planı`}
+          icon={<Zap size={18} style={{ color: 'var(--accent-primary)' }} />}
+          onClose={() => { setSubModal(false); setSubIframeToken(null); }}
+          iframeToken={subIframeToken}
+          iframeRef={iframeRef}
+        >
+          {!subIframeToken ? (
+            <>
+              <div style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10, padding: 16, marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Seçilen Plan</div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>{selectedPlan.name}</div>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent-primary)' }}>{selectedPlan.price}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{selectedPlan.period}</div>
+                </div>
+              </div>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
+                Ödeme onaylandıktan sonra aboneliğiniz otomatik olarak aktive edilecektir.
+              </p>
+              <button className="btn btn-primary" style={{ width: '100%', padding: '12px', fontSize: 15 }}
+                onClick={() => handleStartSubPayment(selectedPlan)} disabled={subPaymentLoading}>
+                {subPaymentLoading
+                  ? <><div className="spinner" style={{ width: 16, height: 16, borderWidth: 2, display: 'inline-block', marginRight: 8 }} />Bağlanıyor...</>
+                  : <><CreditCard size={16} /> Güvenli Ödeme Yap</>}
+              </button>
+              <div style={{ marginTop: 20, textAlign: 'center' }}>
+                <img src="https://www.paytr.com/img/general/PayTR-Odeme-Altyapisi.svg" alt="PayTR" style={{ height: 28, opacity: 0.7 }} referrerPolicy="no-referrer" />
+              </div>
+            </>
+          ) : null}
+        </PaytrModal>
       )}
+    </div>
+  );
+}
+
+function PaytrModal({ title, icon, onClose, iframeToken, iframeRef, children }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{
+        width: '100%', maxWidth: iframeToken ? 680 : 480,
+        background: 'var(--bg-card)', borderRadius: 'var(--radius)',
+        border: '1px solid var(--border-color)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+        display: 'flex', flexDirection: 'column', maxHeight: '95vh', overflow: 'hidden',
+        transition: 'max-width 0.2s ease'
+      }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+            {icon} {title}
+          </h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, display: 'flex', alignItems: 'center' }}>
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {iframeToken ? (
+            <iframe
+              ref={iframeRef}
+              src={`https://www.paytr.com/odeme/guvenli/${iframeToken}`}
+              id="paytriframe"
+              style={{ width: '100%', minHeight: 520, display: 'block', border: 'none', overflow: 'hidden' }}
+            />
+          ) : (
+            <div style={{ padding: 24 }}>{children}</div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
