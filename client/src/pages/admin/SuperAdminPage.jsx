@@ -3,7 +3,8 @@ import api from '../../services/api';
 import {
   Users, Store, Package, ShoppingCart, CreditCard, Shield, Search,
   MoreVertical, CheckCircle, XCircle, UserPlus, Mail, Calendar,
-  Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus, List, Sliders, FileText, Truck
+  Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus, List, Sliders, FileText, Truck,
+  MessageSquare, Send
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import './SuperAdminPage.css';
@@ -53,6 +54,14 @@ export default function SuperAdminPage() {
   const [invoiceForm, setInvoiceForm] = useState({ title: '', amount: '', period: '', notes: '', fileUrl: '' });
   const [invoiceLoading, setInvoiceLoading] = useState(false);
 
+  const [supportTickets, setSupportTickets] = useState([]);
+  const [supportStatusFilter, setSupportStatusFilter] = useState('');
+  const [supportDetailModal, setSupportDetailModal] = useState(null);
+  const [supportDetailLoading, setSupportDetailLoading] = useState(false);
+  const [supportReplyText, setSupportReplyText] = useState('');
+  const [supportReplying, setSupportReplying] = useState(false);
+  const [supportStatusSaving, setSupportStatusSaving] = useState(false);
+
   useEffect(() => {
     fetchData();
   }, [activeTab]);
@@ -87,6 +96,10 @@ export default function SuperAdminPage() {
         const params = dropshipStatusFilter ? `?status=${dropshipStatusFilter}` : '';
         const res = await api.get(`/admin/dropship-orders${params}`);
         setDropshipOrders(res.data);
+      } else if (activeTab === 'support') {
+        const params = supportStatusFilter ? `?status=${supportStatusFilter}` : '';
+        const res = await api.get(`/admin/support-tickets${params}`);
+        setSupportTickets(res.data);
       } else if (activeTab === 'settings') {
         const settingsRes = await api.get('/admin/system-settings?keys=trial_days');
         setGeneralSettings({ trial_days: settingsRes.data.trial_days || '3' });
@@ -319,6 +332,54 @@ export default function SuperAdminPage() {
     }
   };
 
+  const openSupportDetail = async (ticket) => {
+    setSupportDetailLoading(true);
+    setSupportDetailModal({ ...ticket, messages: [] });
+    setSupportReplyText('');
+    try {
+      const res = await api.get(`/admin/support-tickets/${ticket.id}`);
+      setSupportDetailModal(res.data);
+    } catch {
+      toast.error('Bilet detayı yüklenemedi');
+      setSupportDetailModal(null);
+    } finally {
+      setSupportDetailLoading(false);
+    }
+  };
+
+  const handleSupportReply = async (e) => {
+    e.preventDefault();
+    if (!supportReplyText.trim()) return;
+    setSupportReplying(true);
+    try {
+      const res = await api.post(`/admin/support-tickets/${supportDetailModal.id}/reply`, { message: supportReplyText.trim() });
+      setSupportDetailModal(prev => ({ ...prev, status: 'in_progress', messages: [...prev.messages, res.data] }));
+      setSupportTickets(prev => prev.map(t =>
+        t.id === supportDetailModal.id ? { ...t, status: 'in_progress', updatedAt: new Date().toISOString() } : t
+      ));
+      setSupportReplyText('');
+      toast.success('Yanıt gönderildi');
+    } catch {
+      toast.error('Yanıt gönderilemedi');
+    } finally {
+      setSupportReplying(false);
+    }
+  };
+
+  const handleSupportStatusChange = async (ticketId, newStatus) => {
+    setSupportStatusSaving(true);
+    try {
+      await api.put(`/admin/support-tickets/${ticketId}`, { status: newStatus });
+      setSupportTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: newStatus } : t));
+      if (supportDetailModal?.id === ticketId) setSupportDetailModal(prev => ({ ...prev, status: newStatus }));
+      toast.success('Durum güncellendi');
+    } catch {
+      toast.error('Güncelleme başarısız');
+    } finally {
+      setSupportStatusSaving(false);
+    }
+  };
+
   const handleCreateInvoice = async (e) => {
     e.preventDefault();
     if (!invoiceModalUser) return;
@@ -448,6 +509,9 @@ export default function SuperAdminPage() {
         <button className={`admin-tab ${activeTab === 'dropship' ? 'active' : ''}`} onClick={() => setActiveTab('dropship')}>
           <Truck size={16} /> Tedarikçi Siparişleri
         </button>
+        <button className={`admin-tab ${activeTab === 'support' ? 'active' : ''}`} onClick={() => setActiveTab('support')}>
+          <MessageSquare size={16} /> Destek Biletleri
+        </button>
         <button className={`admin-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
           <Sliders size={16} /> Genel Ayarlar
         </button>
@@ -462,7 +526,8 @@ export default function SuperAdminPage() {
                activeTab === 'auditLogs' ? 'Sistem Logları' :
                activeTab === 'pricing' ? 'Fiyat Planları' :
                activeTab === 'footer' ? 'Footer Yönetimi' :
-               activeTab === 'dropship' ? 'Tedarikçi Siparişleri' : 'Genel Ayarlar'}
+               activeTab === 'dropship' ? 'Tedarikçi Siparişleri' :
+               activeTab === 'support' ? 'Destek Biletleri' : 'Genel Ayarlar'}
             </h3>
             {activeTab === 'users' && (
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', background: 'rgba(59,130,246,0.1)', padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(59,130,246,0.2)', color: 'var(--accent-primary)' }}>
@@ -494,6 +559,20 @@ export default function SuperAdminPage() {
                 <option value="shipped">Kargoda</option>
                 <option value="delivered">Teslim Edildi</option>
                 <option value="cancelled">İptal</option>
+              </select>
+            )}
+            {activeTab === 'support' && (
+              <select
+                className="form-input"
+                style={{ width: 'auto', minWidth: 160 }}
+                value={supportStatusFilter}
+                onChange={e => { setSupportStatusFilter(e.target.value); fetchData(); }}
+              >
+                <option value="">Tüm Durumlar</option>
+                <option value="open">Açık</option>
+                <option value="in_progress">İşlemde</option>
+                <option value="resolved">Çözüldü</option>
+                <option value="closed">Kapalı</option>
               </select>
             )}
             {activeTab === 'pricing' && (
@@ -966,7 +1045,86 @@ export default function SuperAdminPage() {
                 </form>
               </div>
             </div>
-          ) : null}
+          ) : activeTab === 'support' ? (() => {
+            const ST = {
+              open:        { label: 'Açık',      cls: 'badge-info' },
+              in_progress: { label: 'İşlemde',   cls: 'badge-warning' },
+              resolved:    { label: 'Çözüldü',   cls: 'badge-success' },
+              closed:      { label: 'Kapalı',    cls: 'badge-danger' },
+            };
+            const PR = {
+              low:    { label: 'Düşük',   cls: 'badge-info' },
+              normal: { label: 'Normal',  cls: '' },
+              high:   { label: 'Yüksek', cls: 'badge-warning' },
+              urgent: { label: 'Acil',   cls: 'badge-danger' },
+            };
+            return (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Kullanıcı</th>
+                    <th>Konu</th>
+                    <th>Kategori</th>
+                    <th>Öncelik</th>
+                    <th>Durum</th>
+                    <th>Mesajlar</th>
+                    <th>Tarih</th>
+                    <th>İşlem</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {supportTickets.map(ticket => {
+                    const pr = PR[ticket.priority] || PR.normal;
+                    return (
+                      <tr key={ticket.id}>
+                        <td>
+                          <div className="user-name" style={{ fontSize: 13 }}>{ticket.user?.name}</div>
+                          <div className="user-email">{ticket.user?.email}</div>
+                        </td>
+                        <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, fontSize: 13 }}>
+                          {ticket.subject}
+                        </td>
+                        <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{ticket.category}</td>
+                        <td><span className={`badge ${pr.cls}`}>{pr.label}</span></td>
+                        <td>
+                          <select
+                            className="admin-select"
+                            value={ticket.status}
+                            onChange={e => handleSupportStatusChange(ticket.id, e.target.value)}
+                            disabled={supportStatusSaving}
+                          >
+                            {Object.entries(ST).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                          </select>
+                        </td>
+                        <td style={{ fontSize: 12, color: 'var(--text-secondary)', textAlign: 'center' }}>
+                          {ticket._count?.messages || 0}
+                        </td>
+                        <td style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                          {new Date(ticket.updatedAt).toLocaleDateString('tr-TR')}
+                        </td>
+                        <td>
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: 12, height: 'auto' }}
+                            onClick={() => openSupportDetail(ticket)}
+                          >
+                            <MessageSquare size={13} style={{ marginRight: 4 }} /> Görüntüle
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {supportTickets.length === 0 && (
+                    <tr>
+                      <td colSpan="8" style={{ textAlign: 'center', padding: 24, color: 'var(--text-secondary)' }}>
+                        Henüz destek bileti bulunmuyor.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            );
+          })() : null}
         </div>
       </div>
 
@@ -1391,6 +1549,106 @@ export default function SuperAdminPage() {
           </div>
         </div>
       )}
+      {/* Support Ticket Detail Modal */}
+      {supportDetailModal && (() => {
+        const ST = {
+          open:        'Açık',
+          in_progress: 'İşlemde',
+          resolved:    'Çözüldü',
+          closed:      'Kapalı',
+        };
+        const ST_CLS = {
+          open: 'badge-info', in_progress: 'badge-warning', resolved: 'badge-success', closed: 'badge-danger'
+        };
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+            <div className="card" style={{ width: '100%', maxWidth: 620, padding: 0, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+
+              {/* Header */}
+              <div className="table-header" style={{ flexShrink: 0 }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 15 }}>{supportDetailModal.subject}</h3>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                    {supportDetailModal.user?.name} · {supportDetailModal.user?.email}
+                  </div>
+                </div>
+                <button className="header-icon-btn" onClick={() => { setSupportDetailModal(null); setSupportReplyText(''); }}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Status bar */}
+              <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
+                <span className={`badge ${ST_CLS[supportDetailModal.status] || 'badge-info'}`}>
+                  {ST[supportDetailModal.status] || supportDetailModal.status}
+                </span>
+                <select
+                  className="form-input"
+                  style={{ width: 'auto', fontSize: 12, height: 28, padding: '2px 8px' }}
+                  value={supportDetailModal.status}
+                  onChange={e => handleSupportStatusChange(supportDetailModal.id, e.target.value)}
+                  disabled={supportStatusSaving}
+                >
+                  {Object.entries(ST).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+                <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-secondary)' }}>
+                  {new Date(supportDetailModal.createdAt).toLocaleString('tr-TR')}
+                </span>
+              </div>
+
+              {/* Messages */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {supportDetailLoading ? (
+                  <div style={{ textAlign: 'center', padding: 40 }}><div className="spinner" /></div>
+                ) : supportDetailModal.messages?.map(msg => (
+                  <div key={msg.id} style={{ alignSelf: msg.isAdmin ? 'flex-start' : 'flex-end', maxWidth: '80%' }}>
+                    <div style={{
+                      background: msg.isAdmin ? 'var(--bg-tertiary)' : 'var(--accent-primary)',
+                      color: msg.isAdmin ? 'var(--text-primary)' : '#fff',
+                      borderRadius: msg.isAdmin ? '4px 12px 12px 12px' : '12px 4px 12px 12px',
+                      padding: '10px 14px', fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap'
+                    }}>
+                      {msg.message}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, textAlign: msg.isAdmin ? 'left' : 'right' }}>
+                      {msg.senderName} · {new Date(msg.createdAt).toLocaleString('tr-TR')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Reply */}
+              <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-color)', flexShrink: 0 }}>
+                {supportDetailModal.status === 'closed' ? (
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', textAlign: 'center', padding: '6px 0' }}>
+                    Bu bilet kapalıdır.
+                  </p>
+                ) : (
+                  <form onSubmit={handleSupportReply} style={{ display: 'flex', gap: 10 }}>
+                    <textarea
+                      className="form-input"
+                      rows={2}
+                      style={{ flex: 1, resize: 'none', fontSize: 13 }}
+                      placeholder="Yanıtınızı yazın... (Ctrl+Enter ile gönder)"
+                      value={supportReplyText}
+                      onChange={e => setSupportReplyText(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSupportReply(e); }}
+                    />
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      style={{ alignSelf: 'flex-end', padding: '8px 16px' }}
+                      disabled={supportReplying || !supportReplyText.trim()}
+                    >
+                      {supportReplying ? '...' : <Send size={16} />}
+                    </button>
+                  </form>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

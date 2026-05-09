@@ -558,4 +558,103 @@ router.delete('/invoices/:id', auth, isAdmin, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/admin/support-tickets
+ * List all support tickets
+ */
+router.get('/support-tickets', auth, isAdmin, async (req, res) => {
+  try {
+    const { status } = req.query;
+    const where = {};
+    if (status) where.status = status;
+
+    const tickets = await prisma.supportTicket.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        _count: { select: { messages: true } }
+      }
+    });
+
+    res.json(tickets);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/support-tickets/:id
+ * Get a single ticket with all messages
+ */
+router.get('/support-tickets/:id', auth, isAdmin, async (req, res) => {
+  try {
+    const ticket = await prisma.supportTicket.findUnique({
+      where: { id: req.params.id },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        messages: { orderBy: { createdAt: 'asc' } }
+      }
+    });
+    if (!ticket) return res.status(404).json({ error: 'Bilet bulunamadı' });
+    res.json(ticket);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/admin/support-tickets/:id
+ * Update status / priority
+ */
+router.put('/support-tickets/:id', auth, isAdmin, async (req, res) => {
+  try {
+    const { status, priority } = req.body;
+    const updateData = { updatedAt: new Date() };
+    if (status) updateData.status = status;
+    if (priority) updateData.priority = priority;
+
+    const updated = await prisma.supportTicket.update({
+      where: { id: req.params.id },
+      data: updateData
+    });
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/support-tickets/:id/reply
+ * Admin reply to a ticket
+ */
+router.post('/support-tickets/:id/reply', auth, isAdmin, async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message?.trim()) return res.status(400).json({ error: 'Mesaj zorunludur' });
+
+    const ticket = await prisma.supportTicket.findUnique({ where: { id: req.params.id } });
+    if (!ticket) return res.status(404).json({ error: 'Bilet bulunamadı' });
+
+    const [msg] = await prisma.$transaction([
+      prisma.supportMessage.create({
+        data: {
+          ticketId: ticket.id,
+          isAdmin: true,
+          senderName: req.user.name || 'Destek Ekibi',
+          message: message.trim()
+        }
+      }),
+      prisma.supportTicket.update({
+        where: { id: ticket.id },
+        data: { status: 'in_progress', updatedAt: new Date() }
+      })
+    ]);
+
+    res.status(201).json(msg);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

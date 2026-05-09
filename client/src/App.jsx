@@ -15,6 +15,7 @@ import CategoryMappingPage from './pages/marketplaces/CategoryMappingPage';
 import TrendyolSendPage from './pages/marketplaces/TrendyolSendPage';
 import OrdersPage from './pages/orders/OrdersPage';
 import DropshipOrdersPage from './pages/dropship/DropshipOrdersPage';
+import SupportPage from './pages/support/SupportPage';
 import PricingPage from './pages/pricing/PricingPage';
 import SuperAdminPage from './pages/admin/SuperAdminPage';
 import CreditsPage from './pages/credits/CreditsPage';
@@ -61,6 +62,7 @@ function App() {
           <Route path="/trendyol-send" element={<TrendyolSendPage />} />
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/dropship-orders" element={<DropshipOrdersPage />} />
+          <Route path="/support" element={<SupportPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/credits" element={<CreditsPage />} />
           <Route path="/logs" element={<LogsPage />} />

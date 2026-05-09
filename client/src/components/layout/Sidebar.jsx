@@ -8,6 +8,7 @@ const navItems = [
     { to: '/products', icon: Package, label: 'Ürünler' },
     { to: '/orders', icon: ShoppingCart, label: 'Siparişler' },
     { to: '/dropship-orders', icon: Truck, label: 'Tedarikçi Siparişleri' },
+    { to: '/support', icon: MessageSquare, label: 'Destek' },
   ]},
   { section: 'Entegrasyon', items: [
     { to: '/xml-sources', icon: FileCode2, label: 'XML Kaynakları' },

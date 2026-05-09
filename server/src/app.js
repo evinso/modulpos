@@ -26,6 +26,7 @@ const globalXmlRoutes = require('./routes/globalXml');
 const creditRoutes = require('./routes/credits');
 const paymentRoutes = require('./routes/payment');
 const dropshipOrderRoutes = require('./routes/dropshipOrders');
+const supportRoutes = require('./routes/support');
 
 const { errorHandler } = require('./middleware/errorHandler');
 
@@ -91,6 +92,7 @@ app.use('/api/global-xml', globalXmlRoutes);
 app.use('/api/credits', creditRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/dropship-orders', dropshipOrderRoutes);
+app.use('/api/support', supportRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
