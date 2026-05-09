@@ -180,6 +180,7 @@ router.post('/subscription-token', auth, async (req, res, next) => {
 router.post('/paytr-callback', express.urlencoded({ extended: true }), async (req, res) => {
   try {
     const { merchant_oid, status, total_amount, hash, failed_reason_code, failed_reason_msg } = req.body;
+    console.log('[PayTR] Callback alındı — merchant_oid:', merchant_oid, '| status:', status, '| amount:', total_amount);
 
     const { getSetting } = require('./credits');
     const MERCHANT_KEY = await getSetting('paytr_merchant_key', process.env.PAYTR_MERCHANT_KEY || 'XXXXXXXXXXXXXXXX');
@@ -190,7 +191,8 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
     const computed_hash = crypto.createHmac('sha256', MERCHANT_KEY).update(hash_str).digest('base64');
 
     if (hash !== computed_hash) {
-      return res.status(400).send('PAYTR notification failed: bad hash');
+      console.error('[PayTR] Hash doğrulama hatası — merchant_oid:', merchant_oid, '| Gelen hash:', hash, '| Hesaplanan:', computed_hash);
+      return res.send('OK'); // PayTR must always receive OK, otherwise it retries endlessly
     }
 
     // Parse merchant_oid — new alphanumeric format OR legacy underscore format

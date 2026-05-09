@@ -57,10 +57,11 @@ app.use(cors({
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: process.env.NODE_ENV === 'production' ? 300 : 100,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.path === '/payment/paytr-callback',
 });
 app.use('/api/', limiter);
 
