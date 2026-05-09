@@ -61,7 +61,7 @@ const limiter = rateLimit({
   max: process.env.NODE_ENV === 'production' ? 300 : 100,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.path === '/payment/paytr-callback',
+  skip: (req) => req.originalUrl.includes('/payment/paytr-callback'),
 });
 app.use('/api/', limiter);
 
