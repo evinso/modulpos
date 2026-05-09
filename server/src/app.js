@@ -125,6 +125,34 @@ const bootstrapAdmin = async () => {
 };
 bootstrapAdmin();
 
+// Auto-create PaytrLog table if migration hasn't been run on production DB
+const ensurePaytrLogTable = async () => {
+  try {
+    const prisma = require('./config/database');
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "PaytrLog" (
+        "id" TEXT NOT NULL,
+        "merchantOid" TEXT NOT NULL,
+        "status" TEXT NOT NULL,
+        "totalAmount" DOUBLE PRECISION NOT NULL,
+        "userId" TEXT,
+        "userEmail" TEXT,
+        "type" TEXT,
+        "failReason" TEXT,
+        "rawBody" TEXT,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "PaytrLog_pkey" PRIMARY KEY ("id")
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PaytrLog_status_idx" ON "PaytrLog"("status")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PaytrLog_createdAt_idx" ON "PaytrLog"("createdAt")`);
+    console.log('✅ PaytrLog table ensured.');
+  } catch (err) {
+    console.error('⚠️  PaytrLog table ensure error:', err.message);
+  }
+};
+ensurePaytrLogTable();
+
 const cronService = require('./services/cronService');
 cronService.start();
 

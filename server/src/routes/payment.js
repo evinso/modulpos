@@ -186,8 +186,15 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
     console.log('[PayTR] Callback alındı — merchant_oid:', merchant_oid, '| status:', status, '| amount:', total_amount);
 
     const { getSetting } = require('./credits');
-    const MERCHANT_KEY = await getSetting('paytr_merchant_key', process.env.PAYTR_MERCHANT_KEY || 'XXXXXXXXXXXXXXXX');
-    const MERCHANT_SALT = await getSetting('paytr_merchant_salt', process.env.PAYTR_MERCHANT_SALT || 'XXXXXXXXXXXXXXXX');
+    let MERCHANT_KEY, MERCHANT_SALT;
+    try {
+      MERCHANT_KEY = await getSetting('paytr_merchant_key', process.env.PAYTR_MERCHANT_KEY || 'XXXXXXXXXXXXXXXX');
+      MERCHANT_SALT = await getSetting('paytr_merchant_salt', process.env.PAYTR_MERCHANT_SALT || 'XXXXXXXXXXXXXXXX');
+    } catch (dbErr) {
+      console.error('[PayTR] getSetting DB hatası, env fallback kullanılıyor:', dbErr.message);
+      MERCHANT_KEY = process.env.PAYTR_MERCHANT_KEY || 'XXXXXXXXXXXXXXXX';
+      MERCHANT_SALT = process.env.PAYTR_MERCHANT_SALT || 'XXXXXXXXXXXXXXXX';
+    }
 
     const hash_str = merchant_oid + MERCHANT_SALT + status + total_amount;
     const computed_hash = crypto.createHmac('sha256', MERCHANT_KEY).update(hash_str).digest('base64');
