@@ -33,6 +33,9 @@ router.post('/', auth, async (req, res, next) => {
     if (!subject?.trim()) return res.status(400).json({ error: 'Konu zorunludur' });
     if (!message?.trim()) return res.status(400).json({ error: 'Mesaj zorunludur' });
 
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { name: true, email: true } });
+    const senderName = user?.name || user?.email || 'Kullanıcı';
+
     const ticket = await prisma.supportTicket.create({
       data: {
         userId: req.user.id,
@@ -42,7 +45,7 @@ router.post('/', auth, async (req, res, next) => {
         messages: {
           create: {
             isAdmin: false,
-            senderName: req.user.name,
+            senderName,
             message: message.trim()
           }
         }
@@ -82,12 +85,15 @@ router.post('/:id/reply', auth, async (req, res, next) => {
     if (!ticket) return res.status(404).json({ error: 'Bilet bulunamadı' });
     if (ticket.status === 'closed') return res.status(400).json({ error: 'Kapalı bilete yanıt verilemez' });
 
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { name: true, email: true } });
+    const senderName = user?.name || user?.email || 'Kullanıcı';
+
     const [msg] = await prisma.$transaction([
       prisma.supportMessage.create({
         data: {
           ticketId: ticket.id,
           isAdmin: false,
-          senderName: req.user.name,
+          senderName,
           message: message.trim()
         }
       }),
