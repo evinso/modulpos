@@ -182,8 +182,8 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
   res.send('OK');
 
   try {
-    const { merchant_oid, status, total_amount, hash, failed_reason_code, failed_reason_msg } = req.body;
-    console.log('[PayTR] Callback alındı — merchant_oid:', merchant_oid, '| status:', status, '| amount:', total_amount);
+    const { merchant_oid, status, total_amount, hash, failed_reason_code, failed_reason_msg, test_mode } = req.body;
+    console.log('[PayTR] Callback alındı — merchant_oid:', merchant_oid, '| status:', status, '| amount:', total_amount, '| test_mode:', test_mode);
 
     const { getSetting } = require('./credits');
     let MERCHANT_KEY, MERCHANT_SALT;
@@ -231,12 +231,19 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
     } catch {}
 
     if (status === 'success') {
-      if (prefix === 'MP' && logUserId) {
+      // Duplicate check — PayTR may send same callback multiple times
+      let alreadyProcessed = false;
+      try {
+        const existing = await prisma.paytrLog.findFirst({ where: { merchantOid: merchant_oid, status: 'success' } });
+        if (existing) { console.log('[PayTR] Duplikat callback yoksayıldı:', merchant_oid); alreadyProcessed = true; }
+      } catch {}
+
+      if (!alreadyProcessed && prefix === 'MP' && logUserId) {
         const balance = await getOrCreateBalance(logUserId);
         await prisma.creditBalance.update({ where: { id: balance.id }, data: { balance: balance.balance + amountTL } });
         await prisma.creditTransaction.create({ data: { balanceId: balance.id, amount: amountTL, type: 'topup', description: `PayTR Kredi Kartı ile Yükleme (${merchant_oid})` } });
         console.log('[PayTR] Kredi yüklendi — userId:', logUserId, '| tutar:', amountTL);
-      } else if (prefix === 'SUB' && logUserId) {
+      } else if (!alreadyProcessed && prefix === 'SUB' && logUserId) {
         const user = await prisma.user.findUnique({ where: { id: logUserId }, include: { subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 } } });
         if (user) {
           let currentEndDate = new Date();
