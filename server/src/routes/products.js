@@ -27,6 +27,7 @@ router.get('/', async (req, res, next) => {
       xmlSourceId,
       connectionId,
       marketplaceStatus,
+      globalXmlOnly,
       sortBy = 'createdAt',
       sortOrder = 'desc'
     } = req.query;
@@ -44,6 +45,7 @@ router.get('/', async (req, res, next) => {
     if (brand) where.brand = brand;
     if (category) where.category = category;
     if (xmlSourceId) where.xmlSourceId = xmlSourceId;
+    if (globalXmlOnly === 'true') where.xmlSource = { globalProviderId: { not: null } };
     if (connectionId || marketplaceStatus) {
       where.marketplaceProducts = { some: {} };
       if (connectionId) where.marketplaceProducts.some.connectionId = connectionId;
