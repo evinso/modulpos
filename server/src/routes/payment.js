@@ -6,6 +6,11 @@ const { getOrCreateBalance } = require('./credits');
 
 const router = express.Router();
 
+// Simple test endpoint — verifies the callback URL is reachable and returns OK
+router.all('/paytr-ping', (_req, res) => {
+  res.set('Content-Type', 'text/plain').send('OK');
+});
+
 /**
  * Helper to generate PayTR token
  */
