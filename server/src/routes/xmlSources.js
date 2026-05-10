@@ -306,14 +306,48 @@ router.get('/:id/xml-preview', async (req, res, next) => {
 // Delete
 router.delete('/:id', async (req, res, next) => {
   try {
-    // Önce bu XML kaynağına bağlı ürünleri silelim
-    await prisma.product.deleteMany({
-      where: { xmlSourceId: req.params.id }
+    const xmlSource = await prisma.xmlSource.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, storeId: true, globalProviderId: true }
     });
-    
-    // Sonra kaynağın kendisini silelim
+
+    if (!xmlSource) return res.status(404).json({ error: 'XML kaynağı bulunamadı' });
+
+    // If from a global provider, remove its propagated category mappings
+    if (xmlSource.globalProviderId) {
+      const otherImports = await prisma.xmlSource.count({
+        where: { storeId: xmlSource.storeId, globalProviderId: xmlSource.globalProviderId, id: { not: xmlSource.id } }
+      });
+
+      // Only remove if this is the last import of this provider in the store
+      if (otherImports === 0) {
+        const provider = await prisma.globalXmlProvider.findUnique({
+          where: { id: xmlSource.globalProviderId },
+          select: { categoryMappingConfig: true }
+        });
+        if (provider?.categoryMappingConfig) {
+          try {
+            const categories = Object.keys(JSON.parse(provider.categoryMappingConfig)).map(c => c.trim());
+            if (categories.length > 0) {
+              const connections = await prisma.marketplaceConnection.findMany({
+                where: { storeId: xmlSource.storeId },
+                select: { id: true }
+              });
+              const connectionIds = connections.map(c => c.id);
+              if (connectionIds.length > 0) {
+                await prisma.categoryMapping.deleteMany({
+                  where: { connectionId: { in: connectionIds }, localCategory: { in: categories } }
+                });
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    }
+
+    await prisma.product.deleteMany({ where: { xmlSourceId: req.params.id } });
     await prisma.xmlSource.delete({ where: { id: req.params.id } });
-    
+
     res.json({ message: 'XML kaynağı ve bağlı ürünler silindi' });
   } catch (error) { next(error); }
 });
