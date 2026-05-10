@@ -67,11 +67,17 @@ export default function TrendyolSendPage() {
 
   const mappedCategories = mappings.reduce((acc, m) => { acc[m.localCategory] = m; return acc; }, {});
 
-  const pricingLookup = useMemo(() => {
-    if (!selectedConn) return {};
+  const { pricingLookup, priceRangeRules } = useMemo(() => {
+    if (!selectedConn) return { pricingLookup: {}, priceRangeRules: [] };
     const lookup = {};
+    const rangeRules = [];
     for (const r of pricingRules) {
-      if (!r.conditions || !r.isActive) continue;
+      if (!r.isActive) continue;
+      if (r.applyTo === 'price_range') {
+        rangeRules.push(r);
+        continue;
+      }
+      if (!r.conditions) continue;
       try {
         const conds = JSON.parse(r.conditions);
         if (conds.connectionId === selectedConn.id && conds.xmlSourceId) {
@@ -79,8 +85,25 @@ export default function TrendyolSendPage() {
         }
       } catch(e) {}
     }
-    return lookup;
+    return { pricingLookup: lookup, priceRangeRules: rangeRules };
   }, [pricingRules, selectedConn]);
+
+  const matchesPriceRangeRule = (xmlPrice) => {
+    if (!xmlPrice || xmlPrice <= 0) return false;
+    for (const r of priceRangeRules) {
+      if (!r.conditions) continue;
+      try {
+        const c = JSON.parse(r.conditions);
+        const min = c.minPurchasePrice ?? null;
+        const max = c.maxPurchasePrice ?? null;
+        if (min === null && max === null) continue;
+        if (min !== null && xmlPrice < min) continue;
+        if (max !== null && xmlPrice > max) continue;
+        return true;
+      } catch(e) {}
+    }
+    return false;
+  };
 
   const getCalculatedPrice = (p) => {
     const rule = pricingLookup[p.xmlSourceId];
@@ -94,7 +117,7 @@ export default function TrendyolSendPage() {
   const getProductStatus = (p) => {
     const hasCategoryMapping = p.category && mappedCategories[p.category];
     const hasBarcode = !!p.barcode;
-    const hasPricingRule = !!pricingLookup[p.xmlSourceId];
+    const hasPricingRule = !!pricingLookup[p.xmlSourceId] || matchesPriceRangeRule(p.xmlPrice || p.price);
     if (hasCategoryMapping && hasBarcode && hasPricingRule) return 'ready';
     return 'missing';
   };
@@ -261,7 +284,7 @@ export default function TrendyolSendPage() {
               const isSelected = selectedIds.has(p.id);
               const catMapping = p.category ? mappedCategories[p.category] : null;
               const thumbImg = getFirstImage(p);
-              const hasPricingRule = !!pricingLookup[p.xmlSourceId];
+              const hasPricingRule = !!pricingLookup[p.xmlSourceId] || matchesPriceRangeRule(p.xmlPrice || p.price);
               const issues = [];
               if (!p.barcode) issues.push('Barkod yok');
               if (!hasPricingRule) issues.push('Fiyat kuralı yok');
