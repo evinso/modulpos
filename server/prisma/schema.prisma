@@ -334,6 +334,7 @@ model GlobalXmlProvider {
   barcodePrefix   String?
   creditCost      Float    @default(0) // Kredi maliyeti (admin belirler)
   productCount    Int      @default(0) // Önizlemede güncellenir
+  cargoCompanies  String?  // JSON array of cargo company names
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

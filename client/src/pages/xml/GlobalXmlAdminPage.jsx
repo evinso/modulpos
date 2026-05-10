@@ -153,6 +153,11 @@ export default function GlobalXmlAdminPage() {
   const [editingProvider, setEditingProvider] = useState(null);
   const [saving, setSaving] = useState(false);
   
+  const CARGO_OPTIONS = [
+    'Yurtiçi Kargo', 'Aras Kargo', 'MNG Kargo', 'PTT Kargo',
+    'Sürat Kargo', 'Sendeo', 'Horoz Lojistik', 'UPS', 'DHL', 'Cainiao'
+  ];
+
   const [formData, setFormData] = useState({
     name: '',
     url: '',
@@ -163,6 +168,7 @@ export default function GlobalXmlAdminPage() {
     priceMarkup: '',
     priceMarkupPct: '',
     creditCost: '',
+    cargoCompanies: [],
     isActive: true
   });
 
@@ -297,6 +303,10 @@ export default function GlobalXmlAdminPage() {
 
   const handleOpenModal = (provider = null) => {
     if (provider) {
+      let parsedCargo = [];
+      if (provider.cargoCompanies) {
+        try { parsedCargo = JSON.parse(provider.cargoCompanies); } catch {}
+      }
       setFormData({
         name: provider.name,
         url: provider.url,
@@ -307,6 +317,7 @@ export default function GlobalXmlAdminPage() {
         priceMarkup: provider.priceMarkup || '',
         priceMarkupPct: provider.priceMarkupPct || '',
         creditCost: provider.creditCost || '',
+        cargoCompanies: parsedCargo,
         isActive: provider.isActive
       });
       
@@ -339,6 +350,7 @@ export default function GlobalXmlAdminPage() {
         priceMarkup: '',
         priceMarkupPct: '',
         creditCost: '',
+        cargoCompanies: [],
         isActive: true
       });
       setMapping({});
@@ -623,6 +635,39 @@ export default function GlobalXmlAdminPage() {
                   <label className="form-label">💰 Kredi Maliyeti</label>
                   <input type="number" step="0.5" min="0" className="form-input" value={formData.creditCost} onChange={e => setFormData({...formData, creditCost: e.target.value})} placeholder="Varsayılan: Sistem ayarı" />
                   <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>Bu XML'i eklemek için kullanıcıdan kesilecek kredi. Boş bırakılırsa sistem varsayılanı kullanılır.</span>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '24px' }}>
+                  <label className="form-label">🚚 Çalışılan Kargo Şirketleri</label>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+                    Seçilen kargolar müşterilere gösterilecektir.
+                  </p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {CARGO_OPTIONS.map(cargo => {
+                      const selected = formData.cargoCompanies.includes(cargo);
+                      return (
+                        <button
+                          key={cargo}
+                          type="button"
+                          onClick={() => {
+                            const next = selected
+                              ? formData.cargoCompanies.filter(c => c !== cargo)
+                              : [...formData.cargoCompanies, cargo];
+                            setFormData({ ...formData, cargoCompanies: next });
+                          }}
+                          style={{
+                            padding: '6px 12px', borderRadius: 20, fontSize: 13, cursor: 'pointer',
+                            border: selected ? '2px solid var(--accent-primary)' : '2px solid var(--border-color)',
+                            background: selected ? 'rgba(99,102,241,0.1)' : 'var(--bg-secondary)',
+                            color: selected ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                            fontWeight: selected ? 600 : 400,
+                          }}
+                        >
+                          {selected ? '✓ ' : ''}{cargo}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>

@@ -157,11 +157,37 @@ export default function GlobalXmlMarketPage() {
                 </div>
               </div>
               
-              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: '1.5', flex: 1, marginBottom: '12px' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: '1.5', marginBottom: '12px' }}>
                 {provider.description || "Bu XML kaynağı uzman ekibimiz tarafından sizin için önceden ayarlanmıştır."}
               </p>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              {(() => {
+                let cargos = [];
+                if (provider.cargoCompanies) {
+                  try { cargos = JSON.parse(provider.cargoCompanies); } catch {}
+                }
+                if (!cargos.length) return null;
+                return (
+                  <div style={{ marginBottom: 12 }}>
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      🚚 Çalışılan Kargolar
+                    </p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {cargos.map(c => (
+                        <span key={c} style={{
+                          fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                          background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                          color: 'var(--text-secondary)', fontWeight: 500
+                        }}>
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, marginTop: 'auto' }}>
                 <span style={{
                   fontSize: 13, fontWeight: 600, color: 'var(--warning)',
                   display: 'flex', alignItems: 'center', gap: 4
