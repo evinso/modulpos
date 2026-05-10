@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const { getOrCreateBalance } = require('./credits');
+const notificationService = require('../services/notificationService');
 
 const router = express.Router();
 
@@ -248,6 +249,7 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
         await prisma.creditBalance.update({ where: { id: balance.id }, data: { balance: balance.balance + amountTL } });
         await prisma.creditTransaction.create({ data: { balanceId: balance.id, amount: amountTL, type: 'topup', description: `PayTR Kredi Kartı ile Yükleme (${merchant_oid})` } });
         console.log('[PayTR] Kredi yüklendi — userId:', logUserId, '| tutar:', amountTL);
+        notificationService.createForUser(logUserId, { title: 'Kredi Yüklendi', message: `₺${amountTL.toFixed(2)} kredi hesabınıza eklendi.`, type: 'success', link: '/credits' });
       } else if (!alreadyProcessed && prefix === 'SUB' && logUserId) {
         const user = await prisma.user.findUnique({ where: { id: logUserId }, include: { subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 } } });
         if (user) {
@@ -257,12 +259,14 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
           await prisma.subscription.create({ data: { userId: logUserId, plan: 'premium', status: 'active', endDate: newEndDate, amount: amountTL } });
           if (!user.isActive) await prisma.user.update({ where: { id: logUserId }, data: { isActive: true } });
           console.log('[PayTR] Abonelik aktive edildi — userId:', logUserId, '| bitiş:', newEndDate);
+          notificationService.createForUser(logUserId, { title: 'Abonelik Aktifleştirildi', message: `Aboneliğiniz ${newEndDate.toLocaleDateString('tr-TR')} tarihine kadar uzatıldı.`, type: 'success', link: '/credits' });
         }
       }
       try { await prisma.paytrLog.create({ data: { merchantOid: merchant_oid, status: 'success', totalAmount: amountTL, userId: logUserId, userEmail: logUserEmail, type: logType, rawBody: JSON.stringify(req.body) } }); } catch (e) { console.error('[PayTR] Log kaydedilemedi:', e.message); }
     } else {
       const failReason = [failed_reason_code, failed_reason_msg].filter(Boolean).join(' - ');
       console.log('[PayTR] Ödeme başarısız:', failReason);
+      if (logUserId) notificationService.createForUser(logUserId, { title: 'Ödeme Başarısız', message: failReason || 'Ödeme işlemi tamamlanamadı.', type: 'error', link: '/credits' });
       try { await prisma.paytrLog.create({ data: { merchantOid: merchant_oid, status: 'failed', totalAmount: amountTL, userId: logUserId, userEmail: logUserEmail, type: logType, failReason: failReason || null, rawBody: JSON.stringify(req.body) } }); } catch {}
     }
   } catch (error) {

@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const { deductCredits, getOrCreateBalance } = require('./credits');
+const notificationService = require('../services/notificationService');
 
 const router = express.Router();
 
@@ -99,6 +100,7 @@ router.post('/place', auth, async (req, res, next) => {
       }
     });
 
+    notificationService.create({ storeId: store.id, title: 'Dropship Sipariş Oluşturuldu', message: `${product.title.substring(0, 60)} — ₺${totalCost.toFixed(2)} kredi düşüldü.`, type: 'success', link: '/dropship-orders' });
     res.status(201).json({ order, deducted: totalCost });
   } catch (error) {
     if (error.statusCode === 402) return res.status(402).json({ error: error.message });
@@ -142,6 +144,11 @@ router.put('/:id', auth, async (req, res, next) => {
       where: { id: req.params.id },
       data: updateData
     });
+
+    if (status && status !== existing.status) {
+      const statusLabels = { ordered: 'Sipariş Verildi', shipped: 'Kargoya Verildi', delivered: 'Teslim Edildi', cancelled: 'İptal Edildi' };
+      notificationService.create({ storeId: store.id, title: 'Sipariş Durumu Güncellendi', message: `${existing.productName?.substring(0, 50)} → ${statusLabels[status] || status}`, type: status === 'cancelled' ? 'error' : 'info', link: '/dropship-orders' });
+    }
 
     res.json(updated);
   } catch (error) {

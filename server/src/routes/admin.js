@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
+const notificationService = require('../services/notificationService');
 
 /**
  * Middleware to check if user is admin
@@ -651,6 +652,7 @@ router.post('/support-tickets/:id/reply', auth, isAdmin, async (req, res) => {
       })
     ]);
 
+    notificationService.createForUser(ticket.userId, { title: 'Destek Talebinize Yanıt Geldi', message: `"${ticket.subject}" konulu talebiniz yanıtlandı.`, type: 'success', link: '/support' });
     res.status(201).json(msg);
   } catch (error) {
     res.status(500).json({ error: error.message });

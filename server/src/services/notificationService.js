@@ -66,8 +66,24 @@ class NotificationService {
   }
 
   /**
+   * Create a notification by userId (looks up storeId automatically)
+   * @param {string} userId
+   * @param {Object} data { title, message, type, link }
+   */
+  async createForUser(userId, { title, message, type = 'info', link = null }) {
+    try {
+      const store = await prisma.store.findFirst({ where: { userId } });
+      if (!store) return null;
+      return await this.create({ storeId: store.id, title, message, type, link });
+    } catch (error) {
+      console.error('Notification createForUser failed:', error);
+      return null;
+    }
+  }
+
+  /**
    * Mark all notifications as read for a store
-   * @param {string} storeId 
+   * @param {string} storeId
    */
   async markAllAsRead(storeId) {
     try {
