@@ -54,7 +54,7 @@ router.get('/', async (req, res, next) => {
       if (marketplaceStatus) where.marketplaceProducts.some.status = marketplaceStatus;
     }
 
-    const [products, total] = await Promise.all([
+    const [rawProducts, total] = await Promise.all([
       prisma.product.findMany({
         where,
         include: {
@@ -62,7 +62,7 @@ router.get('/', async (req, res, next) => {
           marketplaceProducts: {
             include: { connection: { select: { marketplaceType: true } } }
           },
-          xmlSource: { select: { name: true, globalProviderId: true, globalProvider: { select: { orderFee: true } } } }
+          xmlSource: { select: { name: true, globalProviderId: true } }
         },
         orderBy: { [sortBy]: sortOrder },
         skip: (parseInt(page) - 1) * parseInt(limit),
@@ -70,6 +70,27 @@ router.get('/', async (req, res, next) => {
       }),
       prisma.product.count({ where })
     ]);
+
+    // Attach globalProvider.orderFee without a schema relation
+    const globalProviderIds = [...new Set(rawProducts.map(p => p.xmlSource?.globalProviderId).filter(Boolean))];
+    let providerFeeMap = {};
+    if (globalProviderIds.length > 0) {
+      const providers = await prisma.globalXmlProvider.findMany({
+        where: { id: { in: globalProviderIds } },
+        select: { id: true, orderFee: true }
+      });
+      providerFeeMap = Object.fromEntries(providers.map(p => [p.id, p.orderFee]));
+    }
+
+    const products = rawProducts.map(p => ({
+      ...p,
+      xmlSource: p.xmlSource ? {
+        ...p.xmlSource,
+        globalProvider: p.xmlSource.globalProviderId
+          ? { orderFee: providerFeeMap[p.xmlSource.globalProviderId] ?? 0 }
+          : null
+      } : null
+    }));
 
     res.json({
       products,
