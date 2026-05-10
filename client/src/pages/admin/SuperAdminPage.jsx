@@ -28,6 +28,11 @@ export default function SuperAdminPage() {
   const [quotaModalUser, setQuotaModalUser] = useState(null);
   const [quotaData, setQuotaData] = useState({ maxProducts: 5000, maxXmlSources: 3 });
 
+  // Plan assignment modal
+  const [planAssignUser, setPlanAssignUser] = useState(null);
+  const [planAssignForm, setPlanAssignForm] = useState({ planId: '', endDate: '', maxProducts: '', maxXmlSources: '', durationDays: 30 });
+  const [planAssignLoading, setPlanAssignLoading] = useState(false);
+
   const [pricingPlans, setPricingPlans] = useState([]);
   const [showPlanModal, setShowPlanModal] = useState(null); // { id, name, price, ... } or 'new'
   const [planForm, setPlanForm] = useState({ name: '', price: '', yearlyPrice: '', period: '/ ay', features: '', ctaText: 'Hemen Başla', isHighlighted: false, order: 0, isActive: true, maxProducts: 1000, maxXmlSources: 1 });
@@ -90,8 +95,12 @@ export default function SuperAdminPage() {
       setStats(statsRes.data);
 
       if (activeTab === 'users') {
-        const usersRes = await api.get('/admin/users');
+        const [usersRes, plansRes] = await Promise.all([
+          api.get('/admin/users'),
+          api.get('/admin/pricing-plans')
+        ]);
         setUsers(usersRes.data);
+        setPricingPlans(plansRes.data);
       } else if (activeTab === 'stores') {
         const storesRes = await api.get('/admin/stores');
         setStores(storesRes.data);
@@ -205,6 +214,58 @@ export default function SuperAdminPage() {
       toast.error('Süre güncellenemedi');
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const openPlanAssignModal = (user) => {
+    const sub = user.subscriptions?.[0];
+    // Find matching plan by name
+    const matchedPlan = pricingPlans.find(p => p.name === sub?.plan);
+    setPlanAssignForm({
+      planId: matchedPlan?.id || '',
+      endDate: '',
+      maxProducts: user.maxProducts ?? '',
+      maxXmlSources: user.maxXmlSources ?? '',
+      durationDays: 30
+    });
+    setPlanAssignUser(user);
+  };
+
+  const handlePlanAssignPlanSelect = (plan) => {
+    setPlanAssignForm(f => ({
+      ...f,
+      planId: plan.id,
+      maxProducts: plan.maxProducts ?? f.maxProducts,
+      maxXmlSources: plan.maxXmlSources ?? f.maxXmlSources
+    }));
+  };
+
+  const handlePlanAssignDuration = (days) => {
+    const end = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    const tzoffset = new Date().getTimezoneOffset() * 60000;
+    const localISO = new Date(end - tzoffset).toISOString().slice(0, 16);
+    setPlanAssignForm(f => ({ ...f, durationDays: days, endDate: localISO }));
+  };
+
+  const handleAssignPlan = async () => {
+    if (!planAssignUser) return;
+    if (!planAssignForm.planId) return toast.error('Lütfen bir plan seçin');
+    if (!planAssignForm.endDate) return toast.error('Lütfen abonelik bitiş tarihini belirleyin');
+    setPlanAssignLoading(true);
+    try {
+      await api.put(`/admin/users/${planAssignUser.id}/assign-plan`, {
+        planId: planAssignForm.planId,
+        endDate: new Date(planAssignForm.endDate).toISOString(),
+        maxProducts: planAssignForm.maxProducts !== '' ? parseInt(planAssignForm.maxProducts) : undefined,
+        maxXmlSources: planAssignForm.maxXmlSources !== '' ? parseInt(planAssignForm.maxXmlSources) : undefined
+      });
+      toast.success('Plan başarıyla atandı');
+      setPlanAssignUser(null);
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Plan atanamadı');
+    } finally {
+      setPlanAssignLoading(false);
     }
   };
 
@@ -681,7 +742,9 @@ export default function SuperAdminPage() {
                 <tr>
                   <th>Kullanıcı</th>
                   <th>Rol</th>
+                  <th>Plan</th>
                   <th>Abonelik Bitiş</th>
+                  <th>Limitler</th>
                   <th>Durum</th>
                   <th>İşlem</th>
                 </tr>
@@ -690,6 +753,12 @@ export default function SuperAdminPage() {
                 {filteredUsers.map(user => {
                   const sub = user.subscriptions?.[0];
                   const isExpired = sub && new Date(sub.endDate) < new Date();
+                  const planName = sub?.plan;
+                  const planColor = planName === 'Kurumsal' ? '#f59e0b'
+                    : planName === 'Profesyonel' ? 'var(--accent-primary)'
+                    : planName === 'Başlangıç' ? '#10b981'
+                    : planName ? 'var(--text-muted)' : null;
+
                   return (
                   <tr key={user.id}>
                     <td>
@@ -704,7 +773,7 @@ export default function SuperAdminPage() {
                       </div>
                     </td>
                     <td>
-                      <select 
+                      <select
                         className="admin-select"
                         value={user.role}
                         onChange={(e) => handleRoleChange(user.id, e.target.value)}
@@ -716,49 +785,60 @@ export default function SuperAdminPage() {
                       </select>
                     </td>
                     <td>
-                      <div className="user-subscription-info">
-                        {sub ? (
-                          <>
-                            <span className={`text-xs font-semibold block uppercase ${isExpired ? 'text-danger' : 'text-success'}`}>
-                              {sub.plan} {isExpired ? '(SÜRESİ BİTTİ)' : ''}
-                            </span>
-                            <span className={`text-xs ${isExpired ? 'text-danger' : 'text-muted'}`}>
-                              Bitiş: {new Date(sub.endDate).toLocaleString('tr-TR')}
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-muted text-xs">Abonelik yok</span>
-                        )}
+                      {planName ? (
+                        <span style={{
+                          display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700,
+                          background: `${planColor}18`, color: planColor, border: `1px solid ${planColor}40`
+                        }}>
+                          {planName}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>
+                      )}
+                    </td>
+                    <td>
+                      {sub ? (
+                        <div>
+                          <div style={{ fontSize: 12, color: isExpired ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: isExpired ? 700 : 400 }}>
+                            {new Date(sub.endDate).toLocaleDateString('tr-TR')}
+                          </div>
+                          {isExpired && <div style={{ fontSize: 11, color: 'var(--danger)', fontWeight: 600 }}>Süresi Bitti</div>}
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Yok</span>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                        <div style={{ color: 'var(--text-secondary)' }}>
+                          <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Ürün: </span>
+                          <strong>{user.maxProducts >= 999999 ? '∞' : (user.maxProducts || 1000).toLocaleString('tr-TR')}</strong>
+                        </div>
+                        <div style={{ color: 'var(--text-secondary)' }}>
+                          <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>XML: </span>
+                          <strong>{user.maxXmlSources >= 999 ? '∞' : (user.maxXmlSources || 1)}</strong>
+                        </div>
                       </div>
                     </td>
                     <td>
-                      <button 
+                      <button
                         className={`badge ${!isExpired && user.isActive ? 'badge-success' : 'badge-danger'} clickable`}
                         onClick={() => handleToggleStatus(user.id)}
                         disabled={actionLoading === user.id}
                       >
-                        {isExpired ? 'Pasif (Süresi Bitti)' : (user.isActive ? 'Aktif' : 'Pasif')}
+                        {isExpired ? 'Süresi Bitti' : (user.isActive ? 'Aktif' : 'Pasif')}
                       </button>
                     </td>
                     <td>
                       <div className="flex gap-2">
-                        <button 
-                          className="btn btn-secondary" 
-                          style={{ padding: '4px 8px', fontSize: 12, height: 'auto' }}
-                          title="Müşteri Kotalarını Düzenle"
-                          onClick={() => openQuotaModal(user)}
+                        <button
+                          className="btn btn-primary"
+                          style={{ padding: '4px 10px', fontSize: 12, height: 'auto' }}
+                          title="Plan Ata / Düzenle"
+                          onClick={() => openPlanAssignModal(user)}
                           disabled={actionLoading === user.id}
                         >
-                          <Settings size={14} style={{ marginRight: 4 }} /> Kota
-                        </button>
-                        <button 
-                          className="btn btn-secondary" 
-                          style={{ padding: '4px 8px', fontSize: 12, height: 'auto' }}
-                          title="Abonelik Tarihi Düzenle"
-                          onClick={() => openSubModal(user)}
-                          disabled={actionLoading === user.id}
-                        >
-                          <Calendar size={14} style={{ marginRight: 4 }} /> Aktivasyon
+                          <CreditCard size={13} style={{ marginRight: 4 }} /> Plan Ata
                         </button>
                         <button
                           className="btn btn-secondary"
@@ -770,7 +850,7 @@ export default function SuperAdminPage() {
                           }}
                           disabled={actionLoading === user.id}
                         >
-                          <FileText size={14} style={{ marginRight: 4 }} /> Fatura
+                          <FileText size={13} style={{ marginRight: 4 }} /> Fatura
                         </button>
                         <button
                           className="header-icon-btn text-danger"
@@ -1445,6 +1525,143 @@ export default function SuperAdminPage() {
                 <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>Kaydet</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Plan Assignment Modal ── */}
+      {planAssignUser && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+          <div className="card" style={{ width: '100%', maxWidth: 540, padding: 0, maxHeight: '92vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            {/* Header */}
+            <div className="table-header" style={{ flexShrink: 0 }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Plan Ata</h3>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {planAssignUser.name} · {planAssignUser.email}
+                </div>
+              </div>
+              <button className="text-btn" onClick={() => setPlanAssignUser(null)}>Kapat</button>
+            </div>
+
+            <div style={{ overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+              {/* Step 1: Plan seçimi */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+                  1. Plan Seçin
+                </div>
+                {pricingPlans.length === 0 ? (
+                  <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Henüz plan oluşturulmamış. Fiyatlandırma sekmesinden plan ekleyin.</p>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
+                    {pricingPlans.map(plan => {
+                      const selected = planAssignForm.planId === plan.id;
+                      const planColor = plan.name === 'Kurumsal' ? '#f59e0b'
+                        : plan.name === 'Profesyonel' ? 'var(--accent-primary)'
+                        : '#10b981';
+                      return (
+                        <button
+                          key={plan.id}
+                          type="button"
+                          onClick={() => handlePlanAssignPlanSelect(plan)}
+                          style={{
+                            padding: '12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
+                            border: `2px solid ${selected ? planColor : 'var(--border-color)'}`,
+                            background: selected ? `${planColor}12` : 'var(--bg-tertiary)',
+                            transition: 'all 0.15s'
+                          }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: selected ? planColor : 'var(--text-primary)', marginBottom: 4 }}>
+                            {plan.name}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                            {plan.maxProducts >= 999999 ? '∞' : (plan.maxProducts || 0).toLocaleString('tr-TR')} ürün
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                            {plan.maxXmlSources >= 999 ? '∞' : plan.maxXmlSources} XML
+                          </div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: selected ? planColor : 'var(--text-secondary)', marginTop: 4 }}>
+                            {plan.price}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Step 2: Süre seçimi */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+                  2. Abonelik Süresi
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 10 }}>
+                  {[{ label: '1 Ay', days: 30 }, { label: '3 Ay', days: 90 }, { label: '6 Ay', days: 180 }, { label: '1 Yıl', days: 365 }].map(opt => (
+                    <button
+                      key={opt.days}
+                      type="button"
+                      onClick={() => handlePlanAssignDuration(opt.days)}
+                      style={{
+                        padding: '8px 4px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                        border: `2px solid ${planAssignForm.durationDays === opt.days ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                        background: planAssignForm.durationDays === opt.days ? 'rgba(59,130,246,0.1)' : 'var(--bg-tertiary)',
+                        color: planAssignForm.durationDays === opt.days ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                        transition: 'all 0.15s'
+                      }}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Bitiş Tarihi</label>
+                  <input
+                    type="datetime-local"
+                    className="form-input"
+                    value={planAssignForm.endDate}
+                    onChange={e => setPlanAssignForm(f => ({ ...f, endDate: e.target.value, durationDays: null }))}
+                  />
+                </div>
+              </div>
+
+              {/* Step 3: Limitler */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+                  3. Limitler <span style={{ fontSize: 11, fontWeight: 400, textTransform: 'none' }}>(plan seçince otomatik dolar, manuel değiştirilebilir)</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Maks. Ürün</label>
+                    <input
+                      type="number" className="form-input" min="0"
+                      value={planAssignForm.maxProducts}
+                      onChange={e => setPlanAssignForm(f => ({ ...f, maxProducts: e.target.value }))}
+                      placeholder="ör: 1000"
+                    />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Maks. XML Kaynak</label>
+                    <input
+                      type="number" className="form-input" min="0"
+                      value={planAssignForm.maxXmlSources}
+                      onChange={e => setPlanAssignForm(f => ({ ...f, maxXmlSources: e.target.value }))}
+                      placeholder="ör: 1"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
+                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setPlanAssignUser(null)}>İptal</button>
+                <button
+                  className="btn btn-primary" style={{ flex: 2 }}
+                  onClick={handleAssignPlan}
+                  disabled={planAssignLoading || !planAssignForm.planId || !planAssignForm.endDate}
+                >
+                  {planAssignLoading ? 'Kaydediliyor...' : 'Planı Ata ve Kaydet'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

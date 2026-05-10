@@ -233,6 +233,69 @@ router.put('/users/:id/quotas', auth, isAdmin, async (req, res) => {
 });
 
 /**
+ * PUT /api/admin/users/:id/assign-plan
+ * Assign a pricing plan to a user: creates subscription + applies plan quotas in one call
+ */
+router.put('/users/:id/assign-plan', auth, isAdmin, async (req, res) => {
+  try {
+    const { planId, endDate, maxProducts, maxXmlSources } = req.body;
+
+    // Resolve plan limits (from LandingPricingPlan or manual override)
+    let resolvedMaxProducts = maxProducts != null ? parseInt(maxProducts) : null;
+    let resolvedMaxXmlSources = maxXmlSources != null ? parseInt(maxXmlSources) : null;
+    let planName = null;
+
+    if (planId) {
+      const [plan] = await prisma.$queryRawUnsafe(
+        `SELECT name, "maxProducts", "maxXmlSources" FROM "LandingPricingPlan" WHERE id = $1`,
+        planId
+      );
+      if (plan) {
+        planName = plan.name;
+        if (resolvedMaxProducts == null) resolvedMaxProducts = plan.maxProducts;
+        if (resolvedMaxXmlSources == null) resolvedMaxXmlSources = plan.maxXmlSources;
+      }
+    }
+
+    const newEndDate = endDate ? new Date(endDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // Create subscription record
+    await prisma.subscription.create({
+      data: {
+        userId: req.params.id,
+        plan: planName || 'custom',
+        status: 'active',
+        endDate: newEndDate
+      }
+    });
+
+    // Update user quotas + activate if end date is in the future
+    const updateData = { isActive: newEndDate > new Date() };
+    if (resolvedMaxProducts != null) updateData.maxProducts = resolvedMaxProducts;
+    if (resolvedMaxXmlSources != null) updateData.maxXmlSources = resolvedMaxXmlSources;
+
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: updateData,
+      include: { subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 } }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'ASSIGN_PLAN',
+        details: JSON.stringify({ targetUserId: req.params.id, planId, planName, maxProducts: resolvedMaxProducts, maxXmlSources: resolvedMaxXmlSources, endDate: newEndDate }),
+        level: 'INFO'
+      }
+    });
+
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * GET /api/admin/audit-logs
  * Get all system audit logs
  */
