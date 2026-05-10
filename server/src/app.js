@@ -160,6 +160,8 @@ ensurePaytrLogTable();
     await prisma.$executeRawUnsafe(`ALTER TABLE "LandingPricingPlan" ADD COLUMN IF NOT EXISTS "yearlyPrice" TEXT`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "LandingPricingPlan" ADD COLUMN IF NOT EXISTS "maxProducts" INTEGER NOT NULL DEFAULT 1000`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "LandingPricingPlan" ADD COLUMN IF NOT EXISTS "maxXmlSources" INTEGER NOT NULL DEFAULT 1`);
+    // Fix Kurumsal plan ctaText from "Bize Ulaşın" to "Hemen Başla"
+    await prisma.$executeRawUnsafe(`UPDATE "LandingPricingPlan" SET "ctaText" = 'Hemen Başla' WHERE name = 'Kurumsal' AND "ctaText" = 'Bize Ulaşın'`);
   } catch (e) {
     console.error('LandingPricingPlan column ensure error:', e.message);
   }

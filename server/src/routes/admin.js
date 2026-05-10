@@ -352,7 +352,7 @@ router.post('/pricing-plans/seed-defaults', auth, isAdmin, async (req, res) => {
         features: JSON.stringify(['10.000 Ürün Limiti', '5 XML Kaynağı', 'Trendyol Entegrasyonu', 'Diğer Pazaryerleri (Yakında)', 'Dropship Desteği', 'Öncelikli Destek'])
       },
       {
-        name: 'Kurumsal', price: '—', period: '/ ay', order: 2, isHighlighted: false, isActive: true, ctaText: 'Bize Ulaşın',
+        name: 'Kurumsal', price: '—', period: '/ ay', order: 2, isHighlighted: false, isActive: true, ctaText: 'Hemen Başla',
         features: JSON.stringify(['Sınırsız Ürün', 'Sınırsız XML Kaynağı', 'Trendyol Entegrasyonu', 'Diğer Pazaryerleri (Yakında)', 'Dropship Desteği', '7/24 Öncelikli Destek', 'Özel Entegrasyon'])
       }
     ];
