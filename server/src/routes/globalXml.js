@@ -134,6 +134,55 @@ router.put('/:id', auth, requireAdmin, async (req, res, next) => {
       }
     });
 
+    // Propagate updated category mappings to all users who imported this provider
+    if (categoryMappingConfig) {
+      try {
+        const entries = Object.entries(categoryMappingConfig);
+        if (entries.length > 0) {
+          const xmlSources = await prisma.xmlSource.findMany({
+            where: { globalProviderId: req.params.id },
+            select: { storeId: true }
+          });
+          const storeIds = [...new Set(xmlSources.map(s => s.storeId))];
+          const connections = await prisma.marketplaceConnection.findMany({
+            where: { storeId: { in: storeIds } },
+            select: { id: true }
+          });
+          for (const conn of connections) {
+            for (const [localCategory, mapping] of entries) {
+              const catId = mapping.marketplaceCategoryId || mapping.trendyolCategoryId || mapping.id;
+              if (!catId) continue;
+              const existing = await prisma.categoryMapping.findFirst({
+                where: { connectionId: conn.id, localCategory: localCategory.trim() }
+              });
+              if (existing) {
+                await prisma.categoryMapping.update({
+                  where: { id: existing.id },
+                  data: {
+                    marketplaceCategoryId: String(catId),
+                    marketplaceCategoryName: mapping.marketplaceCategoryName || null,
+                    attributes: mapping.attributes || null
+                  }
+                });
+              } else {
+                await prisma.categoryMapping.create({
+                  data: {
+                    connectionId: conn.id,
+                    localCategory: localCategory.trim(),
+                    marketplaceCategoryId: String(catId),
+                    marketplaceCategoryName: mapping.marketplaceCategoryName || null,
+                    attributes: mapping.attributes || null
+                  }
+                });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // Non-fatal: propagation failure doesn't block the save
+      }
+    }
+
     res.json(provider);
   } catch (error) {
     next(error);
@@ -241,7 +290,6 @@ router.post('/:id/import', auth, async (req, res, next) => {
         barcodePrefix: barcodePrefix || null,
         priceMarkup: priceMarkup ? parseFloat(priceMarkup) : 0,
         priceMarkupPct: priceMarkupPct ? parseFloat(priceMarkupPct) : 0,
-        // Gizli global markupları aktar
         globalPriceMarkup: provider.priceMarkup,
         globalPriceMarkupPct: provider.priceMarkupPct,
         globalBarcodePrefix: provider.barcodePrefix,
@@ -249,6 +297,42 @@ router.post('/:id/import', auth, async (req, res, next) => {
         status: 'active'
       }
     });
+
+    // Propagate provider category mappings to all of the user's marketplace connections
+    if (provider.categoryMappingConfig) {
+      try {
+        const catConfig = JSON.parse(provider.categoryMappingConfig);
+        const entries = Object.entries(catConfig);
+        if (entries.length > 0) {
+          const connections = await prisma.marketplaceConnection.findMany({
+            where: { storeId: store.id },
+            select: { id: true }
+          });
+          for (const conn of connections) {
+            for (const [localCategory, mapping] of entries) {
+              const catId = mapping.marketplaceCategoryId || mapping.trendyolCategoryId || mapping.id;
+              if (!catId) continue;
+              const existing = await prisma.categoryMapping.findFirst({
+                where: { connectionId: conn.id, localCategory: localCategory.trim() }
+              });
+              if (!existing) {
+                await prisma.categoryMapping.create({
+                  data: {
+                    connectionId: conn.id,
+                    localCategory: localCategory.trim(),
+                    marketplaceCategoryId: String(catId),
+                    marketplaceCategoryName: mapping.marketplaceCategoryName || null,
+                    attributes: mapping.attributes || null
+                  }
+                });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // Non-fatal: category mapping propagation failure doesn't block the import
+      }
+    }
 
     notificationService.create({
       storeId: store.id,
