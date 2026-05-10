@@ -246,10 +246,7 @@ router.put('/users/:id/assign-plan', auth, isAdmin, async (req, res) => {
     let planName = null;
 
     if (planId) {
-      const [plan] = await prisma.$queryRawUnsafe(
-        `SELECT name, "maxProducts", "maxXmlSources" FROM "LandingPricingPlan" WHERE id = $1`,
-        planId
-      );
+      const plan = await prisma.landingPricingPlan.findUnique({ where: { id: planId }, select: { name: true, maxProducts: true, maxXmlSources: true } });
       if (plan) {
         planName = plan.name;
         if (resolvedMaxProducts == null) resolvedMaxProducts = plan.maxProducts;
@@ -319,7 +316,7 @@ router.get('/audit-logs', auth, isAdmin, async (req, res) => {
  */
 router.get('/pricing-plans', auth, isAdmin, async (req, res) => {
   try {
-    const plans = await prisma.$queryRawUnsafe(`SELECT *, "yearlyPrice" FROM "LandingPricingPlan" ORDER BY "order" ASC`);
+    const plans = await prisma.landingPricingPlan.findMany({ orderBy: { order: 'asc' } });
     res.json(plans);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -336,19 +333,18 @@ router.post('/pricing-plans', auth, isAdmin, async (req, res) => {
       data: {
         name,
         price,
+        yearlyPrice: yearlyPrice || null,
         period,
         features: Array.isArray(features) ? JSON.stringify(features) : features,
         ctaText,
         isHighlighted,
         order: parseInt(order) || 0,
-        isActive: isActive !== undefined ? isActive : true
+        isActive: isActive !== undefined ? isActive : true,
+        maxProducts: parseInt(maxProducts) || 1000,
+        maxXmlSources: parseInt(maxXmlSources) || 1
       }
     });
-    await prisma.$executeRawUnsafe(
-      `UPDATE "LandingPricingPlan" SET "yearlyPrice" = $1, "maxProducts" = $2, "maxXmlSources" = $3 WHERE id = $4`,
-      yearlyPrice || null, parseInt(maxProducts) || 1000, parseInt(maxXmlSources) || 1, plan.id
-    );
-    res.status(201).json({ ...plan, yearlyPrice: yearlyPrice || null, maxProducts: parseInt(maxProducts) || 1000, maxXmlSources: parseInt(maxXmlSources) || 1 });
+    res.status(201).json(plan);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -365,19 +361,18 @@ router.put('/pricing-plans/:id', auth, isAdmin, async (req, res) => {
       data: {
         name,
         price,
+        yearlyPrice: yearlyPrice || null,
         period,
         features: Array.isArray(features) ? JSON.stringify(features) : features,
         ctaText,
         isHighlighted,
         order: parseInt(order) || 0,
-        isActive
+        isActive,
+        maxProducts: parseInt(maxProducts) || 1000,
+        maxXmlSources: parseInt(maxXmlSources) || 1
       }
     });
-    await prisma.$executeRawUnsafe(
-      `UPDATE "LandingPricingPlan" SET "yearlyPrice" = $1, "maxProducts" = $2, "maxXmlSources" = $3 WHERE id = $4`,
-      yearlyPrice || null, parseInt(maxProducts) || 1000, parseInt(maxXmlSources) || 1, plan.id
-    );
-    res.json({ ...plan, yearlyPrice: yearlyPrice || null, maxProducts: parseInt(maxProducts) || 1000, maxXmlSources: parseInt(maxXmlSources) || 1 });
+    res.json(plan);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -408,33 +403,22 @@ router.post('/pricing-plans/seed-defaults', auth, isAdmin, async (req, res) => {
     const defaults = [
       {
         name: 'Başlangıç', price: '—', period: '/ ay', order: 0, isHighlighted: false, isActive: true, ctaText: 'Hemen Başla',
+        maxProducts: 1000, maxXmlSources: 1,
         features: JSON.stringify(['1.000 Ürün Limiti', '1 XML Kaynağı', 'Trendyol Entegrasyonu', 'Temel Destek'])
       },
       {
         name: 'Profesyonel', price: '—', period: '/ ay', order: 1, isHighlighted: true, isActive: true, ctaText: 'Hemen Başla',
+        maxProducts: 10000, maxXmlSources: 5,
         features: JSON.stringify(['10.000 Ürün Limiti', '5 XML Kaynağı', 'Trendyol Entegrasyonu', 'Diğer Pazaryerleri (Yakında)', 'Dropship Desteği', 'Öncelikli Destek'])
       },
       {
         name: 'Kurumsal', price: '—', period: '/ ay', order: 2, isHighlighted: false, isActive: true, ctaText: 'Hemen Başla',
+        maxProducts: 999999, maxXmlSources: 999,
         features: JSON.stringify(['Sınırsız Ürün', 'Sınırsız XML Kaynağı', 'Trendyol Entegrasyonu', 'Diğer Pazaryerleri (Yakında)', 'Dropship Desteği', '7/24 Öncelikli Destek', 'Özel Entegrasyon'])
       }
     ];
 
     await prisma.landingPricingPlan.createMany({ data: defaults });
-
-    // Set limits via raw SQL since columns were added via ALTER TABLE
-    const plans = await prisma.landingPricingPlan.findMany({ orderBy: { order: 'asc' } });
-    const limits = [
-      { maxProducts: 1000,   maxXmlSources: 1 },
-      { maxProducts: 10000,  maxXmlSources: 5 },
-      { maxProducts: 999999, maxXmlSources: 999 }
-    ];
-    for (let i = 0; i < plans.length; i++) {
-      await prisma.$executeRawUnsafe(
-        `UPDATE "LandingPricingPlan" SET "maxProducts" = $1, "maxXmlSources" = $2 WHERE id = $3`,
-        limits[i].maxProducts, limits[i].maxXmlSources, plans[i].id
-      );
-    }
 
     res.json({ message: '3 varsayılan plan oluşturuldu. Fiyatları admin panelinden güncelleyin.' });
   } catch (error) {

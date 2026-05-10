@@ -359,17 +359,20 @@ model SystemSettings {
 }
 
 model LandingPricingPlan {
-  id          String   @id @default(uuid())
-  name        String
-  price       String
-  period      String
-  features    String   // JSON array of strings
-  ctaText     String   @default("Hemen Başla")
-  isHighlighted Boolean @default(false)
-  order       Int      @default(0)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(uuid())
+  name          String
+  price         String
+  yearlyPrice   String?
+  period        String
+  features      String   // JSON array of strings
+  ctaText       String   @default("Hemen Başla")
+  isHighlighted Boolean  @default(false)
+  order         Int      @default(0)
+  isActive      Boolean  @default(true)
+  maxProducts   Int      @default(1000)
+  maxXmlSources Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model LandingFooterSection {

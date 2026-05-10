@@ -276,10 +276,10 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
           try {
             const planSetting = await prisma.systemSettings.findUnique({ where: { key: `pending_plan_${merchant_oid}` } });
             if (planSetting?.value) {
-              const plan = await prisma.$queryRawUnsafe(`SELECT "maxProducts", "maxXmlSources" FROM "LandingPricingPlan" WHERE id = $1 LIMIT 1`, planSetting.value);
-              if (plan[0]) {
-                await applyPlanQuota(logUserId, plan[0].maxProducts, plan[0].maxXmlSources);
-                console.log('[PayTR] Plan kotası uygulandı — userId:', logUserId, '| maxProducts:', plan[0].maxProducts, '| maxXmlSources:', plan[0].maxXmlSources);
+              const plan = await prisma.landingPricingPlan.findUnique({ where: { id: planSetting.value }, select: { maxProducts: true, maxXmlSources: true } });
+              if (plan) {
+                await applyPlanQuota(logUserId, plan.maxProducts, plan.maxXmlSources);
+                console.log('[PayTR] Plan kotası uygulandı — userId:', logUserId, '| maxProducts:', plan.maxProducts, '| maxXmlSources:', plan.maxXmlSources);
               }
               await prisma.systemSettings.delete({ where: { key: `pending_plan_${merchant_oid}` } }).catch(() => {});
             }

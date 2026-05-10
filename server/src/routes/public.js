@@ -5,7 +5,10 @@ const prisma = require('../config/database');
 // Get landing page pricing plans
 router.get('/pricing-plans', async (req, res) => {
   try {
-    const plans = await prisma.$queryRawUnsafe(`SELECT *, "yearlyPrice" FROM "LandingPricingPlan" WHERE "isActive" = true ORDER BY "order" ASC`);
+    const plans = await prisma.landingPricingPlan.findMany({
+      where: { isActive: true },
+      orderBy: { order: 'asc' }
+    });
     const formattedPlans = plans.map(p => ({
       ...p,
       features: JSON.parse(p.features || '[]')
