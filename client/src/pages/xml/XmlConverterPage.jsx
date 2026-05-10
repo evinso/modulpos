@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ArrowRight, Download, Copy, RefreshCw, CheckCircle, AlertCircle, Zap, Globe, FileCode2, Link2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowRight, Download, Copy, RefreshCw, CheckCircle, AlertCircle, Zap, Globe, FileCode2, Link2, Wallet, Info } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -11,6 +11,24 @@ export default function XmlConverterPage() {
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
 
+  const [balance, setBalance] = useState(null);
+  const [convertCost, setConvertCost] = useState(1);
+
+  useEffect(() => {
+    fetchCreditInfo();
+  }, []);
+
+  const fetchCreditInfo = async () => {
+    try {
+      const [balRes, pricesRes] = await Promise.all([
+        api.get('/credits/balance'),
+        api.get('/credits/prices')
+      ]);
+      setBalance(balRes.data.balance);
+      setConvertCost(pricesRes.data.xmlConvertCost ?? 1);
+    } catch {}
+  };
+
   const proxyUrl = url
     ? `${API_BASE}/xml-converter/proxy?url=${encodeURIComponent(url)}`
     : '';
@@ -19,18 +37,29 @@ export default function XmlConverterPage() {
     ? `${API_BASE}/xml-converter/download?url=${encodeURIComponent(url)}`
     : '';
 
+  const hasEnoughCredits = balance === null || balance >= convertCost;
+
   const handlePreview = async () => {
     if (!url.trim()) return toast.error('XML URL gerekli');
+    if (!hasEnoughCredits) return toast.error(`Yetersiz kredi. Bu işlem ${convertCost} kredi gerektirir.`);
     setLoading(true);
     setResult(null);
     try {
       const res = await api.post('/xml-converter/preview', { url });
       if (res.data.success) {
         setResult(res.data);
-        toast.success(`${res.data.totalProducts} ürün dönüştürüldü!`);
+        setBalance(prev => prev !== null ? Math.max(0, prev - convertCost) : null);
+        toast.success(`${res.data.totalProducts} ürün dönüştürüldü! (${convertCost} kredi kullanıldı)`);
+        fetchCreditInfo();
       }
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Dönüştürme hatası');
+      const msg = err.response?.data?.error || 'Dönüştürme hatası';
+      if (err.response?.status === 402) {
+        toast.error(msg);
+        fetchCreditInfo();
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -46,10 +75,22 @@ export default function XmlConverterPage() {
   return (
     <div>
       {/* Header */}
-      <div className="page-title">
+      <div className="page-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1>XML Dönüştürücü</h1>
           <p>Desteklenmeyen XML formatlarını otomatik dönüştürün ve sisteme ekleyin</p>
+        </div>
+        {/* Credit balance badge */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px',
+          background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+          borderRadius: 10, flexShrink: 0
+        }}>
+          <Wallet size={16} style={{ color: 'var(--accent-primary)' }} />
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Bakiye:</span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: balance !== null && balance < convertCost ? 'var(--danger)' : 'var(--text-primary)' }}>
+            {balance !== null ? balance.toFixed(2) : '…'} kredi
+          </span>
         </div>
       </div>
 
@@ -74,10 +115,32 @@ export default function XmlConverterPage() {
 
       {/* Converter */}
       <div className="card">
-        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
           <FileCode2 size={18} style={{ color: 'var(--accent-primary)' }} />
           XML URL Girin
         </h2>
+
+        {/* Credit cost notice */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+          background: hasEnoughCredits ? 'rgba(59,130,246,0.07)' : 'rgba(239,68,68,0.07)',
+          border: `1px solid ${hasEnoughCredits ? 'rgba(59,130,246,0.2)' : 'rgba(239,68,68,0.25)'}`,
+          borderRadius: 8, marginBottom: 16, fontSize: 13
+        }}>
+          <Info size={15} style={{ color: hasEnoughCredits ? 'var(--accent-primary)' : 'var(--danger)', flexShrink: 0 }} />
+          <span style={{ color: 'var(--text-secondary)' }}>
+            Her dönüştürme işlemi{' '}
+            <strong style={{ color: hasEnoughCredits ? 'var(--accent-primary)' : 'var(--danger)' }}>
+              {convertCost} kredi
+            </strong>{' '}
+            kullanır.
+            {balance !== null && !hasEnoughCredits && (
+              <span style={{ color: 'var(--danger)', marginLeft: 8 }}>
+                Bakiyeniz yetersiz ({balance.toFixed(2)} kredi). <a href="/credits" style={{ color: 'var(--danger)', fontWeight: 600 }}>Kredi yükleyin →</a>
+              </span>
+            )}
+          </span>
+        </div>
 
         <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
           <input
@@ -91,12 +154,12 @@ export default function XmlConverterPage() {
           <button
             className="btn btn-primary"
             onClick={handlePreview}
-            disabled={loading || !url}
-            style={{ whiteSpace: 'nowrap', minWidth: 140 }}
+            disabled={loading || !url || !hasEnoughCredits}
+            style={{ whiteSpace: 'nowrap', minWidth: 160 }}
           >
             {loading
               ? <><RefreshCw size={14} className="spinning" /> Analiz ediliyor...</>
-              : <><Zap size={14} /> Dönüştür & Önizle</>
+              : <><Zap size={14} /> Dönüştür ({convertCost} kredi)</>
             }
           </button>
         </div>
@@ -135,7 +198,11 @@ export default function XmlConverterPage() {
               <CheckCircle size={20} style={{ color: 'var(--success)' }} />
               <div>
                 <h3 style={{ fontSize: 15, fontWeight: 600 }}>Dönüştürme Başarılı</h3>
-                <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{result.totalProducts} ürün standart formata çevrildi</p>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  {result.totalProducts} ürün standart formata çevrildi
+                  {' · '}
+                  <span style={{ color: 'var(--warning)' }}>{convertCost} kredi kullanıldı</span>
+                </p>
               </div>
             </div>
             <a
@@ -197,12 +264,12 @@ export default function XmlConverterPage() {
         <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>Desteklenen XML Formatları</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
           {[
-            { format: 'RSS 2.0 / Google Shopping', example: '<rss><channel><item>...</item></channel></rss>', badge: 'success' },
-            { format: 'Türk e-Ticaret (Urunler/Urun)', example: '<Urunler><Urun>...</Urun></Urunler>', badge: 'success' },
-            { format: 'Generic (Products/Product)', example: '<Products><Product>...</Product></Products>', badge: 'success' },
-            { format: 'Atom Feed', example: '<feed><entry>...</entry></feed>', badge: 'success' },
-            { format: 'Custom (Items/Item)', example: '<Items><Item>...</Item></Items>', badge: 'success' },
-            { format: 'Düz liste (root > item)', example: '<catalog><item>...</item></catalog>', badge: 'success' },
+            { format: 'RSS 2.0 / Google Shopping', example: '<rss><channel><item>...</item></channel></rss>' },
+            { format: 'Türk e-Ticaret (Urunler/Urun)', example: '<Urunler><Urun>...</Urun></Urunler>' },
+            { format: 'Generic (Products/Product)', example: '<Products><Product>...</Product></Products>' },
+            { format: 'Atom Feed', example: '<feed><entry>...</entry></feed>' },
+            { format: 'Custom (Items/Item)', example: '<Items><Item>...</Item></Items>' },
+            { format: 'Düz liste (root > item)', example: '<catalog><item>...</item></catalog>' },
           ].map((f, i) => (
             <div key={i} style={{ display: 'flex', gap: 12, padding: '12px 14px', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)' }}>
               <span className="badge badge-success" style={{ fontSize: 10, height: 18, alignSelf: 'center' }}>✓</span>

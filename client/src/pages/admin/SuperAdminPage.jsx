@@ -49,7 +49,7 @@ export default function SuperAdminPage() {
     footer_copyright: `© ${new Date().getFullYear()} ModulPOS. Tüm hakları saklıdır.`
   });
 
-  const [generalSettings, setGeneralSettings] = useState({ trial_days: '3' });
+  const [generalSettings, setGeneralSettings] = useState({ trial_days: '3', credit_xml_convert: '1' });
 
   const [dropshipOrders, setDropshipOrders] = useState([]);
   const [dropshipStatusFilter, setDropshipStatusFilter] = useState('');
@@ -127,8 +127,11 @@ export default function SuperAdminPage() {
         const res = await api.get(`/admin/support-tickets${params}`);
         setSupportTickets(res.data);
       } else if (activeTab === 'settings') {
-        const settingsRes = await api.get('/admin/system-settings?keys=trial_days');
-        setGeneralSettings({ trial_days: settingsRes.data.trial_days || '3' });
+        const settingsRes = await api.get('/admin/system-settings?keys=trial_days,credit_xml_convert');
+        setGeneralSettings({
+          trial_days: settingsRes.data.trial_days || '3',
+          credit_xml_convert: settingsRes.data.credit_xml_convert || '1'
+        });
       } else if (activeTab === 'policies') {
         const res = await api.get('/admin/policy-pages');
         setPolicyPages(res.data);
@@ -144,7 +147,10 @@ export default function SuperAdminPage() {
   const handleSaveGeneralSettings = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/admin/system-settings', { trial_days: generalSettings.trial_days });
+      await api.post('/admin/system-settings', {
+        trial_days: generalSettings.trial_days,
+        credit_xml_convert: generalSettings.credit_xml_convert
+      });
       toast.success('Genel ayarlar kaydedildi');
     } catch {
       toast.error('Ayarlar kaydedilemedi');
@@ -1285,7 +1291,9 @@ export default function SuperAdminPage() {
               )}
             </div>
           ) : activeTab === 'settings' ? (
-            <div style={{ padding: '8px 0' }}>
+            <div style={{ padding: '8px 0', display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+              {/* Üyelik & Deneme */}
               <div className="card" style={{ padding: 24, maxWidth: 560 }}>
                 <h4 style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Sliders size={18} /> Üyelik &amp; Deneme Süresi
@@ -1304,6 +1312,39 @@ export default function SuperAdminPage() {
                     />
                     <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 6 }}>
                       Yeni üye olan kullanıcılara otomatik verilen ücretsiz deneme süresi. 0 girersen deneme verilmez.
+                    </span>
+                  </div>
+                  <div style={{ textAlign: 'right', marginTop: 8 }}>
+                    <button type="submit" className="btn btn-primary">Kaydet</button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Kredi İşlem Ücretleri */}
+              <div className="card" style={{ padding: 24, maxWidth: 560 }}>
+                <h4 style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <CreditCard size={18} /> Kredi İşlem Ücretleri
+                </h4>
+                <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>
+                  Kullanıcıların her işlemde harcayacağı kredi miktarını belirleyin. 0 girilirse o işlem ücretsizdir.
+                </p>
+                <form onSubmit={handleSaveGeneralSettings}>
+                  <div className="form-group">
+                    <label className="form-label">XML Dönüştürme (kredi/işlem)</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input
+                        type="number"
+                        className="form-input"
+                        style={{ maxWidth: 120 }}
+                        min="0"
+                        step="0.1"
+                        value={generalSettings.credit_xml_convert}
+                        onChange={e => setGeneralSettings({ ...generalSettings, credit_xml_convert: e.target.value })}
+                      />
+                      <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>kredi / dönüştürme</span>
+                    </div>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 6 }}>
+                      Kullanıcı XML Dönüştürücü sayfasında "Dönüştür" butonuna her bastığında bu kadar kredi kesilir.
                     </span>
                   </div>
                   <div style={{ textAlign: 'right', marginTop: 8 }}>
