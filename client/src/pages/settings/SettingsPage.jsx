@@ -106,22 +106,21 @@ export default function SettingsPage() {
 
   const handleStoreUpdate = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    setStoreLoading(true);
     try {
       const res = await api.put('/auth/store', storeData);
-      
-      // Update the store in the user context
-      const updatedUser = { ...user };
-      if (updatedUser.stores && updatedUser.stores.length > 0) {
-        updatedUser.stores[0] = { ...updatedUser.stores[0], ...res.data };
-      }
-      setUser(updatedUser);
-      
       toast.success('Mağaza ayarları güncellendi');
+      try {
+        const updatedUser = { ...user };
+        if (updatedUser.stores && updatedUser.stores.length > 0) {
+          updatedUser.stores[0] = { ...updatedUser.stores[0], ...res.data };
+        }
+        setUser(updatedUser);
+      } catch {}
     } catch (error) {
       toast.error('Mağaza güncellenemedi');
     } finally {
-      setLoading(false);
+      setStoreLoading(false);
     }
   };
 
@@ -368,88 +367,39 @@ export default function SettingsPage() {
                   {/* Fatura Bilgileri */}
                   <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 16 }}>Fatura Bilgileri</h3>
 
-                  {/* Fatura Türü */}
-                  <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-                    {['bireysel', 'kurumsal'].map(type => (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => setStoreData({...storeData, invoiceType: type})}
-                        style={{
-                          flex: 1, padding: '10px 0', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
-                          border: storeData.invoiceType === type ? '2px solid var(--accent-primary)' : '2px solid var(--border-color)',
-                          background: storeData.invoiceType === type ? 'rgba(99,102,241,0.08)' : 'var(--bg-secondary)',
-                          color: storeData.invoiceType === type ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                        }}
-                      >
-                        {type === 'bireysel' ? '👤 Bireysel' : '🏢 Kurumsal'}
-                      </button>
-                    ))}
-                  </div>
-
                   <div className="grid grid-2" style={{ gap: 20, marginBottom: 20 }}>
-                    {storeData.invoiceType === 'kurumsal' ? (
-                      <>
-                        <div>
-                          <label className="form-label">Şirket Unvanı <span style={{ color: 'var(--danger)' }}>*</span></label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={storeData.companyTitle}
-                            onChange={e => setStoreData({...storeData, companyTitle: e.target.value})}
-                            placeholder="Şirket tam unvanı"
-                          />
-                        </div>
-                        <div>
-                          <label className="form-label">Vergi Dairesi <span style={{ color: 'var(--danger)' }}>*</span></label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={storeData.taxOffice}
-                            onChange={e => setStoreData({...storeData, taxOffice: e.target.value})}
-                            placeholder="Örn: Kadıköy VD"
-                          />
-                        </div>
-                        <div>
-                          <label className="form-label">Vergi Numarası <span style={{ color: 'var(--danger)' }}>*</span></label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={storeData.taxId}
-                            onChange={e => setStoreData({...storeData, taxId: e.target.value})}
-                            placeholder="10 haneli vergi numarası"
-                            maxLength={10}
-                          />
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div>
-                          <label className="form-label">Ad Soyad <span style={{ color: 'var(--danger)' }}>*</span></label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={storeData.companyTitle}
-                            onChange={e => setStoreData({...storeData, companyTitle: e.target.value})}
-                            placeholder="Faturada görünecek ad soyad"
-                          />
-                        </div>
-                        <div>
-                          <label className="form-label">T.C. Kimlik No <span style={{ color: 'var(--danger)' }}>*</span></label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={storeData.taxId}
-                            onChange={e => setStoreData({...storeData, taxId: e.target.value})}
-                            placeholder="11 haneli TCKN"
-                            maxLength={11}
-                          />
-                        </div>
-                      </>
-                    )}
-
+                    <div>
+                      <label className="form-label">Ad Soyad / Şirket Unvanı</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={storeData.companyTitle}
+                        onChange={e => setStoreData({...storeData, companyTitle: e.target.value})}
+                        placeholder="Ad soyad veya şirket unvanı"
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">TC Kimlik No / Vergi No</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={storeData.taxId}
+                        onChange={e => setStoreData({...storeData, taxId: e.target.value})}
+                        placeholder="TC kimlik no veya vergi numarası"
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">Vergi Dairesi</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={storeData.taxOffice}
+                        onChange={e => setStoreData({...storeData, taxOffice: e.target.value})}
+                        placeholder="Örn: Kadıköy VD"
+                      />
+                    </div>
                     <div style={{ gridColumn: '1 / -1' }}>
-                      <label className="form-label">Açık Adres <span style={{ color: 'var(--danger)' }}>*</span></label>
+                      <label className="form-label">Açık Adres</label>
                       <textarea
                         className="form-input"
                         rows={2}
@@ -458,9 +408,8 @@ export default function SettingsPage() {
                         placeholder="Mahalle, cadde, sokak, bina no, daire no"
                       />
                     </div>
-
                     <div>
-                      <label className="form-label">İl <span style={{ color: 'var(--danger)' }}>*</span></label>
+                      <label className="form-label">İl</label>
                       <input
                         type="text"
                         className="form-input"
@@ -493,8 +442,8 @@ export default function SettingsPage() {
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-                    <button type="submit" className="btn btn-primary" disabled={loading}>
-                      <Save size={16} /> {loading ? 'Kaydediliyor...' : 'Kaydet'}
+                    <button type="submit" className="btn btn-primary" disabled={storeLoading}>
+                      <Save size={16} /> {storeLoading ? 'Kaydediliyor...' : 'Kaydet'}
                     </button>
                   </div>
                 </form>
