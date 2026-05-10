@@ -45,9 +45,9 @@ router.post('/paytr-token', auth, async (req, res, next) => {
     const payment_amount = Math.round(parseFloat(amount) * 100); // in kurus
     
     // Create token payload
-    const user_basket = JSON.stringify([
-      ['ModulPOS Kredi Yükleme', amount.toString(), 1] // Item, Price, Quantity
-    ]);
+    const user_basket = Buffer.from(JSON.stringify([
+      ['ModulPOS Kredi Yükleme Hizmeti', amount.toString(), 1]
+    ])).toString('base64');
 
     const no_installment = 0; // Taksit yapılsın mı? 0: evet, 1: hayır
     const max_installment = 0; // 0 = sınırsız taksit
@@ -144,7 +144,7 @@ router.post('/subscription-token', auth, async (req, res, next) => {
     // Alphanumeric only: SUB + 32-char userId (no hyphens) + 3-digit days + 13-digit timestamp
     const merchant_oid = `SUB${req.user.id.replace(/-/g, '')}${String(subDays).padStart(3, '0')}${Date.now()}`;
     const payment_amount = Math.round(numAmount * 100);
-    const user_basket = JSON.stringify([[planName || 'ModulPOS Abonelik', numAmount.toString(), 1]]);
+    const user_basket = Buffer.from(JSON.stringify([[planName || 'ModulPOS Abonelik Hizmeti', numAmount.toString(), 1]])).toString('base64');
     const no_installment = 0;
     const max_installment = 0;
     const currency = 'TL';
