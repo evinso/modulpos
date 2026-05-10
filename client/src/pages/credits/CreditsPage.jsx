@@ -154,8 +154,6 @@ export default function CreditsPage() {
     return { saved, pct };
   }
 
-  // Plans with yearlyPrice available
-  const hasYearly = subPlans.some(p => p.yearlyPrice && extractPrice(p.yearlyPrice) > 0);
 
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
 
@@ -201,57 +199,55 @@ export default function CreditsPage() {
       {/* Subscription Plans */}
       {subPlans.length > 0 && (
         <div style={{ marginBottom: 32 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-            <div>
-              <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Abonelik Planları</h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: 0 }}>
-                ModulPOS'u kesintisiz kullanmak için bir plan seçin.
-              </p>
-            </div>
 
-            {/* Billing toggle */}
-            {hasYearly && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 0, background: 'var(--bg-tertiary)', borderRadius: 10, padding: 3, border: '1px solid var(--border-color)', flexShrink: 0 }}>
-                <button
-                  onClick={() => setBillingCycle('monthly')}
-                  style={{
-                    padding: '7px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                    border: 'none', transition: 'all 0.15s',
-                    background: billingCycle === 'monthly' ? 'var(--bg-card)' : 'transparent',
-                    color: billingCycle === 'monthly' ? 'var(--text-primary)' : 'var(--text-muted)',
-                    boxShadow: billingCycle === 'monthly' ? '0 1px 4px rgba(0,0,0,0.15)' : 'none'
-                  }}>
-                  Aylık
-                </button>
-                <button
-                  onClick={() => setBillingCycle('yearly')}
-                  style={{
-                    padding: '7px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                    border: 'none', transition: 'all 0.15s',
-                    background: billingCycle === 'yearly' ? 'var(--bg-card)' : 'transparent',
-                    color: billingCycle === 'yearly' ? 'var(--text-primary)' : 'var(--text-muted)',
-                    boxShadow: billingCycle === 'yearly' ? '0 1px 4px rgba(0,0,0,0.15)' : 'none',
-                    display: 'flex', alignItems: 'center', gap: 6
-                  }}>
-                  Yıllık
-                  {/* Generic savings badge — show max savings across plans */}
-                  {(() => {
-                    const maxPct = Math.max(...subPlans.map(p => getSavings(p)?.pct || 0));
-                    return maxPct > 0 ? (
-                      <span style={{ background: 'rgba(34,197,94,0.15)', color: 'var(--success)', fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 20, border: '1px solid rgba(34,197,94,0.3)' }}>
-                        %{maxPct}'e kadar indirim
-                      </span>
-                    ) : null;
-                  })()}
-                </button>
-              </div>
-            )}
+          {/* Section header + billing toggle */}
+          <div style={{ textAlign: 'center', marginBottom: 28 }}>
+            <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Abonelik Planları</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 20 }}>
+              ModulPOS'u kesintisiz kullanmak için bir plan seçin.
+            </p>
+
+            {/* Billing toggle — always visible */}
+            <div style={{ display: 'inline-flex', alignItems: 'center', background: 'var(--bg-tertiary)', borderRadius: 12, padding: 4, border: '1px solid var(--border-color)', gap: 0 }}>
+              <button
+                onClick={() => setBillingCycle('monthly')}
+                style={{
+                  padding: '8px 24px', borderRadius: 9, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                  border: 'none', transition: 'all 0.15s',
+                  background: billingCycle === 'monthly' ? 'var(--bg-card)' : 'transparent',
+                  color: billingCycle === 'monthly' ? 'var(--text-primary)' : 'var(--text-muted)',
+                  boxShadow: billingCycle === 'monthly' ? '0 1px 6px rgba(0,0,0,0.18)' : 'none'
+                }}>
+                Aylık
+              </button>
+              <button
+                onClick={() => setBillingCycle('yearly')}
+                style={{
+                  padding: '8px 24px', borderRadius: 9, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                  border: 'none', transition: 'all 0.15s',
+                  background: billingCycle === 'yearly' ? 'var(--bg-card)' : 'transparent',
+                  color: billingCycle === 'yearly' ? 'var(--text-primary)' : 'var(--text-muted)',
+                  boxShadow: billingCycle === 'yearly' ? '0 1px 6px rgba(0,0,0,0.18)' : 'none',
+                  display: 'flex', alignItems: 'center', gap: 7
+                }}>
+                Yıllık
+                {(() => {
+                  const maxPct = Math.max(...subPlans.map(p => getSavings(p)?.pct || 0));
+                  return maxPct > 0 ? (
+                    <span style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20 }}>
+                      %{maxPct}'e kadar tasarruf
+                    </span>
+                  ) : null;
+                })()}
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-3" style={{ gap: 16 }}>
+          <div className="grid grid-3" style={{ gap: 20 }}>
             {subPlans.map(plan => {
               const savings = getSavings(plan);
-              const showYearly = billingCycle === 'yearly' && plan.yearlyPrice && extractPrice(plan.yearlyPrice) > 0;
+              const planHasYearly = plan.yearlyPrice && extractPrice(plan.yearlyPrice) > 0;
+              const showYearly = billingCycle === 'yearly' && planHasYearly;
               const displayPrice = showYearly ? plan.yearlyPrice : plan.price;
               const monthlyNum = extractPrice(plan.price);
 
@@ -263,40 +259,47 @@ export default function CreditsPage() {
                     </div>
                   )}
 
-                  <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{plan.name}</div>
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{plan.name}</div>
 
-                    {/* Price display */}
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 30, fontWeight: 800, color: 'var(--text-primary)' }}>{displayPrice}</span>
+                    {/* Price */}
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                      <span style={{ fontSize: 32, fontWeight: 800, color: 'var(--text-primary)' }}>{displayPrice}</span>
                       <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                         {showYearly ? '/ yıl' : (plan.period || '/ ay')}
                       </span>
                     </div>
 
-                    {/* Yearly: show monthly equivalent + savings */}
+                    {/* Yearly mode: aylık eşdeğer + tasarruf */}
                     {showYearly && savings && (
-                      <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                           Aylık eşdeğer:{' '}
-                          <span style={{ textDecoration: 'line-through', marginRight: 4 }}>
-                            {!isNaN(monthlyNum) ? `₺${(monthlyNum).toFixed(0)}` : plan.price}
-                          </span>
+                          <s style={{ marginRight: 3 }}>{!isNaN(monthlyNum) ? `₺${monthlyNum.toFixed(0)}` : plan.price}</s>
                           <strong style={{ color: 'var(--text-primary)' }}>
                             ₺{(extractPrice(plan.yearlyPrice) / 12).toFixed(0)}
                           </strong>
                         </span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(34,197,94,0.12)', color: 'var(--success)', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, border: '1px solid rgba(34,197,94,0.25)', width: 'fit-content' }}>
+                        <span style={{ display: 'inline-flex', width: 'fit-content', alignItems: 'center', gap: 4, background: 'rgba(16,185,129,0.12)', color: '#10b981', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20, border: '1px solid rgba(16,185,129,0.3)' }}>
                           ₺{savings.saved.toFixed(0)} tasarruf · %{savings.pct} indirim
                         </span>
                       </div>
                     )}
 
-                    {/* Monthly: hint about yearly savings */}
-                    {!showYearly && savings && hasYearly && (
-                      <div style={{ marginTop: 5, fontSize: 12, color: 'var(--text-muted)' }}>
-                        Yıllık alımda{' '}
-                        <span style={{ color: 'var(--success)', fontWeight: 600 }}>%{savings.pct} tasarruf</span>
+                    {/* Monthly mode: yıllık tasarruf ipucu */}
+                    {!showYearly && savings && (
+                      <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+                        Yıllık ödemede{' '}
+                        <button onClick={() => setBillingCycle('yearly')} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#10b981', fontWeight: 700, fontSize: 12 }}>
+                          %{savings.pct} tasarruf
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Yearly selected but no yearly price for this plan */}
+                    {billingCycle === 'yearly' && !planHasYearly && (
+                      <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                        Aylık fiyat gösteriliyor
                       </div>
                     )}
                   </div>
@@ -454,7 +457,6 @@ export default function CreditsPage() {
               onPay={handleStartSubPayment}
               getSavings={getSavings}
               extractPrice={extractPrice}
-              hasYearly={hasYearly}
             />
           ) : null}
         </PaytrModal>
@@ -463,60 +465,68 @@ export default function CreditsPage() {
   );
 }
 
-function SubPaymentForm({ plan, cycle, setCycle, loading, onPay, getSavings, extractPrice, hasYearly }) {
-  const showYearly = cycle === 'yearly' && plan.yearlyPrice && extractPrice(plan.yearlyPrice) > 0;
+function SubPaymentForm({ plan, cycle, setCycle, loading, onPay, getSavings, extractPrice }) {
+  const planHasYearly = plan.yearlyPrice && extractPrice(plan.yearlyPrice) > 0;
+  const showYearly = cycle === 'yearly' && planHasYearly;
   const displayPrice = showYearly ? plan.yearlyPrice : plan.price;
   const savings = getSavings(plan);
-  const yearlyNum  = extractPrice(plan.yearlyPrice);
+  const yearlyNum = extractPrice(plan.yearlyPrice);
 
   return (
     <>
-      {/* Billing cycle selector */}
-      {hasYearly && plan.yearlyPrice && extractPrice(plan.yearlyPrice) > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-            <Calendar size={14} /> Faturalandırma Dönemi
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {/* Monthly option */}
-            <button
-              type="button"
-              onClick={() => setCycle('monthly')}
-              style={{
-                padding: '12px 14px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
-                border: `2px solid ${cycle === 'monthly' ? 'var(--accent-primary)' : 'var(--border-color)'}`,
-                background: cycle === 'monthly' ? 'rgba(59,130,246,0.08)' : 'var(--bg-tertiary)',
-                transition: 'all 0.15s'
-              }}>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>Aylık</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{plan.price}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>her ay</div>
-            </button>
+      {/* Billing cycle selector — always visible */}
+      <div style={{ marginBottom: 20 }}>
+        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+          <Calendar size={14} /> Faturalandırma Dönemi
+        </label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          {/* Monthly */}
+          <button
+            type="button"
+            onClick={() => setCycle('monthly')}
+            style={{
+              padding: '12px 14px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
+              border: `2px solid ${cycle === 'monthly' ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+              background: cycle === 'monthly' ? 'rgba(59,130,246,0.08)' : 'var(--bg-tertiary)',
+              transition: 'all 0.15s'
+            }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>Aylık</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{plan.price}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>her ay yenilenir</div>
+          </button>
 
-            {/* Yearly option */}
-            <button
-              type="button"
-              onClick={() => setCycle('yearly')}
-              style={{
-                padding: '12px 14px', borderRadius: 10, cursor: 'pointer', textAlign: 'left', position: 'relative',
-                border: `2px solid ${cycle === 'yearly' ? 'var(--success)' : 'var(--border-color)'}`,
-                background: cycle === 'yearly' ? 'rgba(34,197,94,0.07)' : 'var(--bg-tertiary)',
-                transition: 'all 0.15s'
-              }}>
-              {savings && (
-                <span style={{ position: 'absolute', top: -8, right: 8, background: 'var(--success)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20 }}>
-                  %{savings.pct} indirim
-                </span>
-              )}
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>Yıllık</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{plan.yearlyPrice}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                {!isNaN(yearlyNum) ? `≈ ₺${(yearlyNum / 12).toFixed(0)}/ay` : 'yılda bir'}
-              </div>
-            </button>
-          </div>
+          {/* Yearly */}
+          <button
+            type="button"
+            onClick={() => planHasYearly ? setCycle('yearly') : undefined}
+            disabled={!planHasYearly}
+            style={{
+              padding: '12px 14px', borderRadius: 10, textAlign: 'left', position: 'relative',
+              cursor: planHasYearly ? 'pointer' : 'default',
+              border: `2px solid ${!planHasYearly ? 'var(--border-color)' : cycle === 'yearly' ? '#10b981' : 'var(--border-color)'}`,
+              background: !planHasYearly ? 'var(--bg-tertiary)' : cycle === 'yearly' ? 'rgba(16,185,129,0.07)' : 'var(--bg-tertiary)',
+              opacity: planHasYearly ? 1 : 0.5,
+              transition: 'all 0.15s'
+            }}>
+            {savings && planHasYearly && (
+              <span style={{ position: 'absolute', top: -8, right: 8, background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20 }}>
+                %{savings.pct} indirim
+              </span>
+            )}
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>Yıllık</div>
+            {planHasYearly ? (
+              <>
+                <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{plan.yearlyPrice}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  {!isNaN(yearlyNum) ? `≈ ₺${(yearlyNum / 12).toFixed(0)}/ay` : 'yılda bir yenilenir'}
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic' }}>Yıllık plan mevcut değil</div>
+            )}
+          </button>
         </div>
-      )}
+      </div>
 
       {/* Summary */}
       <div style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10, padding: 16, marginBottom: 16 }}>

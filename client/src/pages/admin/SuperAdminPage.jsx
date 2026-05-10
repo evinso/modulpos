@@ -866,11 +866,12 @@ export default function SuperAdminPage() {
               <table>
                 <thead>
                   <tr>
-                    <th>Sıra</th>
+                    <th style={{ width: 44 }}>#</th>
                     <th>Plan Adı</th>
-                    <th>Fiyat</th>
-                    <th>Periyot</th>
-                    <th>Özellikler</th>
+                    <th>Aylık Fiyat</th>
+                    <th>Yıllık Fiyat</th>
+                    <th>Ürün Limiti</th>
+                    <th>XML Kaynak</th>
                     <th>Durum</th>
                     <th>İşlem</th>
                   </tr>
@@ -878,19 +879,36 @@ export default function SuperAdminPage() {
                 <tbody>
                   {pricingPlans.map(plan => (
                     <tr key={plan.id}>
-                      <td style={{ width: 60 }}>{plan.order}</td>
+                      <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{plan.order}</td>
                       <td>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold">{plan.name}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontWeight: 600 }}>{plan.name}</span>
                           {plan.isHighlighted && <span className="badge badge-info" style={{ fontSize: 10 }}>Öne Çıkan</span>}
                         </div>
                       </td>
-                      <td><span className="font-semibold">{plan.price}</span></td>
-                      <td><span className="text-muted text-xs">{plan.period}</span></td>
                       <td>
-                        <div className="text-xs text-muted" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {JSON.parse(plan.features || '[]').join(', ')}
-                        </div>
+                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{plan.price}</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 3 }}>{plan.period}</span>
+                      </td>
+                      <td>
+                        {plan.yearlyPrice ? (
+                          <div>
+                            <span style={{ fontWeight: 700, color: 'var(--success)' }}>{plan.yearlyPrice}</span>
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 3 }}>/yıl</span>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>
+                        )}
+                      </td>
+                      <td>
+                        <span style={{ fontSize: 13, fontWeight: 500 }}>
+                          {plan.maxProducts >= 999999 ? 'Sınırsız' : (plan.maxProducts || 1000).toLocaleString('tr-TR')}
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{ fontSize: 13, fontWeight: 500 }}>
+                          {plan.maxXmlSources >= 999 ? 'Sınırsız' : (plan.maxXmlSources || 1)}
+                        </span>
                       </td>
                       <td>
                         <span className={`badge ${plan.isActive ? 'badge-success' : 'badge-danger'}`}>
@@ -898,7 +916,7 @@ export default function SuperAdminPage() {
                         </span>
                       </td>
                       <td>
-                        <div className="flex gap-2">
+                        <div style={{ display: 'flex', gap: 6 }}>
                           <button className="header-icon-btn" onClick={() => {
                             setPlanForm({
                               ...plan,
@@ -920,7 +938,7 @@ export default function SuperAdminPage() {
                   ))}
                   {pricingPlans.length === 0 && (
                     <tr>
-                      <td colSpan="7" style={{ textAlign: 'center', padding: 20 }}>Henüz bir fiyat planı eklenmemiş.</td>
+                      <td colSpan="8" style={{ textAlign: 'center', padding: 20 }}>Henüz bir fiyat planı eklenmemiş.</td>
                     </tr>
                   )}
                 </tbody>
