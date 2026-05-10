@@ -4,6 +4,7 @@ const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const { getOrCreateBalance } = require('./credits');
 const notificationService = require('../services/notificationService');
+const { applyPlanQuota } = require('../utils/quotaHelper');
 
 const router = express.Router();
 
@@ -120,7 +121,7 @@ router.post('/paytr-token', auth, async (req, res, next) => {
  */
 router.post('/subscription-token', auth, async (req, res, next) => {
   try {
-    const { amount, planName, days } = req.body;
+    const { amount, planName, planId, days } = req.body;
     const numAmount = parseFloat(amount);
     if (isNaN(numAmount) || numAmount < 1) {
       return res.status(400).json({ error: 'Geçersiz tutar.' });
@@ -144,6 +145,18 @@ router.post('/subscription-token', auth, async (req, res, next) => {
     const subDays = parseInt(days) || 30;
     // Alphanumeric only: SUB + 32-char userId (no hyphens) + 3-digit days + 13-digit timestamp
     const merchant_oid = `SUB${req.user.id.replace(/-/g, '')}${String(subDays).padStart(3, '0')}${Date.now()}`;
+
+    // Store planId temporarily so callback can apply correct quota
+    if (planId) {
+      try {
+        await prisma.systemSettings.upsert({
+          where: { key: `pending_plan_${merchant_oid}` },
+          update: { value: planId },
+          create: { key: `pending_plan_${merchant_oid}`, value: planId }
+        });
+      } catch {}
+    }
+
     const payment_amount = Math.round(numAmount * 100);
     const user_basket = Buffer.from(JSON.stringify([[planName || 'ModulPOS Abonelik Hizmeti', numAmount.toString(), 1]])).toString('base64');
     const no_installment = 0;
@@ -258,6 +271,20 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
           const newEndDate = new Date(currentEndDate.getTime() + parsedDays * 24 * 60 * 60 * 1000);
           await prisma.subscription.create({ data: { userId: logUserId, plan: 'premium', status: 'active', endDate: newEndDate, amount: amountTL } });
           if (!user.isActive) await prisma.user.update({ where: { id: logUserId }, data: { isActive: true } });
+
+          // Apply plan quota if planId was stored at token creation
+          try {
+            const planSetting = await prisma.systemSettings.findUnique({ where: { key: `pending_plan_${merchant_oid}` } });
+            if (planSetting?.value) {
+              const plan = await prisma.$queryRawUnsafe(`SELECT "maxProducts", "maxXmlSources" FROM "LandingPricingPlan" WHERE id = $1 LIMIT 1`, planSetting.value);
+              if (plan[0]) {
+                await applyPlanQuota(logUserId, plan[0].maxProducts, plan[0].maxXmlSources);
+                console.log('[PayTR] Plan kotası uygulandı — userId:', logUserId, '| maxProducts:', plan[0].maxProducts, '| maxXmlSources:', plan[0].maxXmlSources);
+              }
+              await prisma.systemSettings.delete({ where: { key: `pending_plan_${merchant_oid}` } }).catch(() => {});
+            }
+          } catch (qErr) { console.error('[PayTR] Plan kota hatası:', qErr.message); }
+
           console.log('[PayTR] Abonelik aktive edildi — userId:', logUserId, '| bitiş:', newEndDate);
           notificationService.createForUser(logUserId, { title: 'Abonelik Aktifleştirildi', message: `Aboneliğiniz ${newEndDate.toLocaleDateString('tr-TR')} tarihine kadar uzatıldı.`, type: 'success', link: '/credits' });
         }

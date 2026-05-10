@@ -153,13 +153,15 @@ const ensurePaytrLogTable = async () => {
 };
 ensurePaytrLogTable();
 
-// Add yearlyPrice column to LandingPricingPlan if not exists
+// Add extra columns to LandingPricingPlan if not exists
 (async () => {
   try {
     const prisma = require('./config/database');
     await prisma.$executeRawUnsafe(`ALTER TABLE "LandingPricingPlan" ADD COLUMN IF NOT EXISTS "yearlyPrice" TEXT`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "LandingPricingPlan" ADD COLUMN IF NOT EXISTS "maxProducts" INTEGER NOT NULL DEFAULT 1000`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "LandingPricingPlan" ADD COLUMN IF NOT EXISTS "maxXmlSources" INTEGER NOT NULL DEFAULT 1`);
   } catch (e) {
-    console.error('yearlyPrice column ensure error:', e.message);
+    console.error('LandingPricingPlan column ensure error:', e.message);
   }
 })();
 

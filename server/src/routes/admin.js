@@ -268,7 +268,7 @@ router.get('/pricing-plans', auth, isAdmin, async (req, res) => {
  */
 router.post('/pricing-plans', auth, isAdmin, async (req, res) => {
   try {
-    const { name, price, yearlyPrice, period, features, ctaText, isHighlighted, order, isActive } = req.body;
+    const { name, price, yearlyPrice, period, features, ctaText, isHighlighted, order, isActive, maxProducts, maxXmlSources } = req.body;
     const plan = await prisma.landingPricingPlan.create({
       data: {
         name,
@@ -281,10 +281,11 @@ router.post('/pricing-plans', auth, isAdmin, async (req, res) => {
         isActive: isActive !== undefined ? isActive : true
       }
     });
-    if (yearlyPrice !== undefined) {
-      await prisma.$executeRawUnsafe(`UPDATE "LandingPricingPlan" SET "yearlyPrice" = $1 WHERE id = $2`, yearlyPrice || null, plan.id);
-    }
-    res.status(201).json({ ...plan, yearlyPrice: yearlyPrice || null });
+    await prisma.$executeRawUnsafe(
+      `UPDATE "LandingPricingPlan" SET "yearlyPrice" = $1, "maxProducts" = $2, "maxXmlSources" = $3 WHERE id = $4`,
+      yearlyPrice || null, parseInt(maxProducts) || 1000, parseInt(maxXmlSources) || 1, plan.id
+    );
+    res.status(201).json({ ...plan, yearlyPrice: yearlyPrice || null, maxProducts: parseInt(maxProducts) || 1000, maxXmlSources: parseInt(maxXmlSources) || 1 });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -295,7 +296,7 @@ router.post('/pricing-plans', auth, isAdmin, async (req, res) => {
  */
 router.put('/pricing-plans/:id', auth, isAdmin, async (req, res) => {
   try {
-    const { name, price, yearlyPrice, period, features, ctaText, isHighlighted, order, isActive } = req.body;
+    const { name, price, yearlyPrice, period, features, ctaText, isHighlighted, order, isActive, maxProducts, maxXmlSources } = req.body;
     const plan = await prisma.landingPricingPlan.update({
       where: { id: req.params.id },
       data: {
@@ -309,10 +310,11 @@ router.put('/pricing-plans/:id', auth, isAdmin, async (req, res) => {
         isActive
       }
     });
-    if (yearlyPrice !== undefined) {
-      await prisma.$executeRawUnsafe(`UPDATE "LandingPricingPlan" SET "yearlyPrice" = $1 WHERE id = $2`, yearlyPrice || null, plan.id);
-    }
-    res.json({ ...plan, yearlyPrice: yearlyPrice || null });
+    await prisma.$executeRawUnsafe(
+      `UPDATE "LandingPricingPlan" SET "yearlyPrice" = $1, "maxProducts" = $2, "maxXmlSources" = $3 WHERE id = $4`,
+      yearlyPrice || null, parseInt(maxProducts) || 1000, parseInt(maxXmlSources) || 1, plan.id
+    );
+    res.json({ ...plan, yearlyPrice: yearlyPrice || null, maxProducts: parseInt(maxProducts) || 1000, maxXmlSources: parseInt(maxXmlSources) || 1 });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -356,6 +358,21 @@ router.post('/pricing-plans/seed-defaults', auth, isAdmin, async (req, res) => {
     ];
 
     await prisma.landingPricingPlan.createMany({ data: defaults });
+
+    // Set limits via raw SQL since columns were added via ALTER TABLE
+    const plans = await prisma.landingPricingPlan.findMany({ orderBy: { order: 'asc' } });
+    const limits = [
+      { maxProducts: 1000,   maxXmlSources: 1 },
+      { maxProducts: 10000,  maxXmlSources: 5 },
+      { maxProducts: 999999, maxXmlSources: 999 }
+    ];
+    for (let i = 0; i < plans.length; i++) {
+      await prisma.$executeRawUnsafe(
+        `UPDATE "LandingPricingPlan" SET "maxProducts" = $1, "maxXmlSources" = $2 WHERE id = $3`,
+        limits[i].maxProducts, limits[i].maxXmlSources, plans[i].id
+      );
+    }
+
     res.json({ message: '3 varsayılan plan oluşturuldu. Fiyatları admin panelinden güncelleyin.' });
   } catch (error) {
     res.status(500).json({ error: error.message });

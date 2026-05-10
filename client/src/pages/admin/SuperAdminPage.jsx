@@ -30,7 +30,7 @@ export default function SuperAdminPage() {
 
   const [pricingPlans, setPricingPlans] = useState([]);
   const [showPlanModal, setShowPlanModal] = useState(null); // { id, name, price, ... } or 'new'
-  const [planForm, setPlanForm] = useState({ name: '', price: '', yearlyPrice: '', period: '/ ay', features: '', ctaText: 'Hemen Başla', isHighlighted: false, order: 0, isActive: true });
+  const [planForm, setPlanForm] = useState({ name: '', price: '', yearlyPrice: '', period: '/ ay', features: '', ctaText: 'Hemen Başla', isHighlighted: false, order: 0, isActive: true, maxProducts: 1000, maxXmlSources: 1 });
 
   const [footerSections, setFooterSections] = useState([]);
   const [showFooterModal, setShowFooterModal] = useState(null);
@@ -903,7 +903,9 @@ export default function SuperAdminPage() {
                             setPlanForm({
                               ...plan,
                               yearlyPrice: plan.yearlyPrice || '',
-                              features: JSON.parse(plan.features || '[]').join('\n')
+                              features: JSON.parse(plan.features || '[]').join('\n'),
+                              maxProducts: plan.maxProducts ?? 1000,
+                              maxXmlSources: plan.maxXmlSources ?? 1
                             });
                             setShowPlanModal(plan);
                           }}>
@@ -1378,6 +1380,14 @@ export default function SuperAdminPage() {
                 <div className="form-group">
                   <label className="form-label">Yıllık Fiyat <span style={{fontSize:11,color:'var(--text-muted)'}}>(opsiyonel)</span></label>
                   <input type="text" className="form-input" value={planForm.yearlyPrice} onChange={e => setPlanForm({...planForm, yearlyPrice: e.target.value})} placeholder="Örn: ₺4990" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Maks. Ürün Limiti</label>
+                  <input type="number" className="form-input" value={planForm.maxProducts} onChange={e => setPlanForm({...planForm, maxProducts: parseInt(e.target.value) || 0})} placeholder="Örn: 1000" min="0" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Maks. XML Kaynak Limiti</label>
+                  <input type="number" className="form-input" value={planForm.maxXmlSources} onChange={e => setPlanForm({...planForm, maxXmlSources: parseInt(e.target.value) || 0})} placeholder="Örn: 1" min="0" />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Sıralama</label>

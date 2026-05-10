@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
+const { checkProductLimit } = require('../utils/quotaHelper');
 
 const router = express.Router();
 
@@ -153,6 +154,8 @@ router.post('/', async (req, res, next) => {
     if (!sku || !title) {
       return res.status(400).json({ error: 'SKU ve başlık zorunludur' });
     }
+
+    await checkProductLimit(req.user.id, store.id, 1);
 
     const product = await prisma.product.create({
       data: {

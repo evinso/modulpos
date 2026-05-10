@@ -3,6 +3,7 @@ const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const { parseXml, analyzeXml } = require('../services/xml/xmlParser');
 const notificationService = require('../services/notificationService');
+const { checkXmlSourceLimit, getUserQuota } = require('../utils/quotaHelper');
 
 const router = express.Router();
 router.use(auth);
@@ -89,6 +90,9 @@ router.post('/', async (req, res, next) => {
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
     const { name, url, format, syncIntervalMin, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate } = req.body;
     if (!name || !url) return res.status(400).json({ error: 'İsim ve URL zorunludur' });
+
+    await checkXmlSourceLimit(req.user.id, store.id);
+
     const xmlSource = await prisma.xmlSource.create({
       data: {
         storeId: store.id,
@@ -154,7 +158,9 @@ router.post('/:id/sync', async (req, res, next) => {
     const syncLog = await prisma.syncLog.create({ data: { storeId: store.id, type: 'xml_sync', status: 'started' } });
 
     const products = await parseXml(xmlSource.url, xmlSource.mappingConfig);
-    let created = 0, updated = 0, errors = 0;
+    const { maxProducts } = await getUserQuota(req.user.id);
+    const currentCount = await prisma.product.count({ where: { storeId: store.id } });
+    let created = 0, updated = 0, errors = 0, skipped = 0;
 
     for (const p of products) {
       try {
@@ -213,27 +219,31 @@ router.post('/:id/sync', async (req, res, next) => {
           });
           updated++;
         } else {
-          await prisma.product.create({
-            data: {
-              storeId: store.id,
-              xmlSourceId: xmlSource.id,
-              sku,
-              barcode: finalBarcode,
-              title: p.title || 'İsimsiz',
-              description: p.description,
-              xmlPrice: xmlPrice,
-              price: finalPrice,
-              vatRate: xmlSource.defaultVatRate || 10,
-              cost: p.cost || 0,
-              listPrice: p.listPrice || 0,
-              stock: p.stock || 0,
-              brand: p.brand,
-              category: p.category,
-              images: p.images?.length ? JSON.stringify(p.images) : null,
-              rawXmlData: rawXmlData,
-            }
-          });
-          created++;
+          if (currentCount + created >= maxProducts) {
+            skipped++;
+          } else {
+            await prisma.product.create({
+              data: {
+                storeId: store.id,
+                xmlSourceId: xmlSource.id,
+                sku,
+                barcode: finalBarcode,
+                title: p.title || 'İsimsiz',
+                description: p.description,
+                xmlPrice: xmlPrice,
+                price: finalPrice,
+                vatRate: xmlSource.defaultVatRate || 10,
+                cost: p.cost || 0,
+                listPrice: p.listPrice || 0,
+                stock: p.stock || 0,
+                brand: p.brand,
+                category: p.category,
+                images: p.images?.length ? JSON.stringify(p.images) : null,
+                rawXmlData: rawXmlData,
+              }
+            });
+            created++;
+          }
         }
       } catch { errors++; }
     }
@@ -241,15 +251,16 @@ router.post('/:id/sync', async (req, res, next) => {
     await prisma.syncLog.update({ where: { id: syncLog.id }, data: { status: 'completed', itemCount: created + updated, errorCount: errors, completedAt: new Date() } });
     await prisma.xmlSource.update({ where: { id: xmlSource.id }, data: { lastSyncedAt: new Date(), totalProducts: products.length, status: 'active' } });
 
+    const skippedNote = skipped > 0 ? ` ${skipped} ürün limit nedeniyle atlandı.` : '';
     await notificationService.create({
       storeId: store.id,
       title: 'Senkronizasyon Tamamlandı',
-      message: `"${xmlSource.name}" senkronizasyonu tamamlandı: ${created} yeni, ${updated} güncellenen ürün.`,
-      type: errors > 0 ? 'warning' : 'success',
+      message: `"${xmlSource.name}": ${created} yeni, ${updated} güncellendi.${skippedNote}`,
+      type: skipped > 0 ? 'warning' : errors > 0 ? 'warning' : 'success',
       link: '/products'
     });
 
-    res.json({ message: 'Senkronizasyon tamamlandı', results: { total: products.length, created, updated, errors } });
+    res.json({ message: 'Senkronizasyon tamamlandı', results: { total: products.length, created, updated, errors, skipped } });
   } catch (error) { 
     console.error('[XML Sync Error]', error.message);
     
