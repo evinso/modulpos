@@ -30,7 +30,7 @@ export default function SuperAdminPage() {
 
   const [pricingPlans, setPricingPlans] = useState([]);
   const [showPlanModal, setShowPlanModal] = useState(null); // { id, name, price, ... } or 'new'
-  const [planForm, setPlanForm] = useState({ name: '', price: '', period: '', features: '', ctaText: 'Hemen Başla', isHighlighted: false, order: 0, isActive: true });
+  const [planForm, setPlanForm] = useState({ name: '', price: '', yearlyPrice: '', period: '/ ay', features: '', ctaText: 'Hemen Başla', isHighlighted: false, order: 0, isActive: true });
 
   const [footerSections, setFooterSections] = useState([]);
   const [showFooterModal, setShowFooterModal] = useState(null);
@@ -265,6 +265,17 @@ export default function SuperAdminPage() {
       fetchData();
     } catch (error) {
       toast.error('Plan kaydedilemedi');
+    }
+  };
+
+  const handleSeedDefaultPlans = async () => {
+    if (!window.confirm('Varsayılan 3 plan (Başlangıç, Profesyonel, Kurumsal) oluşturulsun mu? Fiyatları sonradan düzenleyebilirsiniz.')) return;
+    try {
+      const res = await api.post('/admin/pricing-plans/seed-defaults');
+      toast.success(res.data.message);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Planlar oluşturulamadı');
     }
   };
 
@@ -633,12 +644,19 @@ export default function SuperAdminPage() {
               </select>
             )}
             {activeTab === 'pricing' && (
-              <button className="btn btn-primary" onClick={() => {
-                setPlanForm({ name: '', price: '', period: '', features: '', ctaText: 'Hemen Başla', isHighlighted: false, order: pricingPlans.length, isActive: true });
-                setShowPlanModal('new');
-              }}>
-                <Plus size={16} /> Yeni Plan Ekle
-              </button>
+              <div className="flex gap-2">
+                {pricingPlans.length === 0 && (
+                  <button className="btn btn-secondary" onClick={handleSeedDefaultPlans}>
+                    Varsayılanları Yükle
+                  </button>
+                )}
+                <button className="btn btn-primary" onClick={() => {
+                  setPlanForm({ name: '', price: '', yearlyPrice: '', period: '/ ay', features: '', ctaText: 'Hemen Başla', isHighlighted: false, order: pricingPlans.length, isActive: true });
+                  setShowPlanModal('new');
+                }}>
+                  <Plus size={16} /> Yeni Plan Ekle
+                </button>
+              </div>
             )}
             {activeTab === 'footer' && (
               <div className="flex gap-2">
@@ -884,6 +902,7 @@ export default function SuperAdminPage() {
                           <button className="header-icon-btn" onClick={() => {
                             setPlanForm({
                               ...plan,
+                              yearlyPrice: plan.yearlyPrice || '',
                               features: JSON.parse(plan.features || '[]').join('\n')
                             });
                             setShowPlanModal(plan);
@@ -1353,12 +1372,12 @@ export default function SuperAdminPage() {
                   <input type="text" className="form-input" value={planForm.name} onChange={e => setPlanForm({...planForm, name: e.target.value})} placeholder="Örn: Profesyonel" required />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Fiyat Etiketi</label>
+                  <label className="form-label">Aylık Fiyat</label>
                   <input type="text" className="form-input" value={planForm.price} onChange={e => setPlanForm({...planForm, price: e.target.value})} placeholder="Örn: ₺499" required />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Periyot</label>
-                  <input type="text" className="form-input" value={planForm.period} onChange={e => setPlanForm({...planForm, period: e.target.value})} placeholder="Örn: / ay" required />
+                  <label className="form-label">Yıllık Fiyat <span style={{fontSize:11,color:'var(--text-muted)'}}>(opsiyonel)</span></label>
+                  <input type="text" className="form-input" value={planForm.yearlyPrice} onChange={e => setPlanForm({...planForm, yearlyPrice: e.target.value})} placeholder="Örn: ₺4990" />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Sıralama</label>

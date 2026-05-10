@@ -28,9 +28,9 @@ const stats = [
 
 export default function LandingPage() {
   const [plans, setPlans] = useState([]);
-  const [loadingPlans, setLoadingPlans] = useState(true);
   const [footerSections, setFooterSections] = useState([]);
   const [footerSettings, setFooterSettings] = useState({});
+  const [billingCycle, setBillingCycle] = useState('monthly');
 
   useEffect(() => {
     fetchPlans();
@@ -208,41 +208,69 @@ export default function LandingPage() {
             <h2>Şeffaf ve <span className="lp-gradient-text">uygun fiyat</span></h2>
             <p>İhtiyacınıza göre plan seçin, istediğiniz zaman değiştirin</p>
           </div>
+
+          {/* Billing toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 40 }}>
+            <span style={{ fontSize: 14, color: billingCycle === 'monthly' ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: billingCycle === 'monthly' ? 600 : 400 }}>Aylık</span>
+            <button
+              onClick={() => setBillingCycle(c => c === 'monthly' ? 'yearly' : 'monthly')}
+              style={{
+                width: 48, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer', position: 'relative',
+                background: billingCycle === 'yearly' ? 'var(--accent-primary)' : 'var(--border-color)',
+                transition: 'background 0.2s'
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 3, left: billingCycle === 'yearly' ? 25 : 3,
+                width: 20, height: 20, borderRadius: '50%', background: '#fff',
+                transition: 'left 0.2s', display: 'block'
+              }} />
+            </button>
+            <span style={{ fontSize: 14, color: billingCycle === 'yearly' ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: billingCycle === 'yearly' ? 600 : 400 }}>
+              Yıllık <span style={{ fontSize: 12, color: '#10b981', fontWeight: 700, marginLeft: 4 }}>%20 İndirim</span>
+            </span>
+          </div>
+
           <div className="lp-pricing-grid">
             {(plans.length > 0 ? plans : [
               {
-                name: 'Başlangıç', price: 'Ücretsiz', period: 'sonsuza kadar',
-                features: ['1 XML Kaynağı', '500 Ürün', '1 Pazaryeri', 'Temel destek'],
-                ctaText: 'Ücretsiz Başla', isHighlighted: false,
+                name: 'Başlangıç', price: '₺—', yearlyPrice: '',
+                features: ['1.000 Ürün Limiti', '1 XML Kaynağı', 'Trendyol Entegrasyonu', 'Temel Destek'],
+                ctaText: 'Hemen Başla', isHighlighted: false,
               },
               {
-                name: 'Profesyonel', price: '₺499', period: '/ ay',
-                features: ['10 XML Kaynağı', '10.000 Ürün', '3 Pazaryeri', 'Öncelikli destek', 'XML Dönüştürücü', 'Otomatik senkronizasyon'],
+                name: 'Profesyonel', price: '₺—', yearlyPrice: '',
+                features: ['10.000 Ürün Limiti', '5 XML Kaynağı', 'Trendyol Entegrasyonu', 'Diğer Pazaryerleri (Yakında)', 'Dropship Desteği', 'Öncelikli Destek'],
                 ctaText: 'Hemen Başla', isHighlighted: true,
               },
               {
-                name: 'Kurumsal', price: 'Özel', period: 'fiyatlandırma',
-                features: ['Sınırsız XML Kaynağı', 'Sınırsız Ürün', 'Sınırsız Pazaryeri', '7/24 destek', 'Özel entegrasyon', 'SLA garantisi'],
+                name: 'Kurumsal', price: '₺—', yearlyPrice: '',
+                features: ['Sınırsız Ürün', 'Sınırsız XML Kaynağı', 'Trendyol Entegrasyonu', 'Diğer Pazaryerleri (Yakında)', 'Dropship Desteği', '7/24 Öncelikli Destek'],
                 ctaText: 'Bize Ulaşın', isHighlighted: false,
               },
-            ]).map((plan, i) => (
-              <div key={i} className={`lp-price-card ${plan.isHighlighted ? 'highlighted' : ''}`}>
-                {plan.isHighlighted && <div className="lp-popular-badge">En Popüler</div>}
-                <div className="lp-price-name">{plan.name}</div>
-                <div className="lp-price-amount">
-                  <span className="lp-price-value">{plan.price}</span>
-                  <span className="lp-price-period">{plan.period}</span>
+            ]).map((plan, i) => {
+              const showYearly = billingCycle === 'yearly' && plan.yearlyPrice;
+              const displayPrice = showYearly ? plan.yearlyPrice : plan.price;
+              const displayPeriod = showYearly ? '/ yıl' : '/ ay';
+              return (
+                <div key={i} className={`lp-price-card ${plan.isHighlighted ? 'highlighted' : ''}`}>
+                  {plan.isHighlighted && <div className="lp-popular-badge">En Popüler</div>}
+                  <div className="lp-price-name">{plan.name}</div>
+                  <div className="lp-price-amount">
+                    <span className="lp-price-value">{displayPrice}</span>
+                    <span className="lp-price-period">{displayPeriod}</span>
+                  </div>
+                  <ul className="lp-price-features">
+                    {(Array.isArray(plan.features) ? plan.features : JSON.parse(plan.features || '[]')).map(f => (
+                      <li key={f}><CheckCircle size={14} /> {f}</li>
+                    ))}
+                  </ul>
+                  <Link to="/register" className={`lp-price-cta ${plan.isHighlighted ? 'primary' : 'ghost'}`}>
+                    {plan.ctaText}
+                  </Link>
                 </div>
-                <ul className="lp-price-features">
-                  {(Array.isArray(plan.features) ? plan.features : JSON.parse(plan.features || '[]')).map(f => (
-                    <li key={f}><CheckCircle size={14} /> {f}</li>
-                  ))}
-                </ul>
-                <Link to="/register" className={`lp-price-cta ${plan.isHighlighted ? 'primary' : 'ghost'}`}>
-                  {plan.ctaText}
-                </Link>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>

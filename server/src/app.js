@@ -153,6 +153,16 @@ const ensurePaytrLogTable = async () => {
 };
 ensurePaytrLogTable();
 
+// Add yearlyPrice column to LandingPricingPlan if not exists
+(async () => {
+  try {
+    const prisma = require('./config/database');
+    await prisma.$executeRawUnsafe(`ALTER TABLE "LandingPricingPlan" ADD COLUMN IF NOT EXISTS "yearlyPrice" TEXT`);
+  } catch (e) {
+    console.error('yearlyPrice column ensure error:', e.message);
+  }
+})();
+
 const cronService = require('./services/cronService');
 cronService.start();
 

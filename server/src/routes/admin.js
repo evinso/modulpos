@@ -256,9 +256,7 @@ router.get('/audit-logs', auth, isAdmin, async (req, res) => {
  */
 router.get('/pricing-plans', auth, isAdmin, async (req, res) => {
   try {
-    const plans = await prisma.landingPricingPlan.findMany({
-      orderBy: { order: 'asc' }
-    });
+    const plans = await prisma.$queryRawUnsafe(`SELECT *, "yearlyPrice" FROM "LandingPricingPlan" ORDER BY "order" ASC`);
     res.json(plans);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -270,7 +268,7 @@ router.get('/pricing-plans', auth, isAdmin, async (req, res) => {
  */
 router.post('/pricing-plans', auth, isAdmin, async (req, res) => {
   try {
-    const { name, price, period, features, ctaText, isHighlighted, order, isActive } = req.body;
+    const { name, price, yearlyPrice, period, features, ctaText, isHighlighted, order, isActive } = req.body;
     const plan = await prisma.landingPricingPlan.create({
       data: {
         name,
@@ -283,7 +281,10 @@ router.post('/pricing-plans', auth, isAdmin, async (req, res) => {
         isActive: isActive !== undefined ? isActive : true
       }
     });
-    res.status(201).json(plan);
+    if (yearlyPrice !== undefined) {
+      await prisma.$executeRawUnsafe(`UPDATE "LandingPricingPlan" SET "yearlyPrice" = $1 WHERE id = $2`, yearlyPrice || null, plan.id);
+    }
+    res.status(201).json({ ...plan, yearlyPrice: yearlyPrice || null });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -294,7 +295,7 @@ router.post('/pricing-plans', auth, isAdmin, async (req, res) => {
  */
 router.put('/pricing-plans/:id', auth, isAdmin, async (req, res) => {
   try {
-    const { name, price, period, features, ctaText, isHighlighted, order, isActive } = req.body;
+    const { name, price, yearlyPrice, period, features, ctaText, isHighlighted, order, isActive } = req.body;
     const plan = await prisma.landingPricingPlan.update({
       where: { id: req.params.id },
       data: {
@@ -308,7 +309,10 @@ router.put('/pricing-plans/:id', auth, isAdmin, async (req, res) => {
         isActive
       }
     });
-    res.json(plan);
+    if (yearlyPrice !== undefined) {
+      await prisma.$executeRawUnsafe(`UPDATE "LandingPricingPlan" SET "yearlyPrice" = $1 WHERE id = $2`, yearlyPrice || null, plan.id);
+    }
+    res.json({ ...plan, yearlyPrice: yearlyPrice || null });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -323,6 +327,36 @@ router.delete('/pricing-plans/:id', auth, isAdmin, async (req, res) => {
       where: { id: req.params.id }
     });
     res.json({ message: 'Plan silindi' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/pricing-plans/seed-defaults
+ */
+router.post('/pricing-plans/seed-defaults', auth, isAdmin, async (req, res) => {
+  try {
+    const existing = await prisma.landingPricingPlan.count();
+    if (existing > 0) return res.status(400).json({ error: 'Planlar zaten mevcut. Önce mevcut planları silin.' });
+
+    const defaults = [
+      {
+        name: 'Başlangıç', price: '—', period: '/ ay', order: 0, isHighlighted: false, isActive: true, ctaText: 'Hemen Başla',
+        features: JSON.stringify(['1.000 Ürün Limiti', '1 XML Kaynağı', 'Trendyol Entegrasyonu', 'Temel Destek'])
+      },
+      {
+        name: 'Profesyonel', price: '—', period: '/ ay', order: 1, isHighlighted: true, isActive: true, ctaText: 'Hemen Başla',
+        features: JSON.stringify(['10.000 Ürün Limiti', '5 XML Kaynağı', 'Trendyol Entegrasyonu', 'Diğer Pazaryerleri (Yakında)', 'Dropship Desteği', 'Öncelikli Destek'])
+      },
+      {
+        name: 'Kurumsal', price: '—', period: '/ ay', order: 2, isHighlighted: false, isActive: true, ctaText: 'Bize Ulaşın',
+        features: JSON.stringify(['Sınırsız Ürün', 'Sınırsız XML Kaynağı', 'Trendyol Entegrasyonu', 'Diğer Pazaryerleri (Yakında)', 'Dropship Desteği', '7/24 Öncelikli Destek', 'Özel Entegrasyon'])
+      }
+    ];
+
+    await prisma.landingPricingPlan.createMany({ data: defaults });
+    res.json({ message: '3 varsayılan plan oluşturuldu. Fiyatları admin panelinden güncelleyin.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
