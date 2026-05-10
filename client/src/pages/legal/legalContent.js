@@ -5,7 +5,7 @@ export const legalContent = {
       <h3>1. TARAFLAR</h3>
       <p>İşbu Sözleşme aşağıdaki taraflar arasında aşağıda belirtilen hüküm ve şartlar çerçevesinde imzalanmıştır.</p>
       <p><strong>ALICI:</strong> (Sistem üzerindeki kayıtlı kullanıcı)</p>
-      <p><strong>SATICI:</strong> ModulPOS Yazılım A.Ş.</p>
+      <p><strong>SATICI:</strong> EVİNSO Bilişim Yazılım Ve Danışmanlık</p>
 
       <h3>2. KONU</h3>
       <p>İşbu Sözleşme'nin konusu, ALICI'nın SATICI'ya ait www.modulpos.com internet sitesi üzerinden elektronik ortamda siparişini verdiği aşağıda nitelikleri ve satış fiyatı belirtilen ürünün/hizmetin satışı ve teslimi ile ilgili olarak 6502 sayılı Tüketicinin Korunması Hakkında Kanun ve Mesafeli Sözleşmeler Yönetmeliği hükümleri gereğince tarafların hak ve yükümlülüklerinin saptanmasıdır.</p>

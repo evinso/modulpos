@@ -36,7 +36,7 @@ export default function SuperAdminPage() {
   const [showFooterModal, setShowFooterModal] = useState(null);
   const [footerForm, setFooterForm] = useState({ title: '', links: [{ label: '', url: '', isExternal: false }], order: 0, isActive: true });
   const [footerBrandSettings, setFooterBrandSettings] = useState({
-    footer_company_name: 'ModulPOS Yazılım A.Ş.',
+    footer_company_name: 'EVİNSO Bilişim Yazılım Ve Danışmanlık',
     footer_description: 'Tüm pazaryerlerinizi tek platformdan yönetin. E-ticaret operasyonlarınızı otomatikleştirin ve satışlarınızı artırın.',
     footer_address: 'Bilişim Vadisi, Teknoloji Blv. No:1, Gebze / Kocaeli',
     footer_email: 'info@modulpos.com',

@@ -271,7 +271,7 @@ export default function LandingPage() {
               {footerSettings.footer_description || 'Tüm pazaryerlerinizi tek platformdan yönetin. E-ticaret operasyonlarınızı otomatikleştirin ve satışlarınızı artırın.'}
             </p>
             <div style={{ marginTop: 16, fontSize: 13, color: '#64748b' }}>
-              <strong>{footerSettings.footer_company_name || 'ModulPOS Yazılım A.Ş.'}</strong><br/>
+              <strong>{footerSettings.footer_company_name || 'EVİNSO Bilişim Yazılım Ve Danışmanlık'}</strong><br/>
               {footerSettings.footer_address || 'Bilişim Vadisi, Teknoloji Blv. No:1, Gebze / Kocaeli'}<br/>
               {footerSettings.footer_email || 'info@modulpos.com'} | {footerSettings.footer_phone || '0850 000 00 00'}
             </div>
