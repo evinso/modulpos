@@ -207,6 +207,16 @@ export default function TrendyolSendPage() {
   const readyCount = products.filter(p => getProductStatus(p) === 'ready').length;
   const missingCount = products.filter(p => getProductStatus(p) === 'missing').length;
 
+  const unmappedCategories = useMemo(() => {
+    const cats = new Set();
+    for (const p of products) {
+      if (p.category && !mappedCategories[p.category.toLowerCase().trim()]) {
+        cats.add(p.category);
+      }
+    }
+    return [...cats].sort();
+  }, [products, mappedCategories]);
+
   return (
     <div>
       <div className="page-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -250,6 +260,25 @@ export default function TrendyolSendPage() {
           <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--warning)' }}>{missingCount}</div>
         </div>
       </div>
+
+      {/* Unmapped categories warning */}
+      {unmappedCategories.length > 0 && (
+        <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid var(--warning)', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--warning)', marginBottom: 6 }}>
+            ⚠ Eşleştirilmemiş {unmappedCategories.length} kategori var — bu ürünler gönderilemez
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+            {unmappedCategories.map(cat => (
+              <span key={cat} style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--warning)', borderRadius: 4, padding: '2px 8px', fontSize: 12, fontFamily: 'monospace' }}>
+                {cat}
+              </span>
+            ))}
+          </div>
+          <a href="/category-mapping" style={{ fontSize: 12, color: 'var(--accent-primary)', textDecoration: 'underline' }}>
+            Kategori Eşleştirme sayfasına git →
+          </a>
+        </div>
+      )}
 
       {/* Products table */}
       <div className="table-container">
