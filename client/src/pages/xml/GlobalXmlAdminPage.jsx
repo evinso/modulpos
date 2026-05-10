@@ -169,6 +169,7 @@ export default function GlobalXmlAdminPage() {
     priceMarkupPct: '',
     creditCost: '',
     orderFee: '',
+    purchaseVatRate: '0',
     cargoCompanies: [],
     isActive: true
   });
@@ -319,6 +320,7 @@ export default function GlobalXmlAdminPage() {
         priceMarkupPct: provider.priceMarkupPct || '',
         creditCost: provider.creditCost || '',
         orderFee: provider.orderFee || '',
+        purchaseVatRate: String(provider.purchaseVatRate ?? 0),
         cargoCompanies: parsedCargo,
         isActive: provider.isActive
       });
@@ -353,6 +355,7 @@ export default function GlobalXmlAdminPage() {
         priceMarkupPct: '',
         creditCost: '',
         orderFee: '',
+        purchaseVatRate: '0',
         cargoCompanies: [],
         isActive: true
       });
@@ -634,7 +637,7 @@ export default function GlobalXmlAdminPage() {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
                   <div className="form-group">
                     <label className="form-label">💰 XML Ekleme Kredi Maliyeti</label>
                     <input type="number" step="0.5" min="0" className="form-input" value={formData.creditCost} onChange={e => setFormData({...formData, creditCost: e.target.value})} placeholder="Varsayılan: Sistem ayarı" />
@@ -645,6 +648,19 @@ export default function GlobalXmlAdminPage() {
                     <input type="number" step="0.01" min="0" className="form-input" value={formData.orderFee} onChange={e => setFormData({...formData, orderFee: e.target.value})} placeholder="Örn: 5.00" />
                     <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>Her dropship siparişinde ürün bedeline ek olarak kesilir. 0 ise ücret alınmaz.</span>
                   </div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 24 }}>
+                  <label className="form-label">🧾 Alış Fiyatı KDV Oranı</label>
+                  <select className="form-select" value={formData.purchaseVatRate} onChange={e => setFormData({...formData, purchaseVatRate: e.target.value})}>
+                    <option value="0">%0 — KDV Dahil / KDV Yok</option>
+                    <option value="1">%1 — KDV Hariç, %1 Ekle</option>
+                    <option value="10">%10 — KDV Hariç, %10 Ekle</option>
+                    <option value="20">%20 — KDV Hariç, %20 Ekle</option>
+                  </select>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
+                    Tedarikçi fiyatları KDV hariç geliyorsa seçili oran alış fiyatına otomatik eklenir.
+                  </span>
                 </div>
 
                 <div className="form-group" style={{ marginBottom: '24px' }}>

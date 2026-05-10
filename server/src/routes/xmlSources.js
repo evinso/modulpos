@@ -88,7 +88,7 @@ router.post('/', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
-    const { name, url, format, syncIntervalMin, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate } = req.body;
+    const { name, url, format, syncIntervalMin, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate, purchaseVatRate } = req.body;
     if (!name || !url) return res.status(400).json({ error: 'İsim ve URL zorunludur' });
 
     await checkXmlSourceLimit(req.user.id, store.id);
@@ -107,6 +107,7 @@ router.post('/', async (req, res, next) => {
         priceMarkup: priceMarkup || 0,
         priceMarkupPct: priceMarkupPct || 0,
         defaultVatRate: defaultVatRate !== undefined ? parseInt(defaultVatRate) : 10,
+        purchaseVatRate: purchaseVatRate !== undefined ? parseInt(purchaseVatRate) : 0,
       }
     });
 
@@ -125,7 +126,7 @@ router.post('/', async (req, res, next) => {
 // Update XML source (including mapping)
 router.put('/:id', async (req, res, next) => {
   try {
-    const { name, url, format, syncIntervalMin, status, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate } = req.body;
+    const { name, url, format, syncIntervalMin, status, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate, purchaseVatRate } = req.body;
     const data = {};
     if (name !== undefined) data.name = name;
     if (url !== undefined) data.url = url;
@@ -141,6 +142,7 @@ router.put('/:id', async (req, res, next) => {
     if (priceMarkup !== undefined) data.priceMarkup = priceMarkup || 0;
     if (priceMarkupPct !== undefined) data.priceMarkupPct = priceMarkupPct || 0;
     if (defaultVatRate !== undefined) data.defaultVatRate = parseInt(defaultVatRate);
+    if (purchaseVatRate !== undefined) data.purchaseVatRate = parseInt(purchaseVatRate);
     const xmlSource = await prisma.xmlSource.update({ where: { id: req.params.id }, data });
     res.json(xmlSource);
   } catch (error) { next(error); }
@@ -176,7 +178,12 @@ router.post('/:id/sync', async (req, res, next) => {
           rawXmlPrice += xmlSource.globalPriceMarkup;
         }
 
-        const xmlPrice = rawXmlPrice;
+        // 2. Alış fiyatı KDV'si — tedarikçi fiyatları KDV hariç geliyorsa üstüne ekle
+        if (xmlSource.purchaseVatRate && xmlSource.purchaseVatRate > 0) {
+          rawXmlPrice = rawXmlPrice * (1 + xmlSource.purchaseVatRate / 100);
+        }
+
+        const xmlPrice = Math.round(rawXmlPrice * 100) / 100;
 
         // Store raw XML data as-is (never modify this)
         const rawXmlData = JSON.stringify({

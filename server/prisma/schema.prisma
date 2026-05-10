@@ -91,7 +91,8 @@ model XmlSource {
   defaultBrandId  String?  // Default Trendyol brand ID
   priceMarkup     Float    @default(0) // Fixed amount to add to XML price
   priceMarkupPct  Float    @default(0) // Percentage to add to XML price
-  defaultVatRate  Int      @default(10) // KDV oranı: 0, 1, 10, 20
+  defaultVatRate  Int      @default(10) // KDV oranı: 0, 1, 10, 20 (Trendyol ürün vergi oranı)
+  purchaseVatRate Int      @default(0)  // Alış fiyatına eklenecek KDV: 0, 1, 10, 20
   globalPriceMarkup    Float    @default(0) // Hidden global markup
   globalPriceMarkupPct Float    @default(0) // Hidden global markup percentage
   globalBarcodePrefix  String?  // Hidden global barcode prefix
@@ -334,6 +335,7 @@ model GlobalXmlProvider {
   barcodePrefix   String?
   creditCost      Float    @default(0) // Kredi maliyeti (admin belirler)
   orderFee        Float    @default(0) // Sipariş başına tedarikçi ücreti
+  purchaseVatRate Int      @default(0)  // Alış fiyatına eklenecek KDV: 0, 1, 10, 20
   productCount    Int      @default(0) // Önizlemede güncellenir
   cargoCompanies  String?  // JSON array of cargo company names
   isActive        Boolean  @default(true)

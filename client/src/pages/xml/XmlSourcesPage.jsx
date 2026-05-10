@@ -30,7 +30,7 @@ export default function XmlSourcesPage() {
   const [xmlPreviewLoading, setXmlPreviewLoading] = useState(false);
 
   // Add form
-  const [addForm, setAddForm] = useState({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10' });
+  const [addForm, setAddForm] = useState({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10', purchaseVatRate: '0' });
 
   // Mapping state
   const [analyzing, setAnalyzing] = useState(false);
@@ -229,6 +229,7 @@ export default function XmlSourcesPage() {
         defaultCategoryId: addForm.defaultCategoryId || null,
         defaultBrandId: addForm.defaultBrandId || null,
         defaultVatRate: parseInt(addForm.defaultVatRate) || 10,
+        purchaseVatRate: parseInt(addForm.purchaseVatRate) || 0,
       });
       setSavedSourceId(res.data.id);
       
@@ -682,10 +683,26 @@ export default function XmlSourcesPage() {
                   <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '20px 0' }} />
 
                   <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    📋 KDV Oranı
+                    📋 KDV Ayarları
                   </h4>
+                  <div className="form-group" style={{ marginBottom: 16 }}>
+                    <label className="form-label">Alış Fiyatı KDV Oranı</label>
+                    <select
+                      className="form-select"
+                      value={addForm.purchaseVatRate ?? '0'}
+                      onChange={e => setAddForm({...addForm, purchaseVatRate: e.target.value})}
+                    >
+                      <option value="0">%0 — KDV Dahil / KDV Yok</option>
+                      <option value="1">%1 — KDV Hariç, %1 Ekle</option>
+                      <option value="10">%10 — KDV Hariç, %10 Ekle</option>
+                      <option value="20">%20 — KDV Hariç, %20 Ekle</option>
+                    </select>
+                    <small style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 4, display: 'block' }}>
+                      Tedarikçi fiyatları KDV hariç geliyorsa seçili oran alış fiyatına otomatik eklenir.
+                    </small>
+                  </div>
                   <div className="form-group">
-                    <label className="form-label">Varsayılan KDV Oranı (%)</label>
+                    <label className="form-label">Ürün KDV Oranı (Trendyol)</label>
                     <select
                       className="form-select"
                       value={addForm.defaultVatRate}
@@ -697,7 +714,7 @@ export default function XmlSourcesPage() {
                       <option value="20">%20</option>
                     </select>
                     <small style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 4, display: 'block' }}>
-                      Bu KDV oranı, bu XML kaynağından çekilen tüm ürünlere uygulanır. Trendyol'un 10 Temmuz sonrası kabul ettiği oranlar: %0, %1, %10, %20
+                      Trendyol'a gönderilecek ürünlerin vergi oranı. Temmuz 2024 sonrası kabul edilen oranlar: %0, %1, %10, %20
                     </small>
                   </div>
                 </div>
