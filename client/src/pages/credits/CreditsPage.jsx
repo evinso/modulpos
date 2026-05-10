@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Wallet, ArrowUpRight, ArrowDownRight, Clock, TrendingUp, CheckCircle2, Star, Zap, X, CreditCard, RefreshCw } from 'lucide-react';
+import { Wallet, ArrowUpRight, ArrowDownRight, Clock, TrendingUp, CheckCircle2, Star, Zap, X, CreditCard, RefreshCw, Calendar } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 
@@ -13,21 +13,28 @@ const TYPE_LABELS = {
 
 const QUICK_AMOUNTS = [50, 100, 200, 500];
 
+function extractPrice(str) {
+  if (!str) return NaN;
+  return parseFloat(String(str).replace(/[^\d.]/g, ''));
+}
+
 export default function CreditsPage() {
   const [balance, setBalance]       = useState(0);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading]       = useState(true);
   const [subPlans, setSubPlans]     = useState([]);
+  const [billingCycle, setBillingCycle] = useState('monthly');
 
   // Credit top-up
-  const [creditModal, setCreditModal]     = useState(false);
+  const [creditModal, setCreditModal]       = useState(false);
   const [purchaseAmount, setPurchaseAmount] = useState('100');
-  const [iframeToken, setIframeToken]     = useState(null);
+  const [iframeToken, setIframeToken]       = useState(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
 
   // Subscription
-  const [subModal, setSubModal]           = useState(false);
-  const [selectedPlan, setSelectedPlan]   = useState(null);
+  const [subModal, setSubModal]             = useState(false);
+  const [selectedPlan, setSelectedPlan]     = useState(null);
+  const [selectedCycle, setSelectedCycle]   = useState('monthly');
   const [subIframeToken, setSubIframeToken] = useState(null);
   const [subPaymentLoading, setSubPaymentLoading] = useState(false);
 
@@ -42,7 +49,6 @@ export default function CreditsPage() {
     if (p) window.history.replaceState({}, '', window.location.pathname);
   }, []);
 
-  // Load PayTR iframeResizer after token is set
   useEffect(() => {
     const token = iframeToken || subIframeToken;
     if (!token) return;
@@ -105,13 +111,29 @@ export default function CreditsPage() {
     }
   };
 
-  const handleStartSubPayment = async (plan) => {
-    const priceNum = parseFloat(String(plan.price).replace(/[^\d.]/g, ''));
+  const openSubModal = (plan) => {
+    setSelectedPlan(plan);
+    setSelectedCycle(billingCycle);
+    setSubIframeToken(null);
+    setSubModal(true);
+  };
+
+  const handleStartSubPayment = async () => {
+    const plan = selectedPlan;
+    const cycle = selectedCycle;
+    const priceStr = cycle === 'yearly' && plan.yearlyPrice ? plan.yearlyPrice : plan.price;
+    const priceNum = extractPrice(priceStr);
     if (isNaN(priceNum) || priceNum < 1) return toast.error('Bu plan için geçerli bir fiyat bulunamadı.');
-    const days = plan.period?.includes('yıl') ? 365 : 30;
+    const days = cycle === 'yearly' ? 365 : 30;
     setSubPaymentLoading(true);
     try {
-      const res = await api.post('/payment/subscription-token', { amount: priceNum, planName: plan.name, days });
+      const res = await api.post('/payment/subscription-token', {
+        amount: priceNum,
+        planName: plan.name,
+        planId: plan.id,
+        days,
+        billingCycle: cycle
+      });
       setSubIframeToken(res.data.token);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Ödeme başlatılamadı.');
@@ -119,6 +141,21 @@ export default function CreditsPage() {
       setSubPaymentLoading(false);
     }
   };
+
+  // Savings calculation for a plan
+  function getSavings(plan) {
+    const monthly = extractPrice(plan.price);
+    const yearly  = extractPrice(plan.yearlyPrice);
+    if (isNaN(monthly) || isNaN(yearly) || monthly <= 0) return null;
+    const monthlyTotal = monthly * 12;
+    const saved = monthlyTotal - yearly;
+    if (saved <= 0) return null;
+    const pct = Math.round((saved / monthlyTotal) * 100);
+    return { saved, pct };
+  }
+
+  // Plans with yearlyPrice available
+  const hasYearly = subPlans.some(p => p.yearlyPrice && extractPrice(p.yearlyPrice) > 0);
 
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
 
@@ -164,40 +201,123 @@ export default function CreditsPage() {
       {/* Subscription Plans */}
       {subPlans.length > 0 && (
         <div style={{ marginBottom: 32 }}>
-          <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>Abonelik Planları</h2>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: 20, fontSize: 14 }}>
-            ModulPOS'u kesintisiz kullanmak için bir plan seçin.
-          </p>
-          <div className="grid grid-3" style={{ gap: 16 }}>
-            {subPlans.map(plan => (
-              <div key={plan.id} className="card" style={{ display: 'flex', flexDirection: 'column', border: plan.isHighlighted ? '2px solid var(--accent-primary)' : undefined, position: 'relative' }}>
-                {plan.isHighlighted && (
-                  <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', background: 'var(--accent-gradient)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '3px 14px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <Star size={11} /> EN POPÜLER
-                  </div>
-                )}
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{plan.name}</div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                    <span style={{ fontSize: 30, fontWeight: 800, color: 'var(--text-primary)' }}>{plan.price}</span>
-                    <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{plan.period}</span>
-                  </div>
-                </div>
-                <ul style={{ listStyle: 'none', margin: '0 0 20px', padding: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {(Array.isArray(plan.features) ? plan.features : []).map((f, i) => (
-                    <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
-                      <CheckCircle2 size={15} style={{ color: 'var(--success)', flexShrink: 0, marginTop: 1 }} />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <button className={`btn ${plan.isHighlighted ? 'btn-primary' : 'btn-secondary'}`}
-                  onClick={() => { setSelectedPlan(plan); setSubIframeToken(null); setSubModal(true); }}
-                  style={{ width: '100%' }}>
-                  <Zap size={15} /> {plan.ctaText || 'Satın Al'}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Abonelik Planları</h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: 0 }}>
+                ModulPOS'u kesintisiz kullanmak için bir plan seçin.
+              </p>
+            </div>
+
+            {/* Billing toggle */}
+            {hasYearly && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 0, background: 'var(--bg-tertiary)', borderRadius: 10, padding: 3, border: '1px solid var(--border-color)', flexShrink: 0 }}>
+                <button
+                  onClick={() => setBillingCycle('monthly')}
+                  style={{
+                    padding: '7px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    border: 'none', transition: 'all 0.15s',
+                    background: billingCycle === 'monthly' ? 'var(--bg-card)' : 'transparent',
+                    color: billingCycle === 'monthly' ? 'var(--text-primary)' : 'var(--text-muted)',
+                    boxShadow: billingCycle === 'monthly' ? '0 1px 4px rgba(0,0,0,0.15)' : 'none'
+                  }}>
+                  Aylık
+                </button>
+                <button
+                  onClick={() => setBillingCycle('yearly')}
+                  style={{
+                    padding: '7px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    border: 'none', transition: 'all 0.15s',
+                    background: billingCycle === 'yearly' ? 'var(--bg-card)' : 'transparent',
+                    color: billingCycle === 'yearly' ? 'var(--text-primary)' : 'var(--text-muted)',
+                    boxShadow: billingCycle === 'yearly' ? '0 1px 4px rgba(0,0,0,0.15)' : 'none',
+                    display: 'flex', alignItems: 'center', gap: 6
+                  }}>
+                  Yıllık
+                  {/* Generic savings badge — show max savings across plans */}
+                  {(() => {
+                    const maxPct = Math.max(...subPlans.map(p => getSavings(p)?.pct || 0));
+                    return maxPct > 0 ? (
+                      <span style={{ background: 'rgba(34,197,94,0.15)', color: 'var(--success)', fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 20, border: '1px solid rgba(34,197,94,0.3)' }}>
+                        %{maxPct}'e kadar indirim
+                      </span>
+                    ) : null;
+                  })()}
                 </button>
               </div>
-            ))}
+            )}
+          </div>
+
+          <div className="grid grid-3" style={{ gap: 16 }}>
+            {subPlans.map(plan => {
+              const savings = getSavings(plan);
+              const showYearly = billingCycle === 'yearly' && plan.yearlyPrice && extractPrice(plan.yearlyPrice) > 0;
+              const displayPrice = showYearly ? plan.yearlyPrice : plan.price;
+              const monthlyNum = extractPrice(plan.price);
+
+              return (
+                <div key={plan.id} className="card" style={{ display: 'flex', flexDirection: 'column', border: plan.isHighlighted ? '2px solid var(--accent-primary)' : undefined, position: 'relative' }}>
+                  {plan.isHighlighted && (
+                    <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', background: 'var(--accent-gradient)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '3px 14px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                      <Star size={11} /> EN POPÜLER
+                    </div>
+                  )}
+
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{plan.name}</div>
+
+                    {/* Price display */}
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 30, fontWeight: 800, color: 'var(--text-primary)' }}>{displayPrice}</span>
+                      <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                        {showYearly ? '/ yıl' : (plan.period || '/ ay')}
+                      </span>
+                    </div>
+
+                    {/* Yearly: show monthly equivalent + savings */}
+                    {showYearly && savings && (
+                      <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                          Aylık eşdeğer:{' '}
+                          <span style={{ textDecoration: 'line-through', marginRight: 4 }}>
+                            {!isNaN(monthlyNum) ? `₺${(monthlyNum).toFixed(0)}` : plan.price}
+                          </span>
+                          <strong style={{ color: 'var(--text-primary)' }}>
+                            ₺{(extractPrice(plan.yearlyPrice) / 12).toFixed(0)}
+                          </strong>
+                        </span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(34,197,94,0.12)', color: 'var(--success)', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, border: '1px solid rgba(34,197,94,0.25)', width: 'fit-content' }}>
+                          ₺{savings.saved.toFixed(0)} tasarruf · %{savings.pct} indirim
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Monthly: hint about yearly savings */}
+                    {!showYearly && savings && hasYearly && (
+                      <div style={{ marginTop: 5, fontSize: 12, color: 'var(--text-muted)' }}>
+                        Yıllık alımda{' '}
+                        <span style={{ color: 'var(--success)', fontWeight: 600 }}>%{savings.pct} tasarruf</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <ul style={{ listStyle: 'none', margin: '0 0 20px', padding: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {(Array.isArray(plan.features) ? plan.features : []).map((f, i) => (
+                      <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
+                        <CheckCircle2 size={15} style={{ color: 'var(--success)', flexShrink: 0, marginTop: 1 }} />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+
+                  <button className={`btn ${plan.isHighlighted ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => openSubModal(plan)}
+                    style={{ width: '100%' }}>
+                    <Zap size={15} /> {plan.ctaText || 'Satın Al'}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -265,7 +385,6 @@ export default function CreditsPage() {
         >
           {!iframeToken ? (
             <>
-              {/* Quick amount buttons */}
               <div style={{ marginBottom: 16 }}>
                 <label className="form-label">Yüklenecek Tutar (TL)</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 10 }}>
@@ -327,34 +446,124 @@ export default function CreditsPage() {
           iframeRef={iframeRef}
         >
           {!subIframeToken ? (
-            <>
-              <div style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10, padding: 16, marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Seçilen Plan</div>
-                  <div style={{ fontSize: 16, fontWeight: 700 }}>{selectedPlan.name}</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent-primary)' }}>{selectedPlan.price}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{selectedPlan.period}</div>
-                </div>
-              </div>
-              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
-                Ödeme onaylandıktan sonra aboneliğiniz otomatik olarak aktive edilecektir.
-              </p>
-              <button className="btn btn-primary" style={{ width: '100%', padding: '12px', fontSize: 15 }}
-                onClick={() => handleStartSubPayment(selectedPlan)} disabled={subPaymentLoading}>
-                {subPaymentLoading
-                  ? <><div className="spinner" style={{ width: 16, height: 16, borderWidth: 2, display: 'inline-block', marginRight: 8 }} />Bağlanıyor...</>
-                  : <><CreditCard size={16} /> Güvenli Ödeme Yap</>}
-              </button>
-              <div style={{ marginTop: 20, textAlign: 'center' }}>
-                <img src="https://www.paytr.com/img/general/PayTR-Odeme-Altyapisi.svg" alt="PayTR" style={{ height: 28, opacity: 0.7 }} referrerPolicy="no-referrer" />
-              </div>
-            </>
+            <SubPaymentForm
+              plan={selectedPlan}
+              cycle={selectedCycle}
+              setCycle={setSelectedCycle}
+              loading={subPaymentLoading}
+              onPay={handleStartSubPayment}
+              getSavings={getSavings}
+              extractPrice={extractPrice}
+              hasYearly={hasYearly}
+            />
           ) : null}
         </PaytrModal>
       )}
     </div>
+  );
+}
+
+function SubPaymentForm({ plan, cycle, setCycle, loading, onPay, getSavings, extractPrice, hasYearly }) {
+  const showYearly = cycle === 'yearly' && plan.yearlyPrice && extractPrice(plan.yearlyPrice) > 0;
+  const displayPrice = showYearly ? plan.yearlyPrice : plan.price;
+  const savings = getSavings(plan);
+  const yearlyNum  = extractPrice(plan.yearlyPrice);
+
+  return (
+    <>
+      {/* Billing cycle selector */}
+      {hasYearly && plan.yearlyPrice && extractPrice(plan.yearlyPrice) > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+            <Calendar size={14} /> Faturalandırma Dönemi
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {/* Monthly option */}
+            <button
+              type="button"
+              onClick={() => setCycle('monthly')}
+              style={{
+                padding: '12px 14px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
+                border: `2px solid ${cycle === 'monthly' ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                background: cycle === 'monthly' ? 'rgba(59,130,246,0.08)' : 'var(--bg-tertiary)',
+                transition: 'all 0.15s'
+              }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>Aylık</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{plan.price}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>her ay</div>
+            </button>
+
+            {/* Yearly option */}
+            <button
+              type="button"
+              onClick={() => setCycle('yearly')}
+              style={{
+                padding: '12px 14px', borderRadius: 10, cursor: 'pointer', textAlign: 'left', position: 'relative',
+                border: `2px solid ${cycle === 'yearly' ? 'var(--success)' : 'var(--border-color)'}`,
+                background: cycle === 'yearly' ? 'rgba(34,197,94,0.07)' : 'var(--bg-tertiary)',
+                transition: 'all 0.15s'
+              }}>
+              {savings && (
+                <span style={{ position: 'absolute', top: -8, right: 8, background: 'var(--success)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20 }}>
+                  %{savings.pct} indirim
+                </span>
+              )}
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>Yıllık</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{plan.yearlyPrice}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                {!isNaN(yearlyNum) ? `≈ ₺${(yearlyNum / 12).toFixed(0)}/ay` : 'yılda bir'}
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Summary */}
+      <div style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: showYearly && savings ? 10 : 0 }}>
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 2 }}>Seçilen Plan</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{plan.name}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+              {showYearly ? '12 aylık abonelik' : '1 aylık abonelik'}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--accent-primary)' }}>{displayPrice}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {showYearly ? '/ yıl' : (plan.period || '/ ay')}
+            </div>
+          </div>
+        </div>
+
+        {/* Yearly savings detail */}
+        {showYearly && savings && (
+          <div style={{ borderTop: '1px solid rgba(59,130,246,0.15)', paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              Aylık fiyata göre tasarruf
+            </span>
+            <span style={{ background: 'rgba(34,197,94,0.12)', color: 'var(--success)', fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 20, border: '1px solid rgba(34,197,94,0.25)' }}>
+              ₺{savings.saved.toFixed(0)} tasarruf
+            </span>
+          </div>
+        )}
+      </div>
+
+      <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
+        Ödeme onaylandıktan sonra aboneliğiniz otomatik olarak aktive edilecektir.
+      </p>
+
+      <button className="btn btn-primary" style={{ width: '100%', padding: '12px', fontSize: 15 }}
+        onClick={onPay} disabled={loading}>
+        {loading
+          ? <><div className="spinner" style={{ width: 16, height: 16, borderWidth: 2, display: 'inline-block', marginRight: 8 }} />Bağlanıyor...</>
+          : <><CreditCard size={16} /> Güvenli Ödeme Yap — {displayPrice}</>}
+      </button>
+
+      <div style={{ marginTop: 20, textAlign: 'center' }}>
+        <img src="https://www.paytr.com/img/general/PayTR-Odeme-Altyapisi.svg" alt="PayTR" style={{ height: 28, opacity: 0.7 }} referrerPolicy="no-referrer" />
+      </div>
+    </>
   );
 }
 
@@ -368,7 +577,6 @@ function PaytrModal({ title, icon, onClose, iframeToken, iframeRef, children }) 
         display: 'flex', flexDirection: 'column', maxHeight: '95vh', overflow: 'hidden',
         transition: 'max-width 0.2s ease'
       }}>
-        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
             {icon} {title}
@@ -377,8 +585,6 @@ function PaytrModal({ title, icon, onClose, iframeToken, iframeRef, children }) 
             <X size={20} />
           </button>
         </div>
-
-        {/* Body */}
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {iframeToken ? (
             <iframe
