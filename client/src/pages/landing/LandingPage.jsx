@@ -325,7 +325,7 @@ export default function LandingPage() {
         </div>
         
         <div className="lp-footer-bottom">
-          <p>© {new Date().getFullYear()} ModulPOS. Tüm hakları saklıdır.</p>
+          <p>{footerSettings.footer_copyright || `© ${new Date().getFullYear()} ModulPOS. Tüm hakları saklıdır.`}</p>
           <div className="lp-footer-payment-icons" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginRight: '8px' }}>Güvenli Ödeme:</span>
             

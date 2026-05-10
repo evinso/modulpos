@@ -39,7 +39,8 @@ export default function SuperAdminPage() {
     footer_description: 'Tüm pazaryerlerinizi tek platformdan yönetin. E-ticaret operasyonlarınızı otomatikleştirin ve satışlarınızı artırın.',
     footer_address: 'Bilişim Vadisi, Teknoloji Blv. No:1, Gebze / Kocaeli',
     footer_email: 'info@modulpos.com',
-    footer_phone: '0850 000 00 00'
+    footer_phone: '0850 000 00 00',
+    footer_copyright: `© ${new Date().getFullYear()} ModulPOS. Tüm hakları saklıdır.`
   });
 
   const [generalSettings, setGeneralSettings] = useState({ trial_days: '3' });
@@ -88,7 +89,7 @@ export default function SuperAdminPage() {
         const footerRes = await api.get('/admin/footer-sections');
         setFooterSections(footerRes.data);
 
-        const settingsRes = await api.get('/admin/system-settings?keys=footer_description,footer_address,footer_email,footer_phone,footer_company_name');
+        const settingsRes = await api.get('/admin/system-settings?keys=footer_description,footer_address,footer_email,footer_phone,footer_company_name,footer_copyright');
         if (Object.keys(settingsRes.data).length > 0) {
           setFooterBrandSettings(prev => ({ ...prev, ...settingsRes.data }));
         }
@@ -886,6 +887,10 @@ export default function SuperAdminPage() {
                   <div className="form-group">
                     <label className="form-label">Telefon</label>
                     <input type="text" className="form-input" value={footerBrandSettings.footer_phone} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_phone: e.target.value})} />
+                  </div>
+                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                    <label className="form-label">Telif Hakkı Metni (© satırı)</label>
+                    <input type="text" className="form-input" value={footerBrandSettings.footer_copyright} onChange={e => setFooterBrandSettings({...footerBrandSettings, footer_copyright: e.target.value})} />
                   </div>
                   <div style={{ gridColumn: 'span 2', textAlign: 'right' }}>
                     <button type="submit" className="btn btn-primary">Bilgileri Güncelle</button>

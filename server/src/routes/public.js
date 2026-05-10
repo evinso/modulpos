@@ -33,7 +33,7 @@ router.get('/footer-sections', async (req, res) => {
     const settings = await prisma.systemSettings.findMany({
       where: {
         key: {
-          in: ['footer_description', 'footer_address', 'footer_email', 'footer_phone', 'footer_company_name']
+          in: ['footer_description', 'footer_address', 'footer_email', 'footer_phone', 'footer_company_name', 'footer_copyright']
         }
       }
     });
