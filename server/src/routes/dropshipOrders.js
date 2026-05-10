@@ -51,13 +51,18 @@ router.post('/place', auth, async (req, res, next) => {
 
     const product = await prisma.product.findFirst({
       where: { id: productId, storeId: store.id },
-      include: { xmlSource: { select: { name: true } } }
+      include: {
+        xmlSource: {
+          select: { name: true, globalProvider: { select: { orderFee: true } } }
+        }
+      }
     });
     if (!product) return res.status(404).json({ error: 'Ürün bulunamadı' });
 
     const qty = Math.max(1, parseInt(quantity) || 1);
     const unitCost = product.xmlPrice > 0 ? product.xmlPrice : product.price;
-    const totalCost = parseFloat((unitCost * qty).toFixed(2));
+    const orderFee = parseFloat(product.xmlSource?.globalProvider?.orderFee) || 0;
+    const totalCost = parseFloat((unitCost * qty + orderFee).toFixed(2));
 
     if (totalCost <= 0) return res.status(400).json({ error: 'Ürün XML fiyatı geçersiz veya sıfır' });
 
@@ -69,12 +74,13 @@ router.post('/place', auth, async (req, res, next) => {
       });
     }
 
+    const feeNote = orderFee > 0 ? ` + ₺${orderFee.toFixed(2)} sipariş ücreti` : '';
     // Deduct credits
     await deductCredits(
       req.user.id,
       totalCost,
       'dropship_order',
-      `Tedarikçi Siparişi: ${product.title.substring(0, 60)} (${campaignCode.trim()})`,
+      `Tedarikçi Siparişi: ${product.title.substring(0, 60)} (${campaignCode.trim()})${feeNote}`,
       productId
     );
 

@@ -62,7 +62,7 @@ router.get('/', async (req, res, next) => {
           marketplaceProducts: {
             include: { connection: { select: { marketplaceType: true } } }
           },
-          xmlSource: { select: { name: true, globalProviderId: true } }
+          xmlSource: { select: { name: true, globalProviderId: true, globalProvider: { select: { orderFee: true } } } }
         },
         orderBy: { [sortBy]: sortOrder },
         skip: (parseInt(page) - 1) * parseInt(limit),

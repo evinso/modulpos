@@ -168,6 +168,7 @@ export default function GlobalXmlAdminPage() {
     priceMarkup: '',
     priceMarkupPct: '',
     creditCost: '',
+    orderFee: '',
     cargoCompanies: [],
     isActive: true
   });
@@ -317,6 +318,7 @@ export default function GlobalXmlAdminPage() {
         priceMarkup: provider.priceMarkup || '',
         priceMarkupPct: provider.priceMarkupPct || '',
         creditCost: provider.creditCost || '',
+        orderFee: provider.orderFee || '',
         cargoCompanies: parsedCargo,
         isActive: provider.isActive
       });
@@ -350,6 +352,7 @@ export default function GlobalXmlAdminPage() {
         priceMarkup: '',
         priceMarkupPct: '',
         creditCost: '',
+        orderFee: '',
         cargoCompanies: [],
         isActive: true
       });
@@ -631,10 +634,17 @@ export default function GlobalXmlAdminPage() {
                   </div>
                 </div>
 
-                <div className="form-group" style={{ marginBottom: 24, maxWidth: 300 }}>
-                  <label className="form-label">💰 Kredi Maliyeti</label>
-                  <input type="number" step="0.5" min="0" className="form-input" value={formData.creditCost} onChange={e => setFormData({...formData, creditCost: e.target.value})} placeholder="Varsayılan: Sistem ayarı" />
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>Bu XML'i eklemek için kullanıcıdan kesilecek kredi. Boş bırakılırsa sistem varsayılanı kullanılır.</span>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+                  <div className="form-group">
+                    <label className="form-label">💰 XML Ekleme Kredi Maliyeti</label>
+                    <input type="number" step="0.5" min="0" className="form-input" value={formData.creditCost} onChange={e => setFormData({...formData, creditCost: e.target.value})} placeholder="Varsayılan: Sistem ayarı" />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>Bu XML'i mağazaya eklemek için kesilecek kredi.</span>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">🧾 Sipariş Başına Tedarikçi Ücreti (₺)</label>
+                    <input type="number" step="0.01" min="0" className="form-input" value={formData.orderFee} onChange={e => setFormData({...formData, orderFee: e.target.value})} placeholder="Örn: 5.00" />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>Her dropship siparişinde ürün bedeline ek olarak kesilir. 0 ise ücret alınmaz.</span>
+                  </div>
                 </div>
 
                 <div className="form-group" style={{ marginBottom: '24px' }}>

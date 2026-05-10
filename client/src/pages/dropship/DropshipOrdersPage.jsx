@@ -75,11 +75,13 @@ export default function DropshipOrdersPage() {
     setNewForm(f => ({ ...f, selectedProduct: p, productSearch: p.title, productResults: [] }));
   };
 
-  const unitCost = newForm.selectedProduct
+  const unitCost  = newForm.selectedProduct
     ? (newForm.selectedProduct.xmlPrice > 0 ? newForm.selectedProduct.xmlPrice : newForm.selectedProduct.price)
     : 0;
-  const totalCost   = parseFloat((unitCost * Math.max(1, parseInt(newForm.quantity) || 1)).toFixed(2));
-  const canAfford   = balance !== null && balance >= totalCost;
+  const orderFee  = parseFloat(newForm.selectedProduct?.xmlSource?.globalProvider?.orderFee) || 0;
+  const qty       = Math.max(1, parseInt(newForm.quantity) || 1);
+  const totalCost = parseFloat((unitCost * qty + orderFee).toFixed(2));
+  const canAfford = balance !== null && balance >= totalCost;
 
   const handlePlace = async (e) => {
     e.preventDefault();
@@ -362,9 +364,22 @@ export default function DropshipOrdersPage() {
             {/* Cost summary */}
             {newForm.selectedProduct && (
               <div style={{ background: canAfford ? 'rgba(34,197,94,0.07)' : 'rgba(239,68,68,0.07)', border: `1px solid ${canAfford ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`, borderRadius: 10, padding: '12px 14px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Ödenecek Kredi</span>
-                  <span style={{ fontWeight: 700, fontSize: 16, color: canAfford ? '#22c55e' : 'var(--danger)' }}>₺{totalCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)' }}>
+                    <span>Ürün bedeli ({qty} adet × ₺{unitCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })})</span>
+                    <span>₺{(unitCost * qty).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  {orderFee > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--warning)' }}>
+                      <span>🧾 Tedarikçi sipariş ücreti</span>
+                      <span>₺{orderFee.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
+                  <div style={{ height: 1, background: 'var(--border-color)' }} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Ödenecek Kredi</span>
+                    <span style={{ fontWeight: 700, color: canAfford ? '#22c55e' : 'var(--danger)' }}>₺{totalCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
+                  </div>
                 </div>
                 {balance !== null && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)' }}>
@@ -384,7 +399,7 @@ export default function DropshipOrdersPage() {
               <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setNewModal(false)}>Vazgeç</button>
               <button type="submit" className="btn btn-primary" style={{ flex: 1 }}
                 disabled={placing || !newForm.selectedProduct || !newForm.campaignCode.trim() || !canAfford}>
-                {placing ? 'Sipariş Veriliyor...' : <><Check size={15} /> Sipariş Ver — ₺{totalCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} Kredi Düş</>}
+                {placing ? 'Sipariş Veriliyor...' : <><Check size={15} /> Sipariş Ver &mdash; ₺{totalCost.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} Kredi Düş</>}
               </button>
             </div>
           </form>

@@ -333,6 +333,7 @@ model GlobalXmlProvider {
   priceMarkupPct  Float    @default(0)
   barcodePrefix   String?
   creditCost      Float    @default(0) // Kredi maliyeti (admin belirler)
+  orderFee        Float    @default(0) // Sipariş başına tedarikçi ücreti
   productCount    Int      @default(0) // Önizlemede güncellenir
   cargoCompanies  String?  // JSON array of cargo company names
   isActive        Boolean  @default(true)

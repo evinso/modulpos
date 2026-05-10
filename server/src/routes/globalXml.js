@@ -78,7 +78,7 @@ router.get('/trendyol-categories/:catId/attributes', auth, requireAdmin, async (
 // POST /api/global-xml - Admin creates a new Global XML provider
 router.post('/', auth, requireAdmin, async (req, res, next) => {
   try {
-    const { name, url, format, mappingConfig, categoryMappingConfig, description, logo, isActive, priceMarkup, priceMarkupPct, barcodePrefix, creditCost, cargoCompanies } = req.body;
+    const { name, url, format, mappingConfig, categoryMappingConfig, description, logo, isActive, priceMarkup, priceMarkupPct, barcodePrefix, creditCost, cargoCompanies, orderFee } = req.body;
 
     if (!name || !url) {
       return res.status(400).json({ error: 'İsim ve URL zorunludur' });
@@ -97,6 +97,7 @@ router.post('/', auth, requireAdmin, async (req, res, next) => {
         priceMarkupPct: priceMarkupPct ? parseFloat(priceMarkupPct) : 0,
         barcodePrefix: barcodePrefix || null,
         creditCost: creditCost ? parseFloat(creditCost) : 0,
+        orderFee: orderFee ? parseFloat(orderFee) : 0,
         cargoCompanies: Array.isArray(cargoCompanies) && cargoCompanies.length > 0 ? JSON.stringify(cargoCompanies) : null,
         isActive: isActive !== undefined ? isActive : true
       }
@@ -111,7 +112,7 @@ router.post('/', auth, requireAdmin, async (req, res, next) => {
 // PUT /api/global-xml/:id - Admin updates a Global XML provider
 router.put('/:id', auth, requireAdmin, async (req, res, next) => {
   try {
-    const { name, url, format, mappingConfig, categoryMappingConfig, description, logo, isActive, priceMarkup, priceMarkupPct, barcodePrefix, creditCost, cargoCompanies } = req.body;
+    const { name, url, format, mappingConfig, categoryMappingConfig, description, logo, isActive, priceMarkup, priceMarkupPct, barcodePrefix, creditCost, cargoCompanies, orderFee } = req.body;
 
     const provider = await prisma.globalXmlProvider.update({
       where: { id: req.params.id },
@@ -127,6 +128,7 @@ router.put('/:id', auth, requireAdmin, async (req, res, next) => {
         priceMarkupPct: priceMarkupPct ? parseFloat(priceMarkupPct) : 0,
         barcodePrefix: barcodePrefix || null,
         creditCost: creditCost ? parseFloat(creditCost) : 0,
+        orderFee: orderFee ? parseFloat(orderFee) : 0,
         cargoCompanies: Array.isArray(cargoCompanies) && cargoCompanies.length > 0 ? JSON.stringify(cargoCompanies) : null,
         isActive
       }
