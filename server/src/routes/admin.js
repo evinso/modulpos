@@ -398,6 +398,62 @@ router.delete('/footer-sections/:id', auth, isAdmin, async (req, res) => {
 });
 
 /**
+ * POST /api/admin/footer-sections/seed-defaults
+ * Creates default footer sections if none exist
+ */
+router.post('/footer-sections/seed-defaults', auth, isAdmin, async (req, res) => {
+  try {
+    const existing = await prisma.landingFooterSection.count();
+    if (existing > 0) {
+      return res.status(400).json({ error: 'Footer bölümleri zaten mevcut. Önce mevcut bölümleri silin.' });
+    }
+
+    const defaults = [
+      {
+        title: 'Ürün',
+        order: 0,
+        isActive: true,
+        links: JSON.stringify([
+          { label: 'Özellikler', url: '#features', isExternal: false },
+          { label: 'Fiyatlandırma', url: '#pricing', isExternal: false },
+          { label: 'Nasıl Çalışır?', url: '#how', isExternal: false },
+          { label: 'Ücretsiz Başla', url: '/register', isExternal: false }
+        ])
+      },
+      {
+        title: 'Yasal Sözleşmeler',
+        order: 1,
+        isActive: true,
+        links: JSON.stringify([
+          { label: 'Mesafeli Satış Sözleşmesi', url: '/policy/mesafeli-satis-sozlesmesi', isExternal: false },
+          { label: 'İptal ve İade Koşulları', url: '/policy/iptal-ve-iade-kosullari', isExternal: false },
+          { label: 'Gizlilik ve Güvenlik Politikası', url: '/policy/gizlilik-ve-guvenlik-politikasi', isExternal: false },
+          { label: 'Teslimat Koşulları', url: '/policy/teslimat-kosullari', isExternal: false },
+          { label: 'Kullanım Şartları', url: '/policy/kullanim-sartlari', isExternal: false }
+        ])
+      },
+      {
+        title: 'Kurumsal',
+        order: 2,
+        isActive: true,
+        links: JSON.stringify([
+          { label: 'Hakkımızda', url: '/policy/hakkimizda', isExternal: false },
+          { label: 'İletişim', url: '/policy/iletisim', isExternal: false },
+          { label: 'Kariyer', url: '#', isExternal: false },
+          { label: 'Destek Merkezi', url: '#', isExternal: false }
+        ])
+      }
+    ];
+
+    await prisma.landingFooterSection.createMany({ data: defaults });
+    const sections = await prisma.landingFooterSection.findMany({ orderBy: { order: 'asc' } });
+    res.json({ message: '3 varsayılan footer bölümü oluşturuldu.', sections });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * GET /api/admin/system-settings
  */
 router.get('/system-settings', auth, isAdmin, async (req, res) => {

@@ -292,6 +292,17 @@ export default function SuperAdminPage() {
     }
   };
 
+  const handleSeedDefaultFooter = async () => {
+    if (!window.confirm('Varsayılan 3 footer bölümü (Ürün, Yasal Sözleşmeler, Kurumsal) oluşturulsun mu?')) return;
+    try {
+      const res = await api.post('/admin/footer-sections/seed-defaults');
+      toast.success(res.data.message);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Varsayılanlar yüklenemedi');
+    }
+  };
+
   const handleSaveFooterBrand = async (e) => {
     e.preventDefault();
     try {
@@ -584,12 +595,19 @@ export default function SuperAdminPage() {
               </button>
             )}
             {activeTab === 'footer' && (
-              <button className="btn btn-primary" onClick={() => {
-                setFooterForm({ title: '', links: [{ label: '', url: '', isExternal: false }], order: footerSections.length, isActive: true });
-                setShowFooterModal('new');
-              }}>
-                <Plus size={16} /> Yeni Grup Ekle
-              </button>
+              <div className="flex gap-2">
+                {footerSections.length === 0 && (
+                  <button className="btn btn-secondary" onClick={handleSeedDefaultFooter}>
+                    Varsayılanları Yükle
+                  </button>
+                )}
+                <button className="btn btn-primary" onClick={() => {
+                  setFooterForm({ title: '', links: [{ label: '', url: '', isExternal: false }], order: footerSections.length, isActive: true });
+                  setShowFooterModal('new');
+                }}>
+                  <Plus size={16} /> Yeni Grup Ekle
+                </button>
+              </div>
             )}
           </div>
 

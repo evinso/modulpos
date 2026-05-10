@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import ScrollToTop from './components/ScrollToTop';
 import { useAuthStore } from './store/authStore';
 import Layout from './components/layout/Layout';
 import LoginPage from './pages/auth/LoginPage';
@@ -42,6 +43,7 @@ function AdminRoute({ children }) {
 function App() {
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <Toaster position="top-right" toastOptions={{
         style: { background: '#1a2236', color: '#f1f5f9', border: '1px solid rgba(59,130,246,0.2)' }
       }} />
