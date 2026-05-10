@@ -326,6 +326,7 @@ model GlobalXmlProvider {
   priceMarkupPct  Float    @default(0)
   barcodePrefix   String?
   creditCost      Float    @default(0) // Kredi maliyeti (admin belirler)
+  productCount    Int      @default(0) // Önizlemede güncellenir
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

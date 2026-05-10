@@ -172,6 +172,12 @@ router.get('/:id/preview', auth, async (req, res, next) => {
       price: p.price || 0
     }));
 
+    // Cache product count
+    await prisma.globalXmlProvider.update({
+      where: { id: provider.id },
+      data: { productCount: products.length }
+    });
+
     res.json({ total: products.length, preview, categories });
   } catch (error) {
     next(error);

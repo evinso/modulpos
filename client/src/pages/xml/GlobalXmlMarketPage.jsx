@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Search, Tag, CheckCircle2, PackageSearch, Wallet, Eye, X, ImageOff, FolderTree } from 'lucide-react';
+import { Download, Search, Tag, CheckCircle2, PackageSearch, Wallet, Eye, X, ImageOff, FolderTree, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 import { useNavigate } from 'react-router-dom';
@@ -169,7 +169,17 @@ export default function GlobalXmlMarketPage() {
                   <Wallet size={14} />
                   {(provider.creditCost > 0 ? provider.creditCost : defaultCost)} Kredi
                 </span>
-                <span className="badge badge-success" style={{ marginTop: 0 }}>Hazır Eşleştirme</span>
+                {provider.productCount > 0 ? (
+                  <span style={{
+                    fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)',
+                    display: 'flex', alignItems: 'center', gap: 4
+                  }}>
+                    <Package size={13} style={{ color: 'var(--accent-primary)' }} />
+                    {provider.productCount.toLocaleString('tr-TR')} ürün
+                  </span>
+                ) : (
+                  <span className="badge badge-success" style={{ marginTop: 0 }}>Hazır Eşleştirme</span>
+                )}
               </div>
               
               <div style={{ display: 'flex', gap: 8 }}>
