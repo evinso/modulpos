@@ -58,4 +58,22 @@ router.get('/footer-sections', async (req, res) => {
   }
 });
 
+// GET /public/policy/:slug
+router.get('/policy/:slug', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const [titleSetting, contentSetting] = await Promise.all([
+      prisma.systemSettings.findUnique({ where: { key: `policy_${slug}_title` } }),
+      prisma.systemSettings.findUnique({ where: { key: `policy_${slug}_content` } })
+    ]);
+
+    if (titleSetting && contentSetting) {
+      return res.json({ slug, title: titleSetting.value, content: contentSetting.value });
+    }
+    res.status(404).json({ error: 'Sayfa bulunamadı' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

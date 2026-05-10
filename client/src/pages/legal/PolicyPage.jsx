@@ -1,11 +1,37 @@
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { legalContent } from './legalContent';
 import { ArrowLeft } from 'lucide-react';
+import api from '../../services/api';
 import '../landing/LandingPage.css';
 
 export default function PolicyPage() {
   const { slug } = useParams();
-  const policy = legalContent[slug];
+  const [policy, setPolicy] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await api.get(`/public/policy/${slug}`);
+        setPolicy(res.data);
+      } catch {
+        const fallback = legalContent[slug];
+        setPolicy(fallback ? { slug, ...fallback } : null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [slug]);
+
+  if (loading) {
+    return (
+      <div className="lp-root" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+        <div style={{ color: 'var(--text-muted)' }}>Yükleniyor...</div>
+      </div>
+    );
+  }
 
   if (!policy) {
     return (
@@ -34,16 +60,12 @@ export default function PolicyPage() {
 
       <div style={{ maxWidth: 800, margin: '60px auto', padding: '0 24px' }}>
         <h1 style={{ fontSize: '2.5rem', marginBottom: 40, color: 'var(--text-primary)' }}>{policy.title}</h1>
-        <div 
-          className="policy-content" 
-          style={{ 
-            color: 'var(--text-secondary)', 
-            lineHeight: 1.8,
-            fontSize: 16
-          }}
+        <div
+          className="policy-content"
+          style={{ color: 'var(--text-secondary)', lineHeight: 1.8, fontSize: 16 }}
           dangerouslySetInnerHTML={{ __html: policy.content }}
         />
-        
+
         <div style={{ marginTop: 60, padding: 32, borderRadius: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
           <h4 style={{ color: 'var(--text-primary)', marginBottom: 12 }}>Sorunuz mu var?</h4>
           <p style={{ fontSize: 14 }}>Bu sözleşme veya hizmetlerimizle ilgili her türlü sorunuz için destek ekibimizle iletişime geçebilirsiniz.</p>

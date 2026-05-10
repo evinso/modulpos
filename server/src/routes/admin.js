@@ -453,6 +453,67 @@ router.post('/footer-sections/seed-defaults', auth, isAdmin, async (req, res) =>
   }
 });
 
+const POLICY_SLUGS = [
+  'mesafeli-satis-sozlesmesi',
+  'iptal-ve-iade-kosullari',
+  'gizlilik-ve-guvenlik-politikasi',
+  'teslimat-kosullari',
+  'kullanim-sartlari',
+  'hakkimizda',
+  'iletisim'
+];
+
+/**
+ * GET /api/admin/policy-pages
+ * Returns all policy pages (from DB; empty content if not yet saved)
+ */
+router.get('/policy-pages', auth, isAdmin, async (req, res) => {
+  try {
+    const keys = POLICY_SLUGS.flatMap(s => [`policy_${s}_title`, `policy_${s}_content`]);
+    const settings = await prisma.systemSettings.findMany({ where: { key: { in: keys } } });
+    const map = {};
+    settings.forEach(s => { map[s.key] = s.value; });
+
+    const pages = POLICY_SLUGS.map(slug => ({
+      slug,
+      title: map[`policy_${slug}_title`] || '',
+      content: map[`policy_${slug}_content`] || ''
+    }));
+    res.json(pages);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/admin/policy-pages/:slug
+ */
+router.put('/policy-pages/:slug', auth, isAdmin, async (req, res) => {
+  try {
+    const { slug } = req.params;
+    if (!POLICY_SLUGS.includes(slug)) return res.status(400).json({ error: 'Geçersiz slug' });
+    const { title, content } = req.body;
+    if (!title?.trim()) return res.status(400).json({ error: 'Başlık zorunludur' });
+    if (!content?.trim()) return res.status(400).json({ error: 'İçerik zorunludur' });
+
+    await Promise.all([
+      prisma.systemSettings.upsert({
+        where: { key: `policy_${slug}_title` },
+        update: { value: title.trim() },
+        create: { key: `policy_${slug}_title`, value: title.trim() }
+      }),
+      prisma.systemSettings.upsert({
+        where: { key: `policy_${slug}_content` },
+        update: { value: content.trim() },
+        create: { key: `policy_${slug}_content`, value: content.trim() }
+      })
+    ]);
+    res.json({ slug, title: title.trim() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 /**
  * GET /api/admin/system-settings
  */

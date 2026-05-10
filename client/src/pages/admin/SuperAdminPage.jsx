@@ -7,6 +7,7 @@ import {
   MessageSquare, Send
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { legalContent } from '../legal/legalContent';
 import './SuperAdminPage.css';
 
 export default function SuperAdminPage() {
@@ -63,6 +64,21 @@ export default function SuperAdminPage() {
   const [supportReplying, setSupportReplying] = useState(false);
   const [supportStatusSaving, setSupportStatusSaving] = useState(false);
 
+  const [policyPages, setPolicyPages] = useState([]);
+  const [policyEditSlug, setPolicyEditSlug] = useState(null);
+  const [policyForm, setPolicyForm] = useState({ title: '', content: '' });
+  const [policySaving, setPolicySaving] = useState(false);
+
+  const POLICY_LABELS = {
+    'mesafeli-satis-sozlesmesi': 'Mesafeli Satış Sözleşmesi',
+    'iptal-ve-iade-kosullari': 'İptal ve İade Koşulları',
+    'gizlilik-ve-guvenlik-politikasi': 'Gizlilik ve Güvenlik Politikası',
+    'teslimat-kosullari': 'Teslimat Koşulları',
+    'kullanim-sartlari': 'Kullanım Şartları',
+    'hakkimizda': 'Hakkımızda',
+    'iletisim': 'İletişim',
+  };
+
   useEffect(() => {
     fetchData();
   }, [activeTab]);
@@ -104,6 +120,9 @@ export default function SuperAdminPage() {
       } else if (activeTab === 'settings') {
         const settingsRes = await api.get('/admin/system-settings?keys=trial_days');
         setGeneralSettings({ trial_days: settingsRes.data.trial_days || '3' });
+      } else if (activeTab === 'policies') {
+        const res = await api.get('/admin/policy-pages');
+        setPolicyPages(res.data);
       }
     } catch (error) {
       console.error('Admin verileri yüklenemedi:', error);
@@ -301,6 +320,29 @@ export default function SuperAdminPage() {
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.error || 'Varsayılanlar yüklenemedi');
+    }
+  };
+
+  const handleEditPolicy = (page) => {
+    setPolicyForm({
+      title: page.title || legalContent[page.slug]?.title || POLICY_LABELS[page.slug] || '',
+      content: page.content || legalContent[page.slug]?.content || ''
+    });
+    setPolicyEditSlug(page.slug);
+  };
+
+  const handleSavePolicy = async (e) => {
+    e.preventDefault();
+    setPolicySaving(true);
+    try {
+      await api.put(`/admin/policy-pages/${policyEditSlug}`, policyForm);
+      toast.success('Sayfa kaydedildi');
+      setPolicyEditSlug(null);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Kayıt başarısız');
+    } finally {
+      setPolicySaving(false);
     }
   };
 
@@ -523,6 +565,9 @@ export default function SuperAdminPage() {
         </button>
         <button className={`admin-tab ${activeTab === 'support' ? 'active' : ''}`} onClick={() => setActiveTab('support')}>
           <MessageSquare size={16} /> Destek Biletleri
+        </button>
+        <button className={`admin-tab ${activeTab === 'policies' ? 'active' : ''}`} onClick={() => setActiveTab('policies')}>
+          <FileText size={16} /> Yasal Sayfalar
         </button>
         <button className={`admin-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
           <Sliders size={16} /> Genel Ayarlar
@@ -1040,6 +1085,86 @@ export default function SuperAdminPage() {
                 </table>
               );
             })()
+          ) : activeTab === 'policies' ? (
+            <div style={{ padding: '8px 0' }}>
+              {policyEditSlug ? (
+                <div className="card" style={{ padding: 24 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                    <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <FileText size={18} /> {POLICY_LABELS[policyEditSlug]}
+                    </h4>
+                    <button className="btn btn-ghost" onClick={() => setPolicyEditSlug(null)}>
+                      <X size={16} /> Geri
+                    </button>
+                  </div>
+                  <form onSubmit={handleSavePolicy} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <div className="form-group">
+                      <label className="form-label">Sayfa Başlığı</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={policyForm.title}
+                        onChange={e => setPolicyForm({ ...policyForm, title: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">İçerik (HTML)</label>
+                      <textarea
+                        className="form-textarea"
+                        style={{ minHeight: 420, fontFamily: 'monospace', fontSize: 13 }}
+                        value={policyForm.content}
+                        onChange={e => setPolicyForm({ ...policyForm, content: e.target.value })}
+                        required
+                      />
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+                        HTML etiketleri kullanabilirsiniz: &lt;h3&gt;, &lt;p&gt;, &lt;ul&gt;, &lt;li&gt;, &lt;strong&gt; vb.
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+                      <button type="button" className="btn btn-ghost" onClick={() => setPolicyEditSlug(null)}>İptal</button>
+                      <button type="submit" className="btn btn-primary" disabled={policySaving}>
+                        {policySaving ? 'Kaydediliyor...' : 'Kaydet'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              ) : (
+                <div className="card" style={{ padding: 24 }}>
+                  <h4 style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <FileText size={18} /> Yasal Sayfalar
+                  </h4>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Sayfa</th>
+                        <th>URL</th>
+                        <th>Durum</th>
+                        <th>İşlem</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {policyPages.map(page => (
+                        <tr key={page.slug}>
+                          <td><span className="font-semibold">{POLICY_LABELS[page.slug] || page.slug}</span></td>
+                          <td><span style={{ fontSize: 12, color: 'var(--text-muted)' }}>/policy/{page.slug}</span></td>
+                          <td>
+                            <span className={`badge ${page.content ? 'badge-success' : 'badge-warning'}`}>
+                              {page.content ? 'Düzenlenmiş' : 'Varsayılan'}
+                            </span>
+                          </td>
+                          <td>
+                            <button className="header-icon-btn" onClick={() => handleEditPolicy(page)}>
+                              <Edit size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           ) : activeTab === 'settings' ? (
             <div style={{ padding: '8px 0' }}>
               <div className="card" style={{ padding: 24, maxWidth: 560 }}>
