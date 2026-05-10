@@ -3,6 +3,7 @@ const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const TrendyolService = require('../services/trendyol/trendyolService');
 const notificationService = require('../services/notificationService');
+const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
 
 const router = express.Router();
 router.use(auth);
@@ -252,7 +253,7 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
 
     // Fetch pricing rules for this connection
     const pricingRules = await prisma.pricingRule.findMany({
-      where: { storeId: connection.storeId, applyTo: 'marketplace_xml', isActive: true },
+      where: { storeId: connection.storeId, applyTo: { in: ['marketplace_xml', 'price_range'] }, isActive: true },
       orderBy: { priority: 'asc' }
     });
 
@@ -265,21 +266,23 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
         include: { globalProvider: true }
       });
       for (const src of xmlSources) {
-        if (src.globalProvider && src.globalProvider.categoryMappingConfig) {
-          try {
-            globalCatMap[src.id] = JSON.parse(src.globalProvider.categoryMappingConfig);
-          } catch(e) {}
+          if (src.globalProvider && src.globalProvider.categoryMappingConfig) {
+          try { globalCatMap[src.id] = JSON.parse(src.globalProvider.categoryMappingConfig); } catch(e) {}
         }
       }
     }
 
     const pricingLookup = {};
+    const priceRangeRules = [];
     for (const r of pricingRules) {
       if (!r.conditions) continue;
       try {
         const conds = JSON.parse(r.conditions);
         if (conds.connectionId === connection.id && conds.xmlSourceId) {
           pricingLookup[conds.xmlSourceId] = r;
+        }
+        if (conds.minPurchasePrice != null || conds.maxPurchasePrice != null) {
+          priceRangeRules.push(r);
         }
       } catch(e) {}
     }
@@ -331,16 +334,23 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
 
       // Find and apply Pricing Rule
       const rule = pricingLookup[p.xmlSourceId];
-      if (!rule) {
+      const xmlPrice = p.xmlPrice || p.price;
+      const rangeMatch = !rule ? matchPriceRangeRule(xmlPrice, priceRangeRules) : null;
+
+      if (!rule && !rangeMatch) {
         errors.push(`${p.sku}: Fiyatlandırma kuralı eksik (Fiyatlandırma sayfasından kural tanımlayın)`);
         continue;
       }
 
       let finalPrice = p.price;
-      if (rule.type === 'percentage') {
-        finalPrice = finalPrice * (1 + rule.value / 100);
-      } else if (rule.type === 'fixed') {
-        finalPrice = finalPrice + rule.value;
+      if (rule) {
+        if (rule.type === 'percentage') {
+          finalPrice = finalPrice * (1 + rule.value / 100);
+        } else if (rule.type === 'fixed') {
+          finalPrice = finalPrice + rule.value;
+        }
+      } else {
+        finalPrice = calcPriceRangePrice(xmlPrice, rangeMatch.rule, rangeMatch.conds);
       }
       p.price = Math.round(Math.max(0, finalPrice) * 100) / 100;
 

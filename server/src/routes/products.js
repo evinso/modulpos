@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const { checkProductLimit } = require('../utils/quotaHelper');
+const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
 
 const router = express.Router();
 
@@ -376,17 +377,21 @@ router.post('/bulk-action', async (req, res, next) => {
               
               // Fetch pricing rules for this connection
               const pricingRules = await prisma.pricingRule.findMany({
-                where: { storeId: connection.storeId, applyTo: 'marketplace_xml', isActive: true },
+                where: { storeId: connection.storeId, applyTo: { in: ['marketplace_xml', 'price_range'] }, isActive: true },
                 orderBy: { priority: 'asc' }
               });
 
               const pricingLookup = {};
+              const priceRangeRules = [];
               for (const r of pricingRules) {
                 if (!r.conditions) continue;
                 try {
                   const conds = JSON.parse(r.conditions);
                   if (conds.connectionId === connection.id && conds.xmlSourceId) {
                     pricingLookup[conds.xmlSourceId] = r;
+                  }
+                  if (conds.minPurchasePrice != null || conds.maxPurchasePrice != null) {
+                    priceRangeRules.push(r);
                   }
                 } catch(e) {}
               }
@@ -395,7 +400,7 @@ router.post('/bulk-action', async (req, res, next) => {
                 // Determine final price based on rules
                 let finalPrice = mp.product.price;
                 const rule = pricingLookup[mp.product.xmlSourceId];
-                
+
                 if (rule) {
                   if (rule.type === 'percentage') {
                     finalPrice = finalPrice * (1 + rule.value / 100);
@@ -403,6 +408,10 @@ router.post('/bulk-action', async (req, res, next) => {
                     finalPrice = finalPrice + rule.value;
                   }
                   finalPrice = Math.round(Math.max(0, finalPrice) * 100) / 100;
+                } else {
+                  const xmlPrice = mp.product.xmlPrice || mp.product.price;
+                  const match = matchPriceRangeRule(xmlPrice, priceRangeRules);
+                  if (match) finalPrice = calcPriceRangePrice(xmlPrice, match.rule, match.conds);
                 }
 
                 return {
