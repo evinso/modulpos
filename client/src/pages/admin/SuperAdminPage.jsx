@@ -4,7 +4,7 @@ import {
   Users, Store, Package, ShoppingCart, CreditCard, Shield, Search,
   MoreVertical, CheckCircle, XCircle, UserPlus, Mail, Calendar,
   Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus, List, Sliders, FileText, Truck,
-  MessageSquare, Send
+  MessageSquare, Send, Building2, Eye
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { legalContent } from '../legal/legalContent';
@@ -60,6 +60,9 @@ export default function SuperAdminPage() {
   const [invoiceModalUser, setInvoiceModalUser] = useState(null);
   const [invoiceForm, setInvoiceForm] = useState({ title: '', amount: '', period: '', notes: '', fileUrl: '' });
   const [invoiceLoading, setInvoiceLoading] = useState(false);
+
+  // User store info modal
+  const [storeInfoUser, setStoreInfoUser] = useState(null);
 
   const [supportTickets, setSupportTickets] = useState([]);
   const [supportStatusFilter, setSupportStatusFilter] = useState('');
@@ -837,6 +840,15 @@ export default function SuperAdminPage() {
                     </td>
                     <td>
                       <div className="flex gap-2">
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '4px 8px', fontSize: 12, height: 'auto' }}
+                          title="Mağaza / Fatura Bilgileri"
+                          onClick={() => setStoreInfoUser(user)}
+                          disabled={actionLoading === user.id}
+                        >
+                          <Eye size={13} />
+                        </button>
                         <button
                           className="btn btn-primary"
                           style={{ padding: '4px 10px', fontSize: 12, height: 'auto' }}
@@ -1785,6 +1797,75 @@ export default function SuperAdminPage() {
           </div>
         </div>
       )}
+
+      {/* Store Info Modal */}
+      {storeInfoUser && (() => {
+        const store = storeInfoUser.stores?.[0];
+        const rows = [
+          { label: 'Fatura Türü', value: store?.invoiceType === 'kurumsal' ? '🏢 Kurumsal' : '👤 Bireysel' },
+          store?.invoiceType === 'kurumsal'
+            ? { label: 'Şirket Unvanı', value: store?.companyTitle }
+            : { label: 'Ad Soyad (Fatura)', value: store?.companyTitle },
+          store?.invoiceType === 'kurumsal'
+            ? { label: 'Vergi Dairesi', value: store?.taxOffice }
+            : null,
+          { label: store?.invoiceType === 'kurumsal' ? 'Vergi No' : 'TCKN', value: store?.taxId },
+          { label: 'Mağaza Adı', value: store?.name },
+          { label: 'Telefon', value: store?.phone },
+          { label: 'Adres', value: store?.address },
+          { label: 'İl', value: store?.city },
+          { label: 'İlçe', value: store?.district },
+          { label: 'Posta Kodu', value: store?.postalCode },
+        ].filter(Boolean);
+
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+            <div className="card" style={{ width: '100%', maxWidth: 520, padding: 0 }}>
+              <div className="table-header">
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Building2 size={16} />
+                  Mağaza & Fatura Bilgileri
+                </h3>
+                <button className="text-btn" onClick={() => setStoreInfoUser(null)}><X size={20} /></button>
+              </div>
+
+              <div style={{ padding: '8px 0' }}>
+                {/* User summary */}
+                <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: '1px solid var(--border-color)', marginBottom: 4 }}>
+                  <div className="user-avatar-sm" style={{ width: 36, height: 36, fontSize: 16 }}>
+                    {storeInfoUser.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{storeInfoUser.name}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{storeInfoUser.email}</div>
+                  </div>
+                </div>
+
+                {!store ? (
+                  <div style={{ padding: '24px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                    Bu kullanıcı henüz mağaza bilgilerini doldurmamış.
+                  </div>
+                ) : (
+                  <div style={{ padding: '12px 20px 20px' }}>
+                    {rows.map((row, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 12, padding: '8px 0', borderBottom: i < rows.length - 1 ? '1px solid var(--border-color)' : 'none' }}>
+                        <span style={{ flex: '0 0 140px', fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>{row.label}</span>
+                        <span style={{ fontSize: 13, color: row.value ? 'var(--text-primary)' : 'var(--text-muted)', fontStyle: row.value ? 'normal' : 'italic' }}>
+                          {row.value || 'Girilmemiş'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={() => setStoreInfoUser(null)}>Kapat</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Invoice Modal */}
       {invoiceModalUser && (

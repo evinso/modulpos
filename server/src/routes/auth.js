@@ -219,7 +219,7 @@ router.put('/password', auth, async (req, res, next) => {
 // Update store settings
 router.put('/store', auth, async (req, res, next) => {
   try {
-    const { name, taxId, address, phone } = req.body;
+    const { name, taxId, address, phone, invoiceType, companyTitle, taxOffice, city, district, postalCode } = req.body;
 
     const store = await prisma.store.findFirst({
       where: { userId: req.user.id }
@@ -231,7 +231,7 @@ router.put('/store', auth, async (req, res, next) => {
 
     const updatedStore = await prisma.store.update({
       where: { id: store.id },
-      data: { name, taxId, address, phone }
+      data: { name, taxId, address, phone, invoiceType, companyTitle, taxOffice, city, district, postalCode }
     });
 
     res.json(updatedStore);
