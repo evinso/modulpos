@@ -150,13 +150,60 @@ router.get('/connections/:id/brands/search', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-// Category mappings - list
+// Category mappings - list (includes global provider mappings merged in)
 router.get('/connections/:id/category-mappings', async (req, res, next) => {
   try {
-    const mappings = await prisma.categoryMapping.findMany({
-      where: { connectionId: req.params.id },
-      orderBy: { createdAt: 'desc' }
-    });
+    const [mappings, connection] = await Promise.all([
+      prisma.categoryMapping.findMany({
+        where: { connectionId: req.params.id },
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.marketplaceConnection.findUnique({
+        where: { id: req.params.id },
+        select: { storeId: true }
+      })
+    ]);
+
+    // Merge in global provider category mappings for XML sources in this store
+    if (connection) {
+      const xmlSources = await prisma.xmlSource.findMany({
+        where: { storeId: connection.storeId, globalProviderId: { not: null } },
+        select: { globalProviderId: true }
+      });
+
+      const providerIds = [...new Set(xmlSources.map(s => s.globalProviderId).filter(Boolean))];
+      if (providerIds.length > 0) {
+        const providers = await prisma.globalXmlProvider.findMany({
+          where: { id: { in: providerIds } },
+          select: { id: true, categoryMappingConfig: true }
+        });
+
+        const existingCategories = new Set(mappings.map(m => m.localCategory));
+
+        for (const provider of providers) {
+          if (!provider.categoryMappingConfig) continue;
+          let config;
+          try { config = JSON.parse(provider.categoryMappingConfig); } catch { continue; }
+          for (const [localCategory, mapping] of Object.entries(config)) {
+            if (existingCategories.has(localCategory)) continue; // connection-level mapping takes priority
+            if (!mapping.marketplaceCategoryId) continue;
+            mappings.push({
+              id: `global_${provider.id}_${localCategory}`,
+              connectionId: req.params.id,
+              localCategory,
+              marketplaceCategoryId: String(mapping.marketplaceCategoryId),
+              marketplaceCategoryName: mapping.marketplaceCategoryName || null,
+              attributes: mapping.attributes ? JSON.stringify(mapping.attributes) : null,
+              isGlobal: true,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+            existingCategories.add(localCategory);
+          }
+        }
+      }
+    }
+
     res.json(mappings);
   } catch (error) { next(error); }
 });
@@ -263,11 +310,20 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     if (distinctXmlSourceIds.length > 0) {
       const xmlSources = await prisma.xmlSource.findMany({
         where: { id: { in: distinctXmlSourceIds }, globalProviderId: { not: null } },
-        include: { globalProvider: true }
+        select: { id: true, globalProviderId: true }
       });
-      for (const src of xmlSources) {
-          if (src.globalProvider && src.globalProvider.categoryMappingConfig) {
-          try { globalCatMap[src.id] = JSON.parse(src.globalProvider.categoryMappingConfig); } catch(e) {}
+      const providerIds = [...new Set(xmlSources.map(s => s.globalProviderId).filter(Boolean))];
+      if (providerIds.length > 0) {
+        const providers = await prisma.globalXmlProvider.findMany({
+          where: { id: { in: providerIds } },
+          select: { id: true, categoryMappingConfig: true }
+        });
+        const providerCatMap = Object.fromEntries(providers.map(p => [p.id, p.categoryMappingConfig]));
+        for (const src of xmlSources) {
+          const config = providerCatMap[src.globalProviderId];
+          if (config) {
+            try { globalCatMap[src.id] = JSON.parse(config); } catch(e) {}
+          }
         }
       }
     }
