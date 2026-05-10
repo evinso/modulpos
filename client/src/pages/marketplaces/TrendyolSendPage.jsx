@@ -61,11 +61,19 @@ export default function TrendyolSendPage() {
     if (!selectedConn) return;
     try {
       const res = await api.get(`/marketplace/connections/${selectedConn.id}/category-mappings`);
+      console.log('[CategoryMappings] loaded:', res.data.length, res.data.map(m => m.localCategory));
       setMappings(res.data);
     } catch {}
   };
 
-  const mappedCategories = mappings.reduce((acc, m) => { acc[m.localCategory] = m; return acc; }, {});
+  // Case-insensitive + trimmed lookup for robustness
+  const mappedCategories = useMemo(() => {
+    const acc = {};
+    for (const m of mappings) {
+      acc[m.localCategory.toLowerCase().trim()] = m;
+    }
+    return acc;
+  }, [mappings]);
 
   const { pricingLookup, priceRangeRules } = useMemo(() => {
     if (!selectedConn) return { pricingLookup: {}, priceRangeRules: [] };
@@ -115,7 +123,7 @@ export default function TrendyolSendPage() {
   };
 
   const getProductStatus = (p) => {
-    const hasCategoryMapping = p.category && mappedCategories[p.category];
+    const hasCategoryMapping = p.category && mappedCategories[p.category.toLowerCase().trim()];
     const hasBarcode = !!p.barcode;
     const hasPricingRule = !!pricingLookup[p.xmlSourceId] || matchesPriceRangeRule(p.xmlPrice || p.price);
     if (hasCategoryMapping && hasBarcode && hasPricingRule) return 'ready';
@@ -282,7 +290,7 @@ export default function TrendyolSendPage() {
             {filteredProducts.map(p => {
               const status = getProductStatus(p);
               const isSelected = selectedIds.has(p.id);
-              const catMapping = p.category ? mappedCategories[p.category] : null;
+              const catMapping = p.category ? mappedCategories[p.category.toLowerCase().trim()] : null;
               const thumbImg = getFirstImage(p);
               const hasPricingRule = !!pricingLookup[p.xmlSourceId] || matchesPriceRangeRule(p.xmlPrice || p.price);
               const issues = [];

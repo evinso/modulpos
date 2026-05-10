@@ -184,16 +184,17 @@ router.get('/connections/:id/category-mappings', async (req, res, next) => {
           if (!provider.categoryMappingConfig) continue;
           let config;
           try { config = JSON.parse(provider.categoryMappingConfig); } catch { continue; }
-          for (const [localCategory, mapping] of Object.entries(config)) {
-            if (existingCategories.has(localCategory)) continue; // connection-level mapping takes priority
-            if (!mapping.marketplaceCategoryId) continue;
+          for (const [rawCategory, mapping] of Object.entries(config)) {
+            const localCategory = rawCategory.trim();
+            if (!mapping || !mapping.marketplaceCategoryId) continue;
+            if (existingCategories.has(localCategory)) continue;
             mappings.push({
               id: `global_${provider.id}_${localCategory}`,
               connectionId: req.params.id,
               localCategory,
               marketplaceCategoryId: String(mapping.marketplaceCategoryId),
               marketplaceCategoryName: mapping.marketplaceCategoryName || null,
-              attributes: mapping.attributes ? JSON.stringify(mapping.attributes) : null,
+              attributes: mapping.attributes || null,
               isGlobal: true,
               createdAt: new Date(),
               updatedAt: new Date()
