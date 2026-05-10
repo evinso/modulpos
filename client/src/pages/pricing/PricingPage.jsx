@@ -1,7 +1,143 @@
-import { useState, useEffect } from 'react';
-import { Plus, Trash2, Tags, ToggleLeft, ToggleRight } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Plus, Trash2, Tags, ToggleLeft, ToggleRight, Calculator, TrendingUp, Package, Percent, Truck } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+
+function PriceCalculator() {
+  const [calc, setCalc] = useState({
+    purchasePrice: '',
+    marginPct: '',
+    shippingCost: '',
+    commissionPct: '',
+    vatRate: '0',
+  });
+
+  const result = useMemo(() => {
+    const purchase = parseFloat(calc.purchasePrice) || 0;
+    const margin = parseFloat(calc.marginPct) || 0;
+    const shipping = parseFloat(calc.shippingCost) || 0;
+    const commission = parseFloat(calc.commissionPct) || 0;
+    const vat = parseFloat(calc.vatRate) || 0;
+
+    if (purchase <= 0) return null;
+
+    const totalCost = purchase + shipping;
+    const targetProfit = purchase * (margin / 100);
+    const commissionFactor = 1 - commission / 100;
+    const sellingPriceBeforeVat = commissionFactor > 0
+      ? (totalCost + targetProfit) / commissionFactor
+      : totalCost + targetProfit;
+    const sellingPrice = sellingPriceBeforeVat * (1 + vat / 100);
+    const commissionAmount = sellingPrice * (commission / 100);
+    const vatAmount = sellingPriceBeforeVat * (vat / 100);
+    const netProfit = sellingPrice - commissionAmount - vatAmount - totalCost;
+    const netMarginPct = purchase > 0 ? (netProfit / purchase) * 100 : 0;
+    const breakEven = commissionFactor > 0 ? totalCost / commissionFactor * (1 + vat / 100) : totalCost * (1 + vat / 100);
+
+    return { sellingPrice, commissionAmount, vatAmount, netProfit, netMarginPct, totalCost, breakEven };
+  }, [calc]);
+
+  const fmt = (n) => n.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const inputStyle = {
+    background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+    borderRadius: 8, padding: '10px 12px', fontSize: 14,
+    color: 'var(--text-primary)', width: '100%', outline: 'none',
+  };
+  const labelStyle = { fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 6, display: 'block' };
+
+  return (
+    <div className="card" style={{ marginBottom: 28 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        <Calculator size={20} style={{ color: 'var(--accent-primary)' }} />
+        <h2 style={{ fontSize: 16, fontWeight: 700 }}>Kâr Marjı Hesaplayıcı</h2>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+        {/* Inputs */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={labelStyle}><Package size={13} style={{ display: 'inline', marginRight: 5 }} />Alış Fiyatı (₺)</label>
+            <input type="number" min="0" step="0.01" style={inputStyle} placeholder="Örn: 50"
+              value={calc.purchasePrice} onChange={e => setCalc({ ...calc, purchasePrice: e.target.value })} />
+          </div>
+          <div>
+            <label style={labelStyle}><TrendingUp size={13} style={{ display: 'inline', marginRight: 5 }} />Hedef Kâr Marjı (%)</label>
+            <input type="number" min="0" step="0.1" style={inputStyle} placeholder="Örn: 30"
+              value={calc.marginPct} onChange={e => setCalc({ ...calc, marginPct: e.target.value })} />
+          </div>
+          <div>
+            <label style={labelStyle}><Truck size={13} style={{ display: 'inline', marginRight: 5 }} />Kargo Ücreti (₺)</label>
+            <input type="number" min="0" step="0.01" style={inputStyle} placeholder="Örn: 25"
+              value={calc.shippingCost} onChange={e => setCalc({ ...calc, shippingCost: e.target.value })} />
+          </div>
+          <div>
+            <label style={labelStyle}><Percent size={13} style={{ display: 'inline', marginRight: 5 }} />Komisyon Oranı (%) </label>
+            <input type="number" min="0" max="100" step="0.1" style={inputStyle} placeholder="Örn: 12"
+              value={calc.commissionPct} onChange={e => setCalc({ ...calc, commissionPct: e.target.value })} />
+          </div>
+          <div>
+            <label style={labelStyle}>KDV Oranı (%)</label>
+            <select style={{ ...inputStyle, cursor: 'pointer' }} value={calc.vatRate}
+              onChange={e => setCalc({ ...calc, vatRate: e.target.value })}>
+              <option value="0">%0 — KDV Yok</option>
+              <option value="1">%1</option>
+              <option value="10">%10</option>
+              <option value="20">%20</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Results */}
+        <div>
+          {!result ? (
+            <div style={{
+              height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'var(--bg-secondary)', borderRadius: 12, flexDirection: 'column', gap: 10,
+              color: 'var(--text-muted)', fontSize: 13
+            }}>
+              <Calculator size={32} style={{ opacity: 0.4 }} />
+              Alış fiyatı girerek hesaplamayı başlatın
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {/* Main selling price */}
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(99,102,241,0.06))',
+                border: '1px solid rgba(99,102,241,0.25)', borderRadius: 12, padding: '16px 20px',
+              }}>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>Önerilen Satış Fiyatı</p>
+                <p style={{ fontSize: 28, fontWeight: 800, color: 'var(--accent-primary)' }}>₺{fmt(result.sellingPrice)}</p>
+              </div>
+
+              {/* Breakdown */}
+              <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {[
+                  { label: 'Toplam Maliyet (Alış + Kargo)', value: `₺${fmt(result.totalCost)}`, color: 'var(--text-primary)' },
+                  { label: 'Komisyon Tutarı', value: `-₺${fmt(result.commissionAmount)}`, color: 'var(--danger)' },
+                  ...(parseFloat(calc.vatRate) > 0 ? [{ label: `KDV (%${calc.vatRate})`, value: `-₺${fmt(result.vatAmount)}`, color: 'var(--warning)' }] : []),
+                  { label: 'Net Kâr', value: `₺${fmt(result.netProfit)}`, color: result.netProfit >= 0 ? 'var(--success)' : 'var(--danger)' },
+                  { label: 'Kâr Oranı', value: `%${result.netMarginPct.toFixed(1)}`, color: result.netMarginPct >= 0 ? 'var(--success)' : 'var(--danger)', bold: true },
+                ].map(({ label, value, color, bold }) => (
+                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
+                    <span style={{ color, fontWeight: bold ? 700 : 600 }}>{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Break-even */}
+              <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Başabaş Noktası (Karsız Minimum Fiyat)</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>₺{fmt(result.breakEven)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function PricingPage() {
   const [rules, setRules] = useState([]);
@@ -75,6 +211,8 @@ export default function PricingPage() {
         <div><h1>Fiyatlandırma Kuralları</h1><p>Kâr marjı ve fiyatlandırma kurallarınızı yönetin</p></div>
         <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={16} /> Kural Ekle</button>
       </div>
+
+      <PriceCalculator />
 
       {loading ? (
         <div className="loading-spinner"><div className="spinner"></div></div>
