@@ -39,6 +39,15 @@ router.post('/connections', async (req, res, next) => {
     const connection = await prisma.marketplaceConnection.create({
       data: { storeId: store.id, marketplaceType, sellerId, apiKey, apiSecret, supplierName, config: Object.keys(config).length > 0 ? JSON.stringify(config) : null }
     });
+
+    notificationService.create({
+      storeId: store.id,
+      title: 'Pazaryeri Bağlandı',
+      message: `${marketplaceType.charAt(0).toUpperCase() + marketplaceType.slice(1)} bağlantısı oluşturuldu.`,
+      type: 'success',
+      link: '/marketplace'
+    });
+
     res.status(201).json(connection);
   } catch (error) { next(error); }
 });
@@ -545,6 +554,14 @@ router.post('/connections/:id/sync-price-stock', async (req, res, next) => {
         });
       }
       
+      notificationService.create({
+        storeId: connection.storeId,
+        title: 'Fiyat/Stok Güncellendi',
+        message: `${items.length} ürünün fiyat ve stok bilgisi Trendyol'a gönderildi.`,
+        type: 'success',
+        link: '/marketplace'
+      });
+
       res.json({
         message: `${items.length} ürünün fiyat ve stok bilgileri Trendyol'a gönderildi.`,
         batchId: result?.batchRequestId

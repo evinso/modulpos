@@ -1,8 +1,10 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { Search, Bell, LogOut, User, Settings, Shield, CreditCard, ChevronDown, Check, Clock, Info } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import api from '../../services/api';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
 
 const pageTitles = {
   '/dashboard': 'Dashboard',
@@ -27,21 +29,46 @@ export default function Header() {
   const notificationRef = useRef(null);
   const userMenuRef = useRef(null);
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     try {
-      const response = await api.get('/notifications?unreadOnly=false&limit=10');
+      const response = await api.get('/notifications?unreadOnly=false&limit=20');
       setNotifications(response.data);
-    } catch (error) {
-      console.error('Bildirimler yüklenemedi:', error);
-    }
-  };
+    } catch {}
+  }, []);
 
   useEffect(() => {
     document.title = `ModulPOS / ${title}`;
-    fetchNotifications();
-    const interval = setInterval(fetchNotifications, 60000); // 1 dakikada bir kontrol et
-    return () => clearInterval(interval);
   }, [title]);
+
+  // Initial load + SSE real-time updates
+  useEffect(() => {
+    fetchNotifications();
+
+    const stored = localStorage.getItem('auth-storage');
+    const token = stored ? JSON.parse(stored)?.state?.token : null;
+    if (!token) return;
+
+    const es = new EventSource(`${API_BASE}/notifications/stream?token=${encodeURIComponent(token)}`);
+
+    es.onmessage = (e) => {
+      try {
+        const notification = JSON.parse(e.data);
+        setNotifications(prev => {
+          if (prev.find(n => n.id === notification.id)) return prev;
+          return [notification, ...prev].slice(0, 20);
+        });
+      } catch {}
+    };
+
+    es.onerror = () => {
+      es.close();
+      // fallback: poll every 30s if SSE fails
+      const fallback = setInterval(fetchNotifications, 30000);
+      return () => clearInterval(fallback);
+    };
+
+    return () => es.close();
+  }, [fetchNotifications]);
 
   useEffect(() => {
     function handleClickOutside(event) {

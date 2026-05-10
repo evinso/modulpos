@@ -3,6 +3,7 @@ const axios = require('axios');
 const { XMLParser, XMLBuilder } = require('fast-xml-parser');
 const { auth } = require('../middleware/auth');
 const { deductCredits, getSetting } = require('./credits');
+const notificationService = require('../services/notificationService');
 
 const router = express.Router();
 
@@ -244,6 +245,13 @@ router.post('/preview', auth, async (req, res) => {
     const parser = new XMLParser({ ignoreAttributes: false, parseTagValue: true, trimValues: true });
     const reparsed = parser.parse(xml);
     const sample = reparsed?.Urunler?.Urun?.slice(0, 5) || [];
+
+    notificationService.createForUser(req.user.id, {
+      title: 'XML Dönüştürüldü',
+      message: `${count} ürün başarıyla dönüştürüldü.`,
+      type: 'success',
+      link: '/xml-converter'
+    });
 
     res.json({ success: true, totalProducts: count, sample, convertedUrl: `/api/xml-converter/proxy?url=${encodeURIComponent(url)}` });
   } catch (err) {

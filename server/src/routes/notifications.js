@@ -2,12 +2,49 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../config/database');
 const notificationService = require('../services/notificationService');
+const sseService = require('../services/sseService');
 const { auth } = require('../middleware/auth');
+const jwt = require('jsonwebtoken');
 
 async function getUserStoreId(userId) {
   const store = await prisma.store.findFirst({ where: { userId }, select: { id: true } });
   return store?.id || null;
 }
+
+// SSE stream — EventSource can't send headers so token comes as query param
+router.get('/stream', async (req, res) => {
+  const token = req.query.token;
+  if (!token) return res.status(401).end();
+
+  let decoded;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    return res.status(401).end();
+  }
+
+  const store = await prisma.store.findFirst({ where: { userId: decoded.id }, select: { id: true } });
+  if (!store) return res.status(404).end();
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // nginx: disable buffering
+  res.flushHeaders();
+
+  res.write(': connected\n\n');
+
+  sseService.addClient(store.id, res);
+
+  const keepAlive = setInterval(() => {
+    try { res.write(': ping\n\n'); } catch { clearInterval(keepAlive); }
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    sseService.removeClient(store.id, res);
+  });
+});
 
 router.get('/', auth, async (req, res) => {
   try {

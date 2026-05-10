@@ -1,25 +1,14 @@
 const prisma = require('../config/database');
+const sseService = require('./sseService');
 
-/**
- * Notification Service
- * Handles creating and retrieving system notifications
- */
 class NotificationService {
-  /**
-   * Create a new notification
-   * @param {Object} data { storeId, title, message, type, link }
-   */
   async create({ storeId, title, message, type = 'info', link = null }) {
     try {
-      return await prisma.notification.create({
-        data: {
-          storeId,
-          title,
-          message,
-          type,
-          link,
-        },
+      const notification = await prisma.notification.create({
+        data: { storeId, title, message, type, link },
       });
+      sseService.pushToStore(storeId, notification);
+      return notification;
     } catch (error) {
       console.error('Notification creation failed:', error);
       return null;

@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const { deductCredits, getSetting } = require('./credits');
+const notificationService = require('../services/notificationService');
 
 const router = express.Router();
 
@@ -243,6 +244,14 @@ router.post('/:id/import', auth, async (req, res, next) => {
         globalProviderId: provider.id,
         status: 'active'
       }
+    });
+
+    notificationService.create({
+      storeId: store.id,
+      title: 'XML Kaynağı Eklendi',
+      message: `"${provider.name}" mağazanıza başarıyla eklendi.`,
+      type: 'success',
+      link: '/xml-sources'
     });
 
     res.status(201).json({
