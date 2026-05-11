@@ -137,6 +137,9 @@ model Product {
   dropshipOrders      DropshipOrder[]
 
   @@index([storeId])
+  @@index([storeId, xmlSourceId])
+  @@index([storeId, category])
+  @@index([xmlSourceId])
   @@index([barcode])
   @@index([sku])
 }

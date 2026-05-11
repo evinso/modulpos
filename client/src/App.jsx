@@ -1,32 +1,44 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import ScrollToTop from './components/ScrollToTop';
 import { useAuthStore } from './store/authStore';
 import Layout from './components/layout/Layout';
-import LoginPage from './pages/auth/LoginPage';
-import RegisterPage from './pages/auth/RegisterPage';
-import DashboardPage from './pages/dashboard/DashboardPage';
-import ProductsPage from './pages/products/ProductsPage';
-import XmlSourcesPage from './pages/xml/XmlSourcesPage';
-import XmlConverterPage from './pages/xml/XmlConverterPage';
-import GlobalXmlMarketPage from './pages/xml/GlobalXmlMarketPage';
-import GlobalXmlAdminPage from './pages/xml/GlobalXmlAdminPage';
-import MarketplacePage from './pages/marketplaces/MarketplacePage';
-import CategoryMappingPage from './pages/marketplaces/CategoryMappingPage';
-import TrendyolSendPage from './pages/marketplaces/TrendyolSendPage';
-import OrdersPage from './pages/orders/OrdersPage';
-import DropshipOrdersPage from './pages/dropship/DropshipOrdersPage';
-import SupportPage from './pages/support/SupportPage';
-import PricingPage from './pages/pricing/PricingPage';
-import SuperAdminPage from './pages/admin/SuperAdminPage';
-import CreditsPage from './pages/credits/CreditsPage';
-import CreditAdminPage from './pages/admin/CreditAdminPage';
-import SettingsPage from './pages/settings/SettingsPage';
-import LogsPage from './pages/activity/LogsPage';
 import './index.css';
 
+// Eager-load only auth/landing (shown before login, tiny)
+import LoginPage from './pages/auth/LoginPage';
+import RegisterPage from './pages/auth/RegisterPage';
 import LandingPage from './pages/landing/LandingPage';
 import PolicyPage from './pages/legal/PolicyPage';
+
+// Lazy-load all app pages — each becomes its own JS chunk
+const DashboardPage       = lazy(() => import('./pages/dashboard/DashboardPage'));
+const ProductsPage        = lazy(() => import('./pages/products/ProductsPage'));
+const XmlSourcesPage      = lazy(() => import('./pages/xml/XmlSourcesPage'));
+const XmlConverterPage    = lazy(() => import('./pages/xml/XmlConverterPage'));
+const GlobalXmlMarketPage = lazy(() => import('./pages/xml/GlobalXmlMarketPage'));
+const GlobalXmlAdminPage  = lazy(() => import('./pages/xml/GlobalXmlAdminPage'));
+const MarketplacePage     = lazy(() => import('./pages/marketplaces/MarketplacePage'));
+const CategoryMappingPage = lazy(() => import('./pages/marketplaces/CategoryMappingPage'));
+const TrendyolSendPage    = lazy(() => import('./pages/marketplaces/TrendyolSendPage'));
+const OrdersPage          = lazy(() => import('./pages/orders/OrdersPage'));
+const DropshipOrdersPage  = lazy(() => import('./pages/dropship/DropshipOrdersPage'));
+const SupportPage         = lazy(() => import('./pages/support/SupportPage'));
+const PricingPage         = lazy(() => import('./pages/pricing/PricingPage'));
+const CreditsPage         = lazy(() => import('./pages/credits/CreditsPage'));
+const LogsPage            = lazy(() => import('./pages/activity/LogsPage'));
+const SettingsPage        = lazy(() => import('./pages/settings/SettingsPage'));
+const SuperAdminPage      = lazy(() => import('./pages/admin/SuperAdminPage'));
+const CreditAdminPage     = lazy(() => import('./pages/admin/CreditAdminPage'));
+
+function PageLoader() {
+  return (
+    <div className="loading-spinner">
+      <div className="spinner"></div>
+    </div>
+  );
+}
 
 function PrivateRoute({ children }) {
   const { token } = useAuthStore();
@@ -47,32 +59,34 @@ function App() {
       <Toaster position="top-right" toastOptions={{
         style: { background: '#1a2236', color: '#f1f5f9', border: '1px solid rgba(59,130,246,0.2)' }
       }} />
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/policy/:slug" element={<PolicyPage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/products" element={<ProductsPage />} />
-          <Route path="/xml-sources" element={<XmlSourcesPage />} />
-          <Route path="/xml-converter" element={<XmlConverterPage />} />
-          <Route path="/global-xml-market" element={<GlobalXmlMarketPage />} />
-          <Route path="/global-xml-admin" element={<AdminRoute><GlobalXmlAdminPage /></AdminRoute>} />
-          <Route path="/marketplace" element={<MarketplacePage />} />
-          <Route path="/category-mapping" element={<CategoryMappingPage />} />
-          <Route path="/trendyol-send" element={<TrendyolSendPage />} />
-          <Route path="/orders" element={<OrdersPage />} />
-          <Route path="/dropship-orders" element={<DropshipOrdersPage />} />
-          <Route path="/support" element={<SupportPage />} />
-          <Route path="/pricing" element={<PricingPage />} />
-          <Route path="/credits" element={<CreditsPage />} />
-          <Route path="/logs" element={<LogsPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/superadmin" element={<AdminRoute><SuperAdminPage /></AdminRoute>} />
-          <Route path="/credit-admin" element={<AdminRoute><CreditAdminPage /></AdminRoute>} />
-        </Route>
-      </Routes>
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/policy/:slug" element={<PolicyPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
+            <Route path="/dashboard"        element={<DashboardPage />} />
+            <Route path="/products"         element={<ProductsPage />} />
+            <Route path="/xml-sources"      element={<XmlSourcesPage />} />
+            <Route path="/xml-converter"    element={<XmlConverterPage />} />
+            <Route path="/global-xml-market" element={<GlobalXmlMarketPage />} />
+            <Route path="/global-xml-admin" element={<AdminRoute><GlobalXmlAdminPage /></AdminRoute>} />
+            <Route path="/marketplace"      element={<MarketplacePage />} />
+            <Route path="/category-mapping" element={<CategoryMappingPage />} />
+            <Route path="/trendyol-send"    element={<TrendyolSendPage />} />
+            <Route path="/orders"           element={<OrdersPage />} />
+            <Route path="/dropship-orders"  element={<DropshipOrdersPage />} />
+            <Route path="/support"          element={<SupportPage />} />
+            <Route path="/pricing"          element={<PricingPage />} />
+            <Route path="/credits"          element={<CreditsPage />} />
+            <Route path="/logs"             element={<LogsPage />} />
+            <Route path="/settings"         element={<SettingsPage />} />
+            <Route path="/superadmin"       element={<AdminRoute><SuperAdminPage /></AdminRoute>} />
+            <Route path="/credit-admin"     element={<AdminRoute><CreditAdminPage /></AdminRoute>} />
+          </Route>
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }
