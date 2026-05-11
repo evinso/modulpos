@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Plus, Search, Trash2, Edit, Package, CheckSquare, Square,
   TrendingUp, TrendingDown, Tag, Layers, ToggleLeft, ToggleRight,
@@ -105,16 +105,18 @@ export default function ProductsPage() {
     finally { setLoading(false); }
   };
 
+  const priceRangeRules = useMemo(() =>
+    pricingRules.filter(r => r.isActive && r.applyTo === 'price_range' && r.conditions),
+  [pricingRules]);
+
   const pricingLookup = useCallback((connectionId) => {
     const lookup = {};
     for (const r of pricingRules) {
-      if (!r.conditions || !r.isActive) continue;
+      if (!r.conditions || !r.isActive || r.applyTo === 'price_range') continue;
       try {
         const conds = JSON.parse(r.conditions);
         if (conds.xmlSourceId && (!connectionId || conds.connectionId === connectionId)) {
-          if (!lookup[conds.xmlSourceId]) {
-            lookup[conds.xmlSourceId] = r;
-          }
+          if (!lookup[conds.xmlSourceId]) lookup[conds.xmlSourceId] = r;
         }
       } catch(e) {}
     }
@@ -124,12 +126,36 @@ export default function ProductsPage() {
   const getMarketplacePrice = useCallback((p, connectionId) => {
     const lookup = pricingLookup(connectionId);
     const rule = lookup[p.xmlSourceId];
-    if (!rule) return null;
-    let finalPrice = p.price;
-    if (rule.type === 'percentage') finalPrice = finalPrice * (1 + rule.value / 100);
-    if (rule.type === 'fixed') finalPrice = finalPrice + rule.value;
-    return Math.round(Math.max(0, finalPrice) * 100) / 100;
-  }, [pricingLookup]);
+    if (rule) {
+      let finalPrice = p.price;
+      if (rule.type === 'percentage') finalPrice = finalPrice * (1 + rule.value / 100);
+      if (rule.type === 'fixed') finalPrice = finalPrice + rule.value;
+      return Math.round(Math.max(0, finalPrice) * 100) / 100;
+    }
+    // Price range rule: use xmlPrice as purchase price
+    const xmlPrice = p.xmlPrice || p.price;
+    if (!xmlPrice || xmlPrice <= 0) return null;
+    for (const r of priceRangeRules) {
+      try {
+        const c = JSON.parse(r.conditions);
+        if (c.connectionId && connectionId && c.connectionId !== connectionId) continue;
+        if (c.xmlSourceId && c.xmlSourceId !== p.xmlSourceId) continue;
+        const min = c.minPurchasePrice ?? null;
+        const max = c.maxPurchasePrice ?? null;
+        if (min === null && max === null) continue;
+        if (min !== null && xmlPrice < min) continue;
+        if (max !== null && xmlPrice > max) continue;
+        const shipping = parseFloat(c.shippingCost) || 0;
+        const commission = parseFloat(c.commissionPct) || 0;
+        const vat = parseFloat(c.vatRate) || 0;
+        const totalCost = xmlPrice + shipping;
+        const profitTarget = xmlPrice * (r.value / 100);
+        const factor = commission > 0 ? 1 - commission / 100 : 1;
+        return Math.round(Math.max(0, (totalCost + profitTarget) / factor * (1 + vat / 100)) * 100) / 100;
+      } catch(e) {}
+    }
+    return null;
+  }, [pricingLookup, priceRangeRules]);
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -634,7 +660,7 @@ export default function ProductsPage() {
                       </button>
                     </th>
                   )}
-                  <th>SKU</th><th>Ürün Adı</th><th>XML Fiyat</th><th>{filterConnection ? 'Pazaryeri Fiyatı' : 'Satış Fiyatı'}</th><th>Fark</th><th>Stok</th><th>Marka</th><th>Pazaryeri</th><th>Durum</th><th>İşlem</th>
+                  <th>SKU</th><th>Ürün Adı</th><th>XML Fiyat</th><th>{filterConnection ? 'Hesaplanan Fiyat' : 'Satış Fiyatı'}</th><th>Fark</th><th>Stok</th><th>Marka</th><th>Pazaryeri</th><th>Durum</th><th>İşlem</th>
                 </tr>
               </thead>
               <tbody>
