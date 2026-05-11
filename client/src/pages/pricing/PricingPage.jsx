@@ -197,6 +197,8 @@ export default function PricingPage() {
           shippingCost: parseFloat(form.shippingCost) || 0,
           commissionPct: parseFloat(form.commissionPct) || 0,
           vatRate: parseFloat(form.vatRate) || 0,
+          connectionId: form.connectionId || null,
+          xmlSourceId: form.xmlSourceId || null,
         };
         applyTo = 'price_range';
       } else {
@@ -241,9 +243,13 @@ export default function PricingPage() {
       if (conds && (conds.minPurchasePrice != null || conds.maxPurchasePrice != null)) {
         const min = conds.minPurchasePrice != null ? `₺${conds.minPurchasePrice}` : '—';
         const max = conds.maxPurchasePrice != null ? `₺${conds.maxPurchasePrice}` : '—';
+        const conn = conds.connectionId ? connections.find(x => x.id === conds.connectionId) : null;
+        const src  = conds.xmlSourceId  ? xmlSources.find(x => x.id === conds.xmlSourceId)  : null;
         return (
           <div style={{ fontSize: 12, lineHeight: 1.7 }}>
-            <div><strong>Alış Aralığı:</strong> {min} — {max}</div>
+            <div><strong>XML Fiyat Aralığı:</strong> {min} — {max}</div>
+            {conn && <div><strong>Pazaryeri:</strong> {conn.supplierName || conn.marketplaceType}</div>}
+            {src  && <div><strong>Kaynak:</strong> {src.name}</div>}
             {conds.shippingCost > 0 && <div><strong>Kargo:</strong> ₺{conds.shippingCost}</div>}
             {conds.commissionPct > 0 && <div><strong>Komisyon:</strong> %{conds.commissionPct}</div>}
             {conds.vatRate > 0 && <div><strong>KDV:</strong> %{conds.vatRate}</div>}
@@ -378,8 +384,31 @@ export default function PricingPage() {
                           style={{ flex: 1 }} />
                       </div>
                       <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 5 }}>
-                        Boş bırakırsanız o taraf sınırsız olur.
+                        Boş bırakırsanız o taraf sınırsız olur. XML Fiyat alanına göre eşleştirilir.
                       </p>
+                    </div>
+
+                    <div className="grid grid-2">
+                      <div className="form-group">
+                        <label className="form-label">Pazaryeri Bağlantısı</label>
+                        <select className="form-select" value={form.connectionId}
+                          onChange={e => setForm({ ...form, connectionId: e.target.value })}>
+                          <option value="">Tümü (Bağlantıdan Bağımsız)</option>
+                          {connections.map(c => (
+                            <option key={c.id} value={c.id}>{c.supplierName || c.marketplaceType} ({c.marketplaceType})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">XML Kaynağı</label>
+                        <select className="form-select" value={form.xmlSourceId}
+                          onChange={e => setForm({ ...form, xmlSourceId: e.target.value })}>
+                          <option value="">Tümü (Kaynaktan Bağımsız)</option>
+                          {xmlSources.map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
 
                     <div className="grid grid-2">

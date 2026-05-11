@@ -404,7 +404,7 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
       // Find and apply Pricing Rule
       const rule = pricingLookup[p.xmlSourceId];
       const xmlPrice = p.xmlPrice || p.price;
-      const rangeMatch = !rule ? matchPriceRangeRule(xmlPrice, priceRangeRules) : null;
+      const rangeMatch = !rule ? matchPriceRangeRule(xmlPrice, priceRangeRules, connection.id, p.xmlSourceId) : null;
 
       if (!rule && !rangeMatch) {
         errors.push(`${p.sku}: Fiyatlandırma kuralı eksik (Fiyatlandırma sayfasından kural tanımlayın)`);

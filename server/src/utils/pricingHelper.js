@@ -1,8 +1,10 @@
-function matchPriceRangeRule(xmlPrice, rules) {
+function matchPriceRangeRule(xmlPrice, rules, connectionId, xmlSourceId) {
   for (const r of rules) {
     if (!r.isActive || !r.conditions) continue;
     let conds;
     try { conds = JSON.parse(r.conditions); } catch { continue; }
+    if (conds.connectionId && conds.connectionId !== connectionId) continue;
+    if (conds.xmlSourceId && conds.xmlSourceId !== xmlSourceId) continue;
     const min = conds.minPurchasePrice ?? null;
     const max = conds.maxPurchasePrice ?? null;
     if (min === null && max === null) continue;

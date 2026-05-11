@@ -110,12 +110,14 @@ export default function TrendyolSendPage() {
     return { pricingLookup: lookup, priceRangeRules: rangeRules };
   }, [pricingRules, selectedConn]);
 
-  const matchesPriceRangeRule = (xmlPrice) => {
+  const matchesPriceRangeRule = (xmlPrice, xmlSourceId) => {
     if (!xmlPrice || xmlPrice <= 0) return false;
     for (const r of priceRangeRules) {
       if (!r.conditions) continue;
       try {
         const c = JSON.parse(r.conditions);
+        if (c.connectionId && c.connectionId !== selectedConn?.id) continue;
+        if (c.xmlSourceId && c.xmlSourceId !== xmlSourceId) continue;
         const min = c.minPurchasePrice ?? null;
         const max = c.maxPurchasePrice ?? null;
         if (min === null && max === null) continue;
@@ -129,17 +131,40 @@ export default function TrendyolSendPage() {
 
   const getCalculatedPrice = (p) => {
     const rule = pricingLookup[p.xmlSourceId];
-    if (!rule) return p.price;
-    let finalPrice = p.price;
-    if (rule.type === 'percentage') finalPrice = finalPrice * (1 + rule.value / 100);
-    if (rule.type === 'fixed') finalPrice = finalPrice + rule.value;
-    return Math.round(Math.max(0, finalPrice) * 100) / 100;
+    if (rule) {
+      let finalPrice = p.price;
+      if (rule.type === 'percentage') finalPrice = finalPrice * (1 + rule.value / 100);
+      if (rule.type === 'fixed') finalPrice = finalPrice + rule.value;
+      return Math.round(Math.max(0, finalPrice) * 100) / 100;
+    }
+    const xmlPrice = p.xmlPrice || p.price;
+    for (const r of priceRangeRules) {
+      if (!r.conditions) continue;
+      try {
+        const c = JSON.parse(r.conditions);
+        if (c.connectionId && c.connectionId !== selectedConn?.id) continue;
+        if (c.xmlSourceId && c.xmlSourceId !== p.xmlSourceId) continue;
+        const min = c.minPurchasePrice ?? null;
+        const max = c.maxPurchasePrice ?? null;
+        if (min === null && max === null) continue;
+        if (min !== null && xmlPrice < min) continue;
+        if (max !== null && xmlPrice > max) continue;
+        const shipping = parseFloat(c.shippingCost) || 0;
+        const commission = parseFloat(c.commissionPct) || 0;
+        const vat = parseFloat(c.vatRate) || 0;
+        const totalCost = xmlPrice + shipping;
+        const profitTarget = xmlPrice * (r.value / 100);
+        const factor = commission > 0 ? 1 - commission / 100 : 1;
+        return Math.round(Math.max(0, (totalCost + profitTarget) / factor * (1 + vat / 100)) * 100) / 100;
+      } catch(e) {}
+    }
+    return p.price;
   };
 
   const getProductStatus = (p) => {
     const hasCategoryMapping = !!findCatMapping(p.category);
     const hasBarcode = !!p.barcode;
-    const hasPricingRule = !!pricingLookup[p.xmlSourceId] || matchesPriceRangeRule(p.xmlPrice || p.price);
+    const hasPricingRule = !!pricingLookup[p.xmlSourceId] || matchesPriceRangeRule(p.xmlPrice || p.price, p.xmlSourceId);
     if (hasCategoryMapping && hasBarcode && hasPricingRule) return 'ready';
     return 'missing';
   };
@@ -355,7 +380,7 @@ export default function TrendyolSendPage() {
               const isSelected = selectedIds.has(p.id);
               const catMapping = findCatMapping(p.category);
               const thumbImg = getFirstImage(p);
-              const hasPricingRule = !!pricingLookup[p.xmlSourceId] || matchesPriceRangeRule(p.xmlPrice || p.price);
+              const hasPricingRule = !!pricingLookup[p.xmlSourceId] || matchesPriceRangeRule(p.xmlPrice || p.price, p.xmlSourceId);
               const issues = [];
               if (!p.barcode) issues.push('Barkod yok');
               if (!hasPricingRule) issues.push('Fiyat kuralı yok');
@@ -419,7 +444,7 @@ export default function TrendyolSendPage() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         {!findCatMapping(p.category) && <span className="badge badge-error" style={{ fontSize: 10 }}>Kategori Eksik</span>}
                         {!p.barcode && <span className="badge badge-error" style={{ fontSize: 10 }}>Barkod Eksik</span>}
-                        {!pricingLookup[p.xmlSourceId] && <span className="badge badge-error" style={{ fontSize: 10 }}>Fiyat Eksik</span>}
+                        {!hasPricingRule && <span className="badge badge-error" style={{ fontSize: 10 }}>Fiyat Eksik</span>}
                       </div>
                     )}
                   </td>
