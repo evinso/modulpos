@@ -261,22 +261,42 @@ export default function TrendyolSendPage() {
         </div>
       </div>
 
-      {/* Unmapped categories warning */}
-      {unmappedCategories.length > 0 && (
-        <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid var(--warning)', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
-          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--warning)', marginBottom: 6 }}>
-            ⚠ Eşleştirilmemiş {unmappedCategories.length} kategori var — bu ürünler gönderilemez
+      {/* Category mapping status */}
+      {(unmappedCategories.length > 0 || mappings.length > 0) && (
+        <div style={{ background: unmappedCategories.length > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.06)', border: `1px solid ${unmappedCategories.length > 0 ? 'var(--warning)' : 'var(--success)'}`, borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Yüklenen Eşlemeler ({mappings.length})
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {mappings.length === 0
+                  ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Hiç eşleme bulunamadı</span>
+                  : mappings.slice(0, 20).map(m => (
+                    <span key={m.id} style={{ background: 'rgba(34,197,94,0.12)', color: 'var(--success)', borderRadius: 4, padding: '2px 8px', fontSize: 11, fontFamily: 'monospace' }}>
+                      {m.localCategory}
+                    </span>
+                  ))}
+              </div>
+            </div>
+            {unmappedCategories.length > 0 && (
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Eşleşmeyen Ürün Kategorileri ({unmappedCategories.length})
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+                  {unmappedCategories.map(cat => (
+                    <span key={cat} style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--warning)', borderRadius: 4, padding: '2px 8px', fontSize: 11, fontFamily: 'monospace' }}>
+                      {cat}
+                    </span>
+                  ))}
+                </div>
+                <a href="/category-mapping" style={{ fontSize: 12, color: 'var(--accent-primary)', textDecoration: 'underline' }}>
+                  Kategori Eşleştirme sayfasına git →
+                </a>
+              </div>
+            )}
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-            {unmappedCategories.map(cat => (
-              <span key={cat} style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--warning)', borderRadius: 4, padding: '2px 8px', fontSize: 12, fontFamily: 'monospace' }}>
-                {cat}
-              </span>
-            ))}
-          </div>
-          <a href="/category-mapping" style={{ fontSize: 12, color: 'var(--accent-primary)', textDecoration: 'underline' }}>
-            Kategori Eşleştirme sayfasına git →
-          </a>
         </div>
       )}
 
