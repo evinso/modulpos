@@ -187,6 +187,16 @@ export default function TrendyolSendPage() {
     return null;
   };
 
+  const unmappedCategories = useMemo(() => {
+    const cats = new Set();
+    for (const p of products) {
+      if (p.category && !mappedCategories[p.category.toLowerCase().trim()]) {
+        cats.add(p.category);
+      }
+    }
+    return [...cats].sort();
+  }, [products, mappedCategories]);
+
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
 
   if (connections.length === 0) {
@@ -206,16 +216,6 @@ export default function TrendyolSendPage() {
 
   const readyCount = products.filter(p => getProductStatus(p) === 'ready').length;
   const missingCount = products.filter(p => getProductStatus(p) === 'missing').length;
-
-  const unmappedCategories = useMemo(() => {
-    const cats = new Set();
-    for (const p of products) {
-      if (p.category && !mappedCategories[p.category.toLowerCase().trim()]) {
-        cats.add(p.category);
-      }
-    }
-    return [...cats].sort();
-  }, [products, mappedCategories]);
 
   return (
     <div>
