@@ -684,10 +684,6 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
         where: { connectionId: connection.id, status: 'pending' },
         include: { product: true }
       });
-      
-      if (allPendingProducts.length === 0) {
-        return res.json({ message: 'Kontrol edilecek onay bekleyen ürün bulunamadı.', updated: 0 });
-      }
 
       let updatedCount = 0;
       let errorMessages = [];
