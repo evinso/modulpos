@@ -335,10 +335,11 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
       if (!r.conditions) continue;
       try {
         const conds = JSON.parse(r.conditions);
-        if (conds.connectionId === connection.id && conds.xmlSourceId) {
+        // Only standard (marketplace_xml) rules go into pricingLookup
+        if (r.applyTo !== 'price_range' && conds.connectionId === connection.id && conds.xmlSourceId) {
           pricingLookup[conds.xmlSourceId] = r;
         }
-        if (conds.minPurchasePrice != null || conds.maxPurchasePrice != null) {
+        if (r.applyTo === 'price_range' && (conds.minPurchasePrice != null || conds.maxPurchasePrice != null)) {
           priceRangeRules.push(r);
         }
       } catch(e) {}

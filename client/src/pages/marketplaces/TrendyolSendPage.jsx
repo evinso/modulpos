@@ -236,6 +236,21 @@ export default function TrendyolSendPage() {
     return [...cats].sort();
   }, [products, mappedCategories]);
 
+  // Products with missing price rule: show their xmlPrice for diagnosis
+  const priceMissingInfo = useMemo(() => {
+    const seen = new Set();
+    const rows = [];
+    for (const p of products) {
+      if (!!pricingLookup[p.xmlSourceId] || matchesPriceRangeRule(p.xmlPrice || p.price, p.xmlSourceId)) continue;
+      const key = `${p.xmlSourceId}|${p.xmlPrice}|${p.price}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const src = xmlSources.find(s => s.id === p.xmlSourceId);
+      rows.push({ xmlSourceId: p.xmlSourceId, srcName: src?.name || p.xmlSourceId, xmlPrice: p.xmlPrice, price: p.price });
+    }
+    return rows.slice(0, 5);
+  }, [products, pricingLookup, priceRangeRules, selectedConn, xmlSources]);
+
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
 
   if (connections.length === 0) {
@@ -336,6 +351,25 @@ export default function TrendyolSendPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Pricing rule debug panel */}
+      {priceMissingInfo.length > 0 && (
+        <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid var(--danger)', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Fiyat Kuralı Eşleşmeyen Ürünler — XML Fiyat Değerleri
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {priceMissingInfo.map((row, i) => (
+              <span key={i} style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--danger)', borderRadius: 4, padding: '3px 10px', fontSize: 11, fontFamily: 'monospace' }}>
+                {row.srcName}: xmlFiyat={row.xmlPrice ?? 'null'} / satışFiyatı={row.price}
+              </span>
+            ))}
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8, marginBottom: 0 }}>
+            Fiyat aralığı kuralınızın min/max değerleri bu XML fiyatlarını kapsıyor mu? "XML Fiyat" 0 veya null ise XML kaynağını yeniden senkronize edin.
+          </p>
         </div>
       )}
 
