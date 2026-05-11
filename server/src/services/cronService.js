@@ -3,6 +3,7 @@ const prisma = require('../config/database');
 const { parseXml } = require('./xml/xmlParser');
 const notificationService = require('./notificationService');
 const TrendyolService = require('./trendyol/trendyolService');
+const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
 
 class CronService {
   start() {
@@ -51,15 +52,18 @@ class CronService {
         try {
           const sku = p.sku || p.barcode || `xml-${Date.now()}-${Math.random()}`;
           let rawXmlPrice = p.price || 0;
-          
+
           if (xmlSource.globalPriceMarkupPct) {
             rawXmlPrice += rawXmlPrice * (xmlSource.globalPriceMarkupPct / 100);
           }
           if (xmlSource.globalPriceMarkup) {
             rawXmlPrice += xmlSource.globalPriceMarkup;
           }
+          if (xmlSource.purchaseVatRate && xmlSource.purchaseVatRate > 0) {
+            rawXmlPrice = rawXmlPrice * (1 + xmlSource.purchaseVatRate / 100);
+          }
 
-          const xmlPrice = rawXmlPrice;
+          const xmlPrice = Math.round(rawXmlPrice * 100) / 100;
 
           const rawXmlData = JSON.stringify({
             sku: p.sku, barcode: p.barcode, title: p.title, description: p.description,
@@ -167,76 +171,93 @@ class CronService {
 
   async autoSendToMarketplaces(storeId, xmlSourceId) {
     try {
-      // Find active trendyol connections for this store
+      // Build pricing rule structures for this store
+      const allRules = await prisma.pricingRule.findMany({
+        where: { storeId, isActive: true, applyTo: { in: ['marketplace_xml', 'price_range'] } }
+      });
+
+      const standardLookup = {}; // { connectionId: { xmlSourceId: rule } }
+      const priceRangeRules = [];
+      for (const r of allRules) {
+        if (!r.conditions) continue;
+        try {
+          const conds = JSON.parse(r.conditions);
+          if (r.applyTo === 'price_range' && (conds.minPurchasePrice != null || conds.maxPurchasePrice != null)) {
+            priceRangeRules.push(r);
+          } else if (r.applyTo !== 'price_range' && conds.connectionId && conds.xmlSourceId) {
+            if (!standardLookup[conds.connectionId]) standardLookup[conds.connectionId] = {};
+            standardLookup[conds.connectionId][conds.xmlSourceId] = r;
+          }
+        } catch(e) {}
+      }
+
+      // Find active Trendyol connections for this store
       const connections = await prisma.marketplaceConnection.findMany({
-        where: { storeId, marketplaceType: 'trendyol', isActive: true }
+        where: { storeId, marketplaceType: 'trendyol', status: 'active' }
       });
 
       for (const conn of connections) {
-        const service = new TrendyolService(conn);
-        
-        // Find all products for this XML source that have a category mapping
-        const products = await prisma.product.findMany({
-          where: { storeId, xmlSourceId },
-          include: { categoryMappings: true }
-        });
-
-        const pricingRules = await prisma.pricingRule.findMany({
-          where: { storeId }
-        });
-        const pricingLookup = {};
-        for (const rule of pricingRules) {
-          pricingLookup[rule.xmlSourceId] = rule;
-        }
-
-        const validProductsToSync = [];
-        const catMap = {};
-        
-        for (const p of products) {
-          if (!p.category) continue;
-          
-          let mapping = p.categoryMappings.find(m => m.categoryId === p.category && m.marketplaceType === 'trendyol');
-          
-          if (!mapping) continue;
-          catMap[p.category] = mapping;
-          
-          const rule = pricingLookup[xmlSourceId];
-          if (!rule) continue;
-
-          let finalPrice = p.price;
-          if (rule.type === 'percentage') {
-            finalPrice = finalPrice * (1 + rule.value / 100);
-          } else if (rule.type === 'fixed') {
-            finalPrice = finalPrice + rule.value;
-          }
-          p.price = Math.round(Math.max(0, finalPrice) * 100) / 100;
-
-          validProductsToSync.push(p);
-        }
-
-        if (validProductsToSync.length > 0) {
-          // Send price and stock updates for existing marketplace products
-          const existingMarketplaceProducts = await prisma.marketplaceProduct.findMany({
-            where: { connectionId: conn.id, productId: { in: validProductsToSync.map(p => p.id) } }
+        try {
+          // Find marketplace products for this connection whose product came from this XML source
+          const existingMPs = await prisma.marketplaceProduct.findMany({
+            where: { connectionId: conn.id, product: { xmlSourceId } },
+            include: { product: true }
           });
 
-          if (existingMarketplaceProducts.length > 0) {
-            const items = existingMarketplaceProducts.map(mp => {
-              const productData = validProductsToSync.find(p => p.id === mp.productId);
-              return {
-                barcode: productData.barcode,
-                price: productData.price,
-                stock: productData.stock
-              };
-            });
+          if (existingMPs.length === 0) continue;
 
-            await service.updatePriceAndStock(items);
-            console.log(`[CRON] Sent ${items.length} price/stock updates to Trendyol for connection ${conn.id}`);
+          const service = new TrendyolService(conn);
+          const items = [];
+
+          for (const mp of existingMPs) {
+            const p = mp.product;
+            if (!p || !p.barcode) continue;
+
+            const xmlPrice = p.xmlPrice || p.price;
+
+            // Determine sale price from pricing rules
+            let salePrice = null;
+            const stdRule = standardLookup[conn.id]?.[xmlSourceId];
+            if (stdRule) {
+              let fp = p.price;
+              if (stdRule.type === 'percentage') fp = fp * (1 + stdRule.value / 100);
+              if (stdRule.type === 'fixed') fp = fp + stdRule.value;
+              salePrice = Math.round(Math.max(0, fp) * 100) / 100;
+            }
+
+            if (salePrice === null && xmlPrice > 0) {
+              const rangeMatch = matchPriceRangeRule(xmlPrice, priceRangeRules, conn.id, xmlSourceId);
+              if (rangeMatch) salePrice = calcPriceRangePrice(xmlPrice, rangeMatch.rule, rangeMatch.conds);
+            }
+
+            if (salePrice === null) continue;
+
+            const listPrice = p.listPrice > salePrice ? p.listPrice : salePrice;
+            items.push({ barcode: p.barcode, quantity: p.stock, salePrice, listPrice });
+
+            await prisma.marketplaceProduct.update({
+              where: { id: mp.id },
+              data: { marketplacePrice: salePrice, marketplaceStock: p.stock, lastSyncedAt: new Date() }
+            });
           }
+
+          if (items.length > 0) {
+            await service.updatePriceAndInventory(items);
+            console.log(`[CRON] Updated ${items.length} products on Trendyol (connection ${conn.id})`);
+            await notificationService.create({
+              storeId,
+              title: 'Otomatik Trendyol Güncelleme',
+              message: `${items.length} ürünün fiyat ve stoğu Trendyol'da otomatik güncellendi.`,
+              type: 'success',
+              link: '/products'
+            });
+          }
+        } catch (connErr) {
+          console.error(`[CRON] Trendyol sync failed for connection ${conn.id}:`, connErr.message);
         }
       }
     } catch (error) {
-      console.error(`[CRON] Trendyol Auto-Send failed for store ${storeId}:`, error.message);
+      console.error(`[CRON] autoSendToMarketplaces failed for store ${storeId}:`, error.message);
     }
   }
 }
