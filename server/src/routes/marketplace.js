@@ -509,7 +509,7 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
 
     // Create MarketplaceProduct records
     for (const p of products) {
-      const mapping = p.category ? catMap[p.category] : null;
+      const mapping = resolveCatMapping(p.category, catMap, p.xmlSourceId, globalCatMap);
       if (!mapping || !p.barcode) continue;
 
       await prisma.marketplaceProduct.upsert({
@@ -815,10 +815,61 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
         }
       }
       
+      // --- 3. Discover products already on Trendyol that don't have a MarketplaceProduct record ---
+      // This fixes products that were sent but the DB record wasn't created (e.g. due to pipe-separated categories)
+      const allStoreProducts = await prisma.product.findMany({
+        where: { storeId: connection.storeId, barcode: { not: null } },
+        select: { id: true, barcode: true, sku: true, price: true, listPrice: true, stock: true }
+      });
+
+      const existingMpIds = new Set(
+        (await prisma.marketplaceProduct.findMany({ where: { connectionId: connection.id }, select: { productId: true } }))
+          .map(mp => mp.productId)
+      );
+
+      const undiscovered = allStoreProducts.filter(p => !existingMpIds.has(p.id) && p.barcode);
+      let discovered = 0;
+
+      for (let i = 0; i < undiscovered.length; i += 50) {
+        const batch = undiscovered.slice(i, i + 50);
+        const barcodes = batch.map(p => p.barcode);
+        const barcodeMap = new Map(batch.map(p => [p.barcode, p]));
+        try {
+          const activeRes = await service.getProducts(0, 50, true, barcodes);
+          if (activeRes?.content) {
+            for (const tp of activeRes.content) {
+              const product = barcodeMap.get(tp.barcode) || barcodeMap.get(tp.stockCode);
+              if (!product) continue;
+              await prisma.marketplaceProduct.create({
+                data: {
+                  productId: product.id,
+                  connectionId: connection.id,
+                  marketplaceProductId: String(tp.productCode || tp.id || ''),
+                  marketplacePrice: tp.salePrice || product.price,
+                  marketplaceStock: tp.quantity ?? product.stock,
+                  status: 'active',
+                  lastSyncedAt: new Date()
+                }
+              });
+              discovered++;
+              updatedCount++;
+            }
+          }
+        } catch (err) {
+          console.error('[Barcode Discovery Error]', err.message);
+        }
+      }
+
+      if (discovered > 0) {
+        console.log(`[Trendyol Sync] Discovered ${discovered} previously untracked products`);
+      }
+
       const warnMsg = errorMessages.length > 0 ? ` (${errorMessages.length} hata oluştu)` : '';
-      return res.json({ 
-        message: `${updatedCount} ürünün durumu güncellendi.${warnMsg}`,
-        updated: updatedCount 
+      const discoverMsg = discovered > 0 ? ` ${discovered} yeni ürün Trendyol'da bulundu.` : '';
+      return res.json({
+        message: `${updatedCount} ürünün durumu güncellendi.${discoverMsg}${warnMsg}`,
+        updated: updatedCount,
+        discovered
       });
     } else {
       res.status(400).json({ error: 'Bu pazaryeri için durum sorgulama desteklenmiyor' });
