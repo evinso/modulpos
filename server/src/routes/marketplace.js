@@ -812,7 +812,8 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
       }
       
       // --- 3. Discover products already on Trendyol that don't have a MarketplaceProduct record ---
-      // This fixes products that were sent but the DB record wasn't created (e.g. due to pipe-separated categories)
+      // Fetch ALL Trendyol products paginated (no barcode filter — multi-barcode filter is unreliable)
+      // and match against our local product barcodes.
       const allStoreProducts = await prisma.product.findMany({
         where: { storeId: connection.storeId, barcode: { not: null } },
         select: { id: true, barcode: true, sku: true, price: true, listPrice: true, stock: true }
@@ -823,36 +824,56 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
           .map(mp => mp.productId)
       );
 
-      const undiscovered = allStoreProducts.filter(p => !existingMpIds.has(p.id) && p.barcode);
+      // Build barcode → local product map (only products without a record)
+      const localBarcodeMap = new Map();
+      for (const p of allStoreProducts) {
+        if (!existingMpIds.has(p.id) && p.barcode) {
+          localBarcodeMap.set(p.barcode, p);
+          if (p.sku && p.sku !== p.barcode) localBarcodeMap.set(p.sku, p);
+        }
+      }
+
       let discovered = 0;
 
-      for (let i = 0; i < undiscovered.length; i += 50) {
-        const batch = undiscovered.slice(i, i + 50);
-        const barcodes = batch.map(p => p.barcode);
-        const barcodeMap = new Map(batch.map(p => [p.barcode, p]));
-        try {
-          const activeRes = await service.getProducts(0, 50, true, barcodes);
-          if (activeRes?.content) {
-            for (const tp of activeRes.content) {
-              const product = barcodeMap.get(tp.barcode) || barcodeMap.get(tp.stockCode);
+      if (localBarcodeMap.size > 0) {
+        let page = 0;
+        let hasMore = true;
+
+        while (hasMore) {
+          try {
+            const res = await service.getProducts(page, 50, true, []);
+            const items = res?.content || [];
+            if (items.length === 0) { hasMore = false; break; }
+
+            for (const tp of items) {
+              const barcode = tp.barcode || tp.stockCode;
+              const product = localBarcodeMap.get(barcode);
               if (!product) continue;
-              await prisma.marketplaceProduct.create({
-                data: {
-                  productId: product.id,
-                  connectionId: connection.id,
-                  marketplaceProductId: String(tp.productCode || tp.id || ''),
-                  marketplacePrice: tp.salePrice || product.price,
-                  marketplaceStock: tp.quantity ?? product.stock,
-                  status: 'active',
-                  lastSyncedAt: new Date()
-                }
-              });
-              discovered++;
-              updatedCount++;
+              try {
+                await prisma.marketplaceProduct.create({
+                  data: {
+                    productId: product.id,
+                    connectionId: connection.id,
+                    marketplaceProductId: String(tp.id || tp.productCode || ''),
+                    marketplacePrice: tp.salePrice || product.price,
+                    marketplaceStock: tp.quantity ?? product.stock,
+                    status: 'active',
+                    lastSyncedAt: new Date()
+                  }
+                });
+                localBarcodeMap.delete(barcode);
+                discovered++;
+                updatedCount++;
+              } catch (dupErr) { /* already exists, ignore */ }
             }
+
+            const totalPages = res?.totalPages ?? 1;
+            if (page >= totalPages - 1 || items.length < 50) hasMore = false;
+            else page++;
+          } catch (err) {
+            console.error('[Trendyol Discovery Error] page', page, err.message);
+            hasMore = false;
           }
-        } catch (err) {
-          console.error('[Barcode Discovery Error]', err.message);
         }
       }
 
