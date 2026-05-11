@@ -371,14 +371,26 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
       }
     }
 
+    // Resolve category mapping, handling pipe-separated category strings (e.g. "Kadın|Kolye|")
+    const resolveCatMapping = (category, catMap, xmlSourceId, globalCatMap) => {
+      if (!category) return null;
+      if (catMap[category]) return catMap[category];
+      if (xmlSourceId && globalCatMap[xmlSourceId]?.[category]) return globalCatMap[xmlSourceId][category];
+      if (category.includes('|')) {
+        const parts = category.split('|').map(s => s.trim()).filter(Boolean);
+        for (const part of parts) {
+          if (catMap[part]) return catMap[part];
+          if (xmlSourceId && globalCatMap[xmlSourceId]?.[part]) return globalCatMap[xmlSourceId][part];
+        }
+      }
+      return null;
+    };
+
     // Format products for Trendyol
     const formatted = [];
     const errors = [];
     for (const p of products) {
-      let mapping = p.category ? catMap[p.category] : null;
-      if (!mapping && p.xmlSourceId && globalCatMap[p.xmlSourceId] && p.category) {
-        mapping = globalCatMap[p.xmlSourceId][p.category];
-      }
+      let mapping = resolveCatMapping(p.category, catMap, p.xmlSourceId, globalCatMap);
       
       if (!mapping) {
         errors.push(`${p.sku}: Kategori eşleştirmesi yok (${p.category || 'Kategori boş'})`);

@@ -75,6 +75,20 @@ export default function TrendyolSendPage() {
     return acc;
   }, [mappings]);
 
+  // Finds a mapping for a category that may be pipe-separated (e.g. "Kadın|Bayan Bileklik|")
+  const findCatMapping = (category) => {
+    if (!category) return null;
+    const key = category.toLowerCase().trim();
+    if (mappedCategories[key]) return mappedCategories[key];
+    if (key.includes('|')) {
+      const parts = key.split('|').map(s => s.trim()).filter(Boolean);
+      for (const part of parts) {
+        if (mappedCategories[part]) return mappedCategories[part];
+      }
+    }
+    return null;
+  };
+
   const { pricingLookup, priceRangeRules } = useMemo(() => {
     if (!selectedConn) return { pricingLookup: {}, priceRangeRules: [] };
     const lookup = {};
@@ -123,7 +137,7 @@ export default function TrendyolSendPage() {
   };
 
   const getProductStatus = (p) => {
-    const hasCategoryMapping = p.category && mappedCategories[p.category.toLowerCase().trim()];
+    const hasCategoryMapping = !!findCatMapping(p.category);
     const hasBarcode = !!p.barcode;
     const hasPricingRule = !!pricingLookup[p.xmlSourceId] || matchesPriceRangeRule(p.xmlPrice || p.price);
     if (hasCategoryMapping && hasBarcode && hasPricingRule) return 'ready';
@@ -190,7 +204,7 @@ export default function TrendyolSendPage() {
   const unmappedCategories = useMemo(() => {
     const cats = new Set();
     for (const p of products) {
-      if (p.category && !mappedCategories[p.category.toLowerCase().trim()]) {
+      if (p.category && !findCatMapping(p.category)) {
         cats.add(p.category);
       }
     }
@@ -339,7 +353,7 @@ export default function TrendyolSendPage() {
             {filteredProducts.map(p => {
               const status = getProductStatus(p);
               const isSelected = selectedIds.has(p.id);
-              const catMapping = p.category ? mappedCategories[p.category.toLowerCase().trim()] : null;
+              const catMapping = findCatMapping(p.category);
               const thumbImg = getFirstImage(p);
               const hasPricingRule = !!pricingLookup[p.xmlSourceId] || matchesPriceRangeRule(p.xmlPrice || p.price);
               const issues = [];
@@ -403,7 +417,7 @@ export default function TrendyolSendPage() {
                       <span className="badge badge-success">Gönderime Hazır</span>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {!mappedCategories[p.category] && <span className="badge badge-error" style={{ fontSize: 10 }}>Kategori Eksik</span>}
+                        {!findCatMapping(p.category) && <span className="badge badge-error" style={{ fontSize: 10 }}>Kategori Eksik</span>}
                         {!p.barcode && <span className="badge badge-error" style={{ fontSize: 10 }}>Barkod Eksik</span>}
                         {!pricingLookup[p.xmlSourceId] && <span className="badge badge-error" style={{ fontSize: 10 }}>Fiyat Eksik</span>}
                       </div>
