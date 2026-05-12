@@ -4,7 +4,7 @@ import {
   Users, Store, Package, ShoppingCart, CreditCard, Shield, Search,
   MoreVertical, CheckCircle, XCircle, UserPlus, Mail, Calendar,
   Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus, List, Sliders, FileText, Truck,
-  MessageSquare, Send, Building2, Eye
+  MessageSquare, Send, Building2, Eye, Info, Bell, Wallet, Activity, ArrowDownRight, ArrowUpRight
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { legalContent } from '../legal/legalContent';
@@ -71,6 +71,16 @@ export default function SuperAdminPage() {
   const [supportReplyText, setSupportReplyText] = useState('');
   const [supportReplying, setSupportReplying] = useState(false);
   const [supportStatusSaving, setSupportStatusSaving] = useState(false);
+
+  // User detail panel
+  const [detailUser, setDetailUser] = useState(null);
+  const [detailData, setDetailData] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  // Notify modal
+  const [notifyTarget, setNotifyTarget] = useState(null); // { userId, name } or { all: true }
+  const [notifyForm, setNotifyForm] = useState({ title: '', message: '', type: 'info', link: '' });
+  const [notifySending, setNotifySending] = useState(false);
 
   const [policyPages, setPolicyPages] = useState([]);
   const [policyEditSlug, setPolicyEditSlug] = useState(null);
@@ -156,6 +166,33 @@ export default function SuperAdminPage() {
     } catch {
       toast.error('Ayarlar kaydedilemedi');
     }
+  };
+
+  const openUserDetail = async (user) => {
+    setDetailUser(user);
+    setDetailData(null);
+    setDetailLoading(true);
+    try {
+      const res = await api.get(`/admin/users/${user.id}/detail`);
+      setDetailData(res.data);
+    } catch { toast.error('Detay yüklenemedi'); }
+    finally { setDetailLoading(false); }
+  };
+
+  const handleSendNotify = async (e) => {
+    e.preventDefault();
+    if (!notifyForm.title.trim() || !notifyForm.message.trim()) return;
+    setNotifySending(true);
+    try {
+      const payload = { ...notifyForm, link: notifyForm.link || undefined };
+      if (notifyTarget?.all) payload.all = true;
+      else payload.userId = notifyTarget?.userId;
+      const res = await api.post('/admin/notify', payload);
+      toast.success(`${res.data.sent} mağazaya bildirim gönderildi`);
+      setNotifyTarget(null);
+      setNotifyForm({ title: '', message: '', type: 'info', link: '' });
+    } catch (err) { toast.error(err.response?.data?.error || 'Gönderilemedi'); }
+    finally { setNotifySending(false); }
   };
 
   const handleRoleChange = async (userId, newRole) => {
@@ -666,10 +703,19 @@ export default function SuperAdminPage() {
                activeTab === 'support' ? 'Destek Biletleri' : 'Genel Ayarlar'}
             </h3>
             {activeTab === 'users' && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', background: 'rgba(59,130,246,0.1)', padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(59,130,246,0.2)', color: 'var(--accent-primary)' }}>
-                <input type="checkbox" checked={showOnlyPremium} onChange={e => setShowOnlyPremium(e.target.checked)} />
-                Sadece Premium
-              </label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', background: 'rgba(59,130,246,0.1)', padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(59,130,246,0.2)', color: 'var(--accent-primary)' }}>
+                  <input type="checkbox" checked={showOnlyPremium} onChange={e => setShowOnlyPremium(e.target.checked)} />
+                  Sadece Premium
+                </label>
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: 12, padding: '6px 12px' }}
+                  onClick={() => { setNotifyTarget({ all: true }); setNotifyForm({ title: '', message: '', type: 'info', link: '' }); }}
+                >
+                  <Bell size={14} /> Tümüne Bildirim Gönder
+                </button>
+              </div>
             )}
             {(activeTab === 'users' || activeTab === 'stores') && (
               <div className="header-search">
@@ -838,6 +884,15 @@ export default function SuperAdminPage() {
                     </td>
                     <td>
                       <div className="flex gap-2">
+                        <button
+                          className="btn btn-primary"
+                          style={{ padding: '4px 10px', fontSize: 12, height: 'auto' }}
+                          title="Kullanıcı Detayı"
+                          onClick={() => openUserDetail(user)}
+                          disabled={actionLoading === user.id}
+                        >
+                          <Info size={13} style={{ marginRight: 4 }} /> Detay
+                        </button>
                         <button
                           className="btn btn-secondary"
                           style={{ padding: '4px 8px', fontSize: 12, height: 'auto' }}
@@ -2149,6 +2204,197 @@ export default function SuperAdminPage() {
           </div>
         );
       })()}
+      {/* ── User Detail Modal ── */}
+      {detailUser && (
+        <div className="modal-overlay" onClick={() => setDetailUser(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 760, width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div className="user-avatar-sm" style={{ width: 36, height: 36, fontSize: 16 }}>{detailUser.name.charAt(0).toUpperCase()}</div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{detailUser.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{detailUser.email}</div>
+                </div>
+              </div>
+              <button className="modal-close" onClick={() => setDetailUser(null)}>×</button>
+            </div>
+
+            <div className="modal-body">
+              {detailLoading ? (
+                <div style={{ padding: 40, textAlign: 'center' }}><div className="spinner" /></div>
+              ) : detailData ? (() => {
+                const store = detailData.stores?.[0];
+                const cnt = store?._count ?? {};
+                const sub = detailData.subscriptions?.[0];
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                    {/* Stats grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10 }}>
+                      {[
+                        { label: 'Ürün', value: cnt.products ?? 0, color: 'var(--accent-primary)' },
+                        { label: 'Sipariş', value: cnt.orders ?? 0, color: 'var(--success)' },
+                        { label: 'XML Kaynağı', value: cnt.xmlSources ?? 0, color: 'var(--warning)' },
+                        { label: 'Pazar Bağlantısı', value: cnt.marketplaceConnections ?? 0, color: '#a78bfa' },
+                        { label: 'Müşteri Sorusu', value: cnt.customerQuestions ?? 0, color: '#f472b6' },
+                        { label: 'Kredi', value: detailData.creditBalance?.toFixed(1) ?? '0', color: 'var(--success)' },
+                      ].map(s => (
+                        <div key={s.label} style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '12px 14px' }}>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{s.label}</div>
+                          <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Marketplace connections */}
+                    {store?.marketplaceConnections?.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>PAZAR BAĞLANTILARI</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {store.marketplaceConnections.map(c => (
+                            <span key={c.id} style={{ fontSize: 12, padding: '3px 10px', borderRadius: 20, background: c.status === 'active' ? 'rgba(34,197,94,0.12)' : 'rgba(148,163,184,0.12)', color: c.status === 'active' ? 'var(--success)' : 'var(--text-muted)', border: '1px solid currentColor' }}>
+                              {c.supplierName || c.sellerId} ({c.marketplaceType})
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Subscription */}
+                    {sub && (
+                      <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '12px 14px', display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 13 }}>
+                        <div><span style={{ color: 'var(--text-muted)' }}>Plan: </span><strong>{sub.plan}</strong></div>
+                        <div><span style={{ color: 'var(--text-muted)' }}>Durum: </span><strong style={{ color: sub.status === 'active' ? 'var(--success)' : 'var(--danger)' }}>{sub.status}</strong></div>
+                        <div><span style={{ color: 'var(--text-muted)' }}>Bitiş: </span><strong>{new Date(sub.endDate).toLocaleDateString('tr-TR')}</strong></div>
+                      </div>
+                    )}
+
+                    {/* Credit transactions */}
+                    {detailData.recentTransactions?.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>SON KREDİ HAREKETLERİ</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {detailData.recentTransactions.map(t => (
+                            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, padding: '6px 10px', background: 'var(--bg-secondary)', borderRadius: 6 }}>
+                              {t.amount > 0
+                                ? <ArrowUpRight size={13} style={{ color: 'var(--success)', flexShrink: 0 }} />
+                                : <ArrowDownRight size={13} style={{ color: 'var(--danger)', flexShrink: 0 }} />}
+                              <span style={{ flex: 1, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.description || t.type}</span>
+                              <span style={{ fontWeight: 700, color: t.amount > 0 ? 'var(--success)' : 'var(--danger)', flexShrink: 0 }}>
+                                {t.amount > 0 ? '+' : ''}{t.amount}
+                              </span>
+                              <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>{new Date(t.createdAt).toLocaleDateString('tr-TR')}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recent notifications */}
+                    {detailData.recentNotifications?.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>SON BİLDİRİMLER</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {detailData.recentNotifications.map(n => (
+                            <div key={n.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, padding: '6px 10px', background: 'var(--bg-secondary)', borderRadius: 6, opacity: n.isRead ? 0.6 : 1 }}>
+                              <span style={{ flexShrink: 0, marginTop: 1 }}>
+                                {n.type === 'warning' ? '⚠️' : n.type === 'error' ? '🔴' : n.type === 'success' ? '✅' : 'ℹ️'}
+                              </span>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 600 }}>{n.title}</div>
+                                <div style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.message}</div>
+                              </div>
+                              <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>{new Date(n.createdAt).toLocaleDateString('tr-TR')}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recent audit logs */}
+                    {detailData.auditLogs?.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>SON AKTİVİTE</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          {detailData.auditLogs.map(l => (
+                            <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, padding: '5px 10px', background: 'var(--bg-secondary)', borderRadius: 6 }}>
+                              <span style={{ fontFamily: 'monospace', color: 'var(--accent-primary)', flexShrink: 0 }}>{l.action}</span>
+                              <span style={{ flex: 1, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.details}</span>
+                              <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>{new Date(l.createdAt).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })() : null}
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => {
+                setNotifyTarget({ userId: detailUser.id, name: detailUser.name });
+                setNotifyForm({ title: '', message: '', type: 'info', link: '' });
+                setDetailUser(null);
+              }}>
+                <Bell size={14} /> Bildirim Gönder
+              </button>
+              <button className="btn btn-secondary" onClick={() => setDetailUser(null)}>Kapat</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Notify Modal ── */}
+      {notifyTarget && (
+        <div className="modal-overlay" onClick={() => setNotifyTarget(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+            <div className="modal-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Bell size={18} />
+                {notifyTarget.all ? 'Tüm Kullanıcılara Bildirim' : `${notifyTarget.name} — Bildirim Gönder`}
+              </h3>
+              <button className="modal-close" onClick={() => setNotifyTarget(null)}>×</button>
+            </div>
+            <form onSubmit={handleSendNotify}>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {notifyTarget.all && (
+                  <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: 'var(--warning)' }}>
+                    Bu bildirim tüm aktif mağazalara gönderilecek.
+                  </div>
+                )}
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Tür</label>
+                  <select className="form-input" value={notifyForm.type} onChange={e => setNotifyForm({ ...notifyForm, type: e.target.value })}>
+                    <option value="info">ℹ️ Bilgi</option>
+                    <option value="success">✅ Başarı</option>
+                    <option value="warning">⚠️ Uyarı</option>
+                    <option value="error">🔴 Hata</option>
+                  </select>
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Başlık *</label>
+                  <input className="form-input" value={notifyForm.title} onChange={e => setNotifyForm({ ...notifyForm, title: e.target.value })} placeholder="örn. Sistem bakımı hakkında" required />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Mesaj *</label>
+                  <textarea className="form-input" rows={3} value={notifyForm.message} onChange={e => setNotifyForm({ ...notifyForm, message: e.target.value })} placeholder="Bildirim içeriği..." required />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Link (opsiyonel)</label>
+                  <input className="form-input" value={notifyForm.link} onChange={e => setNotifyForm({ ...notifyForm, link: e.target.value })} placeholder="/dashboard" />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setNotifyTarget(null)}>İptal</button>
+                <button type="submit" className="btn btn-primary" disabled={notifySending}>
+                  <Send size={14} /> {notifySending ? 'Gönderiliyor...' : 'Gönder'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

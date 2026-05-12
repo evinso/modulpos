@@ -874,4 +874,75 @@ router.post('/support-tickets/:id/reply', auth, isAdmin, async (req, res) => {
   }
 });
 
+// GET /api/admin/users/:id/detail — full user profile for admin detail panel
+router.get('/users/:id/detail', auth, isAdmin, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      include: {
+        stores: {
+          include: {
+            _count: {
+              select: {
+                products: true, orders: true, xmlSources: true,
+                marketplaceConnections: true, customerQuestions: true,
+              }
+            },
+            marketplaceConnections: { select: { id: true, marketplaceType: true, status: true, supplierName: true, sellerId: true } }
+          }
+        },
+        subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 },
+        auditLogs: { orderBy: { createdAt: 'desc' }, take: 10, select: { id: true, action: true, details: true, level: true, createdAt: true } },
+      }
+    });
+    if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+
+    const storeIds = user.stores.map(s => s.id);
+
+    const [creditBalance, recentTransactions, recentNotifications] = await Promise.all([
+      prisma.creditBalance.findUnique({ where: { userId: user.id } }),
+      prisma.creditTransaction.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { id: true, type: true, amount: true, description: true, createdAt: true }
+      }),
+      storeIds.length > 0
+        ? prisma.notification.findMany({
+            where: { storeId: { in: storeIds } },
+            orderBy: { createdAt: 'desc' },
+            take: 8,
+            select: { id: true, title: true, message: true, type: true, isRead: true, createdAt: true }
+          })
+        : [],
+    ]);
+
+    const { passwordHash, ...safeUser } = user;
+    res.json({ ...safeUser, creditBalance: creditBalance?.balance ?? 0, recentTransactions, recentNotifications });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// POST /api/admin/notify — send in-app notification to a user or all users
+router.post('/notify', auth, isAdmin, async (req, res) => {
+  try {
+    const { userId, all, title, message, type = 'info', link } = req.body;
+    if (!title?.trim() || !message?.trim()) return res.status(400).json({ error: 'Başlık ve mesaj zorunludur' });
+
+    let stores = [];
+    if (all) {
+      stores = await prisma.store.findMany({ select: { id: true } });
+    } else if (userId) {
+      stores = await prisma.store.findMany({ where: { userId }, select: { id: true } });
+      if (stores.length === 0) return res.status(404).json({ error: 'Kullanıcıya ait mağaza bulunamadı' });
+    } else {
+      return res.status(400).json({ error: 'userId veya all:true gereklidir' });
+    }
+
+    const notificationService = require('../services/notificationService');
+    await Promise.all(stores.map(s => notificationService.create({ storeId: s.id, title, message, type, link: link || null })));
+
+    res.json({ sent: stores.length });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
 module.exports = router;
