@@ -899,25 +899,21 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
           const mp = barcodeToMp.get(info.barcode);
           if (!mp) continue;
 
-          await prisma.buyboxRecord.upsert({
-            where: { connectionId_barcode: { connectionId: connection.id, barcode: info.barcode } },
-            update: {
-              productId: mp.product.id,
-              buyboxOrder: info.buyboxOrder ?? null,
-              buyboxPrice: info.buyboxPrice ?? null,
-              hasMultipleSeller: info.hasMultipleSeller ?? false,
-              checkedAt: now,
-            },
-            create: {
-              connectionId: connection.id,
-              productId: mp.product.id,
-              barcode: info.barcode,
-              buyboxOrder: info.buyboxOrder ?? null,
-              buyboxPrice: info.buyboxPrice ?? null,
-              hasMultipleSeller: info.hasMultipleSeller ?? false,
-              checkedAt: now,
-            }
+          const existingRecord = await prisma.buyboxRecord.findFirst({
+            where: { connectionId: connection.id, barcode: info.barcode }
           });
+          const recordData = {
+            productId: mp.product.id,
+            buyboxOrder: info.buyboxOrder ?? null,
+            buyboxPrice: info.buyboxPrice ?? null,
+            hasMultipleSeller: info.hasMultipleSeller ?? false,
+            checkedAt: now,
+          };
+          if (existingRecord) {
+            await prisma.buyboxRecord.update({ where: { id: existingRecord.id }, data: recordData });
+          } else {
+            await prisma.buyboxRecord.create({ data: { connectionId: connection.id, barcode: info.barcode, ...recordData } });
+          }
 
           results.push({
             barcode: info.barcode,
@@ -938,11 +934,13 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
           if (!buyboxInfoList.find(b => b.barcode === barcode)) {
             const mp = barcodeToMp.get(barcode);
             if (!mp) continue;
-            await prisma.buyboxRecord.upsert({
-              where: { connectionId_barcode: { connectionId: connection.id, barcode } },
-              update: { productId: mp.product.id, buyboxOrder: null, buyboxPrice: null, hasMultipleSeller: false, checkedAt: now },
-              create: { connectionId: connection.id, productId: mp.product.id, barcode, buyboxOrder: null, buyboxPrice: null, hasMultipleSeller: false, checkedAt: now }
-            });
+            const existingRecord = await prisma.buyboxRecord.findFirst({ where: { connectionId: connection.id, barcode } });
+            const recordData = { productId: mp.product.id, buyboxOrder: null, buyboxPrice: null, hasMultipleSeller: false, checkedAt: now };
+            if (existingRecord) {
+              await prisma.buyboxRecord.update({ where: { id: existingRecord.id }, data: recordData });
+            } else {
+              await prisma.buyboxRecord.create({ data: { connectionId: connection.id, barcode, ...recordData } });
+            }
             results.push({ barcode, productId: mp.product.id, title: mp.product.title, sku: mp.product.sku, ourPrice: mp.marketplacePrice, buyboxOrder: null, buyboxPrice: null, hasMultipleSeller: false, isWinning: false, checkedAt: now });
           }
         }

@@ -531,8 +531,8 @@ model BuyboxRecord {
   connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   product    Product?              @relation(fields: [productId], references: [id], onDelete: SetNull)
 
-  @@unique([connectionId, barcode])
   @@index([connectionId])
+  @@index([connectionId, barcode])
   @@index([connectionId, checkedAt])
   @@index([barcode])
 }
