@@ -830,6 +830,23 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
   }
 });
 
+// Update or create a single BuyboxRecord, cleaning up any duplicates for the same (connectionId, barcode)
+async function upsertBuyboxRecord(connectionId, barcode, data) {
+  const existing = await prisma.buyboxRecord.findMany({
+    where: { connectionId, barcode },
+    orderBy: { checkedAt: 'desc' },
+    select: { id: true }
+  });
+  if (existing.length > 1) {
+    await prisma.buyboxRecord.deleteMany({ where: { id: { in: existing.slice(1).map(r => r.id) } } });
+  }
+  if (existing.length >= 1) {
+    await prisma.buyboxRecord.update({ where: { id: existing[0].id }, data });
+  } else {
+    await prisma.buyboxRecord.create({ data: { connectionId, barcode, ...data } });
+  }
+}
+
 // BuyBox check — query Trendyol buybox info, rotate through products by oldest-checked-first
 router.post('/connections/:id/buybox-check', async (req, res, next) => {
   try {
@@ -899,9 +916,6 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
           const mp = barcodeToMp.get(info.barcode);
           if (!mp) continue;
 
-          const existingRecord = await prisma.buyboxRecord.findFirst({
-            where: { connectionId: connection.id, barcode: info.barcode }
-          });
           const recordData = {
             productId: mp.product.id,
             buyboxOrder: info.buyboxOrder ?? null,
@@ -909,11 +923,7 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
             hasMultipleSeller: info.hasMultipleSeller ?? false,
             checkedAt: now,
           };
-          if (existingRecord) {
-            await prisma.buyboxRecord.update({ where: { id: existingRecord.id }, data: recordData });
-          } else {
-            await prisma.buyboxRecord.create({ data: { connectionId: connection.id, barcode: info.barcode, ...recordData } });
-          }
+          await upsertBuyboxRecord(connection.id, info.barcode, recordData);
 
           results.push({
             barcode: info.barcode,
@@ -929,18 +939,13 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
           });
         }
 
-        // Barcodes not returned by API — update checkedAt so they rotate out properly
+        // Barcodes not returned by API — update checkedAt so they rotate properly
         for (const barcode of batch) {
           if (!buyboxInfoList.find(b => b.barcode === barcode)) {
             const mp = barcodeToMp.get(barcode);
             if (!mp) continue;
-            const existingRecord = await prisma.buyboxRecord.findFirst({ where: { connectionId: connection.id, barcode } });
             const recordData = { productId: mp.product.id, buyboxOrder: null, buyboxPrice: null, hasMultipleSeller: false, checkedAt: now };
-            if (existingRecord) {
-              await prisma.buyboxRecord.update({ where: { id: existingRecord.id }, data: recordData });
-            } else {
-              await prisma.buyboxRecord.create({ data: { connectionId: connection.id, barcode, ...recordData } });
-            }
+            await upsertBuyboxRecord(connection.id, barcode, recordData);
             results.push({ barcode, productId: mp.product.id, title: mp.product.title, sku: mp.product.sku, ourPrice: mp.marketplacePrice, buyboxOrder: null, buyboxPrice: null, hasMultipleSeller: false, isWinning: false, checkedAt: now });
           }
         }
@@ -978,7 +983,7 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
   }
 });
 
-// GET all current buybox records for a connection (one row per barcode, latest values)
+// GET all current buybox records for a connection (deduplicated, with current marketplace price)
 router.get('/connections/:id/buybox-history', async (req, res, next) => {
   try {
     const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
@@ -987,10 +992,36 @@ router.get('/connections/:id/buybox-history', async (req, res, next) => {
     const records = await prisma.buyboxRecord.findMany({
       where: { connectionId: connection.id },
       include: { product: { select: { title: true, sku: true } } },
-      orderBy: [{ buyboxOrder: 'asc' }, { checkedAt: 'desc' }]
+      orderBy: { checkedAt: 'desc' }
     });
 
-    res.json(records);
+    // Deduplicate by barcode — keep the most recent record per barcode
+    const seen = new Map();
+    for (const r of records) {
+      if (!seen.has(r.barcode)) seen.set(r.barcode, r);
+    }
+    const deduped = Array.from(seen.values());
+
+    // Attach current marketplace price from MarketplaceProduct
+    const productIds = [...new Set(deduped.map(r => r.productId).filter(Boolean))];
+    const mpProducts = productIds.length > 0
+      ? await prisma.marketplaceProduct.findMany({
+          where: { connectionId: connection.id, productId: { in: productIds } },
+          select: { productId: true, marketplacePrice: true }
+        })
+      : [];
+    const priceMap = new Map(mpProducts.map(mp => [mp.productId, mp.marketplacePrice]));
+
+    const result = deduped.map(r => ({
+      ...r,
+      title: r.product?.title ?? null,
+      sku: r.product?.sku ?? null,
+      ourPrice: r.productId ? (priceMap.get(r.productId) ?? null) : null,
+    }));
+
+    result.sort((a, b) => (a.buyboxOrder ?? 999) - (b.buyboxOrder ?? 999));
+
+    res.json(result);
   } catch (error) { next(error); }
 });
 
