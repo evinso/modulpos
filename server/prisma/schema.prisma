@@ -323,7 +323,8 @@ model Notification {
   message   String
   type      String   @default("info") // info, success, warning, error
   isRead    Boolean  @default(false)
-  link      String?  // Optional link to redirect
+  link      String?
+  data      Json?    // Rich context payload for detail modal
   createdAt DateTime @default(now())
 
   store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)

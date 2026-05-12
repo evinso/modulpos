@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
-import { Search, Bell, LogOut, User, Settings, Shield, CreditCard, ChevronDown, Check, Clock, Info, X, ExternalLink, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Search, Bell, LogOut, User, Settings, Shield, CreditCard, ChevronDown, Check, Clock, Info } from 'lucide-react';
+import NotificationDetailModal from '../NotificationDetailModal';
 
 import { useAuthStore } from '../../store/authStore';
 import api from '../../services/api';
@@ -108,20 +109,6 @@ export default function Header() {
     } else {
       navigate(link);
     }
-  };
-
-  const formatFullDate = (dateStr) => {
-    return new Date(dateStr).toLocaleString('tr-TR', {
-      day: '2-digit', month: 'long', year: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    });
-  };
-
-  const notificationTypeIcon = (type) => {
-    if (type === 'success') return <CheckCircle size={20} />;
-    if (type === 'warning') return <AlertTriangle size={20} />;
-    if (type === 'error') return <AlertTriangle size={20} />;
-    return <Info size={20} />;
   };
 
   const handleMarkAllAsRead = async () => {
@@ -293,90 +280,11 @@ export default function Header() {
 
     {/* Notification Detail Modal */}
     {selectedNotification && (
-      <div
-        style={{
-          position: 'fixed', inset: 0, zIndex: 9999,
-          background: 'rgba(0,0,0,0.5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}
-        onClick={() => setSelectedNotification(null)}
-      >
-        <div
-          style={{
-            background: 'var(--bg-secondary)', borderRadius: 12,
-            padding: 28, width: 460, maxWidth: '90vw',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
-            position: 'relative',
-          }}
-          onClick={e => e.stopPropagation()}
-        >
-          <button
-            onClick={() => setSelectedNotification(null)}
-            style={{
-              position: 'absolute', top: 14, right: 14,
-              background: 'transparent', border: 'none', cursor: 'pointer',
-              color: 'var(--text-secondary)', padding: 4, borderRadius: 4,
-            }}
-          >
-            <X size={18} />
-          </button>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: 10, flexShrink: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background:
-                selectedNotification.type === 'success' ? 'rgba(34,197,94,0.15)' :
-                selectedNotification.type === 'warning' ? 'rgba(234,179,8,0.15)' :
-                selectedNotification.type === 'error'   ? 'rgba(239,68,68,0.15)' :
-                'rgba(99,102,241,0.15)',
-              color:
-                selectedNotification.type === 'success' ? '#22c55e' :
-                selectedNotification.type === 'warning' ? '#eab308' :
-                selectedNotification.type === 'error'   ? '#ef4444' :
-                'var(--accent-primary)',
-            }}>
-              {notificationTypeIcon(selectedNotification.type)}
-            </div>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-primary)', marginBottom: 2 }}>
-                {selectedNotification.title}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                {formatFullDate(selectedNotification.createdAt)}
-              </div>
-            </div>
-          </div>
-
-          <div style={{
-            fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.65,
-            background: 'var(--bg-primary)', borderRadius: 8,
-            padding: '14px 16px', marginBottom: 20,
-            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-          }}>
-            {selectedNotification.message}
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-            {selectedNotification.link && (
-              <button
-                className="btn btn-primary"
-                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}
-                onClick={() => handleNotificationNavigate(selectedNotification.link)}
-              >
-                <ExternalLink size={14} /> Sayfaya Git
-              </button>
-            )}
-            <button
-              className="btn btn-secondary"
-              style={{ fontSize: 13 }}
-              onClick={() => setSelectedNotification(null)}
-            >
-              Kapat
-            </button>
-          </div>
-        </div>
-      </div>
+      <NotificationDetailModal
+        notification={selectedNotification}
+        onClose={() => setSelectedNotification(null)}
+        onNavigate={handleNotificationNavigate}
+      />
     )}
     </>
   );

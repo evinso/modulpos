@@ -2,10 +2,10 @@ const prisma = require('../config/database');
 const sseService = require('./sseService');
 
 class NotificationService {
-  async create({ storeId, title, message, type = 'info', link = null }) {
+  async create({ storeId, title, message, type = 'info', link = null, data = null }) {
     try {
       const notification = await prisma.notification.create({
-        data: { storeId, title, message, type, link },
+        data: { storeId, title, message, type, link, data },
       });
       sseService.pushToStore(storeId, notification);
       return notification;
@@ -59,11 +59,11 @@ class NotificationService {
    * @param {string} userId
    * @param {Object} data { title, message, type, link }
    */
-  async createForUser(userId, { title, message, type = 'info', link = null }) {
+  async createForUser(userId, { title, message, type = 'info', link = null, data = null }) {
     try {
       const store = await prisma.store.findFirst({ where: { userId } });
       if (!store) return null;
-      return await this.create({ storeId: store.id, title, message, type, link });
+      return await this.create({ storeId: store.id, title, message, type, link, data });
     } catch (error) {
       console.error('Notification createForUser failed:', error);
       return null;

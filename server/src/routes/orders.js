@@ -63,9 +63,21 @@ router.post('/sync', async (req, res, next) => {
             await notificationService.create({
               storeId: store.id,
               title: 'Yeni Sipariş',
-              message: `${pkg.orderNumber} nolu yeni bir siparişiniz var.`,
+              message: `${pkg.orderNumber} nolu sipariş alındı. Tutar: ${(pkg.totalPrice || 0).toFixed(2)}₺`,
               type: 'info',
-              link: '/orders'
+              link: '/orders',
+              data: {
+                notifType: 'new_order',
+                orderNumber: `TY-${pkg.orderNumber}`,
+                totalAmount: pkg.totalPrice || 0,
+                customerName: `${pkg.shipmentAddress?.firstName || ''} ${pkg.shipmentAddress?.lastName || ''}`.trim(),
+                status: mapTrendyolStatus(pkg.status),
+                items: (pkg.lines || []).slice(0, 20).map(l => ({
+                  name: l.productName || l.productColor || '',
+                  quantity: l.quantity,
+                  price: l.price || l.amount || 0
+                }))
+              }
             });
 
             totalSynced++;

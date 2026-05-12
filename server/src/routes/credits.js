@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
+const notificationService = require('../services/notificationService');
 
 const router = express.Router();
 
@@ -155,7 +156,16 @@ router.post('/admin/topup', auth, requireAdmin, async (req, res, next) => {
       }
     });
 
-    res.json({ message: `${amount} kredi başarıyla yüklendi`, newBalance: balance.balance + parseFloat(amount) });
+    const newBalance = balance.balance + parseFloat(amount);
+    notificationService.createForUser(userId, {
+      title: 'Kredi Yüklendi',
+      message: `${parseFloat(amount)} kredi hesabınıza yüklendi. Güncel bakiye: ${newBalance} kredi.`,
+      type: 'success',
+      link: '/credits',
+      data: { notifType: 'credit_topup', amount: parseFloat(amount), newBalance }
+    }).catch(() => {});
+
+    res.json({ message: `${amount} kredi başarıyla yüklendi`, newBalance });
   } catch (error) {
     next(error);
   }
@@ -222,7 +232,20 @@ async function deductCredits(userId, amount, type, description, referenceId = nu
     }
   });
 
-  return balance.balance - amount;
+  const newBalance = balance.balance - amount;
+
+  // Low balance warning: first time crossing below 10
+  if (newBalance < 10 && balance.balance >= 10) {
+    notificationService.createForUser(userId, {
+      title: 'Kredi Bakiyeniz Azaldı',
+      message: `Bakiyeniz ${newBalance.toFixed(1)} krediye düştü. İşlemlerinizin kesintisiz sürmesi için kredi yükleyin.`,
+      type: 'warning',
+      link: '/credits',
+      data: { notifType: 'credit_low', newBalance }
+    }).catch(() => {});
+  }
+
+  return newBalance;
 }
 
 // GET /api/credits/admin/paytr-logs

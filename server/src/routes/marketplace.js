@@ -561,9 +561,17 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     await notificationService.create({
       storeId: connection.storeId,
       title: 'Ürün Gönderimi',
-      message: `${formatted.length} ürün Trendyol'a gönderildi. ${errors.length > 0 ? errors.length + ' hata var.' : ''}`,
+      message: `${formatted.length} ürün Trendyol'a gönderildi.${errors.length > 0 ? ` ${errors.length} hata var.` : ''}`,
       type: errors.length > 0 ? 'warning' : 'success',
-      link: '/marketplace'
+      link: '/trendyol-send',
+      data: {
+        notifType: 'trendyol_send',
+        products: products.filter(p => p.barcode).slice(0, 50).map(p => ({
+          title: p.title, barcode: p.barcode, sku: p.sku, price: p.price, stock: p.stock
+        })),
+        errorCount: errors.length,
+        errors: errors.slice(0, 10)
+      }
     });
 
     res.json({
@@ -812,9 +820,17 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
     await notificationService.create({
       storeId: connection.storeId,
       title: 'Toplu Ürün Gönderimi',
-      message: `${formatted.length} ürün ${batches} parti halinde Trendyol'a gönderildi. ${skipped} ürün atlandı.`,
+      message: `${formatted.length} ürün ${batches} parti halinde Trendyol'a gönderildi. ${skipped > 0 ? `${skipped} ürün atlandı.` : ''}`,
       type: 'success',
-      link: '/marketplace'
+      link: '/trendyol-send',
+      data: {
+        notifType: 'trendyol_send',
+        products: products.filter(p => p.barcode).slice(0, 50).map(p => ({
+          title: p.title, barcode: p.barcode, sku: p.sku, price: p.price, stock: p.stock
+        })),
+        errorCount: skipped,
+        errors: []
+      }
     });
 
     res.json({ sent: formatted.length, skipped, batches, batchRequestIds });
@@ -963,9 +979,20 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
       await notificationService.create({
         storeId: connection.storeId,
         title: 'BuyBox Uyarısı',
-        message: `${losing.length} üründe BuyBox kazanılamıyor. En düşük rakip fiyat: ${Math.min(...losing.map(r => r.buyboxPrice || Infinity)).toFixed(2)}₺`,
+        message: `${losing.length} üründe BuyBox kazanılamıyor. ${winning.length} ürün kazanıyor.`,
         type: 'warning',
-        link: '/buybox'
+        link: '/buybox',
+        data: {
+          notifType: 'buybox_check',
+          winning: winning.length,
+          losing: losing.length,
+          checked: results.length,
+          results: results.slice(0, 100).map(r => ({
+            barcode: r.barcode, title: r.title, ourPrice: r.ourPrice,
+            buyboxPrice: r.buyboxPrice, buyboxOrder: r.buyboxOrder,
+            hasMultipleSeller: r.hasMultipleSeller, isWinning: r.buyboxOrder === 1
+          }))
+        }
       });
     }
 
@@ -1080,7 +1107,18 @@ router.post('/connections/:id/sync-price-stock', async (req, res, next) => {
         title: 'Fiyat/Stok Güncellendi',
         message: `${items.length} ürünün fiyat ve stok bilgisi Trendyol'a gönderildi.`,
         type: 'success',
-        link: '/marketplace'
+        link: '/trendyol-send',
+        data: {
+          notifType: 'trendyol_price_sync',
+          items: marketplaceProducts.slice(0, 100).map(mp => ({
+            title: mp.product.title,
+            barcode: mp.product.barcode || mp.product.sku,
+            oldPrice: mp.marketplacePrice,
+            newPrice: mp.product.price,
+            oldStock: mp.marketplaceStock,
+            newStock: mp.product.stock
+          }))
+        }
       });
 
       res.json({

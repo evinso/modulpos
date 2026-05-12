@@ -261,10 +261,11 @@ router.post('/:id/sync', async (req, res, next) => {
     const skippedNote = skipped > 0 ? ` ${skipped} ürün limit nedeniyle atlandı.` : '';
     await notificationService.create({
       storeId: store.id,
-      title: 'Senkronizasyon Tamamlandı',
+      title: 'XML Senkronizasyon Tamamlandı',
       message: `"${xmlSource.name}": ${created} yeni, ${updated} güncellendi.${skippedNote}`,
       type: skipped > 0 ? 'warning' : errors > 0 ? 'warning' : 'success',
-      link: '/products'
+      link: '/xml-sources',
+      data: { notifType: 'xml_sync', sourceName: xmlSource.name, created, updated, skipped, errors }
     });
 
     res.json({ message: 'Senkronizasyon tamamlandı', results: { total: products.length, created, updated, errors, skipped } });

@@ -4,6 +4,7 @@ const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const TrendyolService = require('../services/trendyol/trendyolService');
 const { deductCredits, getSetting } = require('./credits');
+const notificationService = require('../services/notificationService');
 
 const router = express.Router();
 router.use(auth);
@@ -152,6 +153,7 @@ router.post('/sync', async (req, res, next) => {
     const rules = await loadRulesForStore(store.id);
     const apiKey = await getAiApiKey();
     let synced = 0, autoAnswered = 0;
+    const answeredQuestions = [];
 
     for (const conn of connections) {
       const service = new TrendyolService(conn);
@@ -166,10 +168,25 @@ router.post('/sync', async (req, res, next) => {
           });
           synced++;
           const result = await processAutoAnswer(saved, rules, service, apiKey, req.user.id);
-          if (result !== 'pending') autoAnswered++;
+          if (result !== 'pending') {
+            autoAnswered++;
+            answeredQuestions.push({ id: saved.id, productTitle: saved.productTitle, question: saved.questionText, isAi: result === 'ai' });
+          }
         }
       } catch (err) { console.error(`[Questions] Sync hatası (${conn.id}):`, err.message); }
     }
+
+    if (synced > 0) {
+      await notificationService.create({
+        storeId: store.id,
+        title: autoAnswered > 0 ? 'Sorular Senkronize & Yanıtlandı' : 'Yeni Müşteri Soruları',
+        message: `${synced} yeni soru alındı.${autoAnswered > 0 ? ` ${autoAnswered} tanesi otomatik yanıtlandı.` : ''}`,
+        type: 'info',
+        link: '/questions',
+        data: { notifType: 'question_sync', synced, autoAnswered, questions: answeredQuestions.slice(0, 20) }
+      });
+    }
+
     res.json({ synced, autoAnswered, pending: synced - autoAnswered });
   } catch (error) { next(error); }
 });
@@ -189,6 +206,23 @@ router.post('/:id/answer', async (req, res, next) => {
       where: { id: req.params.id },
       data: { answerText, status: 'answered', answeredAt: new Date(), autoAnswered: false }
     });
+
+    notificationService.create({
+      storeId: question.storeId,
+      title: 'Soru Yanıtlandı',
+      message: `"${(question.productTitle || 'Ürün').slice(0, 40)}" sorusu yanıtlandı.`,
+      type: 'success',
+      link: '/questions',
+      data: {
+        notifType: 'question_answered',
+        questionId: question.id,
+        productTitle: question.productTitle,
+        question: question.questionText,
+        answer: answerText,
+        isAuto: false
+      }
+    }).catch(() => {});
+
     res.json(updated);
   } catch (error) { next(error); }
 });
