@@ -51,9 +51,6 @@ export default function Sidebar() {
         {/* Pazaryerleri */}
         <div className="sidebar-section">
           <div className="sidebar-section-title">Pazaryerleri</div>
-          <NavLink to="/marketplace" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <Store size={18} className="icon" /><span>Pazaryerleri</span>
-          </NavLink>
 
           {/* Trendyol collapsible */}
           <button
@@ -89,6 +86,9 @@ export default function Sidebar() {
         {/* Entegrasyon */}
         <div className="sidebar-section">
           <div className="sidebar-section-title">Entegrasyon</div>
+          <NavLink to="/marketplace" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Store size={18} className="icon" /><span>Pazaryerleri</span>
+          </NavLink>
           <NavLink to="/xml-sources" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <FileCode2 size={18} className="icon" /><span>XML Kaynakları</span>
           </NavLink>
