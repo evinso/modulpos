@@ -23,6 +23,7 @@ const MarketplacePage     = lazy(() => import('./pages/marketplaces/MarketplaceP
 const CategoryMappingPage = lazy(() => import('./pages/marketplaces/CategoryMappingPage'));
 const TrendyolSendPage    = lazy(() => import('./pages/marketplaces/TrendyolSendPage'));
 const BuyboxPage          = lazy(() => import('./pages/marketplaces/BuyboxPage'));
+const QuestionsPage       = lazy(() => import('./pages/questions/QuestionsPage'));
 const OrdersPage          = lazy(() => import('./pages/orders/OrdersPage'));
 const DropshipOrdersPage  = lazy(() => import('./pages/dropship/DropshipOrdersPage'));
 const SupportPage         = lazy(() => import('./pages/support/SupportPage'));
@@ -77,6 +78,7 @@ function App() {
             <Route path="/category-mapping" element={<CategoryMappingPage />} />
             <Route path="/trendyol-send"    element={<TrendyolSendPage />} />
             <Route path="/buybox"           element={<BuyboxPage />} />
+            <Route path="/questions"        element={<QuestionsPage />} />
             <Route path="/orders"           element={<OrdersPage />} />
             <Route path="/dropship-orders"  element={<DropshipOrdersPage />} />
             <Route path="/support"          element={<SupportPage />} />

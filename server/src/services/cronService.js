@@ -4,6 +4,7 @@ const { parseXml } = require('./xml/xmlParser');
 const notificationService = require('./notificationService');
 const TrendyolService = require('./trendyol/trendyolService');
 const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
+const { processAutoAnswerForCron } = require('../routes/questions');
 
 class CronService {
   start() {
@@ -12,6 +13,26 @@ class CronService {
       console.log('[CRON] Checking for XML sources that need synchronization...');
       await this.syncXmlSources();
     });
+
+    // Run every 30 minutes to sync & auto-answer Trendyol questions
+    cron.schedule('*/30 * * * *', async () => {
+      console.log('[CRON] Syncing Trendyol customer questions...');
+      await this.syncQuestions();
+    });
+  }
+
+  async syncQuestions() {
+    try {
+      const stores = await prisma.store.findMany({ select: { id: true } });
+      for (const store of stores) {
+        const { synced, autoAnswered } = await processAutoAnswerForCron(store.id);
+        if (synced > 0) {
+          console.log(`[CRON/Questions] Store ${store.id}: ${synced} yeni soru, ${autoAnswered} otomatik yanıtlandı`);
+        }
+      }
+    } catch (err) {
+      console.error('[CRON/Questions] Sync hatası:', err.message);
+    }
   }
 
   async syncXmlSources() {

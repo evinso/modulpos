@@ -18,6 +18,7 @@ const navItems = [
     { to: '/category-mapping', icon: FolderTree, label: 'Kategori Eşleştirme' },
     { to: '/trendyol-send', icon: Send, label: "Pazaryerine Gönder" },
     { to: '/buybox', icon: TrendingUp, label: 'BuyBox İzleme' },
+    { to: '/questions', icon: MessageSquare, label: 'Müşteri Soruları' },
   ]},
   { section: 'Yönetim', items: [
     { to: '/pricing', icon: Tags, label: 'Fiyatlandırma' },

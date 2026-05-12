@@ -72,6 +72,7 @@ model Store {
   syncLogs              SyncLog[]
   notifications         Notification[]
   dropshipOrders        DropshipOrder[]
+  autoReplyRules        AutoReplyRule[]
 }
 
 model XmlSource {
@@ -283,6 +284,8 @@ model CustomerQuestion {
 
   store      Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
   connection MarketplaceConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, status])
 }
 
 model Subscription {
@@ -495,6 +498,23 @@ model SupportMessage {
   ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   @@index([ticketId])
+}
+
+model AutoReplyRule {
+  id            String   @id @default(uuid())
+  storeId       String
+  name          String
+  keywords      String   // JSON array of keywords (OR match, case-insensitive)
+  replyTemplate String
+  isActive      Boolean  @default(true)
+  priority      Int      @default(0)
+  matchCount    Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
 }
 
 model BuyboxRecord {
