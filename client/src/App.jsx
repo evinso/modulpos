@@ -24,6 +24,7 @@ const CategoryMappingPage = lazy(() => import('./pages/marketplaces/CategoryMapp
 const TrendyolSendPage    = lazy(() => import('./pages/marketplaces/TrendyolSendPage'));
 const BuyboxPage          = lazy(() => import('./pages/marketplaces/BuyboxPage'));
 const QuestionsPage       = lazy(() => import('./pages/questions/QuestionsPage'));
+const QuestionsAdminPage  = lazy(() => import('./pages/questions/QuestionsAdminPage'));
 const OrdersPage          = lazy(() => import('./pages/orders/OrdersPage'));
 const DropshipOrdersPage  = lazy(() => import('./pages/dropship/DropshipOrdersPage'));
 const SupportPage         = lazy(() => import('./pages/support/SupportPage'));
@@ -87,7 +88,8 @@ function App() {
             <Route path="/logs"             element={<LogsPage />} />
             <Route path="/settings"         element={<SettingsPage />} />
             <Route path="/superadmin"       element={<AdminRoute><SuperAdminPage /></AdminRoute>} />
-            <Route path="/credit-admin"     element={<AdminRoute><CreditAdminPage /></AdminRoute>} />
+            <Route path="/credit-admin"       element={<AdminRoute><CreditAdminPage /></AdminRoute>} />
+            <Route path="/questions-admin"  element={<AdminRoute><QuestionsAdminPage /></AdminRoute>} />
           </Route>
         </Routes>
       </Suspense>

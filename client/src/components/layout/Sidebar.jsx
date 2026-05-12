@@ -78,6 +78,13 @@ export default function Sidebar() {
               <CreditCard size={18} className="icon" />
               <span>Kredi Yönetimi</span>
             </NavLink>
+            <NavLink
+              to="/questions-admin"
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+            >
+              <MessageSquare size={18} className="icon" />
+              <span>Soru Kuralları (Admin)</span>
+            </NavLink>
           </div>
         )}
       </nav>

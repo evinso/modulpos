@@ -8,7 +8,8 @@ export default function CreditAdminPage() {
   const [settings, setSettings] = useState({
     credit_xml_convert: '1',
     credit_xml_import_default: '5',
-    credit_buybox_check: '1'
+    credit_buybox_check: '1',
+    credit_auto_reply: '1'
   });
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -188,6 +189,22 @@ export default function CreditAdminPage() {
             />
             <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
               Her 10 barkod için (1 Trendyol API isteği) kesilecek kredi. 0 = ücretsiz.
+            </span>
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 20 }}>
+            <label className="form-label">Otomatik Yanıt Ücreti (Kredi / Yanıt)</label>
+            <input
+              type="number"
+              className="form-input"
+              min="0"
+              step="0.5"
+              value={settings.credit_auto_reply}
+              onChange={e => setSettings({ ...settings, credit_auto_reply: e.target.value })}
+              placeholder="1"
+            />
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
+              Her otomatik yanıt (kural veya AI) için kesilecek kredi. 0 = ücretsiz.
             </span>
           </div>
 

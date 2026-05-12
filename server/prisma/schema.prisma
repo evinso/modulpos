@@ -502,7 +502,7 @@ model SupportMessage {
 
 model AutoReplyRule {
   id            String   @id @default(uuid())
-  storeId       String
+  storeId       String?  // null = global rule (applies to all stores)
   name          String
   keywords      String   // JSON array of keywords (OR match, case-insensitive)
   replyTemplate String
@@ -512,9 +512,10 @@ model AutoReplyRule {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store Store? @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@index([storeId])
+  @@index([isActive])
 }
 
 model BuyboxRecord {
