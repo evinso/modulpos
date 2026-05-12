@@ -40,6 +40,20 @@ async function loadRulesForStore(storeId) {
   });
 }
 
+async function findProductDescription(question) {
+  if (!question.productTitle) return null;
+  try {
+    const product = await prisma.product.findFirst({
+      where: {
+        title: question.productTitle,
+        marketplaceProducts: { some: { connection: { storeId: question.storeId } } }
+      },
+      select: { description: true, brand: true }
+    });
+    return product || null;
+  } catch { return null; }
+}
+
 async function processAutoAnswer(question, rules, service, apiKey, userId) {
   const creditCost = parseFloat(await getSetting('credit_auto_reply', '1'));
 
@@ -47,7 +61,6 @@ async function processAutoAnswer(question, rules, service, apiKey, userId) {
 
   if (matchedRule) {
     try {
-      // Deduct credits before sending
       if (creditCost > 0 && userId) {
         await deductCredits(userId, creditCost, 'auto_reply', `Otomatik yanıt: "${question.questionText.slice(0, 40)}..."`, question.id);
       }
@@ -66,7 +79,26 @@ async function processAutoAnswer(question, rules, service, apiKey, userId) {
   if (apiKey) {
     try {
       const client = new Anthropic({ apiKey });
-      const prompt = `Bir Türkçe e-ticaret mağazasının müşteri hizmetleri asistanısın. Müşteri aşağıdaki soruyu sordu${question.productTitle ? ` ("${question.productTitle}" ürünü hakkında)` : ''}. 50-400 karakter arasında, nazik, net ve Türkçe bir yanıt yaz. Sadece yanıt metnini yaz, başka hiçbir şey ekleme.\n\nSoru: ${question.questionText}`;
+
+      const productDetail = await findProductDescription(question);
+      const descPart = productDetail?.description
+        ? `\n\nÜrün açıklaması: ${productDetail.description.slice(0, 800)}`
+        : '';
+      const brandPart = productDetail?.brand ? ` (Marka: ${productDetail.brand})` : '';
+
+      const prompt = [
+        `Bir Türkçe e-ticaret mağazasının müşteri hizmetleri asistanısın.`,
+        question.productTitle
+          ? `Müşteri "${question.productTitle}"${brandPart} ürünü hakkında aşağıdaki soruyu sordu.`
+          : `Müşteri aşağıdaki soruyu sordu.`,
+        descPart
+          ? `Ürünün gerçek açıklamasına göre yanıt ver — ürün adında "renk", "görünümlü", "kaplama" gibi ifadeler varsa gerçek materyal olmadığını göz önünde bulundur.`
+          : `Ürün başlığına göre yanıt ver; "renk" veya "görünümlü" gibi ifadeler varsa gerçek materyal olduğunu varsayma.`,
+        `50-400 karakter arasında, nazik, net ve Türkçe bir yanıt yaz. Sadece yanıt metnini yaz, başka hiçbir şey ekleme.`,
+        descPart,
+        `\nSoru: ${question.questionText}`
+      ].join('\n');
+
       const msg = await client.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 300,
