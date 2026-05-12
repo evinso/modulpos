@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, TestTube, Trash2, Store, CheckCircle, XCircle, Plug, Search, Loader2 } from 'lucide-react';
+import { Plus, TestTube, Trash2, Store, CheckCircle, XCircle, Plug, Search, Loader2, Pencil } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -18,7 +18,15 @@ export default function MarketplacePage() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [form, setForm] = useState({ marketplaceType: 'trendyol', sellerId: '', apiKey: '', apiSecret: '', supplierName: '', defaultBrandId: '', defaultBrandName: '', brandStrategy: 'xml' });
 
-  // Brand search state
+  // Edit state
+  const [editConn, setEditConn] = useState(null); // connection being edited
+  const [editForm, setEditForm] = useState({ supplierName: '', defaultBrandId: '', defaultBrandName: '', brandStrategy: 'xml' });
+  const [editBrandSearch, setEditBrandSearch] = useState('');
+  const [editBrandResults, setEditBrandResults] = useState([]);
+  const [editBrandLoading, setEditBrandLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Brand search state (add modal)
   const [brandSearch, setBrandSearch] = useState('');
   const [brandResults, setBrandResults] = useState([]);
   const [brandLoading, setBrandLoading] = useState(false);
@@ -117,6 +125,53 @@ export default function MarketplacePage() {
     setBrandResults([]);
   };
 
+  const openEdit = (c) => {
+    const config = c.config ? JSON.parse(c.config) : {};
+    setEditConn(c);
+    setEditForm({
+      supplierName: c.supplierName || '',
+      defaultBrandId: config.defaultBrandId?.toString() || '',
+      defaultBrandName: config.defaultBrandName || '',
+      brandStrategy: config.brandStrategy || 'xml',
+    });
+    setEditBrandSearch(config.defaultBrandName || '');
+    setEditBrandResults([]);
+  };
+
+  const handleEditBrandSearch = async (val) => {
+    setEditBrandSearch(val);
+    if (editForm.defaultBrandId) setEditForm(f => ({ ...f, defaultBrandId: '', defaultBrandName: '' }));
+    if (val.length < 2) { setEditBrandResults([]); return; }
+    setEditBrandLoading(true);
+    try {
+      const res = await api.get(`/marketplace/connections/${editConn.id}/brands/search`, { params: { name: val } });
+      setEditBrandResults(res.data || []);
+    } catch { setEditBrandResults([]); }
+    finally { setEditBrandLoading(false); }
+  };
+
+  const selectEditBrand = (brand) => {
+    setEditForm(f => ({ ...f, defaultBrandId: brand.id.toString(), defaultBrandName: brand.name }));
+    setEditBrandSearch(brand.name);
+    setEditBrandResults([]);
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (editForm.brandStrategy === 'override' && !editForm.defaultBrandId) {
+      toast.error('Kendi markam stratejisinde bir marka seçmeniz zorunludur.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.put(`/marketplace/connections/${editConn.id}`, editForm);
+      toast.success('Bağlantı güncellendi');
+      setEditConn(null);
+      fetchConnections();
+    } catch (err) { toast.error(err.response?.data?.error || 'Güncelleme hatası'); }
+    finally { setSaving(false); }
+  };
+
   const getMarketplaceInfo = (type) => marketplaceOptions.find(m => m.value === type) || { label: type, color: '#666' };
 
   const getConnectionBrand = (c) => {
@@ -185,6 +240,7 @@ export default function MarketplacePage() {
                   <button className="btn btn-secondary btn-sm" onClick={() => handleTest(c.id)} disabled={testing === c.id}>
                     <TestTube size={14} /> {testing === c.id ? 'Test ediliyor...' : 'Bağlantıyı Test Et'}
                   </button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => openEdit(c)}><Pencil size={14} /> Düzenle</button>
                   <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(c.id)}><Trash2 size={14} /> Sil</button>
                 </div>
               </div>
@@ -309,6 +365,88 @@ export default function MarketplacePage() {
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>İptal</button>
                 <button type="submit" className="btn btn-primary">Bağlan</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===== EDIT MODAL ===== */}
+      {editConn && (
+        <div className="modal-overlay" onClick={() => setEditConn(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Bağlantıyı Düzenle</h3>
+              <button className="modal-close" onClick={() => setEditConn(null)}>×</button>
+            </div>
+            <form onSubmit={handleSaveEdit}>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label className="form-label">Tedarikçi Adı</label>
+                  <input className="form-input" value={editForm.supplierName} onChange={e => setEditForm({ ...editForm, supplierName: e.target.value })} />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Marka Stratejisi</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', padding: '10px 14px', borderRadius: 8, border: `1px solid ${editForm.brandStrategy === 'xml' ? 'var(--accent-primary)' : 'var(--border-color)'}`, background: editForm.brandStrategy === 'xml' ? 'rgba(99,102,241,0.06)' : 'transparent' }}>
+                      <input type="radio" name="editBrandStrategy" value="xml" checked={editForm.brandStrategy === 'xml'} onChange={() => setEditForm({ ...editForm, brandStrategy: 'xml' })} style={{ marginTop: 2 }} />
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>XML'den gelen marka</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Tedarikçinin marka adı Trendyol'da aranır. Bulunamazsa aşağıdaki yedek marka kullanılır.</div>
+                      </div>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', padding: '10px 14px', borderRadius: 8, border: `1px solid ${editForm.brandStrategy === 'override' ? 'var(--accent-primary)' : 'var(--border-color)'}`, background: editForm.brandStrategy === 'override' ? 'rgba(99,102,241,0.06)' : 'transparent' }}>
+                      <input type="radio" name="editBrandStrategy" value="override" checked={editForm.brandStrategy === 'override'} onChange={() => setEditForm({ ...editForm, brandStrategy: 'override' })} style={{ marginTop: 2 }} />
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>Kendi markam</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>XML'deki marka yok sayılır, aşağıda seçilen marka her zaman kullanılır.</div>
+                      </div>
+                    </label>
+                  </div>
+
+                  <label className="form-label">
+                    {editForm.brandStrategy === 'override' ? 'Marka *' : 'Yedek Marka (opsiyonel)'}
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <Search size={14} style={{ position: 'absolute', left: 12, top: 12, color: 'var(--text-muted)' }} />
+                    <input
+                      className="form-input"
+                      style={{ paddingLeft: 34 }}
+                      placeholder="Marka adı yazın (en az 2 karakter)..."
+                      value={editBrandSearch}
+                      onChange={e => handleEditBrandSearch(e.target.value)}
+                    />
+                    {editBrandLoading && <Loader2 size={14} className="spinning" style={{ position: 'absolute', right: 12, top: 12, color: 'var(--text-muted)' }} />}
+                  </div>
+
+                  {editForm.defaultBrandId && (
+                    <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <CheckCircle size={14} style={{ color: 'var(--success)' }} />
+                      <span style={{ color: 'var(--success)', fontWeight: 600 }}>{editForm.defaultBrandName}</span>
+                      <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 'auto' }}>ID: {editForm.defaultBrandId}</span>
+                    </div>
+                  )}
+
+                  {editBrandResults.length > 0 && !editForm.defaultBrandId && (
+                    <div style={{ marginTop: 4, maxHeight: 200, overflowY: 'auto', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', boxShadow: '0 8px 30px rgba(0,0,0,0.3)' }}>
+                      {editBrandResults.slice(0, 20).map(brand => (
+                        <button key={brand.id} type="button" onClick={() => selectEditBrand(brand)}
+                          style={{ display: 'block', width: '100%', padding: '10px 14px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-color)', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--text-primary)' }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(59,130,246,0.06)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                        >
+                          <div style={{ fontWeight: 500 }}>{brand.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>ID: {brand.id}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setEditConn(null)}>İptal</button>
+                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</button>
               </div>
             </form>
           </div>

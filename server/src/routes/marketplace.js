@@ -55,6 +55,30 @@ router.post('/connections', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+// Update connection settings (supplierName, brandStrategy, defaultBrand)
+router.put('/connections/:id', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+
+    const { supplierName, defaultBrandId, defaultBrandName, brandStrategy } = req.body;
+    const config = connection.config ? JSON.parse(connection.config) : {};
+
+    if (defaultBrandId) config.defaultBrandId = parseInt(defaultBrandId);
+    if (defaultBrandName) config.defaultBrandName = defaultBrandName;
+    config.brandStrategy = brandStrategy === 'override' ? 'override' : 'xml';
+
+    const updated = await prisma.marketplaceConnection.update({
+      where: { id: req.params.id },
+      data: {
+        supplierName: supplierName !== undefined ? supplierName : connection.supplierName,
+        config: JSON.stringify(config)
+      }
+    });
+    res.json(updated);
+  } catch (error) { next(error); }
+});
+
 // Test connection
 router.post('/connections/:id/test', async (req, res, next) => {
   try {
