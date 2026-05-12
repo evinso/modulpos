@@ -12,6 +12,9 @@ export default function TrendyolSendPage() {
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [sending, setSending] = useState(false);
+  const [sendingAll, setSendingAll] = useState(false);
+  const [showSendAllModal, setShowSendAllModal] = useState(false);
+  const [sendAllResult, setSendAllResult] = useState(null);
   const [mappings, setMappings] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all'); // all, ready, missing
   const [xmlSources, setXmlSources] = useState([]);
@@ -187,6 +190,23 @@ export default function TrendyolSendPage() {
     setSelectedIds(allSelected ? new Set() : new Set(readyIds));
   };
 
+  const handleSendAll = async () => {
+    if (!selectedConn) return;
+    setSendingAll(true);
+    setShowSendAllModal(false);
+    setSendAllResult(null);
+    try {
+      const body = {};
+      if (filterXmlSource) body.xmlSourceId = filterXmlSource;
+      const res = await api.post(`/marketplace/connections/${selectedConn.id}/send-all-ready`, body);
+      setSendAllResult(res.data);
+      toast.success(`${res.data.sent} ürün ${res.data.batches} parti halinde gönderildi`);
+    } catch (err) {
+      const errData = err.response?.data;
+      toast.error(errData?.error || errData?.message || 'Toplu gönderme hatası', { duration: 8000 });
+    } finally { setSendingAll(false); }
+  };
+
   const handleSendToMarketplace = async () => {
     if (!selectedConn || selectedIds.size === 0) return;
     setSending(true);
@@ -287,6 +307,15 @@ export default function TrendyolSendPage() {
               {connections.map(c => <option key={c.id} value={c.id}>{c.supplierName || c.marketplaceType} ({c.marketplaceType})</option>)}
             </select>
           )}
+          <button
+            className="btn btn-secondary"
+            onClick={() => setShowSendAllModal(true)}
+            disabled={sendingAll || sending}
+            style={{ padding: '10px 24px' }}
+          >
+            <Send size={16} />
+            {sendingAll ? 'Gönderiliyor...' : 'Tümünü Hazır Gönder'}
+          </button>
           <button
             className="btn btn-primary"
             onClick={handleSendToMarketplace}
@@ -496,6 +525,43 @@ export default function TrendyolSendPage() {
           </div>
         )}
       </div>
+
+      {/* Send-all result banner */}
+      {sendAllResult && (
+        <div style={{ marginTop: 16, background: 'rgba(34,197,94,0.08)', border: '1px solid var(--success)', borderRadius: 8, padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <span style={{ fontWeight: 600, color: 'var(--success)', marginRight: 16 }}>Toplu Gönderim Tamamlandı</span>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+              {sendAllResult.sent} ürün gönderildi &bull; {sendAllResult.batches} parti &bull; {sendAllResult.skipped} atlandı
+            </span>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={() => setSendAllResult(null)} style={{ fontSize: 12 }}>Kapat</button>
+        </div>
+      )}
+
+      {/* Confirm send-all modal */}
+      {showSendAllModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card" style={{ maxWidth: 440, width: '90%', padding: 28 }}>
+            <h3 style={{ marginBottom: 12 }}>Tüm Hazır Ürünleri Gönder</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 8 }}>
+              Seçili bağlantıdaki <strong>tüm gönderime hazır ürünler</strong> Trendyol'a toplu olarak gönderilecek.
+            </p>
+            {filterXmlSource && (
+              <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 8 }}>
+                Filtre: yalnızca seçili XML kaynağındaki ürünler gönderilecek.
+              </p>
+            )}
+            <p style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 24 }}>
+              Ürünler 100'lük partiler halinde gönderilir (saniyede ~10 parti). Kategori, barkod veya fiyat kuralı eksik ürünler otomatik atlanır.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowSendAllModal(false)}>İptal</button>
+              <button className="btn btn-primary" onClick={handleSendAll}>Evet, Gönder</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

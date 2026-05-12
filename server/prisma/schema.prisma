@@ -135,6 +135,7 @@ model Product {
   variants            ProductVariant[]
   marketplaceProducts MarketplaceProduct[]
   dropshipOrders      DropshipOrder[]
+  buyboxRecords       BuyboxRecord[]
 
   @@index([storeId])
   @@index([storeId, xmlSourceId])
@@ -182,6 +183,7 @@ model MarketplaceConnection {
   orders              Order[]
   customerQuestions   CustomerQuestion[]
   categoryMappings    CategoryMapping[]
+  buyboxRecords       BuyboxRecord[]
 }
 
 model MarketplaceProduct {
@@ -493,4 +495,22 @@ model SupportMessage {
   ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   @@index([ticketId])
+}
+
+model BuyboxRecord {
+  id                String   @id @default(uuid())
+  connectionId      String
+  productId         String?
+  barcode           String
+  buyboxOrder       Int?
+  buyboxPrice       Float?
+  hasMultipleSeller Boolean  @default(false)
+  checkedAt         DateTime @default(now())
+
+  connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  product    Product?              @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([connectionId])
+  @@index([connectionId, checkedAt])
+  @@index([barcode])
 }

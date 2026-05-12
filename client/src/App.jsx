@@ -22,6 +22,7 @@ const GlobalXmlAdminPage  = lazy(() => import('./pages/xml/GlobalXmlAdminPage'))
 const MarketplacePage     = lazy(() => import('./pages/marketplaces/MarketplacePage'));
 const CategoryMappingPage = lazy(() => import('./pages/marketplaces/CategoryMappingPage'));
 const TrendyolSendPage    = lazy(() => import('./pages/marketplaces/TrendyolSendPage'));
+const BuyboxPage          = lazy(() => import('./pages/marketplaces/BuyboxPage'));
 const OrdersPage          = lazy(() => import('./pages/orders/OrdersPage'));
 const DropshipOrdersPage  = lazy(() => import('./pages/dropship/DropshipOrdersPage'));
 const SupportPage         = lazy(() => import('./pages/support/SupportPage'));
@@ -75,6 +76,7 @@ function App() {
             <Route path="/marketplace"      element={<MarketplacePage />} />
             <Route path="/category-mapping" element={<CategoryMappingPage />} />
             <Route path="/trendyol-send"    element={<TrendyolSendPage />} />
+            <Route path="/buybox"           element={<BuyboxPage />} />
             <Route path="/orders"           element={<OrdersPage />} />
             <Route path="/dropship-orders"  element={<DropshipOrdersPage />} />
             <Route path="/support"          element={<SupportPage />} />

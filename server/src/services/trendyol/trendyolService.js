@@ -145,6 +145,15 @@ class TrendyolService {
     return res.data;
   }
 
+  async getBuyboxInfo(barcodes) {
+    const res = await this.requestWithRetry({
+      method: 'post',
+      url: `${this.baseUrl}/product/sellers/${this.sellerId}/products/buybox-information`,
+      data: { barcodes }
+    });
+    return res.data;
+  }
+
   // === ORDER OPERATIONS ===
   async getOrders(params = {}) {
     const { startDate, endDate, status, page = 0, size = 50 } = params;

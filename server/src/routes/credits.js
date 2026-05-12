@@ -59,10 +59,12 @@ router.get('/prices', auth, async (req, res, next) => {
   try {
     const xmlConvertCost = await getSetting('credit_xml_convert', '1');
     const xmlImportDefaultCost = await getSetting('credit_xml_import_default', '5');
+    const buyboxCheckCost = await getSetting('credit_buybox_check', '1');
 
     res.json({
       xmlConvertCost: parseFloat(xmlConvertCost),
-      xmlImportDefaultCost: parseFloat(xmlImportDefaultCost)
+      xmlImportDefaultCost: parseFloat(xmlImportDefaultCost),
+      buyboxCheckCost: parseFloat(buyboxCheckCost)
     });
   } catch (error) {
     next(error);

@@ -4,6 +4,7 @@ const { auth } = require('../middleware/auth');
 const TrendyolService = require('../services/trendyol/trendyolService');
 const notificationService = require('../services/notificationService');
 const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
+const { deductCredits, getSetting } = require('./credits');
 
 const router = express.Router();
 router.use(auth);
@@ -582,6 +583,378 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     }
     next(error);
   }
+});
+
+// Bulk send all ready products to Trendyol (batches of 100, 100ms delay between batches)
+router.post('/connections/:id/send-all-ready', async (req, res, next) => {
+  try {
+    const { xmlSourceId } = req.body;
+
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+
+    // Fetch all products for this store
+    const productWhere = { storeId: connection.storeId };
+    if (xmlSourceId) productWhere.xmlSourceId = xmlSourceId;
+    const products = await prisma.product.findMany({ where: productWhere });
+
+    if (products.length === 0) return res.status(400).json({ error: 'Ürün bulunamadı' });
+
+    // Category mappings
+    const catMappings = await prisma.categoryMapping.findMany({ where: { connectionId: connection.id } });
+    const catMap = {};
+    for (const m of catMappings) catMap[m.localCategory] = m;
+
+    // Pricing rules
+    const pricingRules = await prisma.pricingRule.findMany({
+      where: { storeId: connection.storeId, applyTo: { in: ['marketplace_xml', 'price_range'] }, isActive: true },
+      orderBy: { priority: 'asc' }
+    });
+
+    // Global XML Provider category mappings as fallback
+    const globalCatMap = {};
+    const distinctXmlSourceIds = [...new Set(products.map(p => p.xmlSourceId).filter(Boolean))];
+    if (distinctXmlSourceIds.length > 0) {
+      const xmlSources = await prisma.xmlSource.findMany({
+        where: { id: { in: distinctXmlSourceIds }, globalProviderId: { not: null } },
+        select: { id: true, globalProviderId: true }
+      });
+      const providerIds = [...new Set(xmlSources.map(s => s.globalProviderId).filter(Boolean))];
+      if (providerIds.length > 0) {
+        const providers = await prisma.globalXmlProvider.findMany({
+          where: { id: { in: providerIds } },
+          select: { id: true, categoryMappingConfig: true }
+        });
+        const providerCatMap = Object.fromEntries(providers.map(p => [p.id, p.categoryMappingConfig]));
+        for (const src of xmlSources) {
+          const config = providerCatMap[src.globalProviderId];
+          if (config) {
+            try { globalCatMap[src.id] = JSON.parse(config); } catch(e) {}
+          }
+        }
+      }
+    }
+
+    const pricingLookup = {};
+    const priceRangeRules = [];
+    for (const r of pricingRules) {
+      if (!r.conditions) continue;
+      try {
+        const conds = JSON.parse(r.conditions);
+        if (r.applyTo !== 'price_range' && conds.connectionId === connection.id && conds.xmlSourceId) {
+          pricingLookup[conds.xmlSourceId] = r;
+        }
+        if (r.applyTo === 'price_range' && (conds.minPurchasePrice != null || conds.maxPurchasePrice != null)) {
+          priceRangeRules.push(r);
+        }
+      } catch(e) {}
+    }
+
+    const service = new TrendyolService(connection);
+    const brandCache = {};
+
+    async function resolveBrandId(brandName) {
+      if (!brandName || brandName.trim() === '') return null;
+      const key = brandName.trim().toLowerCase();
+      if (brandCache[key] !== undefined) return brandCache[key];
+      try {
+        const result = await service.searchBrand(brandName.trim());
+        if (result && Array.isArray(result) && result.length > 0) {
+          brandCache[key] = result[0].id;
+          return result[0].id;
+        }
+        brandCache[key] = null;
+        return null;
+      } catch (err) {
+        brandCache[key] = null;
+        return null;
+      }
+    }
+
+    const resolveCatMapping = (category, catMap, xmlSrcId, globalCatMap) => {
+      if (!category) return null;
+      if (catMap[category]) return catMap[category];
+      if (xmlSrcId && globalCatMap[xmlSrcId]?.[category]) return globalCatMap[xmlSrcId][category];
+      if (category.includes('|')) {
+        const parts = category.split('|').map(s => s.trim()).filter(Boolean);
+        for (const part of parts) {
+          if (catMap[part]) return catMap[part];
+          if (xmlSrcId && globalCatMap[xmlSrcId]?.[part]) return globalCatMap[xmlSrcId][part];
+        }
+      }
+      return null;
+    };
+
+    // Build formatted items and upsert payloads; skip ineligible products silently
+    const formatted = [];
+    const toUpsert = [];
+    let skipped = 0;
+
+    for (const p of products) {
+      const mapping = resolveCatMapping(p.category, catMap, p.xmlSourceId, globalCatMap);
+      if (!mapping || !p.barcode) { skipped++; continue; }
+
+      const rule = pricingLookup[p.xmlSourceId];
+      const xmlPrice = p.xmlPrice || p.price;
+      const rangeMatch = !rule ? matchPriceRangeRule(xmlPrice, priceRangeRules, connection.id, p.xmlSourceId) : null;
+      if (!rule && !rangeMatch) { skipped++; continue; }
+
+      let finalPrice = p.price;
+      if (rule) {
+        if (rule.type === 'percentage') finalPrice = finalPrice * (1 + rule.value / 100);
+        else if (rule.type === 'fixed') finalPrice = finalPrice + rule.value;
+      } else {
+        finalPrice = calcPriceRangePrice(xmlPrice, rangeMatch.rule, rangeMatch.conds);
+      }
+      finalPrice = Math.round(Math.max(0, finalPrice) * 100) / 100;
+
+      const attributes = [];
+      if (mapping.attributes) {
+        try {
+          const parsedAttrs = JSON.parse(mapping.attributes);
+          for (const [attrId, attrObj] of Object.entries(parsedAttrs)) {
+            if (!attrObj.valueId && !attrObj.valueName) continue;
+            if (attrObj.valueId) {
+              attributes.push({ attributeId: parseInt(attrId), attributeValueId: parseInt(attrObj.valueId) });
+            } else if (attrObj.valueName) {
+              let finalValue = attrObj.valueName;
+              if (finalValue.includes('{') && finalValue.includes('}')) {
+                const fieldName = finalValue.replace(/[{}]/g, '');
+                if (p[fieldName] !== undefined && p[fieldName] !== null) {
+                  finalValue = String(p[fieldName]);
+                } else if (p.attributes) {
+                  try {
+                    const pAttrs = typeof p.attributes === 'string' ? JSON.parse(p.attributes) : p.attributes;
+                    if (pAttrs[fieldName]) finalValue = String(pAttrs[fieldName]);
+                    else {
+                      const foundKey = Object.keys(pAttrs).find(k => k.toLowerCase() === fieldName.toLowerCase());
+                      if (foundKey) finalValue = String(pAttrs[foundKey]);
+                    }
+                  } catch (e) {}
+                }
+              }
+              attributes.push({ attributeId: parseInt(attrId), customAttributeValue: finalValue });
+            }
+          }
+        } catch (e) {}
+      }
+
+      let brandId = null;
+      if (p.brand) brandId = await resolveBrandId(p.brand);
+      if (!brandId && connection.config) {
+        try {
+          const config = JSON.parse(connection.config);
+          if (config.defaultBrandId) brandId = config.defaultBrandId;
+        } catch (e) {}
+      }
+      if (!brandId) { skipped++; continue; }
+
+      const item = TrendyolService.formatProduct({ ...p, price: finalPrice }, mapping.marketplaceCategoryId, brandId, attributes);
+      formatted.push(item);
+      toUpsert.push({ productId: p.id, price: finalPrice, stock: p.stock });
+    }
+
+    if (formatted.length === 0) {
+      return res.status(400).json({ error: 'Gönderilebilir ürün yok', skipped });
+    }
+
+    // Send in batches of 100 with 100ms delay between batches
+    const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const batchRequestIds = [];
+    let batches = 0;
+
+    for (let i = 0; i < formatted.length; i += 100) {
+      const batch = formatted.slice(i, i + 100);
+      const upsertBatch = toUpsert.slice(i, i + 100);
+
+      const result = await service.createProducts(batch);
+      batchRequestIds.push(result?.batchRequestId || null);
+      batches++;
+
+      for (const u of upsertBatch) {
+        await prisma.marketplaceProduct.upsert({
+          where: { productId_connectionId: { productId: u.productId, connectionId: connection.id } },
+          update: { marketplacePrice: u.price, marketplaceStock: u.stock, status: 'pending', lastSyncedAt: new Date(), batchRequestId: result?.batchRequestId || null },
+          create: { productId: u.productId, connectionId: connection.id, marketplacePrice: u.price, marketplaceStock: u.stock, status: 'pending', batchRequestId: result?.batchRequestId || null }
+        });
+      }
+
+      if (i + 100 < formatted.length) await delay(100);
+    }
+
+    await notificationService.create({
+      storeId: connection.storeId,
+      title: 'Toplu Ürün Gönderimi',
+      message: `${formatted.length} ürün ${batches} parti halinde Trendyol'a gönderildi. ${skipped} ürün atlandı.`,
+      type: 'success',
+      link: '/marketplace'
+    });
+
+    res.json({ sent: formatted.length, skipped, batches, batchRequestIds });
+  } catch (error) {
+    console.error('[Trendyol Send-All Error]', error.message);
+    const errorMsg = typeof error.response?.data === 'string'
+      ? error.response.data
+      : error.response?.data?.errors?.[0]?.message || error.response?.data?.message || error.message;
+    if (error.response?.data) {
+      return res.status(400).json({ error: 'Trendyol API hatası', details: error.response.data, message: errorMsg });
+    }
+    next(error);
+  }
+});
+
+// BuyBox check — query Trendyol buybox info for all active products in this connection
+router.post('/connections/:id/buybox-check', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+
+    // Get all active marketplace products with a barcode
+    const mpProducts = await prisma.marketplaceProduct.findMany({
+      where: { connectionId: connection.id },
+      include: { product: { select: { id: true, title: true, barcode: true, sku: true, price: true, marketplaceProducts: false } } }
+    });
+
+    const eligible = mpProducts.filter(mp => mp.product?.barcode);
+    if (eligible.length === 0) return res.status(400).json({ error: 'Barkodlu ürün bulunamadı' });
+
+    // Credit cost: 1 credit per 10 barcodes (1 Trendyol API request)
+    const creditCostPerBatch = parseFloat(await getSetting('credit_buybox_check', '1'));
+    const batchCount = Math.ceil(eligible.length / 10);
+    const totalCost = batchCount * creditCostPerBatch;
+
+    // Deduct credits
+    if (totalCost > 0) {
+      await deductCredits(
+        req.user.id,
+        totalCost,
+        'buybox_check',
+        `BuyBox kontrolü: ${eligible.length} barkod, ${batchCount} istek`,
+        connection.id
+      );
+    }
+
+    const service = new TrendyolService(connection);
+    const results = [];
+    const delay = ms => new Promise(r => setTimeout(r, ms));
+
+    // Build barcode → local product map
+    const barcodeToMp = new Map();
+    for (const mp of eligible) barcodeToMp.set(mp.product.barcode, mp);
+
+    // Query in batches of 10
+    const barcodes = eligible.map(mp => mp.product.barcode);
+    for (let i = 0; i < barcodes.length; i += 10) {
+      const batch = barcodes.slice(i, i + 10);
+      try {
+        const data = await service.getBuyboxInfo(batch);
+        const buyboxInfoList = data?.buyboxInfo || [];
+
+        for (const info of buyboxInfoList) {
+          const mp = barcodeToMp.get(info.barcode);
+          if (!mp) continue;
+
+          // Upsert BuyboxRecord (one record per barcode per check — insert new row each time)
+          await prisma.buyboxRecord.create({
+            data: {
+              connectionId: connection.id,
+              productId: mp.product.id,
+              barcode: info.barcode,
+              buyboxOrder: info.buyboxOrder ?? null,
+              buyboxPrice: info.buyboxPrice ?? null,
+              hasMultipleSeller: info.hasMultipleSeller ?? false,
+            }
+          });
+
+          results.push({
+            barcode: info.barcode,
+            productId: mp.product.id,
+            title: mp.product.title,
+            sku: mp.product.sku,
+            ourPrice: mp.marketplacePrice,
+            buyboxOrder: info.buyboxOrder,
+            buyboxPrice: info.buyboxPrice,
+            hasMultipleSeller: info.hasMultipleSeller,
+            isWinning: info.buyboxOrder === 1,
+          });
+        }
+
+        // For barcodes with no response, record as unknown
+        for (const barcode of batch) {
+          if (!buyboxInfoList.find(b => b.barcode === barcode)) {
+            const mp = barcodeToMp.get(barcode);
+            if (!mp) continue;
+            results.push({
+              barcode,
+              productId: mp.product.id,
+              title: mp.product.title,
+              sku: mp.product.sku,
+              ourPrice: mp.marketplacePrice,
+              buyboxOrder: null,
+              buyboxPrice: null,
+              hasMultipleSeller: false,
+              isWinning: false,
+            });
+          }
+        }
+      } catch (batchErr) {
+        console.error(`[BuyBox] Batch ${i}-${i+10} failed:`, batchErr.message);
+      }
+
+      if (i + 10 < barcodes.length) await delay(100);
+    }
+
+    const losing = results.filter(r => r.buyboxOrder !== null && r.buyboxOrder > 1);
+    const winning = results.filter(r => r.buyboxOrder === 1);
+
+    if (losing.length > 0) {
+      await notificationService.create({
+        storeId: connection.storeId,
+        title: 'BuyBox Uyarısı',
+        message: `${losing.length} üründe BuyBox kazanılamıyor. En düşük rakip fiyat: ${Math.min(...losing.map(r => r.buyboxPrice || Infinity)).toFixed(2)}₺`,
+        type: 'warning',
+        link: '/buybox'
+      });
+    }
+
+    res.json({
+      checked: results.length,
+      winning: winning.length,
+      losing: losing.length,
+      creditUsed: totalCost,
+      results,
+    });
+  } catch (error) {
+    if (error.statusCode === 402) return res.status(402).json({ error: error.message });
+    next(error);
+  }
+});
+
+// GET latest buybox records for a connection
+router.get('/connections/:id/buybox-history', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+
+    // Get the most recent check time
+    const latest = await prisma.buyboxRecord.findFirst({
+      where: { connectionId: connection.id },
+      orderBy: { checkedAt: 'desc' },
+      select: { checkedAt: true }
+    });
+
+    if (!latest) return res.json([]);
+
+    // Return all records from the last check (within 5 minutes of latest)
+    const since = new Date(latest.checkedAt.getTime() - 5 * 60 * 1000);
+    const records = await prisma.buyboxRecord.findMany({
+      where: { connectionId: connection.id, checkedAt: { gte: since } },
+      include: { product: { select: { title: true, sku: true } } },
+      orderBy: { buyboxOrder: 'asc' }
+    });
+
+    res.json(records);
+  } catch (error) { next(error); }
 });
 
 // Sync price and stock to marketplace

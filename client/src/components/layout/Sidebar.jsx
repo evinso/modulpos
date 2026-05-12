@@ -1,5 +1,5 @@
 import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send, ArrowLeftRight, Shield, Sparkles, Globe, Wallet, CreditCard, Activity, Truck } from 'lucide-react';
+import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, Settings, BarChart3, FolderTree, Send, ArrowLeftRight, Shield, Sparkles, Globe, Wallet, CreditCard, Activity, Truck, TrendingUp } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 
 const navItems = [
@@ -17,6 +17,7 @@ const navItems = [
     { to: '/marketplace', icon: Store, label: 'Pazaryerleri' },
     { to: '/category-mapping', icon: FolderTree, label: 'Kategori Eşleştirme' },
     { to: '/trendyol-send', icon: Send, label: "Pazaryerine Gönder" },
+    { to: '/buybox', icon: TrendingUp, label: 'BuyBox İzleme' },
   ]},
   { section: 'Yönetim', items: [
     { to: '/pricing', icon: Tags, label: 'Fiyatlandırma' },
