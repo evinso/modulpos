@@ -5,31 +5,11 @@ import { useAuthStore } from '../../store/authStore';
 
 const TRENDYOL_ROUTES = ['/category-mapping', '/trendyol-send', '/buybox', '/questions'];
 
-const generalItems = [
-  { to: '/xml-sources', icon: FileCode2, label: 'XML Kaynakları' },
-  { to: '/xml-converter', icon: ArrowLeftRight, label: 'XML Dönüştürücü' },
-  { to: '/global-xml-market', icon: Store, label: 'Hazır XML Market', badge: 'Yeni' },
-  { to: '/marketplace', icon: Store, label: 'Pazaryerleri' },
-];
-
 const trendyolItems = [
   { to: '/category-mapping', icon: FolderTree, label: 'Kategori Eşleştirme' },
   { to: '/trendyol-send', icon: Send, label: 'Pazaryerine Gönder' },
   { to: '/buybox', icon: TrendingUp, label: 'BuyBox İzleme' },
   { to: '/questions', icon: MessageSquare, label: 'Müşteri Soruları' },
-];
-
-const mainItems = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/products', icon: Package, label: 'Ürünler' },
-  { to: '/orders', icon: ShoppingCart, label: 'Siparişler' },
-  { to: '/dropship-orders', icon: Truck, label: 'Tedarikçi Siparişleri' },
-];
-
-const managementItems = [
-  { to: '/pricing', icon: Tags, label: 'Fiyatlandırma' },
-  { to: '/credits', icon: Wallet, label: 'Kredi & Bakiye' },
-  { to: '/logs', icon: Activity, label: 'İşlem Logları' },
 ];
 
 export default function Sidebar() {
@@ -51,30 +31,31 @@ export default function Sidebar() {
         {/* Ana Menü */}
         <div className="sidebar-section">
           <div className="sidebar-section-title">Ana Menü</div>
-          {mainItems.map(item => (
-            <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <item.icon size={18} className="icon" />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+          <NavLink to="/dashboard" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <LayoutDashboard size={18} className="icon" /><span>Dashboard</span>
+          </NavLink>
+          <NavLink to="/products" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Package size={18} className="icon" /><span>Ürünler</span>
+          </NavLink>
+          <NavLink to="/orders" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <ShoppingCart size={18} className="icon" /><span>Siparişler</span>
+          </NavLink>
+          <NavLink to="/dropship-orders" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Truck size={18} className="icon" /><span>Tedarikçi Siparişleri</span>
+          </NavLink>
           <NavLink to="/support" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <MessageSquare size={18} className="icon" />
-            <span>Destek</span>
+            <MessageSquare size={18} className="icon" /><span>Destek</span>
           </NavLink>
         </div>
 
-        {/* Entegrasyon */}
+        {/* Pazaryerleri */}
         <div className="sidebar-section">
-          <div className="sidebar-section-title">Entegrasyon</div>
-          {generalItems.map(item => (
-            <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <item.icon size={18} className="icon" />
-              <span>{item.label}</span>
-              {item.badge && <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, background: 'var(--accent-primary)', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>{item.badge}</span>}
-            </NavLink>
-          ))}
+          <div className="sidebar-section-title">Pazaryerleri</div>
+          <NavLink to="/marketplace" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Store size={18} className="icon" /><span>Pazaryerleri</span>
+          </NavLink>
 
-          {/* Trendyol collapsible group */}
+          {/* Trendyol collapsible */}
           <button
             onClick={() => setTrendyolOpen(o => !o)}
             style={{
@@ -98,23 +79,41 @@ export default function Sidebar() {
             <div style={{ marginLeft: 12, borderLeft: '2px solid var(--border-color)', paddingLeft: 8, marginBottom: 2 }}>
               {trendyolItems.map(item => (
                 <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} style={{ fontSize: 13 }}>
-                  <item.icon size={16} className="icon" />
-                  <span>{item.label}</span>
+                  <item.icon size={16} className="icon" /><span>{item.label}</span>
                 </NavLink>
               ))}
             </div>
           )}
         </div>
 
+        {/* Entegrasyon */}
+        <div className="sidebar-section">
+          <div className="sidebar-section-title">Entegrasyon</div>
+          <NavLink to="/xml-sources" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <FileCode2 size={18} className="icon" /><span>XML Kaynakları</span>
+          </NavLink>
+          <NavLink to="/xml-converter" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <ArrowLeftRight size={18} className="icon" /><span>XML Dönüştürücü</span>
+          </NavLink>
+          <NavLink to="/global-xml-market" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Store size={18} className="icon" />
+            <span>Hazır XML Market</span>
+            <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, background: 'var(--accent-primary)', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>Yeni</span>
+          </NavLink>
+        </div>
+
         {/* Yönetim */}
         <div className="sidebar-section">
           <div className="sidebar-section-title">Yönetim</div>
-          {managementItems.map(item => (
-            <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <item.icon size={18} className="icon" />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+          <NavLink to="/pricing" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Tags size={18} className="icon" /><span>Fiyatlandırma</span>
+          </NavLink>
+          <NavLink to="/credits" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Wallet size={18} className="icon" /><span>Kredi & Bakiye</span>
+          </NavLink>
+          <NavLink to="/logs" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Activity size={18} className="icon" /><span>İşlem Logları</span>
+          </NavLink>
         </div>
 
         {/* Sistem Yönetimi (admin only) */}
@@ -122,20 +121,16 @@ export default function Sidebar() {
           <div className="sidebar-section">
             <div className="sidebar-section-title">Sistem Yönetimi</div>
             <NavLink to="/superadmin" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <Shield size={18} className="icon" />
-              <span>Süper Admin</span>
+              <Shield size={18} className="icon" /><span>Süper Admin</span>
             </NavLink>
             <NavLink to="/global-xml-admin" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <Globe size={18} className="icon" />
-              <span>Global XML (Admin)</span>
+              <Globe size={18} className="icon" /><span>Global XML (Admin)</span>
             </NavLink>
             <NavLink to="/credit-admin" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <CreditCard size={18} className="icon" />
-              <span>Kredi Yönetimi</span>
+              <CreditCard size={18} className="icon" /><span>Kredi Yönetimi</span>
             </NavLink>
             <NavLink to="/questions-admin" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <MessageSquare size={18} className="icon" />
-              <span>Soru Kuralları (Admin)</span>
+              <MessageSquare size={18} className="icon" /><span>Soru Kuralları (Admin)</span>
             </NavLink>
           </div>
         )}
