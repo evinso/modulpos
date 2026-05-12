@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, RefreshCw, AlertCircle, Wallet } from 'lucide-react';
+import { TrendingUp, TrendingDown, RefreshCw, AlertCircle, Wallet, Clock } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+
+function timeAgo(date) {
+  if (!date) return null;
+  const diff = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+  if (diff < 60) return `${diff}sn önce`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}dk önce`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}sa önce`;
+  return `${Math.floor(diff / 86400)}g önce`;
+}
 
 export default function BuyboxPage() {
   const [connections, setConnections] = useState([]);
@@ -13,8 +22,8 @@ export default function BuyboxPage() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [creditBalance, setCreditBalance] = useState(null);
   const [buyboxCostPerBatch, setBuyboxCostPerBatch] = useState(1);
-  const [productCount, setProductCount] = useState(0);
   const [sortField, setSortField] = useState('buyboxOrder');
+  const [batchSize, setBatchSize] = useState(50);
 
   useEffect(() => {
     fetchConnections();
@@ -22,10 +31,7 @@ export default function BuyboxPage() {
   }, []);
 
   useEffect(() => {
-    if (selectedConn) {
-      fetchHistory();
-      fetchProductCount();
-    }
+    if (selectedConn) fetchHistory();
   }, [selectedConn]);
 
   const fetchConnections = async () => {
@@ -49,15 +55,6 @@ export default function BuyboxPage() {
     } catch {}
   };
 
-  const fetchProductCount = async () => {
-    if (!selectedConn) return;
-    try {
-      const res = await api.get(`/marketplace/connections/${selectedConn.id}/buybox-history`);
-      // Use history length as proxy; actual count comes from check result
-      setHistory(res.data);
-    } catch {}
-  };
-
   const fetchHistory = async () => {
     if (!selectedConn) return;
     setHistoryLoading(true);
@@ -78,9 +75,8 @@ export default function BuyboxPage() {
     setChecking(true);
     setResults(null);
     try {
-      const res = await api.post(`/marketplace/connections/${selectedConn.id}/buybox-check`);
+      const res = await api.post(`/marketplace/connections/${selectedConn.id}/buybox-check`, { batchSize });
       setResults(res.data);
-      setProductCount(res.data.checked);
       await fetchCreditInfo();
       await fetchHistory();
       toast.success(`${res.data.checked} ürün kontrol edildi`);
@@ -90,7 +86,8 @@ export default function BuyboxPage() {
     } finally { setChecking(false); }
   };
 
-  const displayRows = (results?.results || history).sort((a, b) => {
+  // Display rows: after a check show results merged into full history view
+  const displayRows = [...history].sort((a, b) => {
     if (sortField === 'buyboxOrder') {
       const aVal = a.buyboxOrder ?? 999;
       const bVal = b.buyboxOrder ?? 999;
@@ -102,6 +99,9 @@ export default function BuyboxPage() {
       const aBp = a.buyboxPrice ?? aOur;
       const bBp = b.buyboxPrice ?? bOur;
       return (aOur - aBp) - (bOur - bBp);
+    }
+    if (sortField === 'checkedAt') {
+      return new Date(a.checkedAt ?? 0) - new Date(b.checkedAt ?? 0);
     }
     return 0;
   });
@@ -123,10 +123,11 @@ export default function BuyboxPage() {
     );
   }
 
-  const checkCount = results?.checked ?? history.length;
+  const totalEligible = results?.totalEligible ?? history.length;
+  const checkCount = results?.checked ?? history.filter(r => r.checkedAt).length;
   const winCount = results?.winning ?? history.filter(r => r.buyboxOrder === 1).length;
   const loseCount = results?.losing ?? history.filter(r => r.buyboxOrder != null && r.buyboxOrder > 1).length;
-  const cost = results?.creditUsed ?? null;
+  const uncheckedCount = totalEligible - history.length;
 
   return (
     <div>
@@ -135,7 +136,7 @@ export default function BuyboxPage() {
           <h1>BuyBox İzleme</h1>
           <p>Ürünlerinizin Trendyol BuyBox sırasını takip edin</p>
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           {creditBalance !== null && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '8px 14px', fontSize: 13 }}>
               <Wallet size={14} style={{ color: 'var(--accent-primary)' }} />
@@ -151,6 +152,17 @@ export default function BuyboxPage() {
               {connections.map(c => <option key={c.id} value={c.id}>{c.supplierName || c.sellerId}</option>)}
             </select>
           )}
+          <select
+            className="form-select"
+            style={{ width: 160 }}
+            value={batchSize}
+            onChange={e => setBatchSize(parseInt(e.target.value))}
+          >
+            <option value={20}>20 ürün kontrol et</option>
+            <option value={50}>50 ürün kontrol et</option>
+            <option value={100}>100 ürün kontrol et</option>
+            <option value={0}>Tümünü kontrol et</option>
+          </select>
           <button
             className="btn btn-primary"
             onClick={handleCheck}
@@ -163,20 +175,35 @@ export default function BuyboxPage() {
         </div>
       </div>
 
-      {/* Credit cost hint */}
-      {buyboxCostPerBatch > 0 && (
-        <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 13, color: 'var(--text-secondary)' }}>
-          Her 10 barkod için <strong>{buyboxCostPerBatch} kredi</strong> kullanılır.
-          {checkCount > 0 && <span> Tahmini maliyet: <strong>{estimatedCost(checkCount)} kredi</strong> ({checkCount} ürün)</span>}
-        </div>
-      )}
+      {/* Info bar */}
+      <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 13, color: 'var(--text-secondary)', display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+        {buyboxCostPerBatch > 0 && (
+          <span>Her 10 barkod = <strong>{buyboxCostPerBatch} kredi</strong></span>
+        )}
+        {batchSize > 0 && buyboxCostPerBatch > 0 && (
+          <span>Bu kontrol tahmini: <strong>{estimatedCost(Math.min(batchSize, totalEligible || batchSize))} kredi</strong></span>
+        )}
+        {results && (
+          <span style={{ color: 'var(--success)' }}><strong>{results.creditUsed} kredi</strong> kullanıldı</span>
+        )}
+        {totalEligible > 0 && batchSize > 0 && batchSize < totalEligible && (
+          <span style={{ color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Clock size={13} />
+            Rotasyon aktif — en eski kontrol edilenler önce seçilir ({totalEligible} toplam ürün)
+          </span>
+        )}
+      </div>
 
       {/* Summary cards */}
-      <div className="grid grid-3" style={{ marginBottom: 20, gap: 12 }}>
+      <div className="grid grid-4" style={{ marginBottom: 20, gap: 12 }}>
         <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>Kontrol Edilen</div>
-          <div style={{ fontSize: 24, fontWeight: 700 }}>{checkCount}</div>
-          {cost !== null && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{cost} kredi kullanıldı</div>}
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>Toplam Ürün</div>
+          <div style={{ fontSize: 24, fontWeight: 700 }}>{totalEligible || history.length}</div>
+        </div>
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>Kontrol Edildi</div>
+          <div style={{ fontSize: 24, fontWeight: 700 }}>{history.length}</div>
+          {results && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Bu seferki: {results.checked}</div>}
         </div>
         <div className="card" style={{ padding: 16 }}>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>BuyBox Kazanıyor</div>
@@ -189,17 +216,23 @@ export default function BuyboxPage() {
       </div>
 
       {/* Results table */}
-      {displayRows.length > 0 && (
+      {historyLoading ? (
+        <div className="loading-spinner"><div className="spinner"></div></div>
+      ) : displayRows.length > 0 ? (
         <div className="table-container">
           <div className="table-header">
-            <h3>{results ? 'Sonuçlar' : 'Son Kontrol Sonuçları'}</h3>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <select className="form-select form-select-sm" style={{ fontSize: 13, padding: '6px 10px' }}
-                value={sortField} onChange={e => setSortField(e.target.value)}>
-                <option value="buyboxOrder">Sıraya Göre</option>
-                <option value="priceDiff">Fiyat Farkına Göre</option>
-              </select>
-            </div>
+            <h3>
+              BuyBox Durumu
+              <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 10 }}>
+                {history.length} ürün kayıtlı
+              </span>
+            </h3>
+            <select className="form-select form-select-sm" style={{ fontSize: 13, padding: '6px 10px' }}
+              value={sortField} onChange={e => setSortField(e.target.value)}>
+              <option value="buyboxOrder">BuyBox Sırasına Göre</option>
+              <option value="priceDiff">Fiyat Farkına Göre</option>
+              <option value="checkedAt">En Eski Kontrol</option>
+            </select>
           </div>
           <table>
             <thead>
@@ -211,6 +244,7 @@ export default function BuyboxPage() {
                 <th style={{ textAlign: 'right' }}>Fark</th>
                 <th style={{ textAlign: 'center' }}>BuyBox Sırası</th>
                 <th style={{ textAlign: 'center' }}>Çoklu Satıcı</th>
+                <th style={{ textAlign: 'center' }}>Son Kontrol</th>
               </tr>
             </thead>
             <tbody>
@@ -221,6 +255,7 @@ export default function BuyboxPage() {
                 const isUnknown = r.buyboxOrder == null;
                 const title = r.title ?? r.product?.title ?? r.barcode;
                 const sku = r.sku ?? r.product?.sku ?? '—';
+                const ago = timeAgo(r.checkedAt);
                 return (
                   <tr key={r.barcode || i}>
                     <td style={{ fontSize: 13, maxWidth: 220 }}>
@@ -259,15 +294,16 @@ export default function BuyboxPage() {
                         {r.hasMultipleSeller ? 'Evet' : 'Hayır'}
                       </span>
                     </td>
+                    <td style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                      {ago ?? '—'}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-      )}
-
-      {displayRows.length === 0 && !checking && (
+      ) : (
         <div className="card">
           <div className="empty-state">
             <TrendingUp size={48} className="empty-icon" />

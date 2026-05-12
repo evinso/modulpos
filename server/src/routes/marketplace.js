@@ -830,27 +830,45 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
   }
 });
 
-// BuyBox check — query Trendyol buybox info for all active products in this connection
+// BuyBox check — query Trendyol buybox info, rotate through products by oldest-checked-first
 router.post('/connections/:id/buybox-check', async (req, res, next) => {
   try {
     const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
     if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
 
-    // Get all active marketplace products with a barcode
+    // batchSize: how many products to check this run (0 = all). Default 50.
+    const batchSize = Math.max(0, parseInt(req.body?.batchSize ?? 50));
+
+    // Get all marketplace products with a barcode
     const mpProducts = await prisma.marketplaceProduct.findMany({
       where: { connectionId: connection.id },
-      include: { product: { select: { id: true, title: true, barcode: true, sku: true, price: true, marketplaceProducts: false } } }
+      include: { product: { select: { id: true, title: true, barcode: true, sku: true, price: true } } }
     });
 
-    const eligible = mpProducts.filter(mp => mp.product?.barcode);
-    if (eligible.length === 0) return res.status(400).json({ error: 'Barkodlu ürün bulunamadı' });
+    const allEligible = mpProducts.filter(mp => mp.product?.barcode);
+    if (allEligible.length === 0) return res.status(400).json({ error: 'Barkodlu ürün bulunamadı' });
+
+    // Fetch existing records to know when each barcode was last checked
+    const existingRecords = await prisma.buyboxRecord.findMany({
+      where: { connectionId: connection.id },
+      select: { barcode: true, checkedAt: true }
+    });
+    const lastCheckedMap = new Map(existingRecords.map(r => [r.barcode, r.checkedAt]));
+
+    // Sort: never-checked first, then oldest checkedAt first (rotation)
+    allEligible.sort((a, b) => {
+      const aTime = lastCheckedMap.get(a.product.barcode)?.getTime() ?? 0;
+      const bTime = lastCheckedMap.get(b.product.barcode)?.getTime() ?? 0;
+      return aTime - bTime;
+    });
+
+    const eligible = batchSize > 0 ? allEligible.slice(0, batchSize) : allEligible;
 
     // Credit cost: 1 credit per 10 barcodes (1 Trendyol API request)
     const creditCostPerBatch = parseFloat(await getSetting('credit_buybox_check', '1'));
     const batchCount = Math.ceil(eligible.length / 10);
     const totalCost = batchCount * creditCostPerBatch;
 
-    // Deduct credits
     if (totalCost > 0) {
       await deductCredits(
         req.user.id,
@@ -865,12 +883,12 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
     const results = [];
     const delay = ms => new Promise(r => setTimeout(r, ms));
 
-    // Build barcode → local product map
     const barcodeToMp = new Map();
     for (const mp of eligible) barcodeToMp.set(mp.product.barcode, mp);
 
-    // Query in batches of 10
     const barcodes = eligible.map(mp => mp.product.barcode);
+    const now = new Date();
+
     for (let i = 0; i < barcodes.length; i += 10) {
       const batch = barcodes.slice(i, i + 10);
       try {
@@ -881,15 +899,23 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
           const mp = barcodeToMp.get(info.barcode);
           if (!mp) continue;
 
-          // Upsert BuyboxRecord (one record per barcode per check — insert new row each time)
-          await prisma.buyboxRecord.create({
-            data: {
+          await prisma.buyboxRecord.upsert({
+            where: { connectionId_barcode: { connectionId: connection.id, barcode: info.barcode } },
+            update: {
+              productId: mp.product.id,
+              buyboxOrder: info.buyboxOrder ?? null,
+              buyboxPrice: info.buyboxPrice ?? null,
+              hasMultipleSeller: info.hasMultipleSeller ?? false,
+              checkedAt: now,
+            },
+            create: {
               connectionId: connection.id,
               productId: mp.product.id,
               barcode: info.barcode,
               buyboxOrder: info.buyboxOrder ?? null,
               buyboxPrice: info.buyboxPrice ?? null,
               hasMultipleSeller: info.hasMultipleSeller ?? false,
+              checkedAt: now,
             }
           });
 
@@ -903,25 +929,21 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
             buyboxPrice: info.buyboxPrice,
             hasMultipleSeller: info.hasMultipleSeller,
             isWinning: info.buyboxOrder === 1,
+            checkedAt: now,
           });
         }
 
-        // For barcodes with no response, record as unknown
+        // Barcodes not returned by API — update checkedAt so they rotate out properly
         for (const barcode of batch) {
           if (!buyboxInfoList.find(b => b.barcode === barcode)) {
             const mp = barcodeToMp.get(barcode);
             if (!mp) continue;
-            results.push({
-              barcode,
-              productId: mp.product.id,
-              title: mp.product.title,
-              sku: mp.product.sku,
-              ourPrice: mp.marketplacePrice,
-              buyboxOrder: null,
-              buyboxPrice: null,
-              hasMultipleSeller: false,
-              isWinning: false,
+            await prisma.buyboxRecord.upsert({
+              where: { connectionId_barcode: { connectionId: connection.id, barcode } },
+              update: { productId: mp.product.id, buyboxOrder: null, buyboxPrice: null, hasMultipleSeller: false, checkedAt: now },
+              create: { connectionId: connection.id, productId: mp.product.id, barcode, buyboxOrder: null, buyboxPrice: null, hasMultipleSeller: false, checkedAt: now }
             });
+            results.push({ barcode, productId: mp.product.id, title: mp.product.title, sku: mp.product.sku, ourPrice: mp.marketplacePrice, buyboxOrder: null, buyboxPrice: null, hasMultipleSeller: false, isWinning: false, checkedAt: now });
           }
         }
       } catch (batchErr) {
@@ -946,6 +968,7 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
 
     res.json({
       checked: results.length,
+      totalEligible: allEligible.length,
       winning: winning.length,
       losing: losing.length,
       creditUsed: totalCost,
@@ -957,27 +980,16 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
   }
 });
 
-// GET latest buybox records for a connection
+// GET all current buybox records for a connection (one row per barcode, latest values)
 router.get('/connections/:id/buybox-history', async (req, res, next) => {
   try {
     const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
     if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
 
-    // Get the most recent check time
-    const latest = await prisma.buyboxRecord.findFirst({
-      where: { connectionId: connection.id },
-      orderBy: { checkedAt: 'desc' },
-      select: { checkedAt: true }
-    });
-
-    if (!latest) return res.json([]);
-
-    // Return all records from the last check (within 5 minutes of latest)
-    const since = new Date(latest.checkedAt.getTime() - 5 * 60 * 1000);
     const records = await prisma.buyboxRecord.findMany({
-      where: { connectionId: connection.id, checkedAt: { gte: since } },
+      where: { connectionId: connection.id },
       include: { product: { select: { title: true, sku: true } } },
-      orderBy: { buyboxOrder: 'asc' }
+      orderBy: [{ buyboxOrder: 'asc' }, { checkedAt: 'desc' }]
     });
 
     res.json(records);
