@@ -16,7 +16,7 @@ export default function MarketplacePage() {
   const [showModal, setShowModal] = useState(false);
   const [testing, setTesting] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [form, setForm] = useState({ marketplaceType: 'trendyol', sellerId: '', apiKey: '', apiSecret: '', supplierName: '', defaultBrandId: '', defaultBrandName: '' });
+  const [form, setForm] = useState({ marketplaceType: 'trendyol', sellerId: '', apiKey: '', apiSecret: '', supplierName: '', defaultBrandId: '', defaultBrandName: '', brandStrategy: 'xml' });
 
   // Brand search state
   const [brandSearch, setBrandSearch] = useState('');
@@ -74,15 +74,15 @@ export default function MarketplacePage() {
 
   const handleAdd = async (e) => {
     e.preventDefault();
-    if (!form.defaultBrandId) {
-      toast.error('Lütfen bir marka seçin. Marka seçmeden devam edemezsiniz.');
+    if (form.brandStrategy === 'override' && !form.defaultBrandId) {
+      toast.error('Kendi markam stratejisinde bir marka seçmeniz zorunludur.');
       return;
     }
     try {
       await api.post('/marketplace/connections', form);
       toast.success('Pazaryeri bağlantısı eklendi');
       setShowModal(false);
-      setForm({ marketplaceType: 'trendyol', sellerId: '', apiKey: '', apiSecret: '', supplierName: '', defaultBrandId: '', defaultBrandName: '' });
+      setForm({ marketplaceType: 'trendyol', sellerId: '', apiKey: '', apiSecret: '', supplierName: '', defaultBrandId: '', defaultBrandName: '', brandStrategy: 'xml' });
       setBrandSearch('');
       setBrandResults([]);
       fetchConnections();
@@ -127,6 +127,14 @@ export default function MarketplacePage() {
     } catch { return null; }
   };
 
+  const getConnectionBrandStrategy = (c) => {
+    if (!c.config) return 'xml';
+    try {
+      const config = JSON.parse(c.config);
+      return config.brandStrategy || 'xml';
+    } catch { return 'xml'; }
+  };
+
   return (
     <div>
       <div className="page-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -150,6 +158,7 @@ export default function MarketplacePage() {
           {connections.map((c) => {
             const info = getMarketplaceInfo(c.marketplaceType);
             const brandName = getConnectionBrand(c);
+            const brandStrategy = getConnectionBrandStrategy(c);
             return (
               <div key={c.id} className="card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -170,6 +179,7 @@ export default function MarketplacePage() {
                   <span>📦 {c._count?.marketplaceProducts || 0} ürün</span>
                   <span>📋 {c._count?.orders || 0} sipariş</span>
                   {brandName && <span>🏷️ {brandName}</span>}
+                  <span>{brandStrategy === 'override' ? '🔒 Kendi markam' : '📦 XML markası'}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="btn btn-secondary btn-sm" onClick={() => handleTest(c.id)} disabled={testing === c.id}>
@@ -203,10 +213,30 @@ export default function MarketplacePage() {
                 <div className="form-group"><label className="form-label">API Secret *</label><input type="password" className="form-input" value={form.apiSecret} onChange={e => setForm({...form, apiSecret: e.target.value})} required /></div>
                 <div className="form-group"><label className="form-label">Tedarikçi Adı</label><input className="form-input" value={form.supplierName} onChange={e => setForm({...form, supplierName: e.target.value})} /></div>
                 
-                {/* Brand Search */}
+                {/* Brand Strategy + Search */}
                 {form.marketplaceType === 'trendyol' && (
                   <div className="form-group">
-                    <label className="form-label">Varsayılan Marka *</label>
+                    <label className="form-label">Marka Stratejisi</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', padding: '10px 14px', borderRadius: 8, border: `1px solid ${form.brandStrategy === 'xml' ? 'var(--accent-primary)' : 'var(--border-color)'}`, background: form.brandStrategy === 'xml' ? 'rgba(99,102,241,0.06)' : 'transparent' }}>
+                        <input type="radio" name="brandStrategy" value="xml" checked={form.brandStrategy === 'xml'} onChange={() => setForm({ ...form, brandStrategy: 'xml' })} style={{ marginTop: 2 }} />
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>XML'den gelen marka</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Tedarikçinin marka adı Trendyol'da aranır. Bulunamazsa aşağıdaki yedek marka kullanılır.</div>
+                        </div>
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', padding: '10px 14px', borderRadius: 8, border: `1px solid ${form.brandStrategy === 'override' ? 'var(--accent-primary)' : 'var(--border-color)'}`, background: form.brandStrategy === 'override' ? 'rgba(99,102,241,0.06)' : 'transparent' }}>
+                        <input type="radio" name="brandStrategy" value="override" checked={form.brandStrategy === 'override'} onChange={() => setForm({ ...form, brandStrategy: 'override' })} style={{ marginTop: 2 }} />
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>Kendi markam</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>XML'deki marka yok sayılır, aşağıda seçilen marka her zaman kullanılır.</div>
+                        </div>
+                      </label>
+                    </div>
+
+                    <label className="form-label">
+                      {form.brandStrategy === 'override' ? 'Marka *' : 'Yedek Marka (opsiyonel)'}
+                    </label>
                     <small style={{ display: 'block', color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>
                       Trendyol'da kayıtlı markalardan arayıp seçin. Aramanın çalışması için önce yukarıdaki API bilgilerini girin.
                     </small>

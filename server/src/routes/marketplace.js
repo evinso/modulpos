@@ -31,12 +31,13 @@ router.post('/connections', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
-    const { marketplaceType, sellerId, apiKey, apiSecret, supplierName, defaultBrandId, defaultBrandName } = req.body;
+    const { marketplaceType, sellerId, apiKey, apiSecret, supplierName, defaultBrandId, defaultBrandName, brandStrategy } = req.body;
     if (!marketplaceType || !apiKey || !apiSecret) return res.status(400).json({ error: 'Pazaryeri türü, API Key ve Secret zorunludur' });
 
     const config = {};
     if (defaultBrandId) config.defaultBrandId = parseInt(defaultBrandId);
     if (defaultBrandName) config.defaultBrandName = defaultBrandName;
+    config.brandStrategy = brandStrategy === 'override' ? 'override' : 'xml';
 
     const connection = await prisma.marketplaceConnection.create({
       data: { storeId: store.id, marketplaceType, sellerId, apiKey, apiSecret, supplierName, config: Object.keys(config).length > 0 ? JSON.stringify(config) : null }
@@ -349,6 +350,11 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     // Initialize Trendyol service for brand lookups
     const service = new TrendyolService(connection);
 
+    // Brand strategy from connection config
+    const connConfig = connection.config ? JSON.parse(connection.config) : {};
+    const brandStrategy = connConfig.brandStrategy || 'xml';
+    const defaultBrandId = connConfig.defaultBrandId || null;
+
     // Brand cache: brandName -> brandId (to avoid duplicate API calls)
     const brandCache = {};
 
@@ -357,7 +363,7 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
       if (!brandName || brandName.trim() === '') return null;
       const key = brandName.trim().toLowerCase();
       if (brandCache[key] !== undefined) return brandCache[key];
-      
+
       try {
         const result = await service.searchBrand(brandName.trim());
         if (result && Array.isArray(result) && result.length > 0) {
@@ -371,6 +377,15 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
         brandCache[key] = null;
         return null;
       }
+    }
+
+    async function resolveProductBrandId(p) {
+      if (brandStrategy === 'override') return defaultBrandId;
+      // xml strategy: XML brand first, fallback to defaultBrandId
+      let id = null;
+      if (p.brand) id = await resolveBrandId(p.brand);
+      if (!id) id = defaultBrandId;
+      return id;
     }
 
     // Resolve category mapping, handling pipe-separated category strings (e.g. "Kadın|Kolye|")
@@ -470,25 +485,9 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
         } catch (e) {}
       }
 
-      // Resolve brand ID: ürünün brand alanından Trendyol marka ID çözümle
-      let brandId = null;
-      
-      // 1. Ürünün brand alanından çözümle (XML'den gelen marka adı)
-      if (p.brand) {
-        brandId = await resolveBrandId(p.brand);
-      }
-      
-      // 2. Marka bulunamazsa connection'ın default brand ID'sini kullan
-      if (!brandId && connection.config) {
-        try {
-          const config = JSON.parse(connection.config);
-          if (config.defaultBrandId) brandId = config.defaultBrandId;
-        } catch (e) {}
-      }
-      
-      // 3. Hala bulunamazsa hata listesine ekle
+      const brandId = await resolveProductBrandId(p);
       if (!brandId) {
-        errors.push(`${p.sku}: Marka bulunamadı (${p.brand || 'Marka boş'}). Trendyol'da geçerli bir marka eşleştirmesi yapın.`);
+        errors.push(`${p.sku}: Marka bulunamadı (${p.brand || 'Marka boş'}). Bağlantı ayarlarından varsayılan marka seçin.`);
         continue;
       }
 
@@ -651,6 +650,9 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
     }
 
     const service = new TrendyolService(connection);
+    const connConfigAll = connection.config ? JSON.parse(connection.config) : {};
+    const brandStrategyAll = connConfigAll.brandStrategy || 'xml';
+    const defaultBrandIdAll = connConfigAll.defaultBrandId || null;
     const brandCache = {};
 
     async function resolveBrandId(brandName) {
@@ -669,6 +671,14 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
         brandCache[key] = null;
         return null;
       }
+    }
+
+    async function resolveProductBrandIdAll(p) {
+      if (brandStrategyAll === 'override') return defaultBrandIdAll;
+      let id = null;
+      if (p.brand) id = await resolveBrandId(p.brand);
+      if (!id) id = defaultBrandIdAll;
+      return id;
     }
 
     const resolveCatMapping = (category, catMap, xmlSrcId, globalCatMap) => {
@@ -739,14 +749,7 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
         } catch (e) {}
       }
 
-      let brandId = null;
-      if (p.brand) brandId = await resolveBrandId(p.brand);
-      if (!brandId && connection.config) {
-        try {
-          const config = JSON.parse(connection.config);
-          if (config.defaultBrandId) brandId = config.defaultBrandId;
-        } catch (e) {}
-      }
+      const brandId = await resolveProductBrandIdAll(p);
       if (!brandId) { skipped++; continue; }
 
       const item = TrendyolService.formatProduct({ ...p, price: finalPrice }, mapping.marketplaceCategoryId, brandId, attributes);
