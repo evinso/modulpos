@@ -902,7 +902,7 @@ router.get('/users/:id/detail', auth, isAdmin, async (req, res) => {
     const [creditBalance, recentTransactions, recentNotifications] = await Promise.all([
       prisma.creditBalance.findUnique({ where: { userId: user.id } }),
       prisma.creditTransaction.findMany({
-        where: { userId: user.id },
+        where: { balance: { userId: user.id } },
         orderBy: { createdAt: 'desc' },
         take: 10,
         select: { id: true, type: true, amount: true, description: true, createdAt: true }
