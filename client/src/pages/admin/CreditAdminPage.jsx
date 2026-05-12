@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, Settings, Users, Plus, Save, Search, CreditCard, ArrowUpRight, ArrowDownRight, Activity, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
+import { Wallet, Users, Plus, Save, Search, CreditCard, Activity, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 
 export default function CreditAdminPage() {
-  const [activeTab, setActiveTab] = useState('settings');
+  const [activeTab, setActiveTab] = useState('credits');
   const [settings, setSettings] = useState({
     credit_xml_convert: '1',
     credit_xml_import_default: '5',
@@ -117,10 +117,16 @@ export default function CreditAdminPage() {
       {/* Tab Navigation */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
         <button
-          className={`btn ${activeTab === 'settings' ? 'btn-primary' : 'btn-secondary'}`}
-          onClick={() => setActiveTab('settings')}
+          className={`btn ${activeTab === 'credits' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setActiveTab('credits')}
         >
-          <Settings size={16} /> Fiyatlandırma Ayarları
+          <CreditCard size={16} /> Kredi İşlem Ücretleri
+        </button>
+        <button
+          className={`btn ${activeTab === 'paytr' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setActiveTab('paytr')}
+        >
+          <Wallet size={16} /> PayTR Ayarları
         </button>
         <button
           className={`btn ${activeTab === 'users' ? 'btn-primary' : 'btn-secondary'}`}
@@ -136,12 +142,12 @@ export default function CreditAdminPage() {
         </button>
       </div>
 
-      {/* Settings Tab */}
-      {activeTab === 'settings' && (
+      {/* Kredi İşlem Ücretleri Tab */}
+      {activeTab === 'credits' && (
         <div className="card" style={{ maxWidth: 600 }}>
           <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
             <CreditCard size={18} style={{ color: 'var(--accent-primary)' }} />
-            İşlem Ücretleri
+            Kredi İşlem Ücretleri
           </h3>
 
           <div className="form-group" style={{ marginBottom: 20 }}>
@@ -208,9 +214,18 @@ export default function CreditAdminPage() {
             </span>
           </div>
 
-          <h3 style={{ fontSize: 16, fontWeight: 600, marginTop: 40, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8, borderTop: '1px solid var(--border-color)', paddingTop: 20 }}>
+          <button className="btn btn-primary" onClick={handleSaveSettings} disabled={saving}>
+            <Save size={16} /> {saving ? 'Kaydediliyor...' : 'Kaydet'}
+          </button>
+        </div>
+      )}
+
+      {/* PayTR Ayarları Tab */}
+      {activeTab === 'paytr' && (
+        <div className="card" style={{ maxWidth: 600 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Wallet size={18} style={{ color: 'var(--accent-primary)' }} />
-            PayTR API Ayarları (Kredi Yükleme)
+            PayTR API Ayarları
           </h3>
 
           <div className="form-group" style={{ marginBottom: 20 }}>
