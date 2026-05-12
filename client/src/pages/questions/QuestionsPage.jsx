@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Send, CheckCircle, Clock, Bot } from 'lucide-react';
+import { RefreshCw, Send, CheckCircle, Clock, Bot, Wallet } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -9,12 +9,30 @@ export default function QuestionsPage() {
   const [filterStatus, setFilterStatus] = useState('');
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [creditBalance, setCreditBalance] = useState(null);
+  const [autoReplyCost, setAutoReplyCost] = useState(null);
 
   const [answerModal, setAnswerModal] = useState(null);
   const [answerText, setAnswerText] = useState('');
   const [answering, setAnswering] = useState(false);
 
+  useEffect(() => {
+    fetchQuestions();
+    fetchCreditInfo();
+  }, []);
+
   useEffect(() => { fetchQuestions(); }, [pagination.page, filterStatus]);
+
+  const fetchCreditInfo = async () => {
+    try {
+      const [balRes, priceRes] = await Promise.all([
+        api.get('/credits/balance'),
+        api.get('/credits/prices')
+      ]);
+      setCreditBalance(balRes.data.balance);
+      setAutoReplyCost(priceRes.data.autoReplyCost ?? null);
+    } catch {}
+  };
 
   const fetchQuestions = async () => {
     setLoading(true);
@@ -34,6 +52,7 @@ export default function QuestionsPage() {
       const res = await api.post('/questions/sync');
       toast.success(`${res.data.synced} yeni soru çekildi, ${res.data.autoAnswered} otomatik yanıtlandı`);
       fetchQuestions();
+      fetchCreditInfo();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Senkronizasyon hatası');
     } finally { setSyncing(false); }
@@ -49,6 +68,7 @@ export default function QuestionsPage() {
       setAnswerModal(null);
       setAnswerText('');
       fetchQuestions();
+      fetchCreditInfo();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Yanıt gönderilemedi');
     } finally { setAnswering(false); }
@@ -63,6 +83,18 @@ export default function QuestionsPage() {
         <div>
           <h1>Müşteri Soruları</h1>
           <p>Trendyol'dan gelen soruları görüntüleyin ve yanıtlayın</p>
+        </div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {creditBalance !== null && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '8px 14px', fontSize: 13 }}>
+              <Wallet size={14} style={{ color: 'var(--accent-primary)' }} />
+              <span style={{ color: 'var(--text-secondary)' }}>Bakiye:</span>
+              <strong>{creditBalance.toFixed(1)} kredi</strong>
+              {autoReplyCost > 0 && (
+                <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 4 }}>· yanıt başı {autoReplyCost} kredi</span>
+              )}
+            </div>
+          )}
         </div>
         <button className="btn btn-primary" onClick={handleSync} disabled={syncing} style={{ padding: '10px 24px' }}>
           <RefreshCw size={16} className={syncing ? 'spin' : ''} />
