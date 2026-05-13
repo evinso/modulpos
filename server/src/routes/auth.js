@@ -121,23 +121,30 @@ router.post('/login', async (req, res, next) => {
       return res.status(403).json({ error: 'Abonelik süreniz dolduğu için hesabınız devre dışı bırakılmıştır. Lütfen yönetici ile iletişime geçin.' });
     }
 
+    // Create session record
+    const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.ip || req.socket?.remoteAddress || 'unknown').trim();
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const session = await prisma.userSession.create({
+      data: { userId: user.id, ip, userAgent }
+    }).catch(() => null);
+
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
+      { id: user.id, email: user.email, role: user.role, sessionId: session?.id },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
 
     const { passwordHash: _, ...userWithoutPassword } = user;
 
-    // Log the login
+    // Log the login with IP
     await prisma.auditLog.create({
       data: {
         userId: user.id,
         action: 'LOGIN',
-        details: JSON.stringify({ email: user.email }),
+        details: JSON.stringify({ email: user.email, ip }),
         level: 'INFO'
       }
-    }).catch(err => console.error("Audit log error:", err)); // fire and forget
+    }).catch(() => {});
 
     res.json({
       message: 'Giriş başarılı',
@@ -248,6 +255,49 @@ router.get('/invoices', auth, async (req, res, next) => {
       orderBy: { createdAt: 'desc' }
     });
     res.json(invoices);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/auth/sessions — current user's session history
+router.get('/sessions', auth, async (req, res, next) => {
+  try {
+    const sessions = await prisma.userSession.findMany({
+      where: { userId: req.user.id },
+      orderBy: { loginAt: 'desc' },
+      take: 20
+    });
+
+    // Count AuditLog actions per session window
+    const enriched = await Promise.all(sessions.map(async (s) => {
+      const endTime = s.isActive ? new Date() : s.lastSeenAt;
+      const actionCount = await prisma.auditLog.count({
+        where: { userId: s.userId, createdAt: { gte: s.loginAt, lte: endTime } }
+      });
+      return { ...s, actionCount, isCurrentSession: s.id === req.user.sessionId };
+    }));
+
+    res.json(enriched);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/auth/sessions/:id — terminate a session
+router.delete('/sessions/:id', auth, async (req, res, next) => {
+  try {
+    const session = await prisma.userSession.findFirst({
+      where: { id: req.params.id, userId: req.user.id }
+    });
+    if (!session) return res.status(404).json({ error: 'Oturum bulunamadı' });
+
+    await prisma.userSession.update({
+      where: { id: req.params.id },
+      data: { isActive: false }
+    });
+
+    res.json({ success: true });
   } catch (error) {
     next(error);
   }

@@ -30,6 +30,19 @@ model User {
   invoices        Invoice[]
   dropshipOrders  DropshipOrder[]
   supportTickets  SupportTicket[]
+  sessions        UserSession[]
+}
+
+model UserSession {
+  id          String    @id @default(uuid())
+  userId      String
+  ip          String?
+  userAgent   String?
+  loginAt     DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  isActive    Boolean   @default(true)
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model AuditLog {

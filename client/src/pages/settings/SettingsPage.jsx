@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../../store/authStore';
-import { User, Settings, Shield, CreditCard, Save, FileText, Download, ExternalLink } from 'lucide-react';
+import { User, Settings, Shield, CreditCard, Save, FileText, Download, ExternalLink, Monitor, Globe, Smartphone, Trash2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
@@ -47,6 +47,8 @@ export default function SettingsPage() {
 
   const [invoices, setInvoices] = useState([]);
   const [invoicesLoading, setInvoicesLoading] = useState(false);
+  const [sessions, setSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -59,6 +61,13 @@ export default function SettingsPage() {
         .then(res => setInvoices(res.data))
         .catch(() => toast.error('Faturalar yüklenemedi'))
         .finally(() => setInvoicesLoading(false));
+    }
+    if (activeTab === 'sessions') {
+      setSessionsLoading(true);
+      api.get('/auth/sessions')
+        .then(res => setSessions(res.data))
+        .catch(() => toast.error('Oturumlar yüklenemedi'))
+        .finally(() => setSessionsLoading(false));
     }
   }, [activeTab]);
 
@@ -158,12 +167,20 @@ export default function SettingsPage() {
             <CreditCard size={16} style={{ color: activeTab === 'billing' ? 'var(--accent-primary)' : 'inherit' }} /> Faturalandırma
           </button>
 
-          <button 
+          <button
             className={`dropdown-item ${activeTab === 'general' ? 'active' : ''}`}
             onClick={() => handleTabChange('general')}
-            style={{ width: '100%', textAlign: 'left', background: activeTab === 'general' ? 'var(--bg-hover)' : 'transparent' }}
+            style={{ width: '100%', textAlign: 'left', marginBottom: 4, background: activeTab === 'general' ? 'var(--bg-hover)' : 'transparent' }}
           >
             <Settings size={16} style={{ color: activeTab === 'general' ? 'var(--accent-primary)' : 'inherit' }} /> Genel Ayarlar
+          </button>
+
+          <button
+            className={`dropdown-item ${activeTab === 'sessions' ? 'active' : ''}`}
+            onClick={() => handleTabChange('sessions')}
+            style={{ width: '100%', textAlign: 'left', background: activeTab === 'sessions' ? 'var(--bg-hover)' : 'transparent' }}
+          >
+            <Monitor size={16} style={{ color: activeTab === 'sessions' ? 'var(--accent-primary)' : 'inherit' }} /> Oturum Geçmişi
           </button>
         </div>
 
@@ -450,8 +467,137 @@ export default function SettingsPage() {
               )}
             </div>
           )}
+
+          {activeTab === 'sessions' && (
+            <SessionsTab
+              sessions={sessions}
+              loading={sessionsLoading}
+              onTerminate={async (id) => {
+                try {
+                  await api.delete(`/auth/sessions/${id}`);
+                  setSessions(prev => prev.map(s => s.id === id ? { ...s, isActive: false } : s));
+                  toast.success('Oturum sonlandırıldı');
+                } catch {
+                  toast.error('Oturum sonlandırılamadı');
+                }
+              }}
+            />
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Sessions Tab Component ─────────────────────────────────────── */
+function parseBrowser(ua = '') {
+  if (ua.includes('Edg/')) return 'Edge';
+  if (ua.includes('Chrome')) return 'Chrome';
+  if (ua.includes('Firefox')) return 'Firefox';
+  if (ua.includes('Safari')) return 'Safari';
+  if (ua.includes('Opera') || ua.includes('OPR')) return 'Opera';
+  return 'Tarayıcı';
+}
+
+function parseOS(ua = '') {
+  if (ua.includes('iPhone') || ua.includes('iPad')) return 'iOS';
+  if (ua.includes('Android')) return 'Android';
+  if (ua.includes('Windows')) return 'Windows';
+  if (ua.includes('Mac OS X')) return 'macOS';
+  if (ua.includes('Linux')) return 'Linux';
+  return '';
+}
+
+function isMobile(ua = '') {
+  return /iPhone|iPad|Android|Mobile/.test(ua);
+}
+
+function timeAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr);
+  const m = Math.floor(diff / 60000);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+  if (m < 1) return 'Az önce';
+  if (m < 60) return `${m} dk önce`;
+  if (h < 24) return `${h} saat önce`;
+  return `${d} gün önce`;
+}
+
+function SessionsTab({ sessions, loading, onTerminate }) {
+  if (loading) return <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Yükleniyor...</div>;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 600 }}>Oturum Geçmişi</h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 4 }}>
+          Hesabınıza yapılan girişler ve aktif oturumlar. Tanımadığınız bir oturumu sonlandırabilirsiniz.
+        </p>
+      </div>
+
+      {sessions.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Oturum kaydı bulunamadı</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {sessions.map(s => {
+            const browser = parseBrowser(s.userAgent);
+            const os = parseOS(s.userAgent);
+            const mobile = isMobile(s.userAgent);
+            return (
+              <div key={s.id} style={{
+                border: `1px solid ${s.isActive ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                borderRadius: 10, padding: '14px 18px',
+                display: 'flex', alignItems: 'center', gap: 16,
+                background: s.isCurrentSession ? 'rgba(99,102,241,0.04)' : 'transparent',
+              }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                  background: 'var(--bg-primary)', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', color: 'var(--text-secondary)',
+                }}>
+                  {mobile ? <Smartphone size={18} /> : <Monitor size={18} />}
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                    <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>
+                      {browser}{os ? ` · ${os}` : ''}
+                    </span>
+                    {s.isCurrentSession && (
+                      <span style={{ fontSize: 11, background: 'var(--accent-primary)', color: '#fff', borderRadius: 4, padding: '1px 6px' }}>
+                        Bu Oturum
+                      </span>
+                    )}
+                    {s.isActive && !s.isCurrentSession && (
+                      <span style={{ fontSize: 11, background: 'rgba(34,197,94,0.15)', color: '#22c55e', borderRadius: 4, padding: '1px 6px' }}>
+                        Aktif
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Globe size={11} /> {s.ip || 'IP bilinmiyor'}
+                    </span>
+                    <span>Giriş: {new Date(s.loginAt).toLocaleString('tr-TR')}</span>
+                    <span>Son görülme: {timeAgo(s.lastSeenAt)}</span>
+                    {s.actionCount > 0 && <span>{s.actionCount} işlem</span>}
+                  </div>
+                </div>
+
+                {!s.isCurrentSession && s.isActive && (
+                  <button
+                    className="btn btn-ghost"
+                    style={{ color: '#ef4444', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
+                    onClick={() => onTerminate(s.id)}
+                  >
+                    <Trash2 size={14} /> Sonlandır
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -4,7 +4,8 @@ import {
   Users, Store, Package, ShoppingCart, CreditCard, Shield, Search,
   MoreVertical, CheckCircle, XCircle, UserPlus, Mail, Calendar,
   Trash2, Edit, Check, X, RefreshCcw, Settings, Tags, Plus, List, Sliders, FileText, Truck,
-  MessageSquare, Send, Building2, Eye, Info, Bell, Wallet, Activity, ArrowDownRight, ArrowUpRight
+  MessageSquare, Send, Building2, Eye, Info, Bell, Wallet, Activity, ArrowDownRight, ArrowUpRight,
+  Monitor, Globe, Smartphone
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { legalContent } from '../legal/legalContent';
@@ -2322,6 +2323,34 @@ export default function SuperAdminPage() {
                               <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>{new Date(l.createdAt).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
                             </div>
                           ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {detailData.recentSessions?.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>OTURUM GEÇMİŞİ</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {detailData.recentSessions.map(s => {
+                            const ua = s.userAgent || '';
+                            const mobile = /iPhone|iPad|Android|Mobile/.test(ua);
+                            const browser = ua.includes('Edg/') ? 'Edge' : ua.includes('Chrome') ? 'Chrome' : ua.includes('Firefox') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : 'Tarayıcı';
+                            const os = ua.includes('Windows') ? 'Windows' : ua.includes('Mac OS X') ? 'macOS' : ua.includes('Linux') ? 'Linux' : ua.includes('Android') ? 'Android' : ua.includes('iPhone') ? 'iOS' : '';
+                            return (
+                              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, padding: '7px 10px', background: 'var(--bg-secondary)', borderRadius: 6, border: s.isActive ? '1px solid rgba(99,102,241,0.3)' : '1px solid transparent' }}>
+                                {mobile ? <Smartphone size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} /> : <Monitor size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />}
+                                <span style={{ fontWeight: 600, color: 'var(--text-primary)', flexShrink: 0 }}>{browser}{os ? ` · ${os}` : ''}</span>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--text-muted)', flexShrink: 0 }}>
+                                  <Globe size={10} />{s.ip || '—'}
+                                </span>
+                                <span style={{ flex: 1, color: 'var(--text-muted)' }}>{new Date(s.loginAt).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                                {s.isActive
+                                  ? <span style={{ fontSize: 10, background: 'rgba(34,197,94,0.15)', color: '#22c55e', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>Aktif</span>
+                                  : <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>Kapalı</span>
+                                }
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}

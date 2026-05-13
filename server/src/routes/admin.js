@@ -899,7 +899,7 @@ router.get('/users/:id/detail', auth, isAdmin, async (req, res) => {
 
     const storeIds = user.stores.map(s => s.id);
 
-    const [creditBalance, recentTransactions, recentNotifications] = await Promise.all([
+    const [creditBalance, recentTransactions, recentNotifications, recentSessions] = await Promise.all([
       prisma.creditBalance.findUnique({ where: { userId: user.id } }),
       prisma.creditTransaction.findMany({
         where: { balance: { userId: user.id } },
@@ -915,10 +915,16 @@ router.get('/users/:id/detail', auth, isAdmin, async (req, res) => {
             select: { id: true, title: true, message: true, type: true, isRead: true, createdAt: true }
           })
         : [],
+      prisma.userSession.findMany({
+        where: { userId: user.id },
+        orderBy: { loginAt: 'desc' },
+        take: 10,
+        select: { id: true, ip: true, userAgent: true, loginAt: true, lastSeenAt: true, isActive: true }
+      })
     ]);
 
     const { passwordHash, ...safeUser } = user;
-    res.json({ ...safeUser, creditBalance: creditBalance?.balance ?? 0, recentTransactions, recentNotifications });
+    res.json({ ...safeUser, creditBalance: creditBalance?.balance ?? 0, recentTransactions, recentNotifications, recentSessions });
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
