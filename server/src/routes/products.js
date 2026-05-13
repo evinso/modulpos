@@ -431,7 +431,7 @@ router.post('/bulk-action', async (req, res, next) => {
                   finalPrice = Math.round(Math.max(0, finalPrice) * 100) / 100;
                 } else {
                   const xmlPrice = mp.product.xmlPrice || mp.product.price;
-                  const match = matchPriceRangeRule(xmlPrice, priceRangeRules);
+                  const match = matchPriceRangeRule(xmlPrice, priceRangeRules, connection.id, mp.product.xmlSourceId);
                   if (match) finalPrice = calcPriceRangePrice(xmlPrice, match.rule, match.conds);
                 }
 

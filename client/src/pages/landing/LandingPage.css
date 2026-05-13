@@ -1,8 +1,7 @@
 /* ══════════════════════════════════════════
    ModulPOS Landing Page Styles
+   NOTE: Inter font is loaded via <link> in index.html — no @import needed here
 ══════════════════════════════════════════ */
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
 .lp-root {
   font-family: 'Inter', sans-serif;
@@ -14,12 +13,11 @@
 
 /* ─── NAV ─── */
 .lp-nav {
-  position: fixed;
-  top: 0; left: 0; right: 0;
+  position: sticky;
+  top: 0;
   z-index: 100;
   padding: 0 24px;
-  backdrop-filter: blur(20px);
-  background: rgba(6, 13, 26, 0.8);
+  background: rgba(6, 13, 26, 0.92);
   border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 .lp-nav-inner {
@@ -81,14 +79,14 @@
   font-weight: 600;
   font-size: 14px;
   text-decoration: none;
-  transition: all 0.2s;
+  transition: box-shadow 0.2s, opacity 0.2s;
   border: none;
   cursor: pointer;
   white-space: nowrap;
 }
 .lp-btn-primary:hover {
-  transform: translateY(-1px);
   box-shadow: 0 8px 30px rgba(99,102,241,0.4);
+  opacity: 0.92;
 }
 .lp-btn-ghost {
   display: inline-flex;
@@ -101,7 +99,7 @@
   font-size: 14px;
   text-decoration: none;
   border: 1px solid rgba(255,255,255,0.1);
-  transition: all 0.2s;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
   background: transparent;
   cursor: pointer;
   white-space: nowrap;
@@ -127,18 +125,19 @@
 
 /* ─── HERO ─── */
 .lp-hero {
-  min-height: 100vh;
+  min-height: calc(100vh - 64px);
   display: flex;
   align-items: center;
-  padding: 100px 24px 60px;
+  padding: 60px 24px 60px;
   position: relative;
   max-width: 1300px;
   margin: 0 auto;
   gap: 60px;
 }
 
+/* position: absolute so it doesn't force a repaint on scroll */
 .lp-grid-bg {
-  position: fixed;
+  position: absolute;
   inset: 0;
   background-image:
     linear-gradient(rgba(99,102,241,0.04) 1px, transparent 1px),
@@ -148,21 +147,21 @@
   z-index: 0;
 }
 
+/* radial-gradient instead of filter:blur — avoids GPU compositing layer */
 .lp-glow {
   position: absolute;
   border-radius: 50%;
-  filter: blur(120px);
   pointer-events: none;
   z-index: 0;
 }
 .lp-glow-1 {
   width: 600px; height: 600px;
-  background: rgba(99,102,241,0.12);
+  background: radial-gradient(circle, rgba(99,102,241,0.14) 0%, transparent 70%);
   top: -100px; left: -200px;
 }
 .lp-glow-2 {
   width: 500px; height: 500px;
-  background: rgba(168,85,247,0.08);
+  background: radial-gradient(circle, rgba(168,85,247,0.1) 0%, transparent 70%);
   top: 200px; right: -100px;
 }
 
@@ -235,11 +234,7 @@
   box-shadow: 0 40px 100px rgba(0,0,0,0.5), 0 0 0 1px rgba(99,102,241,0.1);
   position: relative;
   z-index: 1;
-  animation: float 6s ease-in-out infinite;
-}
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+  /* removed float animation — avoids constant 60fps layout invalidation */
 }
 .lp-mockup-bar {
   height: 36px;
@@ -394,7 +389,7 @@
 .lp-section-header p {
   font-size: 16px;
   color: #64748b;
-  max-width: 500px;
+  max-width: 540px;
   margin: 0 auto;
   line-height: 1.7;
 }
@@ -410,13 +405,11 @@
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: 16px;
   padding: 28px;
-  transition: all 0.3s;
+  transition: border-color 0.2s, background 0.2s;
 }
 .lp-feature-card:hover {
   border-color: rgba(99,102,241,0.3);
   background: rgba(99,102,241,0.05);
-  transform: translateY(-4px);
-  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
 }
 .lp-feature-icon {
   width: 48px; height: 48px;
@@ -471,6 +464,50 @@
   color: #64748b;
   line-height: 1.7;
 }
+
+/* ─── BILLING TOGGLE ─── */
+.lp-billing-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 40px;
+  font-size: 14px;
+  color: #64748b;
+  font-weight: 500;
+}
+.lp-billing-toggle .active {
+  color: #f1f5f9;
+  font-weight: 600;
+}
+.lp-billing-toggle em {
+  font-style: normal;
+  font-size: 12px;
+  color: #10b981;
+  font-weight: 700;
+  margin-left: 4px;
+}
+.lp-toggle-btn {
+  width: 48px; height: 26px;
+  border-radius: 13px;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  background: var(--border-color, #1e293b);
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.lp-toggle-btn.on { background: #6366f1; }
+.lp-toggle-knob {
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.2s;
+  display: block;
+}
+.lp-toggle-btn.on .lp-toggle-knob { left: 25px; }
 
 /* ─── PRICING ─── */
 .lp-pricing-grid {
@@ -552,7 +589,7 @@
   font-weight: 600;
   font-size: 14px;
   text-decoration: none;
-  transition: all 0.2s;
+  transition: box-shadow 0.2s, border-color 0.2s, color 0.2s;
 }
 .lp-price-cta.primary {
   background: linear-gradient(135deg, #6366f1, #8b5cf6);
@@ -574,7 +611,7 @@
 }
 .lp-glow-cta {
   width: 800px; height: 400px;
-  background: rgba(99,102,241,0.08);
+  background: radial-gradient(ellipse, rgba(99,102,241,0.1) 0%, transparent 70%);
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
 }
@@ -618,9 +655,13 @@
   margin-top: 16px;
   line-height: 1.6;
 }
-.lp-footer-brand .lp-logo {
-  margin-bottom: 0;
+.lp-footer-contact {
+  margin-top: 16px;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.7;
 }
+.lp-footer-contact strong { color: #94a3b8; }
 .lp-footer h4 {
   font-size: 15px;
   font-weight: 600;
@@ -641,9 +682,7 @@
   font-size: 14px;
   transition: color 0.2s;
 }
-.lp-footer ul li a:hover {
-  color: #f1f5f9;
-}
+.lp-footer ul li a:hover { color: #f1f5f9; }
 .lp-footer-bottom {
   max-width: 1200px;
   margin: 0 auto;
@@ -663,20 +702,67 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  opacity: 0.8;
+  opacity: 0.85;
 }
-.lp-footer-payment-icons img {
+.lp-payment-label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+  margin-right: 8px;
+}
+.lp-payment-methods {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.04);
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.07);
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+.lp-payment-methods svg { color: #818cf8; }
+.lp-dot { color: #475569; }
+.lp-divider-v {
+  width: 1px;
+  height: 14px;
+  background: rgba(255,255,255,0.1);
+  margin: 0 4px;
+}
+.lp-divider-v-sm {
   height: 24px;
+  margin: 0 8px;
 }
+.lp-paytr {
+  font-size: 14px;
+  font-weight: 800;
+  color: #e2e8f0;
+  letter-spacing: -0.5px;
+}
+.lp-paytr em {
+  font-style: normal;
+  color: #10b981;
+}
+.lp-ssl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+.lp-ssl svg { color: #10b981; }
 
 /* ─── RESPONSIVE ─── */
 @media (max-width: 900px) {
-  .lp-hero { flex-direction: column; padding-top: 80px; }
+  .lp-hero { flex-direction: column; padding-top: 40px; }
   .lp-mockup { max-width: 100%; }
   .lp-features-grid, .lp-pricing-grid, .lp-steps { grid-template-columns: 1fr; }
   .lp-stats { grid-template-columns: repeat(2, 1fr); }
   .lp-nav-links { display: none; }
   .lp-footer-inner { grid-template-columns: 1fr; gap: 32px; }
+  .lp-footer-bottom { flex-direction: column; align-items: flex-start; }
 }
 
 /* ─── POLICY PAGE ─── */
@@ -686,13 +772,6 @@
   font-size: 20px;
   font-weight: 700;
 }
-.policy-content p {
-  margin-bottom: 16px;
-}
-.policy-content ul {
-  margin: 16px 0;
-  padding-left: 20px;
-}
-.policy-content li {
-  margin-bottom: 8px;
-}
+.policy-content p { margin-bottom: 16px; }
+.policy-content ul { margin: 16px 0; padding-left: 20px; }
+.policy-content li { margin-bottom: 8px; }

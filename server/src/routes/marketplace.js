@@ -1079,29 +1079,64 @@ router.post('/connections/:id/sync-price-stock', async (req, res, next) => {
     if (connection.marketplaceType === 'trendyol') {
       const TrendyolService = require('../services/trendyol/trendyolService');
       const service = new TrendyolService(connection);
-      
-      const items = marketplaceProducts.map(mp => ({
-        barcode: mp.product.barcode || mp.product.sku, // Trendyol uses barcode for price/stock update
-        quantity: mp.product.stock,
-        salePrice: mp.product.price,
-        listPrice: mp.product.listPrice > mp.product.price ? mp.product.listPrice : mp.product.price
-      }));
-      
+
+      // Fetch pricing rules to compute correct sale price
+      const pricingRules = await prisma.pricingRule.findMany({
+        where: { storeId: connection.storeId, applyTo: { in: ['marketplace_xml', 'price_range'] }, isActive: true },
+        orderBy: { priority: 'asc' }
+      });
+      const pricingLookup = {};
+      const priceRangeRules = [];
+      for (const r of pricingRules) {
+        if (!r.conditions) continue;
+        try {
+          const conds = JSON.parse(r.conditions);
+          if (r.applyTo !== 'price_range' && conds.connectionId === connection.id && conds.xmlSourceId) {
+            pricingLookup[conds.xmlSourceId] = r;
+          }
+          if (r.applyTo === 'price_range' && (conds.minPurchasePrice != null || conds.maxPurchasePrice != null)) {
+            priceRangeRules.push(r);
+          }
+        } catch(e) {}
+      }
+
+      const items = marketplaceProducts.map(mp => {
+        const p = mp.product;
+        const xmlPrice = p.xmlPrice || p.price;
+        let finalPrice = p.price;
+        const rule = pricingLookup[p.xmlSourceId];
+        if (rule) {
+          if (rule.type === 'percentage') finalPrice = finalPrice * (1 + rule.value / 100);
+          else if (rule.type === 'fixed') finalPrice = finalPrice + rule.value;
+          finalPrice = Math.round(Math.max(0, finalPrice) * 100) / 100;
+        } else {
+          const match = matchPriceRangeRule(xmlPrice, priceRangeRules, connection.id, p.xmlSourceId);
+          if (match) finalPrice = calcPriceRangePrice(xmlPrice, match.rule, match.conds);
+        }
+        return {
+          barcode: p.barcode || p.sku,
+          quantity: p.stock,
+          salePrice: finalPrice,
+          listPrice: Math.max(p.listPrice || 0, finalPrice)
+        };
+      });
+
       const result = await service.updatePriceAndInventory(items);
-      
+
       // Update local marketplace product records with the new price/stock and batchRequestId
       for (const mp of marketplaceProducts) {
+        const item = items.find(i => i.barcode === (mp.product.barcode || mp.product.sku));
         await prisma.marketplaceProduct.update({
           where: { id: mp.id },
           data: {
-            marketplacePrice: mp.product.price,
+            marketplacePrice: item?.salePrice ?? mp.product.price,
             marketplaceStock: mp.product.stock,
             batchRequestId: result?.batchRequestId || mp.batchRequestId,
             lastSyncedAt: new Date()
           }
         });
       }
-      
+
       notificationService.create({
         storeId: connection.storeId,
         title: 'Fiyat/Stok Güncellendi',
@@ -1110,11 +1145,11 @@ router.post('/connections/:id/sync-price-stock', async (req, res, next) => {
         link: '/trendyol-send',
         data: {
           notifType: 'trendyol_price_sync',
-          items: marketplaceProducts.slice(0, 100).map(mp => ({
+          items: marketplaceProducts.slice(0, 100).map((mp, i) => ({
             title: mp.product.title,
             barcode: mp.product.barcode || mp.product.sku,
             oldPrice: mp.marketplacePrice,
-            newPrice: mp.product.price,
+            newPrice: items[i]?.salePrice ?? mp.product.price,
             oldStock: mp.marketplaceStock,
             newStock: mp.product.stock
           }))

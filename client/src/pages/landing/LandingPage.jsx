@@ -1,22 +1,77 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { FileCode2, Store, Tags, ArrowRight, CheckCircle, Zap, ShieldCheck, BarChart3, RefreshCw, FolderTree, ArrowLeftRight, Package } from 'lucide-react';
+import {
+  FileCode2, Store, Tags, ArrowRight, CheckCircle, Zap,
+  FolderTree, Package,
+  MessageSquare, TrendingUp, ShieldCheck, Bell
+} from 'lucide-react';
 import api from '../../services/api';
 import './LandingPage.css';
 
 const features = [
-  { icon: <FileCode2 size={24} />, title: 'XML Otomatik İçe Aktarma', desc: 'Her formattaki tedarikçi XML\'ini sisteme bağlayın. RSS, Google Shopping, özel formatlar — hepsi desteklenir.' },
-  { icon: <Store size={24} />, title: 'Pazaryeri Entegrasyonu', desc: 'Ürünlerinizi pazaryerlerine tek tıkla gönderin. Stok ve fiyat güncellemeleri otomatik senkronize edilir.' },
-  { icon: <Tags size={24} />, title: 'Merkezi Fiyatlandırma', desc: 'Alış fiyatına göre otomatik satış fiyatı hesaplama. Pazaryerine göre özel kâr marjı tanımlayın.' },
-  { icon: <ArrowLeftRight size={24} />, title: 'XML Dönüştürücü', desc: 'Desteklenmeyen XML formatlarını anında dönüştürün. Proxy URL ile her senkronizasyonda güncel veri.' },
-  { icon: <FolderTree size={24} />, title: 'Kategori Eşleştirme', desc: 'Tedarikçi kategorilerinizi pazaryeri kategorileriyle eşleştirin. Ürün gönderimi sorunsuz gerçekleşsin.' },
-  { icon: <BarChart3 size={24} />, title: 'Sipariş Takibi', desc: 'Tüm pazaryerlerindeki siparişlerinizi tek panelden takip edin. Gerçek zamanlı durum güncellemeleri.' },
+  {
+    icon: <FileCode2 size={24} />,
+    title: 'XML Otomatik İçe Aktarma',
+    desc: 'Her formattaki tedarikçi XML\'ini sisteme bağlayın. Zamanlanmış senkronizasyon ile ürün stok ve fiyatları otomatik güncellenir.',
+  },
+  {
+    icon: <Store size={24} />,
+    title: 'Trendyol Toplu Gönderim',
+    desc: 'Seçili ürünleri Trendyol\'a tek tıkla toplu gönderin. Eksik kategoriler, eşleşmeler ve hatalar anında raporlanır.',
+  },
+  {
+    icon: <TrendingUp size={24} />,
+    title: 'BuyBox İzleme',
+    desc: 'Ürünlerinizin BuyBox durumunu anlık takip edin. Rekabet analizini otomatikleştirin, fiyat fırsatlarını kaçırmayın.',
+  },
+  {
+    icon: <MessageSquare size={24} />,
+    title: 'AI Müşteri Yanıtlama',
+    desc: 'Trendyol ürün sorularını AI destekli otomatik yanıtlayın. Müşteri memnuniyetini artırın, zaman kazanın.',
+  },
+  {
+    icon: <Tags size={24} />,
+    title: 'Merkezi Fiyatlandırma',
+    desc: 'Alış fiyatına göre otomatik satış fiyatı hesaplayın. Pazaryerine özel kâr marjı ve kargo kuralları tanımlayın.',
+  },
+  {
+    icon: <FolderTree size={24} />,
+    title: 'Kategori Eşleştirme',
+    desc: 'Tedarikçi kategorilerinizi Trendyol kategorileriyle eşleştirin. Ürün gönderimi sorunsuz ve hızlı gerçekleşsin.',
+  },
+  {
+    icon: <Package size={24} />,
+    title: 'Sipariş Takibi',
+    desc: 'Tüm siparişlerinizi tek panelden izleyin. Gerçek zamanlı durum güncellemeleri ve müşteri bilgileri bir arada.',
+  },
+  {
+    icon: <Bell size={24} />,
+    title: 'Zengin Bildirimler',
+    desc: 'Stok güncelleme, sipariş, fiyat değişimi gibi tüm olaylar için detaylı bildirimler. Tıklayın, anında inceleyin.',
+  },
+  {
+    icon: <ShieldCheck size={24} />,
+    title: 'Oturum Güvenliği',
+    desc: 'Hesabınıza hangi IP\'den, hangi cihazdan giriş yapıldığını görün. Şüpheli oturumları tek tıkla sonlandırın.',
+  },
 ];
 
 const steps = [
-  { n: '01', title: 'XML Kaynağı Ekle', desc: 'Tedarikçinizin XML linkini yapıştırın, sistem otomatik analiz etsin.' },
-  { n: '02', title: 'Alan Eşleştir', desc: 'XML alanlarını ürün alanlarıyla eşleştirin, fiyatlandırma kuralı tanımlayın.' },
-  { n: '03', title: 'Pazaryerine Gönder', desc: 'Ürünleri pazaryerlerine gönderin, stok ve fiyatlar otomatik güncellensin.' },
+  {
+    n: '01',
+    title: 'XML Kaynağı Ekle',
+    desc: 'Tedarikçinizin XML linkini yapıştırın. Sistem otomatik analiz eder, alanları tanır ve senkronizasyonu başlatır.',
+  },
+  {
+    n: '02',
+    title: 'Eşleştir ve Fiyatlandır',
+    desc: 'Kategori eşleştirme yapın, kâr marjı ve kargo kurallarını tanımlayın. Ürünler satışa hazır hale gelsin.',
+  },
+  {
+    n: '03',
+    title: 'Pazaryerine Gönder',
+    desc: 'Ürünleri Trendyol\'a toplu gönderin. Stok, fiyat ve BuyBox durumu otomatik izlenmeye devam etsin.',
+  },
 ];
 
 const stats = [
@@ -41,10 +96,8 @@ export default function LandingPage() {
     try {
       const res = await api.get('/public/pricing-plans');
       setPlans(res.data);
-    } catch (error) {
-      console.error('Planlar yüklenemedi:', error);
-    } finally {
-      setLoadingPlans(false);
+    } catch {
+      // silently fall back to default plans
     }
   };
 
@@ -53,8 +106,8 @@ export default function LandingPage() {
       const res = await api.get('/public/footer-sections');
       if (res.data.sections) setFooterSections(res.data.sections);
       if (res.data.settings) setFooterSettings(res.data.settings);
-    } catch (error) {
-      console.error('Footer yüklenemedi:', error);
+    } catch {
+      // silently fall back to defaults
     }
   };
 
@@ -93,8 +146,8 @@ export default function LandingPage() {
             <span className="lp-gradient-text">Tek Yerden Yönetin</span>
           </h1>
           <p className="lp-hero-desc">
-            XML tedarikçi bağlantısından pazaryeri satışına kadar tüm süreç otomatik.
-            Ürün yönetimi, fiyatlandırma ve sipariş takibi artık çok kolay.
+            XML tedarikçi bağlantısından Trendyol satışına kadar tüm süreç otomatik.
+            BuyBox izleme, AI müşteri yanıtlama ve zengin bildirimlerle rekabette öne geçin.
           </p>
           <div className="lp-hero-cta">
             <Link to="/register" className="lp-btn-primary lp-btn-lg">
@@ -163,7 +216,7 @@ export default function LandingPage() {
           <div className="lp-section-header">
             <div className="lp-badge-label">Özellikler</div>
             <h2>İhtiyacınız olan her şey <span className="lp-gradient-text">burada</span></h2>
-            <p>Tek platformda tedarikçi yönetiminden pazaryeri entegrasyonuna kadar her şey</p>
+            <p>Tedarikçi yönetiminden pazaryeri entegrasyonuna, BuyBox takibinden AI yanıtlamaya tek platform</p>
           </div>
           <div className="lp-features-grid">
             {features.map((f, i) => (
@@ -189,7 +242,6 @@ export default function LandingPage() {
             {steps.map((s, i) => (
               <div key={i} className="lp-step">
                 <div className="lp-step-num">{s.n}</div>
-                <div className="lp-step-line" />
                 <div className="lp-step-body">
                   <h3>{s.title}</h3>
                   <p>{s.desc}</p>
@@ -209,25 +261,17 @@ export default function LandingPage() {
             <p>İhtiyacınıza göre plan seçin, istediğiniz zaman değiştirin</p>
           </div>
 
-          {/* Billing toggle */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 40 }}>
-            <span style={{ fontSize: 14, color: billingCycle === 'monthly' ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: billingCycle === 'monthly' ? 600 : 400 }}>Aylık</span>
+          <div className="lp-billing-toggle">
+            <span className={billingCycle === 'monthly' ? 'active' : ''}>Aylık</span>
             <button
               onClick={() => setBillingCycle(c => c === 'monthly' ? 'yearly' : 'monthly')}
-              style={{
-                width: 48, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer', position: 'relative',
-                background: billingCycle === 'yearly' ? 'var(--accent-primary)' : 'var(--border-color)',
-                transition: 'background 0.2s'
-              }}
+              className={`lp-toggle-btn ${billingCycle === 'yearly' ? 'on' : ''}`}
+              aria-label="Yıllık/Aylık değiştir"
             >
-              <span style={{
-                position: 'absolute', top: 3, left: billingCycle === 'yearly' ? 25 : 3,
-                width: 20, height: 20, borderRadius: '50%', background: '#fff',
-                transition: 'left 0.2s', display: 'block'
-              }} />
+              <span className="lp-toggle-knob" />
             </button>
-            <span style={{ fontSize: 14, color: billingCycle === 'yearly' ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: billingCycle === 'yearly' ? 600 : 400 }}>
-              Yıllık <span style={{ fontSize: 12, color: '#10b981', fontWeight: 700, marginLeft: 4 }}>%20 İndirim</span>
+            <span className={billingCycle === 'yearly' ? 'active' : ''}>
+              Yıllık <em>%20 İndirim</em>
             </span>
           </div>
 
@@ -240,12 +284,12 @@ export default function LandingPage() {
               },
               {
                 name: 'Profesyonel', price: '₺—', yearlyPrice: '',
-                features: ['10.000 Ürün Limiti', '5 XML Kaynağı', 'Trendyol Entegrasyonu', 'Diğer Pazaryerleri (Yakında)', 'Dropship Desteği', 'Öncelikli Destek'],
+                features: ['10.000 Ürün Limiti', '5 XML Kaynağı', 'Trendyol Entegrasyonu', 'BuyBox İzleme', 'AI Müşteri Yanıtlama', 'Öncelikli Destek'],
                 ctaText: 'Hemen Başla', isHighlighted: true,
               },
               {
                 name: 'Kurumsal', price: '₺—', yearlyPrice: '',
-                features: ['Sınırsız Ürün', 'Sınırsız XML Kaynağı', 'Trendyol Entegrasyonu', 'Diğer Pazaryerleri (Yakında)', 'Dropship Desteği', '7/24 Öncelikli Destek'],
+                features: ['Sınırsız Ürün', 'Sınırsız XML Kaynağı', 'Trendyol Entegrasyonu', 'BuyBox İzleme', 'AI Müşteri Yanıtlama', '7/24 Öncelikli Destek'],
                 ctaText: 'Bize Ulaşın', isHighlighted: false,
               },
             ]).map((plan, i) => {
@@ -298,13 +342,13 @@ export default function LandingPage() {
             <p>
               {footerSettings.footer_description || 'Tüm pazaryerlerinizi tek platformdan yönetin. E-ticaret operasyonlarınızı otomatikleştirin ve satışlarınızı artırın.'}
             </p>
-            <div style={{ marginTop: 16, fontSize: 13, color: '#64748b' }}>
-              <strong>{footerSettings.footer_company_name || 'EVİNSO Bilişim Yazılım Ve Danışmanlık'}</strong><br/>
-              {footerSettings.footer_address || 'Bilişim Vadisi, Teknoloji Blv. No:1, Gebze / Kocaeli'}<br/>
+            <div className="lp-footer-contact">
+              <strong>{footerSettings.footer_company_name || 'EVİNSO Bilişim Yazılım Ve Danışmanlık'}</strong><br />
+              {footerSettings.footer_address || 'Bilişim Vadisi, Teknoloji Blv. No:1, Gebze / Kocaeli'}<br />
               {footerSettings.footer_email || 'info@modulpos.com'} | {footerSettings.footer_phone || '0850 000 00 00'}
             </div>
           </div>
-          
+
           {(footerSections.length > 0 ? footerSections : [
             {
               title: 'Ürün',
@@ -312,8 +356,8 @@ export default function LandingPage() {
                 { label: 'Özellikler', url: '#features' },
                 { label: 'Fiyatlandırma', url: '#pricing' },
                 { label: 'Nasıl Çalışır?', url: '#how' },
-                { label: 'Ücretsiz Başla', url: '/register' }
-              ]
+                { label: 'Ücretsiz Başla', url: '/register' },
+              ],
             },
             {
               title: 'Yasal Sözleşmeler',
@@ -322,8 +366,8 @@ export default function LandingPage() {
                 { label: 'İptal ve İade Koşulları', url: '/policy/iptal-ve-iade-kosullari' },
                 { label: 'Gizlilik ve Güvenlik Politikası', url: '/policy/gizlilik-ve-guvenlik-politikasi' },
                 { label: 'Teslimat Koşulları', url: '/policy/teslimat-kosullari' },
-                { label: 'Kullanım Şartları', url: '/policy/kullanim-sartlari' }
-              ]
+                { label: 'Kullanım Şartları', url: '/policy/kullanim-sartlari' },
+              ],
             },
             {
               title: 'Kurumsal',
@@ -331,9 +375,9 @@ export default function LandingPage() {
                 { label: 'Hakkımızda', url: '/policy/hakkimizda' },
                 { label: 'İletişim', url: '/policy/iletisim' },
                 { label: 'Kariyer', url: '#' },
-                { label: 'Destek Merkezi', url: '#' }
-              ]
-            }
+                { label: 'Destek Merkezi', url: '#' },
+              ],
+            },
           ]).map((section, idx) => (
             <div key={idx}>
               <h4>{section.title}</h4>
@@ -351,32 +395,30 @@ export default function LandingPage() {
             </div>
           ))}
         </div>
-        
+
         <div className="lp-footer-bottom">
           <p>{footerSettings.footer_copyright || `© ${new Date().getFullYear()} ModulPOS. Tüm hakları saklıdır.`}</p>
-          <div className="lp-footer-payment-icons" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginRight: '8px' }}>Güvenli Ödeme:</span>
-            
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-tertiary)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent-primary)' }}>
+          <div className="lp-footer-payment-icons">
+            <span className="lp-payment-label">Güvenli Ödeme:</span>
+            <div className="lp-payment-methods">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect width="20" height="14" x="2" y="5" rx="2" />
                 <line x1="2" x2="22" y1="10" y2="10" />
               </svg>
-              <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>Visa</span>
-              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>•</span>
-              <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>Mastercard</span>
-              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>•</span>
-              <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>Troy</span>
-              <div style={{ width: '1px', height: '14px', background: 'var(--border-color)', margin: '0 4px' }}></div>
-              <span style={{ fontSize: 14, color: '#0f172a', fontWeight: 800, letterSpacing: '-0.5px' }}>PAY<span style={{ color: '#10b981' }}>TR</span></span>
+              <span>Visa</span>
+              <span className="lp-dot">•</span>
+              <span>Mastercard</span>
+              <span className="lp-dot">•</span>
+              <span>Troy</span>
+              <div className="lp-divider-v" />
+              <span className="lp-paytr">PAY<em>TR</em></span>
             </div>
-            
-            <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 8px' }}></div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#10b981' }}>
+            <div className="lp-divider-v lp-divider-v-sm" />
+            <div className="lp-ssl">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
               </svg>
-              <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>128 Bit SSL ile Güvendesiniz.</span>
+              <span>128 Bit SSL ile Güvendesiniz.</span>
             </div>
           </div>
         </div>

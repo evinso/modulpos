@@ -274,7 +274,7 @@ class TrendyolService {
       dimensionalWeight: product.desi || 1,
       description: product.description || product.title,
       currencyType: 'TRY',
-      listPrice: product.listPrice || product.price,
+      listPrice: Math.max(product.listPrice || 0, product.price),
       salePrice: product.price,
       vatRate: vatRate,
       cargoCompanyId: 17, // Default: Aras Kargo
