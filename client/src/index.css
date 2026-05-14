@@ -834,9 +834,11 @@ tbody tr:hover {
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   z-index: 1000;
+  overflow-y: auto;
+  padding: 24px 0;
   animation: fadeIn 0.2s ease;
 }
 
@@ -846,8 +848,8 @@ tbody tr:hover {
   border-radius: var(--radius-lg);
   width: 90%;
   max-width: 560px;
-  max-height: 90vh;
-  overflow-y: auto;
+  overflow: visible;
+  margin: auto;
   animation: slideUp 0.3s ease;
 }
 
@@ -903,13 +905,6 @@ tbody tr:hover {
   animation: spin 1s linear infinite;
 }
 
-/* Modal overflow fix for large modals */
-.modal {
-  overflow: visible;
-}
-.modal-body {
-  overflow-y: auto;
-}
 
 
 /* Page Title */
