@@ -22,6 +22,7 @@ export default function BuyboxPage() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [creditBalance, setCreditBalance] = useState(null);
   const [buyboxCostPerBatch, setBuyboxCostPerBatch] = useState(1);
+  const [adjustCostPerProduct, setAdjustCostPerProduct] = useState(0.1);
   const [sortField, setSortField] = useState('buyboxOrder');
   const [batchSize, setBatchSize] = useState(50);
 
@@ -66,6 +67,7 @@ export default function BuyboxPage() {
       ]);
       setCreditBalance(balRes.data.balance);
       setBuyboxCostPerBatch(priceRes.data.buyboxCheckCost ?? 1);
+      setAdjustCostPerProduct(priceRes.data.buyboxAdjustCost ?? 0.1);
     } catch {}
   };
 
@@ -124,9 +126,9 @@ export default function BuyboxPage() {
       };
       if (adjustModal.barcodes) payload.barcodes = adjustModal.barcodes;
       const res = await api.post(`/marketplace/connections/${selectedConn.id}/buybox-price-adjust`, payload);
-      toast.success(res.data.message);
+      toast.success(res.data.message + (res.data.creditUsed > 0 ? ` (${res.data.creditUsed} kredi kesildi)` : ''));
       setAdjustModal(null);
-      await fetchHistory();
+      await Promise.all([fetchHistory(), fetchCreditInfo()]);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Fiyat güncellenemedi');
     } finally { setAdjusting(false); }
@@ -513,16 +515,17 @@ export default function BuyboxPage() {
                 </div>
               )}
 
-              <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: 'var(--text-secondary)' }}>
-                {adjustModal.barcodes
-                  ? `1 ürünün fiyatı güncellenecek`
-                  : `${losingRows.length} kaybeden ürünün fiyatı güncellenecek`
-                }
-                {adjustMode === 'equal'
-                  ? ' — BuyBox fiyatına eşitlenecek'
-                  : ` — BuyBox fiyatından ${adjustAmount}₺ düşük olacak`
-                }
-              </div>
+              {(() => {
+                const count = adjustModal.barcodes ? adjustModal.barcodes.length : losingRows.length;
+                const cost = Math.round(count * adjustCostPerProduct * 100) / 100;
+                return (
+                  <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: 'var(--text-secondary)' }}>
+                    <strong>{count} ürün</strong> güncellenecek
+                    {adjustMode === 'equal' ? ' — BuyBox fiyatına eşitlenecek' : ` — BuyBox fiyatından ${adjustAmount}₺ düşük olacak`}
+                    {cost > 0 && <span style={{ marginLeft: 8, color: 'var(--accent-primary)', fontWeight: 600 }}>· {cost} kredi kesilecek</span>}
+                  </div>
+                );
+              })()}
             </div>
             <div style={{ padding: '12px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setAdjustModal(null)}>İptal</button>

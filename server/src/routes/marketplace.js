@@ -847,7 +847,7 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
 });
 
 // Adjust prices for losing buybox products and send to Trendyol
-async function adjustBuyboxPrices(connection, barcodes, mode, amount) {
+async function adjustBuyboxPrices(connection, barcodes, mode, amount, userId) {
   const where = { connectionId: connection.id };
   if (barcodes && barcodes.length > 0) {
     where.barcode = { in: barcodes };
@@ -881,7 +881,14 @@ async function adjustBuyboxPrices(connection, barcodes, mode, amount) {
     };
   }).filter(Boolean);
 
-  if (items.length === 0) return { updated: 0 };
+  if (items.length === 0) return { updated: 0, creditUsed: 0 };
+
+  // Credit deduction: configurable per-product cost
+  const costPerProduct = parseFloat(await getSetting('credit_buybox_adjust', '0.1'));
+  const totalCost = Math.round(items.length * costPerProduct * 100) / 100;
+  if (totalCost > 0 && userId) {
+    await deductCredits(userId, totalCost, 'buybox_adjust', `BuyBox fiyat güncelleme: ${items.length} ürün`, connection.id);
+  }
 
   const service = new TrendyolService(connection);
   const result = await service.updatePriceAndInventory(items.map(({ _productId, ...i }) => i));
@@ -894,7 +901,7 @@ async function adjustBuyboxPrices(connection, barcodes, mode, amount) {
     });
   }
 
-  return { updated: items.length, batchId: result?.batchRequestId };
+  return { updated: items.length, batchId: result?.batchRequestId, creditUsed: totalCost };
 }
 
 // Update or create a single BuyboxRecord, cleaning up any duplicates for the same (connectionId, barcode)
@@ -1006,14 +1013,10 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
           });
         }
 
-        // Barcodes not returned by API — update checkedAt so they rotate properly
+        // Barcodes not returned by API — delete stale record so they don't show in history
         for (const barcode of batch) {
           if (!buyboxInfoList.find(b => b.barcode === barcode)) {
-            const mp = barcodeToMp.get(barcode);
-            if (!mp) continue;
-            const recordData = { productId: mp.product.id, buyboxOrder: null, buyboxPrice: null, hasMultipleSeller: false, checkedAt: now };
-            await upsertBuyboxRecord(connection.id, barcode, recordData);
-            results.push({ barcode, productId: mp.product.id, title: mp.product.title, sku: mp.product.sku, ourPrice: mp.marketplacePrice, buyboxOrder: null, buyboxPrice: null, hasMultipleSeller: false, isWinning: false, checkedAt: now });
+            await prisma.buyboxRecord.deleteMany({ where: { connectionId: connection.id, barcode } });
           }
         }
       } catch (batchErr) {
@@ -1053,7 +1056,7 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
       const cfg = connection.config ? JSON.parse(connection.config) : {};
       if (cfg.buyboxAutoAdjust && losing.length > 0) {
         const losingBarcodes = losing.map(r => r.barcode);
-        const ar = await adjustBuyboxPrices(connection, losingBarcodes, cfg.buyboxAutoMode || 'equal', cfg.buyboxAutoAmount || 0);
+        const ar = await adjustBuyboxPrices(connection, losingBarcodes, cfg.buyboxAutoMode || 'equal', cfg.buyboxAutoAmount || 0, req.user.id);
         autoAdjusted = ar.updated;
       }
     } catch (e) {
@@ -1082,7 +1085,7 @@ router.post('/connections/:id/buybox-price-adjust', async (req, res, next) => {
     if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
 
     const { barcodes, mode = 'equal', amount = 0 } = req.body;
-    const result = await adjustBuyboxPrices(connection, barcodes, mode, parseFloat(amount));
+    const result = await adjustBuyboxPrices(connection, barcodes, mode, parseFloat(amount), req.user.id);
 
     notificationService.create({
       storeId: connection.storeId,

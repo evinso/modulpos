@@ -9,6 +9,7 @@ export default function CreditAdminPage() {
     credit_xml_convert: '1',
     credit_xml_import_default: '5',
     credit_buybox_check: '1',
+    credit_buybox_adjust: '0.1',
     credit_auto_reply: '1'
   });
   const [users, setUsers] = useState([]);
@@ -195,6 +196,22 @@ export default function CreditAdminPage() {
             />
             <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
               Her 10 barkod için (1 Trendyol API isteği) kesilecek kredi. 0 = ücretsiz.
+            </span>
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 20 }}>
+            <label className="form-label">BuyBox Fiyat Güncelleme Ücreti (Kredi / Ürün)</label>
+            <input
+              type="number"
+              className="form-input"
+              min="0"
+              step="0.01"
+              value={settings.credit_buybox_adjust}
+              onChange={e => setSettings({ ...settings, credit_buybox_adjust: e.target.value })}
+              placeholder="0.1"
+            />
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
+              Manuel veya otomatik BuyBox fiyat güncellemesinde ürün başına kesilecek kredi. 0 = ücretsiz.
             </span>
           </div>
 
