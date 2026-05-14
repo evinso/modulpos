@@ -117,10 +117,13 @@ export default function SettingsPage() {
     e.preventDefault();
     setStoreLoading(true);
     try {
-      const res = await api.put('/auth/store', storeData);
+      const [res] = await Promise.all([
+        api.put('/auth/store', storeData),
+        api.put('/auth/profile', { name: profileData.name, phone: profileData.phone }),
+      ]);
       toast.success('Mağaza ayarları güncellendi');
       try {
-        const updatedUser = { ...user };
+        const updatedUser = { ...user, phone: profileData.phone };
         if (updatedUser.stores && updatedUser.stores.length > 0) {
           updatedUser.stores[0] = { ...updatedUser.stores[0], ...res.data };
         }
@@ -376,6 +379,16 @@ export default function SettingsPage() {
                         className="form-input"
                         value={storeData.phone}
                         onChange={e => setStoreData({...storeData, phone: e.target.value})}
+                        placeholder="05XX XXX XX XX"
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">Yetkili Telefonu</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={profileData.phone}
+                        onChange={e => setProfileData({...profileData, phone: e.target.value})}
                         placeholder="05XX XXX XX XX"
                       />
                     </div>
