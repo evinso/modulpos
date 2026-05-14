@@ -14,6 +14,8 @@ export default function TrendyolSendPage() {
   const [sending, setSending] = useState(false);
   const [sendingAll, setSendingAll] = useState(false);
   const [showSendAllModal, setShowSendAllModal] = useState(false);
+  const [showSendSelectedModal, setShowSendSelectedModal] = useState(false);
+  const [minStock, setMinStock] = useState(0);
   const [sendAllResult, setSendAllResult] = useState(null);
   const [mappings, setMappings] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all'); // all, ready, missing
@@ -196,7 +198,7 @@ export default function TrendyolSendPage() {
     setShowSendAllModal(false);
     setSendAllResult(null);
     try {
-      const body = {};
+      const body = { minStock };
       if (filterXmlSource) body.xmlSourceId = filterXmlSource;
       const res = await api.post(`/marketplace/connections/${selectedConn.id}/send-all-ready`, body);
       setSendAllResult(res.data);
@@ -209,10 +211,12 @@ export default function TrendyolSendPage() {
 
   const handleSendToMarketplace = async () => {
     if (!selectedConn || selectedIds.size === 0) return;
+    setShowSendSelectedModal(false);
     setSending(true);
     try {
       const res = await api.post(`/marketplace/connections/${selectedConn.id}/send-products`, {
-        productIds: Array.from(selectedIds)
+        productIds: Array.from(selectedIds),
+        minStock,
       });
       toast.success(res.data.message || `${selectedIds.size} ürün pazaryerine gönderildi`);
       setSelectedIds(new Set());
@@ -318,7 +322,7 @@ export default function TrendyolSendPage() {
           </button>
           <button
             className="btn btn-primary"
-            onClick={handleSendToMarketplace}
+            onClick={() => setShowSendSelectedModal(true)}
             disabled={sending || selectedIds.size === 0}
             style={{ padding: '10px 24px' }}
           >
@@ -539,29 +543,71 @@ export default function TrendyolSendPage() {
         </div>
       )}
 
-      {/* Confirm send-all modal */}
-      {showSendAllModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="card" style={{ maxWidth: 440, width: '90%', padding: 28 }}>
-            <h3 style={{ marginBottom: 12 }}>Tüm Hazır Ürünleri Gönder</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 8 }}>
-              Seçili bağlantıdaki <strong>tüm gönderime hazır ürünler</strong> Trendyol'a toplu olarak gönderilecek.
-            </p>
-            {filterXmlSource && (
-              <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 8 }}>
-                Filtre: yalnızca seçili XML kaynağındaki ürünler gönderilecek.
-              </p>
-            )}
-            <p style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 24 }}>
-              Ürünler 100'lük partiler halinde gönderilir (saniyede ~10 parti). Kategori, barkod veya fiyat kuralı eksik ürünler otomatik atlanır.
-            </p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={() => setShowSendAllModal(false)}>İptal</button>
-              <button className="btn btn-primary" onClick={handleSendAll}>Evet, Gönder</button>
+      {/* Send settings modal — shared layout */}
+      {(showSendAllModal || showSendSelectedModal) && (() => {
+        const isSendAll = showSendAllModal;
+        const close = () => isSendAll ? setShowSendAllModal(false) : setShowSendSelectedModal(false);
+        const confirm = isSendAll ? handleSendAll : handleSendToMarketplace;
+        const lowStockCount = isSendAll
+          ? products.filter(p => getProductStatus(p) === 'ready' && minStock > 0 && (p.stock ?? 0) < minStock).length
+          : [...selectedIds].filter(id => {
+              const p = products.find(x => x.id === id);
+              return p && minStock > 0 && (p.stock ?? 0) < minStock;
+            }).length;
+
+        return (
+          <div className="modal-overlay" onClick={close}>
+            <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>{isSendAll ? 'Tüm Hazır Ürünleri Gönder' : `${selectedIds.size} Ürün Gönder`}</h3>
+              </div>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 14 }}>
+                  {isSendAll
+                    ? <>Seçili bağlantıdaki <strong>tüm gönderime hazır ürünler</strong> Trendyol'a toplu olarak gönderilecek.</>
+                    : <><strong>{selectedIds.size} seçili ürün</strong> Trendyol'a gönderilecek.</>
+                  }
+                </p>
+
+                <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '14px 16px', border: '1px solid var(--border-color)' }}>
+                  <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 10 }}>
+                    Minimum Stok Eşiği
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <input
+                      type="number"
+                      min="0"
+                      className="form-input"
+                      style={{ width: 100 }}
+                      value={minStock}
+                      onChange={e => setMinStock(Math.max(0, parseInt(e.target.value) || 0))}
+                    />
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                      {minStock > 0
+                        ? `${minStock} adet altındaki ürünler gönderilmeyecek`
+                        : 'Stok sınırı yok — tüm stoklar gönderilir'}
+                    </span>
+                  </div>
+                  {lowStockCount > 0 && (
+                    <div style={{ marginTop: 10, fontSize: 13, color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <AlertCircle size={14} />
+                      <span><strong>{lowStockCount} ürün</strong> düşük stok nedeniyle atlanacak</span>
+                    </div>
+                  )}
+                </div>
+
+                <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 12 }}>
+                  Ürünler 100'lük partiler halinde gönderilir. Kategori, barkod veya fiyat kuralı eksik ürünler otomatik atlanır.
+                </p>
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={close}>İptal</button>
+                <button className="btn btn-primary" onClick={confirm}>Gönder</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
