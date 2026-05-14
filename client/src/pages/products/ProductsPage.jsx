@@ -1,38 +1,15 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Plus, Search, Trash2, Edit, Package, CheckSquare, Square,
-  TrendingUp, TrendingDown, Tag, Layers, ToggleLeft, ToggleRight,
-  DollarSign, Box, Percent, X, AlertTriangle, ChevronDown, FileCode2, Eye, RefreshCw
+  TrendingUp, TrendingDown, Layers,
+  X, AlertTriangle, ChevronDown, FileCode2, Eye, RefreshCw
 } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
 const BULK_ACTIONS = [
-  { group: 'Durum', icon: <ToggleRight size={15} />, actions: [
-    { key: 'activate', label: 'Aktif Yap', color: 'var(--success)', needsValue: false },
-    { key: 'deactivate', label: 'Pasif Yap', color: 'var(--warning)', needsValue: false },
-  ]},
-  { group: 'Fiyat', icon: <DollarSign size={15} />, actions: [
-    { key: 'price_increase_percent', label: 'Fiyat Artır (%)', needsValue: true, placeholder: 'Yüzde', suffix: '%' },
-    { key: 'price_decrease_percent', label: 'Fiyat Düşür (%)', needsValue: true, placeholder: 'Yüzde', suffix: '%' },
-    { key: 'price_increase_fixed', label: 'Fiyat Artır (₺)', needsValue: true, placeholder: 'Tutar', suffix: '₺' },
-    { key: 'price_decrease_fixed', label: 'Fiyat Düşür (₺)', needsValue: true, placeholder: 'Tutar', suffix: '₺' },
-  ]},
-  { group: 'Stok', icon: <Box size={15} />, actions: [
-    { key: 'set_stock', label: 'Stok Belirle', needsValue: true, placeholder: 'Adet' },
-    { key: 'stock_increase', label: 'Stok Artır', needsValue: true, placeholder: 'Adet' },
-    { key: 'stock_decrease', label: 'Stok Düşür', needsValue: true, placeholder: 'Adet' },
-  ]},
-  { group: 'Bilgi', icon: <Tag size={15} />, actions: [
-    { key: 'set_category', label: 'Kategori Ata', needsValue: true, placeholder: 'Kategori adı' },
-    { key: 'set_brand', label: 'Marka Ata', needsValue: true, placeholder: 'Marka adı' },
-    { key: 'set_vat_rate', label: 'KDV Oranı', needsValue: true, placeholder: 'Oran', suffix: '%' },
-  ]},
   { group: 'Pazaryeri', icon: <Package size={15} />, actions: [
-    { key: 'sync_marketplaces', label: 'Pazaryeri Fiyat/Stok Güncelle', color: 'var(--accent-primary)', needsValue: false },
-  ]},
-  { group: 'Tehlikeli', icon: <AlertTriangle size={15} />, actions: [
-    { key: 'delete', label: 'Seçilenleri Sil', color: 'var(--danger)', needsValue: false, dangerous: true },
+    { key: 'sync_marketplaces', label: 'Trendyol Fiyat/Stok Güncelle', color: 'var(--accent-primary)', needsValue: false },
   ]},
 ];
 
