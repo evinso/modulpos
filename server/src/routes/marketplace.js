@@ -936,7 +936,31 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
       include: { product: { select: { id: true, title: true, barcode: true, sku: true, price: true } } }
     });
 
-    const allEligible = mpProducts.filter(mp => mp.product?.barcode);
+    // Primary: products with barcode in Product model
+    // Fallback: products whose barcode was overwritten (e.g. XML re-sync without barcode mapping)
+    //           but we still have a real barcode stored in a previous BuyboxRecord
+    const mpWithBarcode = mpProducts.filter(mp => mp.product?.barcode);
+    const mpWithoutBarcode = mpProducts.filter(mp => mp.product && !mp.product.barcode);
+
+    const backfillBarcodeMap = new Map(); // productId -> barcode
+    if (mpWithoutBarcode.length > 0) {
+      const productIds = mpWithoutBarcode.map(mp => mp.product.id);
+      const oldRecords = await prisma.buyboxRecord.findMany({
+        where: { connectionId: connection.id, productId: { in: productIds } },
+        select: { productId: true, barcode: true },
+        orderBy: { checkedAt: 'desc' },
+      });
+      for (const r of oldRecords) {
+        if (r.productId && r.barcode && !backfillBarcodeMap.has(r.productId)) {
+          backfillBarcodeMap.set(r.productId, r.barcode);
+        }
+      }
+    }
+
+    const allEligible = [
+      ...mpWithBarcode,
+      ...mpWithoutBarcode.filter(mp => backfillBarcodeMap.has(mp.product.id)),
+    ];
     if (allEligible.length === 0) return res.status(400).json({ error: 'Barkodlu ürün bulunamadı' });
 
     // Fetch existing records to know when each barcode was last checked
@@ -946,10 +970,12 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
     });
     const lastCheckedMap = new Map(existingRecords.map(r => [r.barcode, r.checkedAt]));
 
+    const getEffectiveBarcode = (mp) => mp.product.barcode || backfillBarcodeMap.get(mp.product.id);
+
     // Sort: never-checked first, then oldest checkedAt first (rotation)
     allEligible.sort((a, b) => {
-      const aTime = lastCheckedMap.get(a.product.barcode)?.getTime() ?? 0;
-      const bTime = lastCheckedMap.get(b.product.barcode)?.getTime() ?? 0;
+      const aTime = lastCheckedMap.get(getEffectiveBarcode(a))?.getTime() ?? 0;
+      const bTime = lastCheckedMap.get(getEffectiveBarcode(b))?.getTime() ?? 0;
       return aTime - bTime;
     });
 
@@ -975,9 +1001,9 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
     const delay = ms => new Promise(r => setTimeout(r, ms));
 
     const barcodeToMp = new Map();
-    for (const mp of eligible) barcodeToMp.set(mp.product.barcode, mp);
+    for (const mp of eligible) barcodeToMp.set(getEffectiveBarcode(mp), mp);
 
-    const barcodes = eligible.map(mp => mp.product.barcode);
+    const barcodes = eligible.map(getEffectiveBarcode);
     const now = new Date();
 
     const checkedBarcodes = new Set();
@@ -1034,7 +1060,7 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
     }
 
     // Delete orphan records for barcodes no longer among eligible products (product removed)
-    const allEligibleBarcodes = allEligible.map(mp => mp.product.barcode);
+    const allEligibleBarcodes = allEligible.map(getEffectiveBarcode).filter(Boolean);
     if (allEligibleBarcodes.length > 0) {
       await prisma.buyboxRecord.deleteMany({
         where: { connectionId: connection.id, barcode: { notIn: allEligibleBarcodes } }

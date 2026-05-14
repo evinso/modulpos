@@ -219,7 +219,7 @@ router.post('/:id/sync', async (req, res, next) => {
               stock: p.stock ?? existing.stock,
               brand: p.brand || existing.brand,
               category: p.category || existing.category,
-              barcode: finalBarcode || existing.barcode,
+              barcode: p.barcode ? finalBarcode : existing.barcode,
               images: p.images?.length ? JSON.stringify(p.images) : existing.images,
               rawXmlData: rawXmlData,
             }
