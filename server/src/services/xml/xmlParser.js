@@ -1,19 +1,50 @@
 const axios = require('axios');
 const { XMLParser } = require('fast-xml-parser');
 
+const HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'application/xml, text/xml, */*'
+};
+
+// In-memory cache for preview/analyze downloads — avoids re-downloading during
+// the analyze → field-map → preview workflow (same URL hit multiple times in minutes)
+const previewCache = new Map();
+const PREVIEW_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function fetchForPreview(url) {
+  const cached = previewCache.get(url);
+  if (cached && Date.now() - cached.ts < PREVIEW_CACHE_TTL) return cached.data;
+
+  const res = await axios.get(url, {
+    timeout: 30000,
+    maxContentLength: 5 * 1024 * 1024, // 5 MB — enough to detect structure and first ~100 products
+    headers: HEADERS
+  });
+
+  previewCache.set(url, { data: res.data, ts: Date.now() });
+  // Evict stale entries to avoid unbounded memory growth
+  if (previewCache.size > 15) {
+    const now = Date.now();
+    for (const [k, v] of previewCache) if (now - v.ts > PREVIEW_CACHE_TTL) previewCache.delete(k);
+  }
+  return res.data;
+}
+
+async function fetchForSync(url) {
+  const res = await axios.get(url, {
+    timeout: 120000,
+    maxContentLength: 200 * 1024 * 1024,
+    headers: HEADERS
+  });
+  return res.data;
+}
+
 /**
  * XML'i analiz edip yapısını döndürür.
  * Kullanıcının hangi tag'ları eşleştireceğini görmesi için.
  */
 async function analyzeXml(url) {
-  const response = await axios.get(url, {
-    timeout: 120000,
-    maxContentLength: 200 * 1024 * 1024,
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'application/xml, text/xml, */*'
-    }
-  });
+  const response = { data: await fetchForPreview(url) };
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
@@ -252,17 +283,13 @@ function getNestedValue(obj, path) {
 }
 
 /**
- * Mapping config ile XML parse et
+ * Mapping config ile XML parse et.
+ * options.preview = true  → 5 MB cap + cache (for UI preview, analyze)
+ * options.limit   = N     → return at most N products (0 = all)
  */
-async function parseXml(url, mappingConfigStr) {
-  const response = await axios.get(url, {
-    timeout: 120000,
-    maxContentLength: 200 * 1024 * 1024,
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'application/xml, text/xml, */*'
-    }
-  });
+async function parseXml(url, mappingConfigStr, options = {}) {
+  const xmlData = options.preview ? await fetchForPreview(url) : await fetchForSync(url);
+  const response = { data: xmlData };
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
@@ -281,10 +308,13 @@ async function parseXml(url, mappingConfigStr) {
     try { mappingConfig = JSON.parse(mappingConfigStr); } catch {}
   }
 
-  const { rawProducts } = findProductArray(parsed);
-  if (!rawProducts || rawProducts.length === 0) {
+  const { rawProducts: allProducts } = findProductArray(parsed);
+  if (!allProducts || allProducts.length === 0) {
     throw new Error('XML içinde ürün listesi bulunamadı');
   }
+
+  const limit = options.limit ?? 0;
+  const rawProducts = limit > 0 ? allProducts.slice(0, limit) : allProducts;
 
   const mc = mappingConfig;
   const hasMappings = Object.keys(mc).some(k => mc[k] && mc[k] !== '');

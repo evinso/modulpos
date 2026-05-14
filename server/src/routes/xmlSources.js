@@ -59,7 +59,7 @@ router.post('/:id/preview', async (req, res, next) => {
 
     // Geçici mapping ile önizleme
     const tempMapping = req.body.mappingConfig || xmlSource.mappingConfig;
-    const products = await parseXml(xmlSource.url, typeof tempMapping === 'string' ? tempMapping : JSON.stringify(tempMapping));
+    const products = await parseXml(xmlSource.url, typeof tempMapping === 'string' ? tempMapping : JSON.stringify(tempMapping), { preview: true, limit: 10 });
 
     res.json({
       totalProducts: products.length,
@@ -292,7 +292,7 @@ router.get('/:id/xml-preview', async (req, res, next) => {
     const xmlSource = await prisma.xmlSource.findUnique({ where: { id: req.params.id } });
     if (!xmlSource) return res.status(404).json({ error: 'XML kaynağı bulunamadı' });
 
-    const products = await parseXml(xmlSource.url, xmlSource.mappingConfig);
+    const products = await parseXml(xmlSource.url, xmlSource.mappingConfig, { preview: true });
 
     const categories = [...new Set(
       products.map(p => p.category).filter(c => c && c.trim())
