@@ -152,6 +152,19 @@ export default function BuyboxPage() {
     } finally { setAutoSaving(false); }
   };
 
+  const handleClearRecords = async () => {
+    if (!selectedConn) return;
+    if (!window.confirm(`${history.length} kayıt silinecek. Emin misiniz?`)) return;
+    try {
+      const res = await api.delete(`/marketplace/connections/${selectedConn.id}/buybox-records`);
+      toast.success(res.data.message);
+      setHistory([]);
+      setResults(null);
+    } catch {
+      toast.error('Kayıtlar silinemedi');
+    }
+  };
+
   const losingRows = history.filter(r => r.buyboxOrder != null && r.buyboxOrder > 1 && r.buyboxPrice != null);
 
   const displayRows = [...history].sort((a, b) => {
@@ -384,6 +397,13 @@ export default function BuyboxPage() {
                 <option value="priceDiff">Fiyat Farkına Göre</option>
                 <option value="checkedAt">En Eski Kontrol</option>
               </select>
+              <button
+                className="btn btn-danger"
+                style={{ fontSize: 13, padding: '7px 14px' }}
+                onClick={handleClearRecords}
+              >
+                Kayıtları Temizle
+              </button>
             </div>
           </div>
           <table>

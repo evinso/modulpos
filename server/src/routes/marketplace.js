@@ -1233,6 +1233,17 @@ router.get('/connections/:id/buybox-history', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+// DELETE /connections/:id/buybox-records — clear all buybox records for a connection
+router.delete('/connections/:id/buybox-records', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+
+    const { count } = await prisma.buyboxRecord.deleteMany({ where: { connectionId: connection.id } });
+    res.json({ message: `${count} kayıt silindi` });
+  } catch (error) { next(error); }
+});
+
 // Sync price and stock to marketplace
 router.post('/connections/:id/sync-price-stock', async (req, res, next) => {
   try {
