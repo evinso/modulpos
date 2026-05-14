@@ -152,9 +152,11 @@ export default function BuyboxPage() {
     } finally { setAutoSaving(false); }
   };
 
+  const [clearConfirm, setClearConfirm] = useState(false);
+
   const handleClearRecords = async () => {
     if (!selectedConn) return;
-    if (!window.confirm(`${history.length} kayıt silinecek. Emin misiniz?`)) return;
+    setClearConfirm(false);
     try {
       const res = await api.delete(`/marketplace/connections/${selectedConn.id}/buybox-records`);
       toast.success(res.data.message);
@@ -400,7 +402,7 @@ export default function BuyboxPage() {
               <button
                 className="btn btn-danger"
                 style={{ fontSize: 13, padding: '7px 14px' }}
-                onClick={handleClearRecords}
+                onClick={() => setClearConfirm(true)}
               >
                 Kayıtları Temizle
               </button>
@@ -552,6 +554,25 @@ export default function BuyboxPage() {
               <button className="btn btn-primary" onClick={handleAdjust} disabled={adjusting}>
                 {adjusting ? 'Güncelleniyor...' : 'Fiyatları Güncelle'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {clearConfirm && (
+        <div className="modal-overlay" onClick={() => setClearConfirm(false)}>
+          <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Kayıtları Temizle</h3>
+            </div>
+            <div className="modal-body">
+              <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+                <strong>{history.length} kayıt</strong> kalıcı olarak silinecek. Bu işlem geri alınamaz.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setClearConfirm(false)}>İptal</button>
+              <button className="btn btn-danger" onClick={handleClearRecords}>Evet, Sil</button>
             </div>
           </div>
         </div>
