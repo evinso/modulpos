@@ -927,94 +927,114 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
     const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
     if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
 
-    // batchSize: how many products to check this run (0 = all). Default 50.
     const batchSize = Math.max(0, parseInt(req.body?.batchSize ?? 50));
+    const service = new TrendyolService(connection);
 
-    // Get all marketplace products with a barcode
+    // ── Build eligible items ──────────────────────────────────────────────
+    // Each item: { barcode, productId: string|null, title: string|null, sku: string|null, ourPrice: number|null }
+    let eligibleItems = [];
+
     const mpProducts = await prisma.marketplaceProduct.findMany({
       where: { connectionId: connection.id },
-      include: { product: { select: { id: true, title: true, barcode: true, sku: true, price: true } } }
+      include: { product: { select: { id: true, title: true, barcode: true, sku: true } } }
     });
 
-    // Primary: products with barcode in Product model
-    // Fallback: products whose barcode was overwritten (e.g. XML re-sync without barcode mapping)
-    //           but we still have a real barcode stored in a previous BuyboxRecord
-    const mpWithBarcode = mpProducts.filter(mp => mp.product?.barcode);
-    const mpWithoutBarcode = mpProducts.filter(mp => mp.product && !mp.product.barcode);
+    if (mpProducts.length > 0) {
+      // Path A: local products exist
+      const mpWithBarcode = mpProducts.filter(mp => mp.product?.barcode);
+      const mpWithoutBarcode = mpProducts.filter(mp => mp.product && !mp.product.barcode);
 
-    const backfillBarcodeMap = new Map(); // productId -> barcode
-    if (mpWithoutBarcode.length > 0) {
-      const productIds = mpWithoutBarcode.map(mp => mp.product.id);
-      const oldRecords = await prisma.buyboxRecord.findMany({
-        where: { connectionId: connection.id, productId: { in: productIds } },
-        select: { productId: true, barcode: true },
-        orderBy: { checkedAt: 'desc' },
-      });
-      for (const r of oldRecords) {
-        if (r.productId && r.barcode && !backfillBarcodeMap.has(r.productId)) {
-          backfillBarcodeMap.set(r.productId, r.barcode);
+      // Backfill: recover barcodes from previous BuyboxRecord for products whose barcode was cleared
+      const backfillMap = new Map();
+      if (mpWithoutBarcode.length > 0) {
+        const productIds = mpWithoutBarcode.map(mp => mp.product.id);
+        const oldRecs = await prisma.buyboxRecord.findMany({
+          where: { connectionId: connection.id, productId: { in: productIds } },
+          select: { productId: true, barcode: true },
+          orderBy: { checkedAt: 'desc' },
+        });
+        for (const r of oldRecs) {
+          if (r.productId && r.barcode && !backfillMap.has(r.productId)) backfillMap.set(r.productId, r.barcode);
+        }
+      }
+
+      const allMp = [
+        ...mpWithBarcode,
+        ...mpWithoutBarcode.filter(mp => backfillMap.has(mp.product.id)),
+      ];
+      eligibleItems = allMp.map(mp => ({
+        barcode: mp.product.barcode || backfillMap.get(mp.product.id),
+        productId: mp.product.id,
+        title: mp.product.title,
+        sku: mp.product.sku,
+        ourPrice: mp.marketplacePrice,
+      }));
+    }
+
+    if (eligibleItems.length === 0) {
+      // Path B: no local products — fetch barcodes directly from Trendyol
+      let page = 0;
+      let hasMore = true;
+      while (hasMore && page < 20) {
+        try {
+          const res = await service.getProducts(page, 50);
+          const items = res?.content || [];
+          if (items.length === 0) { hasMore = false; break; }
+          for (const tp of items) {
+            const barcode = tp.barcode || tp.stockCode;
+            if (barcode) {
+              eligibleItems.push({
+                barcode,
+                productId: null,
+                title: tp.title || tp.stockCode || barcode,
+                sku: tp.stockCode || null,
+                ourPrice: tp.salePrice || null,
+              });
+            }
+          }
+          const totalPages = res?.totalPages ?? 1;
+          if (page >= totalPages - 1 || items.length < 50) hasMore = false;
+          else page++;
+        } catch (err) {
+          console.error('[BuyBox] Trendyol direct fetch failed:', err.message);
+          break;
         }
       }
     }
 
-    const allEligible = [
-      ...mpWithBarcode,
-      ...mpWithoutBarcode.filter(mp => backfillBarcodeMap.has(mp.product.id)),
-    ];
-    if (allEligible.length === 0) return res.status(400).json({
-      error: 'Barkodlu ürün bulunamadı',
-      debug: {
-        totalMpProducts: mpProducts.length,
-        withBarcode: mpWithBarcode.length,
-        withoutBarcode: mpWithoutBarcode.length,
-        backfilled: backfillBarcodeMap.size,
-        sampleBarcodes: mpWithBarcode.slice(0, 3).map(mp => mp.product.barcode),
-      }
-    });
+    if (eligibleItems.length === 0) {
+      return res.status(400).json({ error: 'Kontrol edilecek ürün bulunamadı. Ürünlerinizi önce Trendyol\'a gönderin veya mağaza bağlantısını senkronize edin.' });
+    }
 
-    // Fetch existing records to know when each barcode was last checked
+    // ── Rotation sort ─────────────────────────────────────────────────────
     const existingRecords = await prisma.buyboxRecord.findMany({
       where: { connectionId: connection.id },
       select: { barcode: true, checkedAt: true }
     });
     const lastCheckedMap = new Map(existingRecords.map(r => [r.barcode, r.checkedAt]));
 
-    const getEffectiveBarcode = (mp) => mp.product.barcode || backfillBarcodeMap.get(mp.product.id);
+    eligibleItems.sort((a, b) =>
+      (lastCheckedMap.get(a.barcode)?.getTime() ?? 0) - (lastCheckedMap.get(b.barcode)?.getTime() ?? 0)
+    );
 
-    // Sort: never-checked first, then oldest checkedAt first (rotation)
-    allEligible.sort((a, b) => {
-      const aTime = lastCheckedMap.get(getEffectiveBarcode(a))?.getTime() ?? 0;
-      const bTime = lastCheckedMap.get(getEffectiveBarcode(b))?.getTime() ?? 0;
-      return aTime - bTime;
-    });
+    const eligible = batchSize > 0 ? eligibleItems.slice(0, batchSize) : eligibleItems;
 
-    const eligible = batchSize > 0 ? allEligible.slice(0, batchSize) : allEligible;
-
-    // Credit cost: 1 credit per 10 barcodes (1 Trendyol API request)
+    // ── Credit deduction ──────────────────────────────────────────────────
     const creditCostPerBatch = parseFloat(await getSetting('credit_buybox_check', '1'));
     const batchCount = Math.ceil(eligible.length / 10);
     const totalCost = batchCount * creditCostPerBatch;
 
     if (totalCost > 0) {
-      await deductCredits(
-        req.user.id,
-        totalCost,
-        'buybox_check',
-        `BuyBox kontrolü: ${eligible.length} barkod, ${batchCount} istek`,
-        connection.id
-      );
+      await deductCredits(req.user.id, totalCost, 'buybox_check',
+        `BuyBox kontrolü: ${eligible.length} barkod, ${batchCount} istek`, connection.id);
     }
 
-    const service = new TrendyolService(connection);
+    // ── Buybox API loop ───────────────────────────────────────────────────
     const results = [];
     const delay = ms => new Promise(r => setTimeout(r, ms));
-
-    const barcodeToMp = new Map();
-    for (const mp of eligible) barcodeToMp.set(getEffectiveBarcode(mp), mp);
-
-    const barcodes = eligible.map(getEffectiveBarcode);
+    const barcodeToItem = new Map(eligible.map(item => [item.barcode, item]));
+    const barcodes = eligible.map(item => item.barcode);
     const now = new Date();
-
     const checkedBarcodes = new Set();
     const foundBarcodes = new Set();
 
@@ -1026,26 +1046,25 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
         const buyboxInfoList = data?.buyboxInfo || [];
 
         for (const info of buyboxInfoList) {
-          const mp = barcodeToMp.get(info.barcode);
-          if (!mp) continue;
+          const item = barcodeToItem.get(info.barcode);
+          if (!item) continue;
 
           foundBarcodes.add(info.barcode);
 
-          const recordData = {
-            productId: mp.product.id,
+          await upsertBuyboxRecord(connection.id, info.barcode, {
+            productId: item.productId,
             buyboxOrder: info.buyboxOrder ?? null,
             buyboxPrice: info.buyboxPrice ?? null,
             hasMultipleSeller: info.hasMultipleSeller ?? false,
             checkedAt: now,
-          };
-          await upsertBuyboxRecord(connection.id, info.barcode, recordData);
+          });
 
           results.push({
             barcode: info.barcode,
-            productId: mp.product.id,
-            title: mp.product.title,
-            sku: mp.product.sku,
-            ourPrice: mp.marketplacePrice,
+            productId: item.productId,
+            title: item.title,
+            sku: item.sku,
+            ourPrice: item.ourPrice,
             buyboxOrder: info.buyboxOrder,
             buyboxPrice: info.buyboxPrice,
             hasMultipleSeller: info.hasMultipleSeller,
@@ -1054,28 +1073,24 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
           });
         }
       } catch (batchErr) {
-        console.error(`[BuyBox] Batch ${i}-${i+10} failed:`, batchErr.message);
+        console.error(`[BuyBox] Batch ${i}-${i + 10} failed:`, batchErr.message);
       }
 
       if (i + 10 < barcodes.length) await delay(100);
     }
 
-    // Delete records for barcodes checked but not returned by the API (not on Trendyol)
+    // ── Cleanup stale records ─────────────────────────────────────────────
     const notFoundBarcodes = [...checkedBarcodes].filter(b => !foundBarcodes.has(b));
     if (notFoundBarcodes.length > 0) {
-      await prisma.buyboxRecord.deleteMany({
-        where: { connectionId: connection.id, barcode: { in: notFoundBarcodes } }
-      });
+      await prisma.buyboxRecord.deleteMany({ where: { connectionId: connection.id, barcode: { in: notFoundBarcodes } } });
     }
 
-    // Delete orphan records for barcodes no longer among eligible products (product removed)
-    const allEligibleBarcodes = allEligible.map(getEffectiveBarcode).filter(Boolean);
+    const allEligibleBarcodes = eligibleItems.map(i => i.barcode).filter(Boolean);
     if (allEligibleBarcodes.length > 0) {
-      await prisma.buyboxRecord.deleteMany({
-        where: { connectionId: connection.id, barcode: { notIn: allEligibleBarcodes } }
-      });
+      await prisma.buyboxRecord.deleteMany({ where: { connectionId: connection.id, barcode: { notIn: allEligibleBarcodes } } });
     }
 
+    // ── Notifications & auto-adjust ───────────────────────────────────────
     const losing = results.filter(r => r.buyboxOrder !== null && r.buyboxOrder > 1);
     const winning = results.filter(r => r.buyboxOrder === 1);
 
@@ -1100,13 +1115,11 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
       });
     }
 
-    // Auto price adjust if enabled in connection config
     let autoAdjusted = 0;
     try {
       const cfg = connection.config ? JSON.parse(connection.config) : {};
       if (cfg.buyboxAutoAdjust && losing.length > 0) {
-        const losingBarcodes = losing.map(r => r.barcode);
-        const ar = await adjustBuyboxPrices(connection, losingBarcodes, cfg.buyboxAutoMode || 'equal', cfg.buyboxAutoAmount || 0, req.user.id);
+        const ar = await adjustBuyboxPrices(connection, losing.map(r => r.barcode), cfg.buyboxAutoMode || 'equal', cfg.buyboxAutoAmount || 0, req.user.id);
         autoAdjusted = ar.updated;
       }
     } catch (e) {
@@ -1115,7 +1128,7 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
 
     res.json({
       checked: results.length,
-      totalEligible: allEligible.length,
+      totalEligible: eligibleItems.length,
       winning: winning.length,
       losing: losing.length,
       creditUsed: totalCost,
