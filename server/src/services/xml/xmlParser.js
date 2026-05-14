@@ -289,10 +289,17 @@ async function parseXml(url, mappingConfigStr) {
   const mc = mappingConfig;
   const hasMappings = Object.keys(mc).some(k => mc[k] && mc[k] !== '');
 
-  // RSS/Google Shopping feeds return prices as "125.50 TRY" - strip currency codes
+  // Handles Turkish format (1.990,00), European (1.990,00), and standard (1990.50)
   const cleanPrice = (val) => {
     if (!val) return 0;
-    const str = String(val).replace(/[^\d.,]/g, '').replace(',', '.');
+    let str = String(val).replace(/[^\d.,]/g, ''); // strip currency, spaces etc.
+    // Turkish/European: dot as thousands sep, comma as decimal → "1.990,00" → "1990.00"
+    if (/\d{1,3}(\.\d{3})+(,\d+)?$/.test(str)) {
+      str = str.replace(/\./g, '').replace(',', '.');
+    } else {
+      // Comma as thousands sep, dot as decimal → "1,990.00" → "1990.00"
+      str = str.replace(/,(?=\d{3})/g, '').replace(',', '.');
+    }
     return parseFloat(str) || 0;
   };
 
