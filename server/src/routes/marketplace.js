@@ -980,8 +980,12 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
     const barcodes = eligible.map(mp => mp.product.barcode);
     const now = new Date();
 
+    const checkedBarcodes = new Set();
+    const foundBarcodes = new Set();
+
     for (let i = 0; i < barcodes.length; i += 10) {
       const batch = barcodes.slice(i, i + 10);
+      for (const b of batch) checkedBarcodes.add(b);
       try {
         const data = await service.getBuyboxInfo(batch);
         const buyboxInfoList = data?.buyboxInfo || [];
@@ -989,6 +993,8 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
         for (const info of buyboxInfoList) {
           const mp = barcodeToMp.get(info.barcode);
           if (!mp) continue;
+
+          foundBarcodes.add(info.barcode);
 
           const recordData = {
             productId: mp.product.id,
@@ -1012,18 +1018,27 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
             checkedAt: now,
           });
         }
-
-        // Barcodes not returned by API — delete stale record so they don't show in history
-        for (const barcode of batch) {
-          if (!buyboxInfoList.find(b => b.barcode === barcode)) {
-            await prisma.buyboxRecord.deleteMany({ where: { connectionId: connection.id, barcode } });
-          }
-        }
       } catch (batchErr) {
         console.error(`[BuyBox] Batch ${i}-${i+10} failed:`, batchErr.message);
       }
 
       if (i + 10 < barcodes.length) await delay(100);
+    }
+
+    // Delete records for barcodes checked but not returned by the API (not on Trendyol)
+    const notFoundBarcodes = [...checkedBarcodes].filter(b => !foundBarcodes.has(b));
+    if (notFoundBarcodes.length > 0) {
+      await prisma.buyboxRecord.deleteMany({
+        where: { connectionId: connection.id, barcode: { in: notFoundBarcodes } }
+      });
+    }
+
+    // Delete orphan records for barcodes no longer among eligible products (product removed)
+    const allEligibleBarcodes = allEligible.map(mp => mp.product.barcode);
+    if (allEligibleBarcodes.length > 0) {
+      await prisma.buyboxRecord.deleteMany({
+        where: { connectionId: connection.id, barcode: { notIn: allEligibleBarcodes } }
+      });
     }
 
     const losing = results.filter(r => r.buyboxOrder !== null && r.buyboxOrder > 1);
