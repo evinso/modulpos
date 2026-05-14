@@ -3,6 +3,7 @@ const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const TrendyolService = require('../services/trendyol/trendyolService');
 const notificationService = require('../services/notificationService');
+const whatsappService = require('../services/whatsappService');
 
 const router = express.Router();
 router.use(auth);
@@ -60,6 +61,7 @@ router.post('/sync', async (req, res, next) => {
               }
             });
 
+            const customerName = `${pkg.shipmentAddress?.firstName || ''} ${pkg.shipmentAddress?.lastName || ''}`.trim();
             await notificationService.create({
               storeId: store.id,
               title: 'Yeni Sipariş',
@@ -70,7 +72,7 @@ router.post('/sync', async (req, res, next) => {
                 notifType: 'new_order',
                 orderNumber: `TY-${pkg.orderNumber}`,
                 totalAmount: pkg.totalPrice || 0,
-                customerName: `${pkg.shipmentAddress?.firstName || ''} ${pkg.shipmentAddress?.lastName || ''}`.trim(),
+                customerName,
                 status: mapTrendyolStatus(pkg.status),
                 items: (pkg.lines || []).slice(0, 20).map(l => ({
                   name: l.productName || l.productColor || '',
@@ -80,6 +82,7 @@ router.post('/sync', async (req, res, next) => {
               }
             });
 
+            whatsappService.notifyNewOrder(store.name, `TY-${pkg.orderNumber}`, pkg.totalPrice, customerName).catch(() => {});
             totalSynced++;
           }
         }

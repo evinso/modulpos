@@ -72,4 +72,26 @@ async function notifyCreditTopup(user, amount) {
   );
 }
 
-module.exports = { sendWhatsApp, notifyNewUser, notifySubscriptionUpdated, notifyCreditTopup, invalidateCache };
+async function notifyNewSupportTicket(user, subject, priority) {
+  if (!await isEventEnabled('new_support_ticket')) return;
+  const priorityLabel = { low: 'Düşük', normal: 'Normal', high: 'Yüksek', urgent: 'Acil' }[priority] || priority;
+  await sendWhatsApp(
+    `🎫 *Yeni Destek Talebi*\n\n👤 ${user.name || user.email}\n📋 Konu: ${subject}\n⚡ Öncelik: ${priorityLabel}\n📅 ${new Date().toLocaleString('tr-TR')}`
+  );
+}
+
+async function notifySubscriptionExpired(user) {
+  if (!await isEventEnabled('subscription_expired')) return;
+  await sendWhatsApp(
+    `⏰ *Abonelik Süresi Doldu*\n\n👤 ${user.name || user.email}\n📧 ${user.email}\n📅 ${new Date().toLocaleString('tr-TR')}`
+  );
+}
+
+async function notifyNewOrder(storeName, orderNumber, totalAmount, customerName) {
+  if (!await isEventEnabled('new_order')) return;
+  await sendWhatsApp(
+    `🛒 *Yeni Sipariş*\n\n🏪 Mağaza: ${storeName}\n📦 Sipariş No: ${orderNumber}\n👤 Müşteri: ${customerName}\n💵 Tutar: ${parseFloat(totalAmount || 0).toFixed(2)}₺\n📅 ${new Date().toLocaleString('tr-TR')}`
+  );
+}
+
+module.exports = { sendWhatsApp, notifyNewUser, notifySubscriptionUpdated, notifyCreditTopup, notifyNewSupportTicket, notifySubscriptionExpired, notifyNewOrder, invalidateCache };

@@ -117,6 +117,7 @@ router.post('/login', async (req, res, next) => {
       if (user.isActive) {
         await prisma.user.update({ where: { id: user.id }, data: { isActive: false } });
         user.isActive = false;
+        whatsappService.notifySubscriptionExpired(user).catch(() => {});
       }
     }
 

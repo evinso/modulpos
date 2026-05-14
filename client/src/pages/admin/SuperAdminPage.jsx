@@ -55,7 +55,7 @@ export default function SuperAdminPage() {
     whatsapp_enabled: 'false',
     whatsapp_token: '',
     whatsapp_phone: '',
-    whatsapp_events: '["new_user","subscription","credit_topup"]',
+    whatsapp_events: '["new_user","subscription","subscription_expired","credit_topup","new_support_ticket","new_order"]',
   });
   const [whatsappTesting, setWhatsappTesting] = useState(false);
 
@@ -156,7 +156,7 @@ export default function SuperAdminPage() {
           whatsapp_enabled: settingsRes.data.whatsapp_enabled || 'false',
           whatsapp_token: settingsRes.data.whatsapp_token || '',
           whatsapp_phone: settingsRes.data.whatsapp_phone || '',
-          whatsapp_events: settingsRes.data.whatsapp_events || '["new_user","subscription","credit_topup"]',
+          whatsapp_events: settingsRes.data.whatsapp_events || '["new_user","subscription","subscription_expired","credit_topup","new_support_ticket","new_order"]',
         });
       } else if (activeTab === 'policies') {
         const res = await api.get('/admin/policy-pages');
@@ -1490,7 +1490,10 @@ export default function SuperAdminPage() {
                     {[
                       { key: 'new_user', label: 'Yeni üye kaydı' },
                       { key: 'subscription', label: 'Abonelik güncellemesi' },
+                      { key: 'subscription_expired', label: 'Abonelik süresi doldu' },
                       { key: 'credit_topup', label: 'Kredi yükleme' },
+                      { key: 'new_support_ticket', label: 'Yeni destek talebi' },
+                      { key: 'new_order', label: 'Yeni sipariş' },
                     ].map(ev => {
                       let events = [];
                       try { events = JSON.parse(whatsappSettings.whatsapp_events || '[]'); } catch { events = []; }

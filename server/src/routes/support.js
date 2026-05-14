@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const notificationService = require('../services/notificationService');
+const whatsappService = require('../services/whatsappService');
 
 const router = express.Router();
 
@@ -55,6 +56,7 @@ router.post('/', auth, async (req, res, next) => {
     });
 
     notificationService.createForUser(req.user.id, { title: 'Destek Talebi Oluşturuldu', message: `"${subject.trim()}" konulu talebiniz alındı. En kısa sürede yanıtlanacak.`, type: 'info', link: '/support' });
+    whatsappService.notifyNewSupportTicket(user, subject.trim(), priority || 'normal').catch(() => {});
     res.status(201).json(ticket);
   } catch (error) {
     next(error);
