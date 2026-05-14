@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, RefreshCw, AlertCircle, Wallet, Clock } from 'lucide-react';
+import { TrendingUp, TrendingDown, RefreshCw, AlertCircle, Wallet, Clock, Zap, ChevronDown, ChevronUp, ArrowDownCircle } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -25,14 +25,28 @@ export default function BuyboxPage() {
   const [sortField, setSortField] = useState('buyboxOrder');
   const [batchSize, setBatchSize] = useState(50);
 
+  // Adjust modal
+  const [adjustModal, setAdjustModal] = useState(null); // { barcodes?: string[], title?: string }
+  const [adjustMode, setAdjustMode] = useState('equal');
+  const [adjustAmount, setAdjustAmount] = useState('1');
+  const [adjusting, setAdjusting] = useState(false);
+
+  // Auto mode panel
+  const [showAutoPanel, setShowAutoPanel] = useState(false);
+  const [autoSettings, setAutoSettings] = useState({ enabled: false, mode: 'equal', amount: '1' });
+  const [autoSaving, setAutoSaving] = useState(false);
+
   useEffect(() => {
     fetchConnections();
     fetchCreditInfo();
   }, []);
 
   useEffect(() => {
-    if (selectedConn) fetchHistory();
-  }, [selectedConn]);
+    if (selectedConn) {
+      fetchHistory();
+      loadAutoSettings();
+    }
+  }, [selectedConn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchConnections = async () => {
     try {
@@ -65,6 +79,17 @@ export default function BuyboxPage() {
     finally { setHistoryLoading(false); }
   };
 
+  const loadAutoSettings = () => {
+    try {
+      const cfg = selectedConn?.config ? JSON.parse(selectedConn.config) : {};
+      setAutoSettings({
+        enabled: !!cfg.buyboxAutoAdjust,
+        mode: cfg.buyboxAutoMode || 'equal',
+        amount: String(cfg.buyboxAutoAmount ?? '1'),
+      });
+    } catch {}
+  };
+
   const estimatedCost = (count) => {
     if (!count) return null;
     return (Math.ceil(count / 10) * buyboxCostPerBatch).toFixed(1);
@@ -79,19 +104,57 @@ export default function BuyboxPage() {
       setResults(res.data);
       await fetchCreditInfo();
       await fetchHistory();
-      toast.success(`${res.data.checked} ürün kontrol edildi`);
+      const msg = res.data.autoAdjusted > 0
+        ? `${res.data.checked} ürün kontrol edildi, ${res.data.autoAdjusted} fiyat otomatik güncellendi`
+        : `${res.data.checked} ürün kontrol edildi`;
+      toast.success(msg);
     } catch (err) {
       const msg = err.response?.data?.error || 'BuyBox kontrol hatası';
       toast.error(msg, { duration: 6000 });
     } finally { setChecking(false); }
   };
 
-  // Display rows: after a check show results merged into full history view
+  const handleAdjust = async () => {
+    if (!selectedConn || !adjustModal) return;
+    setAdjusting(true);
+    try {
+      const payload = {
+        mode: adjustMode,
+        amount: adjustMode === 'undercut' ? parseFloat(adjustAmount) : 0,
+      };
+      if (adjustModal.barcodes) payload.barcodes = adjustModal.barcodes;
+      const res = await api.post(`/marketplace/connections/${selectedConn.id}/buybox-price-adjust`, payload);
+      toast.success(res.data.message);
+      setAdjustModal(null);
+      await fetchHistory();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Fiyat güncellenemedi');
+    } finally { setAdjusting(false); }
+  };
+
+  const handleSaveAutoSettings = async () => {
+    if (!selectedConn) return;
+    setAutoSaving(true);
+    try {
+      const res = await api.put(`/marketplace/connections/${selectedConn.id}/buybox-auto-settings`, {
+        enabled: autoSettings.enabled,
+        mode: autoSettings.mode,
+        amount: parseFloat(autoSettings.amount) || 0,
+      });
+      // Update the in-memory connection so loadAutoSettings reads fresh config on next tab switch
+      setSelectedConn(c => ({ ...c, config: JSON.stringify(res.data.config) }));
+      setConnections(cs => cs.map(c => c.id === selectedConn.id ? { ...c, config: JSON.stringify(res.data.config) } : c));
+      toast.success('Otomatik ayarlar kaydedildi');
+    } catch {
+      toast.error('Kaydedilemedi');
+    } finally { setAutoSaving(false); }
+  };
+
+  const losingRows = history.filter(r => r.buyboxOrder != null && r.buyboxOrder > 1 && r.buyboxPrice != null);
+
   const displayRows = [...history].sort((a, b) => {
     if (sortField === 'buyboxOrder') {
-      const aVal = a.buyboxOrder ?? 999;
-      const bVal = b.buyboxOrder ?? 999;
-      return aVal - bVal;
+      return (a.buyboxOrder ?? 999) - (b.buyboxOrder ?? 999);
     }
     if (sortField === 'priceDiff') {
       const aOur = a.ourPrice ?? a.marketplacePrice ?? 0;
@@ -127,7 +190,6 @@ export default function BuyboxPage() {
   const checkCount = results?.checked ?? history.filter(r => r.checkedAt).length;
   const winCount = results?.winning ?? history.filter(r => r.buyboxOrder === 1).length;
   const loseCount = results?.losing ?? history.filter(r => r.buyboxOrder != null && r.buyboxOrder > 1).length;
-  const uncheckedCount = totalEligible - history.length;
 
   return (
     <div>
@@ -163,12 +225,7 @@ export default function BuyboxPage() {
             <option value={100}>100 ürün kontrol et</option>
             <option value={0}>Tümünü kontrol et</option>
           </select>
-          <button
-            className="btn btn-primary"
-            onClick={handleCheck}
-            disabled={checking}
-            style={{ padding: '10px 24px' }}
-          >
+          <button className="btn btn-primary" onClick={handleCheck} disabled={checking} style={{ padding: '10px 24px' }}>
             <RefreshCw size={16} className={checking ? 'spin' : ''} />
             {checking ? 'Kontrol ediliyor...' : 'BuyBox Kontrol Et'}
           </button>
@@ -185,6 +242,11 @@ export default function BuyboxPage() {
         )}
         {results && (
           <span style={{ color: 'var(--success)' }}><strong>{results.creditUsed} kredi</strong> kullanıldı</span>
+        )}
+        {results?.autoAdjusted > 0 && (
+          <span style={{ color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Zap size={13} /> <strong>{results.autoAdjusted} fiyat</strong> otomatik güncellendi
+          </span>
         )}
         {totalEligible > 0 && batchSize > 0 && batchSize < totalEligible && (
           <span style={{ color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -215,6 +277,82 @@ export default function BuyboxPage() {
         </div>
       </div>
 
+      {/* Auto mode panel */}
+      <div className="card" style={{ marginBottom: 16, padding: 0, overflow: 'hidden' }}>
+        <button
+          onClick={() => setShowAutoPanel(p => !p)}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-primary)' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 600, fontSize: 14 }}>
+            <Zap size={16} style={{ color: autoSettings.enabled ? 'var(--accent-primary)' : 'var(--text-muted)' }} />
+            Otomatik Fiyat Ayarı
+            {autoSettings.enabled && (
+              <span className="badge badge-success" style={{ fontSize: 11 }}>Aktif</span>
+            )}
+          </div>
+          {showAutoPanel ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
+
+        {showAutoPanel && (
+          <div style={{ padding: '0 20px 20px', borderTop: '1px solid var(--border-color)' }}>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '14px 0 16px' }}>
+              BuyBox kontrolü yapıldığında kaybeden ürünlerin fiyatı otomatik olarak güncellenir.
+            </p>
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>Otomatik Mod</span>
+                <button
+                  type="button"
+                  onClick={() => setAutoSettings(s => ({ ...s, enabled: !s.enabled }))}
+                  style={{
+                    width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', position: 'relative',
+                    background: autoSettings.enabled ? 'var(--primary)' : 'var(--border)',
+                    transition: 'background 0.2s'
+                  }}
+                >
+                  <span style={{
+                    position: 'absolute', top: 3, left: autoSettings.enabled ? 23 : 3,
+                    width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s'
+                  }} />
+                </button>
+              </label>
+
+              <div>
+                <label className="form-label" style={{ marginBottom: 6 }}>Fiyat Modu</label>
+                <select
+                  className="form-select"
+                  value={autoSettings.mode}
+                  onChange={e => setAutoSettings(s => ({ ...s, mode: e.target.value }))}
+                  style={{ width: 200 }}
+                >
+                  <option value="equal">BuyBox fiyatına eşit ol</option>
+                  <option value="undercut">BuyBox fiyatının altına in</option>
+                </select>
+              </div>
+
+              {autoSettings.mode === 'undercut' && (
+                <div>
+                  <label className="form-label" style={{ marginBottom: 6 }}>Fark (₺)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    style={{ width: 120 }}
+                    min="0.01"
+                    step="0.01"
+                    value={autoSettings.amount}
+                    onChange={e => setAutoSettings(s => ({ ...s, amount: e.target.value }))}
+                  />
+                </div>
+              )}
+
+              <button className="btn btn-primary" onClick={handleSaveAutoSettings} disabled={autoSaving}>
+                {autoSaving ? 'Kaydediliyor...' : 'Kaydet'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Results table */}
       {historyLoading ? (
         <div className="loading-spinner"><div className="spinner"></div></div>
@@ -227,12 +365,24 @@ export default function BuyboxPage() {
                 {history.length} ürün kayıtlı
               </span>
             </h3>
-            <select className="form-select form-select-sm" style={{ fontSize: 13, padding: '6px 10px' }}
-              value={sortField} onChange={e => setSortField(e.target.value)}>
-              <option value="buyboxOrder">BuyBox Sırasına Göre</option>
-              <option value="priceDiff">Fiyat Farkına Göre</option>
-              <option value="checkedAt">En Eski Kontrol</option>
-            </select>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              {losingRows.length > 0 && (
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: 13, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6 }}
+                  onClick={() => setAdjustModal({ title: `${losingRows.length} kaybeden ürünü güncelle` })}
+                >
+                  <ArrowDownCircle size={14} />
+                  Kaybedenleri Güncelle ({losingRows.length})
+                </button>
+              )}
+              <select className="form-select form-select-sm" style={{ fontSize: 13, padding: '6px 10px' }}
+                value={sortField} onChange={e => setSortField(e.target.value)}>
+                <option value="buyboxOrder">BuyBox Sırasına Göre</option>
+                <option value="priceDiff">Fiyat Farkına Göre</option>
+                <option value="checkedAt">En Eski Kontrol</option>
+              </select>
+            </div>
           </div>
           <table>
             <thead>
@@ -245,6 +395,7 @@ export default function BuyboxPage() {
                 <th style={{ textAlign: 'center' }}>BuyBox Sırası</th>
                 <th style={{ textAlign: 'center' }}>Çoklu Satıcı</th>
                 <th style={{ textAlign: 'center' }}>Son Kontrol</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -253,6 +404,7 @@ export default function BuyboxPage() {
                 const diff = (ourPrice != null && r.buyboxPrice != null) ? ourPrice - r.buyboxPrice : null;
                 const isWinning = r.buyboxOrder === 1;
                 const isUnknown = r.buyboxOrder == null;
+                const isLosing = !isUnknown && !isWinning && r.buyboxPrice != null;
                 const title = r.title ?? r.product?.title ?? r.barcode;
                 const sku = r.sku ?? r.product?.sku ?? '—';
                 const ago = timeAgo(r.checkedAt);
@@ -297,6 +449,17 @@ export default function BuyboxPage() {
                     <td style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                       {ago ?? '—'}
                     </td>
+                    <td style={{ textAlign: 'center' }}>
+                      {isLosing && (
+                        <button
+                          className="btn btn-secondary"
+                          style={{ fontSize: 12, padding: '4px 10px' }}
+                          onClick={() => setAdjustModal({ barcodes: [r.barcode], title: `Fiyat Güncelle: ${title}` })}
+                        >
+                          Fiyat Güncelle
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -309,6 +472,64 @@ export default function BuyboxPage() {
             <TrendingUp size={48} className="empty-icon" />
             <h3>Henüz kontrol yapılmadı</h3>
             <p>"BuyBox Kontrol Et" butonuna basarak ürünlerinizin durumunu öğrenin.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Adjust Modal */}
+      {adjustModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 440, padding: 0 }}>
+            <div className="table-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <ArrowDownCircle size={16} />
+                {adjustModal.title || 'Fiyat Güncelle'}
+              </h3>
+              <button className="text-btn" onClick={() => setAdjustModal(null)}>✕</button>
+            </div>
+            <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 18 }}>
+              <div>
+                <label className="form-label">Fiyat Modu</label>
+                <select className="form-select" value={adjustMode} onChange={e => setAdjustMode(e.target.value)}>
+                  <option value="equal">BuyBox fiyatına eşit ol</option>
+                  <option value="undercut">BuyBox fiyatının altına in</option>
+                </select>
+              </div>
+
+              {adjustMode === 'undercut' && (
+                <div>
+                  <label className="form-label">Ne kadar altına in? (₺)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    min="0.01"
+                    step="0.01"
+                    value={adjustAmount}
+                    onChange={e => setAdjustAmount(e.target.value)}
+                  />
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
+                    Örn: 1 girersen BuyBox fiyatından 1₺ daha ucuz olur
+                  </span>
+                </div>
+              )}
+
+              <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: 'var(--text-secondary)' }}>
+                {adjustModal.barcodes
+                  ? `1 ürünün fiyatı güncellenecek`
+                  : `${losingRows.length} kaybeden ürünün fiyatı güncellenecek`
+                }
+                {adjustMode === 'equal'
+                  ? ' — BuyBox fiyatına eşitlenecek'
+                  : ` — BuyBox fiyatından ${adjustAmount}₺ düşük olacak`
+                }
+              </div>
+            </div>
+            <div style={{ padding: '12px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setAdjustModal(null)}>İptal</button>
+              <button className="btn btn-primary" onClick={handleAdjust} disabled={adjusting}>
+                {adjusting ? 'Güncelleniyor...' : 'Fiyatları Güncelle'}
+              </button>
+            </div>
           </div>
         </div>
       )}

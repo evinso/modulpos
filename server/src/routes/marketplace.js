@@ -846,6 +846,57 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
   }
 });
 
+// Adjust prices for losing buybox products and send to Trendyol
+async function adjustBuyboxPrices(connection, barcodes, mode, amount) {
+  const where = { connectionId: connection.id };
+  if (barcodes && barcodes.length > 0) {
+    where.barcode = { in: barcodes };
+  } else {
+    where.buyboxOrder = { gt: 1 };
+    where.buyboxPrice = { not: null };
+  }
+
+  const records = await prisma.buyboxRecord.findMany({ where });
+  if (records.length === 0) return { updated: 0 };
+
+  const productIds = [...new Set(records.map(r => r.productId).filter(Boolean))];
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+    select: { id: true, stock: true, listPrice: true }
+  });
+  const productMap = new Map(products.map(p => [p.id, p]));
+
+  const items = records.map(r => {
+    const p = productMap.get(r.productId);
+    if (!p || !r.buyboxPrice) return null;
+    let newPrice = r.buyboxPrice;
+    if (mode === 'undercut') newPrice = Math.max(0.01, newPrice - parseFloat(amount || 0));
+    newPrice = Math.round(newPrice * 100) / 100;
+    return {
+      barcode: r.barcode,
+      quantity: p.stock ?? 0,
+      salePrice: newPrice,
+      listPrice: Math.max(p.listPrice || 0, newPrice),
+      _productId: r.productId,
+    };
+  }).filter(Boolean);
+
+  if (items.length === 0) return { updated: 0 };
+
+  const service = new TrendyolService(connection);
+  const result = await service.updatePriceAndInventory(items.map(({ _productId, ...i }) => i));
+
+  for (const item of items) {
+    if (!item._productId) continue;
+    await prisma.marketplaceProduct.updateMany({
+      where: { connectionId: connection.id, productId: item._productId },
+      data: { marketplacePrice: item.salePrice, lastSyncedAt: new Date() }
+    });
+  }
+
+  return { updated: items.length, batchId: result?.batchRequestId };
+}
+
 // Update or create a single BuyboxRecord, cleaning up any duplicates for the same (connectionId, barcode)
 async function upsertBuyboxRecord(connectionId, barcode, data) {
   const existing = await prisma.buyboxRecord.findMany({
@@ -996,16 +1047,80 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
       });
     }
 
+    // Auto price adjust if enabled in connection config
+    let autoAdjusted = 0;
+    try {
+      const cfg = connection.config ? JSON.parse(connection.config) : {};
+      if (cfg.buyboxAutoAdjust && losing.length > 0) {
+        const losingBarcodes = losing.map(r => r.barcode);
+        const ar = await adjustBuyboxPrices(connection, losingBarcodes, cfg.buyboxAutoMode || 'equal', cfg.buyboxAutoAmount || 0);
+        autoAdjusted = ar.updated;
+      }
+    } catch (e) {
+      console.error('[BuyBox] Auto price adjust failed:', e.message);
+    }
+
     res.json({
       checked: results.length,
       totalEligible: allEligible.length,
       winning: winning.length,
       losing: losing.length,
       creditUsed: totalCost,
+      autoAdjusted,
       results,
     });
   } catch (error) {
     if (error.statusCode === 402) return res.status(402).json({ error: error.message });
+    next(error);
+  }
+});
+
+// POST /connections/:id/buybox-price-adjust — manually adjust prices for losing (or specific) products
+router.post('/connections/:id/buybox-price-adjust', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+
+    const { barcodes, mode = 'equal', amount = 0 } = req.body;
+    const result = await adjustBuyboxPrices(connection, barcodes, mode, parseFloat(amount));
+
+    notificationService.create({
+      storeId: connection.storeId,
+      title: 'BuyBox Fiyat Güncellendi',
+      message: `${result.updated} ürünün fiyatı BuyBox'a göre güncellendi.`,
+      type: 'success',
+      link: '/buybox',
+      data: { notifType: 'buybox_price_adjust', updated: result.updated, mode, amount }
+    }).catch(() => {});
+
+    res.json({ message: `${result.updated} ürünün fiyatı güncellendi`, ...result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /connections/:id/buybox-auto-settings — save auto-adjust config to connection
+router.put('/connections/:id/buybox-auto-settings', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+
+    const { enabled, mode, amount } = req.body;
+    const existing = connection.config ? JSON.parse(connection.config) : {};
+    const updated = {
+      ...existing,
+      buyboxAutoAdjust: !!enabled,
+      buyboxAutoMode: mode || 'equal',
+      buyboxAutoAmount: parseFloat(amount) || 0,
+    };
+
+    await prisma.marketplaceConnection.update({
+      where: { id: connection.id },
+      data: { config: JSON.stringify(updated) }
+    });
+
+    res.json({ message: 'Otomatik ayarlar kaydedildi', config: updated });
+  } catch (error) {
     next(error);
   }
 });
