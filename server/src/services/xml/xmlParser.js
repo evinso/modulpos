@@ -54,7 +54,7 @@ async function analyzeXml(url) {
       return arrayTags.includes(tagName);
     },
     allowBooleanAttributes: true,
-    parseTagValue: true,
+    parseTagValue: false,
     trimValues: true,
   });
   const parsed = parser.parse(response.data);
@@ -298,7 +298,7 @@ async function parseXml(url, mappingConfigStr, options = {}) {
       return arrayTags.includes(tagName);
     },
     allowBooleanAttributes: true,
-    parseTagValue: true,
+    parseTagValue: false,
     trimValues: true,
   });
   const parsed = parser.parse(response.data);
