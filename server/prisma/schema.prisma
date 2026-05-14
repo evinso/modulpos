@@ -550,3 +550,19 @@ model BuyboxRecord {
   @@index([connectionId, checkedAt])
   @@index([barcode])
 }
+
+model TrendyolApiLog {
+  id             String   @id @default(uuid())
+  connectionId   String?
+  method         String
+  endpoint       String
+  requestBody    String?
+  responseStatus Int?
+  responseBody   String?
+  durationMs     Int?
+  error          String?
+  createdAt      DateTime @default(now())
+
+  @@index([connectionId])
+  @@index([createdAt])
+}

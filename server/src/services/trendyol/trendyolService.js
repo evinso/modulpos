@@ -1,14 +1,39 @@
 const axios = require('axios');
 const staticCategories = require('../../data/trendyolCategories');
+const prisma = require('../../config/database');
+
+const TRUNCATE_LEN = 8000;
+const truncate = (val) => {
+  if (!val) return null;
+  const s = typeof val === 'string' ? val : JSON.stringify(val);
+  return s.length > TRUNCATE_LEN ? s.slice(0, TRUNCATE_LEN) + '…[truncated]' : s;
+};
 
 class TrendyolService {
   constructor(connection) {
+    this.connectionId = connection.id || null;
     this.sellerId = (connection.sellerId || '').trim();
     this.apiKey = (connection.apiKey || '').trim();
     this.apiSecret = (connection.apiSecret || '').trim();
     this.supplierName = connection.supplierName;
     this.baseUrl = connection.baseUrl || process.env.TRENDYOL_BASE_URL || 'https://apigw.trendyol.com/integration';
     this.auth = Buffer.from(`${this.apiKey}:${this.apiSecret}`).toString('base64');
+  }
+
+  _saveLog(method, url, requestBody, responseStatus, responseBody, durationMs, error) {
+    const endpoint = url.replace(this.baseUrl, '') || url;
+    prisma.trendyolApiLog.create({
+      data: {
+        connectionId: this.connectionId,
+        method: (method || 'GET').toUpperCase(),
+        endpoint,
+        requestBody: truncate(requestBody),
+        responseStatus: responseStatus || null,
+        responseBody: truncate(responseBody),
+        durationMs,
+        error: error ? String(error).slice(0, 1000) : null,
+      }
+    }).catch(() => {});
   }
 
   getHeaders() {
@@ -24,25 +49,32 @@ class TrendyolService {
    * Cloudflare'in geçici bloklarını aşmak için retry mekanizması
    */
   async requestWithRetry(config, retries = 3) {
+    const start = Date.now();
+    let lastErr;
+
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         const res = await axios({ ...config, headers: this.getHeaders(), timeout: 15000 });
+        this._saveLog(config.method, config.url, config.data, res.status, res.data, Date.now() - start, null);
         return res;
       } catch (err) {
+        lastErr = err;
         const status = err.response?.status;
         const server = err.response?.headers?.['server'] || '';
         const isCloudflareBlock = server.toLowerCase().includes('cloudflare') && status === 403;
-        
-        // Cloudflare geçici bloku ise retry yap
+
         if (isCloudflareBlock && attempt < retries) {
-          const delay = attempt * 2000; // 2s, 4s, 6s
+          const delay = attempt * 2000;
           console.warn(`[TrendyolService] Cloudflare 403 engeli, ${delay}ms sonra tekrar deneniyor (${attempt}/${retries})...`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
-        throw err;
+        break;
       }
     }
+
+    this._saveLog(config.method, config.url, config.data, lastErr.response?.status, lastErr.response?.data, Date.now() - start, lastErr.message);
+    throw lastErr;
   }
 
   /**

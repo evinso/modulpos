@@ -1604,4 +1604,36 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
   }
 });
 
+// GET /marketplace/trendyol-api-logs — list recent Trendyol API calls for the store's connections
+router.get('/trendyol-api-logs', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+
+    const { connectionId, page = 1, limit = 50 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Only allow logs for connections belonging to this store
+    const storeConnIds = (await prisma.marketplaceConnection.findMany({
+      where: { storeId: store.id },
+      select: { id: true }
+    })).map(c => c.id);
+
+    const where = { connectionId: { in: storeConnIds } };
+    if (connectionId && storeConnIds.includes(connectionId)) where.connectionId = connectionId;
+
+    const [total, logs] = await Promise.all([
+      prisma.trendyolApiLog.count({ where }),
+      prisma.trendyolApiLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: parseInt(limit),
+      })
+    ]);
+
+    res.json({ logs, total, page: parseInt(page), totalPages: Math.ceil(total / parseInt(limit)) });
+  } catch (error) { next(error); }
+});
+
 module.exports = router;
