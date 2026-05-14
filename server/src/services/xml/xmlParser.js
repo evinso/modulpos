@@ -322,13 +322,40 @@ async function parseXml(url, mappingConfigStr, options = {}) {
   // Handles Turkish format (1.990,00), European (1.990,00), and standard (1990.50)
   const cleanPrice = (val) => {
     if (!val) return 0;
-    let str = String(val).replace(/[^\d.,]/g, ''); // strip currency, spaces etc.
-    // Turkish/European: dot as thousands sep, comma as decimal → "1.990,00" → "1990.00"
-    if (/\d{1,3}(\.\d{3})+(,\d+)?$/.test(str)) {
-      str = str.replace(/\./g, '').replace(',', '.');
-    } else {
-      // Comma as thousands sep, dot as decimal → "1,990.00" → "1990.00"
-      str = str.replace(/,(?=\d{3})/g, '').replace(',', '.');
+    const str = String(val).replace(/[^\d.,]/g, '');
+    if (!str) return 0;
+    const dots   = (str.match(/\./g) || []).length;
+    const commas = (str.match(/,/g)  || []).length;
+
+    // Multiple dots, no comma: "1.990.00" → last segment = decimal, rest = integer
+    if (dots >= 2 && commas === 0) {
+      const parts = str.split('.');
+      return parseFloat(parts.slice(0, -1).join('') + '.' + parts[parts.length - 1]) || 0;
+    }
+    // Multiple commas, no dot: "1,990,00" → same logic
+    if (commas >= 2 && dots === 0) {
+      const parts = str.split(',');
+      return parseFloat(parts.slice(0, -1).join('') + '.' + parts[parts.length - 1]) || 0;
+    }
+    // Dot(s) + comma: comma is decimal if it comes last → "1.990,00"
+    if (dots >= 1 && commas === 1 && str.lastIndexOf(',') > str.lastIndexOf('.')) {
+      return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
+    }
+    // Comma(s) + dot: dot is decimal if it comes last → "1,990.00"
+    if (commas >= 1 && dots === 1 && str.lastIndexOf('.') > str.lastIndexOf(',')) {
+      return parseFloat(str.replace(/,/g, '')) || 0;
+    }
+    // Single dot: thousands if exactly 3 digits after and ≤3 digits before → "1.990"
+    if (dots === 1 && commas === 0) {
+      const [intPart, decPart] = str.split('.');
+      if (decPart.length === 3 && intPart.length <= 3) return parseFloat(str.replace('.', '')) || 0;
+      return parseFloat(str) || 0;
+    }
+    // Single comma: thousands if exactly 3 digits after and ≤3 digits before → "1,990"
+    if (commas === 1 && dots === 0) {
+      const [intPart, decPart] = str.split(',');
+      if (decPart.length === 3 && intPart.length <= 3) return parseFloat(str.replace(',', '')) || 0;
+      return parseFloat(str.replace(',', '.')) || 0;
     }
     return parseFloat(str) || 0;
   };
