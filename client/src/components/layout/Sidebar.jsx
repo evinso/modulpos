@@ -81,6 +81,28 @@ export default function Sidebar() {
               ))}
             </div>
           )}
+
+          {/* Yakında gelecek pazaryerleri */}
+          {[
+            { label: 'Hepsiburada' },
+            { label: 'Amazon' },
+            { label: 'N11' },
+            { label: 'Çiçeksepeti' },
+            { label: 'Pttavm' },
+          ].map(mp => (
+            <div
+              key={mp.label}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 12px', borderRadius: 6, marginTop: 2,
+                color: 'var(--text-muted)', fontSize: 13, cursor: 'default', opacity: 0.7,
+              }}
+            >
+              <Store size={18} style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1 }}>{mp.label}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(148,163,184,0.15)', color: 'var(--text-muted)', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }}>Yakında</span>
+            </div>
+          ))}
         </div>
 
         {/* Entegrasyon */}
