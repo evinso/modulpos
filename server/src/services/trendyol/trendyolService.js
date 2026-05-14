@@ -1,6 +1,7 @@
 const axios = require('axios');
 const staticCategories = require('../../data/trendyolCategories');
 const prisma = require('../../config/database');
+const { getLimiter } = require('./rateLimiter');
 
 const TRUNCATE_LEN = 8000;
 const truncate = (val) => {
@@ -49,6 +50,7 @@ class TrendyolService {
    * Cloudflare'in geçici bloklarını aşmak için retry mekanizması
    */
   async requestWithRetry(config, retries = 3) {
+    await getLimiter(this.connectionId).acquire();
     const start = Date.now();
     let lastErr;
 

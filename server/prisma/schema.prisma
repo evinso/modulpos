@@ -566,3 +566,19 @@ model TrendyolApiLog {
   @@index([connectionId])
   @@index([createdAt])
 }
+
+model WebhookEvent {
+  id           String   @id @default(uuid())
+  storeId      String?
+  connectionId String?
+  sellerId     String?
+  eventType    String
+  payload      String   @db.Text
+  processed    Boolean  @default(false)
+  error        String?
+  createdAt    DateTime @default(now())
+
+  @@index([storeId])
+  @@index([eventType])
+  @@index([createdAt])
+}

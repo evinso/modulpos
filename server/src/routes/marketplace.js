@@ -1636,4 +1636,43 @@ router.get('/trendyol-api-logs', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+// GET /marketplace/webhook-events — paginated webhook event history for this store
+router.get('/webhook-events', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+
+    const { page = 1, limit = 50, eventType } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const where = { storeId: store.id };
+    if (eventType) where.eventType = eventType;
+
+    const [total, events] = await Promise.all([
+      prisma.webhookEvent.count({ where }),
+      prisma.webhookEvent.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: parseInt(limit),
+      })
+    ]);
+
+    res.json({ events, total, page: parseInt(page), totalPages: Math.ceil(total / parseInt(limit)) });
+  } catch (error) { next(error); }
+});
+
+// GET /marketplace/webhook-url — returns the webhook URL for this store's Trendyol connection
+router.get('/webhook-url', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+
+    const baseUrl = process.env.API_BASE_URL || process.env.BASE_URL || 'https://api.modulpos.com';
+    const webhookUrl = `${baseUrl}/api/webhooks/trendyol`;
+
+    res.json({ webhookUrl });
+  } catch (error) { next(error); }
+});
+
 module.exports = router;
