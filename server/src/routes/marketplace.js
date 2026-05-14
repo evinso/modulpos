@@ -961,7 +961,16 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
       ...mpWithBarcode,
       ...mpWithoutBarcode.filter(mp => backfillBarcodeMap.has(mp.product.id)),
     ];
-    if (allEligible.length === 0) return res.status(400).json({ error: 'Barkodlu ürün bulunamadı' });
+    if (allEligible.length === 0) return res.status(400).json({
+      error: 'Barkodlu ürün bulunamadı',
+      debug: {
+        totalMpProducts: mpProducts.length,
+        withBarcode: mpWithBarcode.length,
+        withoutBarcode: mpWithoutBarcode.length,
+        backfilled: backfillBarcodeMap.size,
+        sampleBarcodes: mpWithBarcode.slice(0, 3).map(mp => mp.product.barcode),
+      }
+    });
 
     // Fetch existing records to know when each barcode was last checked
     const existingRecords = await prisma.buyboxRecord.findMany({
