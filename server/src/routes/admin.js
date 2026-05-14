@@ -3,6 +3,7 @@ const router = express.Router();
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const notificationService = require('../services/notificationService');
+const whatsappService = require('../services/whatsappService');
 
 /**
  * Middleware to check if user is admin
@@ -194,6 +195,8 @@ router.post('/users/:id/subscription', auth, isAdmin, async (req, res) => {
         data: { isActive: true }
       });
     }
+
+    whatsappService.notifySubscriptionUpdated(user, subscription.plan, newEndDate).catch(() => {});
 
     res.json(subscription);
   } catch (error) {
@@ -650,7 +653,25 @@ router.post('/system-settings', auth, isAdmin, async (req, res) => {
       });
     }
     
+    // Invalidate WhatsApp settings cache if WhatsApp keys were changed
+    const whatsappKeys = ['whatsapp_enabled', 'whatsapp_token', 'whatsapp_phone', 'whatsapp_events'];
+    if (Object.keys(settings).some(k => whatsappKeys.includes(k))) {
+      whatsappService.invalidateCache();
+    }
+
     res.json({ message: 'Ayarlar güncellendi' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/whatsapp-test
+ */
+router.post('/whatsapp-test', auth, isAdmin, async (_req, res) => {
+  try {
+    await whatsappService.sendWhatsApp('✅ *ModulPOS Test Mesajı*\n\nWhatsApp bildirimleri başarıyla çalışıyor!');
+    res.json({ message: 'Test mesajı gönderildi' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

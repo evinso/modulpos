@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const notificationService = require('../services/notificationService');
+const whatsappService = require('../services/whatsappService');
 
 const router = express.Router();
 
@@ -164,6 +165,9 @@ router.post('/admin/topup', auth, requireAdmin, async (req, res, next) => {
       link: '/credits',
       data: { notifType: 'credit_topup', amount: parseFloat(amount), newBalance }
     }).catch(() => {});
+
+    const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
+    whatsappService.notifyCreditTopup(targetUser || { email: userId }, parseFloat(amount)).catch(() => {});
 
     res.json({ message: `${amount} kredi başarıyla yüklendi`, newBalance });
   } catch (error) {

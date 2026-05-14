@@ -51,6 +51,13 @@ export default function SuperAdminPage() {
   });
 
   const [generalSettings, setGeneralSettings] = useState({ trial_days: '3' });
+  const [whatsappSettings, setWhatsappSettings] = useState({
+    whatsapp_enabled: 'false',
+    whatsapp_token: '',
+    whatsapp_phone: '',
+    whatsapp_events: '["new_user","subscription","credit_topup"]',
+  });
+  const [whatsappTesting, setWhatsappTesting] = useState(false);
 
   const [dropshipOrders, setDropshipOrders] = useState([]);
   const [dropshipStatusFilter, setDropshipStatusFilter] = useState('');
@@ -141,9 +148,15 @@ export default function SuperAdminPage() {
         const res = await api.get(`/admin/support-tickets${params}`);
         setSupportTickets(res.data);
       } else if (activeTab === 'settings') {
-        const settingsRes = await api.get('/admin/system-settings?keys=trial_days');
+        const settingsRes = await api.get('/admin/system-settings?keys=trial_days,whatsapp_enabled,whatsapp_token,whatsapp_phone,whatsapp_events');
         setGeneralSettings({
           trial_days: settingsRes.data.trial_days || '3',
+        });
+        setWhatsappSettings({
+          whatsapp_enabled: settingsRes.data.whatsapp_enabled || 'false',
+          whatsapp_token: settingsRes.data.whatsapp_token || '',
+          whatsapp_phone: settingsRes.data.whatsapp_phone || '',
+          whatsapp_events: settingsRes.data.whatsapp_events || '["new_user","subscription","credit_topup"]',
         });
       } else if (activeTab === 'policies') {
         const res = await api.get('/admin/policy-pages');
@@ -166,6 +179,40 @@ export default function SuperAdminPage() {
       toast.success('Genel ayarlar kaydedildi');
     } catch {
       toast.error('Ayarlar kaydedilemedi');
+    }
+  };
+
+  const handleSaveWhatsappSettings = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post('/admin/system-settings', whatsappSettings);
+      toast.success('WhatsApp ayarları kaydedildi');
+    } catch {
+      toast.error('Ayarlar kaydedilemedi');
+    }
+  };
+
+  const handleWhatsappTest = async () => {
+    setWhatsappTesting(true);
+    try {
+      await api.post('/admin/whatsapp-test');
+      toast.success('Test mesajı gönderildi');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Gönderilemedi');
+    } finally {
+      setWhatsappTesting(false);
+    }
+  };
+
+  const toggleWhatsappEvent = (eventKey) => {
+    try {
+      const current = JSON.parse(whatsappSettings.whatsapp_events || '[]');
+      const next = current.includes(eventKey)
+        ? current.filter(e => e !== eventKey)
+        : [...current, eventKey];
+      setWhatsappSettings(s => ({ ...s, whatsapp_events: JSON.stringify(next) }));
+    } catch {
+      setWhatsappSettings(s => ({ ...s, whatsapp_events: JSON.stringify([eventKey]) }));
     }
   };
 
@@ -1381,6 +1428,96 @@ export default function SuperAdminPage() {
                     </span>
                   </div>
                   <div style={{ textAlign: 'right', marginTop: 8 }}>
+                    <button type="submit" className="btn btn-primary">Kaydet</button>
+                  </div>
+                </form>
+              </div>
+
+              {/* WhatsApp Bildirimleri */}
+              <div className="card" style={{ padding: 24, maxWidth: 560 }}>
+                <h4 style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Smartphone size={18} /> WhatsApp Bildirimleri
+                </h4>
+                <form onSubmit={handleSaveWhatsappSettings} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <label style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>Bildirimleri Etkinleştir</label>
+                    <button
+                      type="button"
+                      onClick={() => setWhatsappSettings(s => ({ ...s, whatsapp_enabled: s.whatsapp_enabled === 'true' ? 'false' : 'true' }))}
+                      style={{
+                        width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', position: 'relative',
+                        background: whatsappSettings.whatsapp_enabled === 'true' ? 'var(--primary)' : 'var(--border)',
+                        transition: 'background 0.2s'
+                      }}
+                    >
+                      <span style={{
+                        position: 'absolute', top: 3, left: whatsappSettings.whatsapp_enabled === 'true' ? 23 : 3,
+                        width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s'
+                      }} />
+                    </button>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Fonnte API Token</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Fonnte hesabınızdan kopyalayın"
+                      value={whatsappSettings.whatsapp_token}
+                      onChange={e => setWhatsappSettings(s => ({ ...s, whatsapp_token: e.target.value }))}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
+                      fonnte.com üzerinden alınan API token'ı
+                    </span>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Hedef Telefon Numarası</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="5XXXXXXXXX"
+                      value={whatsappSettings.whatsapp_phone}
+                      onChange={e => setWhatsappSettings(s => ({ ...s, whatsapp_phone: e.target.value }))}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
+                      Bildirimlerin gönderileceği WhatsApp numarası (başında 0 olmadan)
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="form-label" style={{ marginBottom: 10 }}>Bildirim Olayları</label>
+                    {[
+                      { key: 'new_user', label: 'Yeni üye kaydı' },
+                      { key: 'subscription', label: 'Abonelik güncellemesi' },
+                      { key: 'credit_topup', label: 'Kredi yükleme' },
+                    ].map(ev => {
+                      let events = [];
+                      try { events = JSON.parse(whatsappSettings.whatsapp_events || '[]'); } catch { events = []; }
+                      const checked = events.includes(ev.key);
+                      return (
+                        <label key={ev.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer', fontSize: 14 }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleWhatsappEvent(ev.key)}
+                            style={{ width: 16, height: 16, cursor: 'pointer' }}
+                          />
+                          {ev.label}
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handleWhatsappTest}
+                      disabled={whatsappTesting || whatsappSettings.whatsapp_enabled !== 'true'}
+                    >
+                      {whatsappTesting ? 'Gönderiliyor...' : 'Test Gönder'}
+                    </button>
                     <button type="submit" className="btn btn-primary">Kaydet</button>
                   </div>
                 </form>

@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
+const whatsappService = require('../services/whatsappService');
 
 const router = express.Router();
 
@@ -57,6 +58,8 @@ router.post('/register', async (req, res, next) => {
     );
 
     const { passwordHash: _, ...userWithoutPassword } = user;
+
+    whatsappService.notifyNewUser(user).catch(() => {});
 
     res.status(201).json({
       message: `Kayıt başarılı! ${trialDays} günlük deneme süreniz başladı.`,
