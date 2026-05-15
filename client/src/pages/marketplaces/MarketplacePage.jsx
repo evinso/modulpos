@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, TestTube, Trash2, Store, CheckCircle, XCircle, Plug, Search, Loader2, Pencil } from 'lucide-react';
+import { Plus, TestTube, Trash2, Store, CheckCircle, XCircle, Plug, Search, Loader2, Pencil, Zap, Copy } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -16,6 +16,7 @@ export default function MarketplacePage() {
   const [showModal, setShowModal] = useState(false);
   const [testing, setTesting] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [webhookUrl, setWebhookUrl] = useState('');
   const [form, setForm] = useState({ marketplaceType: 'trendyol', sellerId: '', apiKey: '', apiSecret: '', supplierName: '', defaultBrandId: '', defaultBrandName: '', brandStrategy: 'xml' });
 
   // Edit state
@@ -32,7 +33,7 @@ export default function MarketplacePage() {
   const [brandLoading, setBrandLoading] = useState(false);
   const [brandSearchTimeout, setBrandSearchTimeout] = useState(null);
 
-  useEffect(() => { fetchConnections(); }, []);
+  useEffect(() => { fetchConnections(); fetchWebhookUrl(); }, []);
 
   // Brand search with debounce
   useEffect(() => {
@@ -78,6 +79,13 @@ export default function MarketplacePage() {
       setConnections(res.data);
     } catch { toast.error('Bağlantılar yüklenemedi'); }
     finally { setLoading(false); }
+  };
+
+  const fetchWebhookUrl = async () => {
+    try {
+      const res = await api.get('/marketplace/webhook-url');
+      setWebhookUrl(res.data.webhookUrl);
+    } catch {}
   };
 
   const handleAdd = async (e) => {
@@ -236,13 +244,46 @@ export default function MarketplacePage() {
                   {brandName && <span>🏷️ {brandName}</span>}
                   <span>{brandStrategy === 'override' ? '🔒 Kendi markam' : '📦 XML markası'}</span>
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: c.marketplaceType === 'trendyol' && webhookUrl ? 12 : 0 }}>
                   <button className="btn btn-secondary btn-sm" onClick={() => handleTest(c.id)} disabled={testing === c.id}>
                     <TestTube size={14} /> {testing === c.id ? 'Test ediliyor...' : 'Bağlantıyı Test Et'}
                   </button>
                   <button className="btn btn-secondary btn-sm" onClick={() => openEdit(c)}><Pencil size={14} /> Düzenle</button>
                   <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(c.id)}><Trash2 size={14} /> Sil</button>
                 </div>
+
+                {c.marketplaceType === 'trendyol' && webhookUrl && (
+                  <div style={{
+                    padding: '12px 14px', borderRadius: 8,
+                    background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                      <Zap size={13} style={{ color: 'var(--accent-primary)' }} />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent-primary)' }}>Anlık Sipariş Bildirimleri (Webhook)</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.5 }}>
+                      Siparişler geldiğinde anında haberdar olmak için aşağıdaki URL'yi Trendyol destek ekibine bildirin:<br />
+                      <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>integration@trendyol.com adresine "webhook aktivasyonu" talebinde bulunup bu URL'yi paylaşın.</span>
+                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <code style={{
+                        flex: 1, fontSize: 11, padding: '6px 10px', borderRadius: 6,
+                        background: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
+                        color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        display: 'block',
+                      }}>
+                        {webhookUrl}
+                      </code>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ flexShrink: 0 }}
+                        onClick={() => { navigator.clipboard.writeText(webhookUrl); toast.success('URL kopyalandı'); }}
+                      >
+                        <Copy size={13} /> Kopyala
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
