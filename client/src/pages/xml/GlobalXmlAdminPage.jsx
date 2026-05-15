@@ -158,6 +158,8 @@ export default function GlobalXmlAdminPage() {
     'Sürat Kargo', 'Sendeo', 'Horoz Lojistik', 'UPS', 'DHL', 'Cainiao'
   ];
 
+  const PLANS = ['Başlangıç', 'Profesyonel', 'Kurumsal'];
+
   const [formData, setFormData] = useState({
     name: '',
     url: '',
@@ -166,7 +168,7 @@ export default function GlobalXmlAdminPage() {
     logo: '',
     barcodePrefix: '',
     priceMarkup: '',
-    priceMarkupPct: '',
+    priceMarkupPctByPlan: { 'Başlangıç': '', 'Profesyonel': '', 'Kurumsal': '' },
     creditCost: '',
     orderFee: '',
     purchaseVatRate: '0',
@@ -343,6 +345,17 @@ export default function GlobalXmlAdminPage() {
       if (provider.cargoCompanies) {
         try { parsedCargo = JSON.parse(provider.cargoCompanies); } catch {}
       }
+      let parsedByPlan = { 'Başlangıç': '', 'Profesyonel': '', 'Kurumsal': '' };
+      if (provider.priceMarkupPctByPlan) {
+        try {
+          const saved = JSON.parse(provider.priceMarkupPctByPlan);
+          parsedByPlan = {
+            'Başlangıç': saved['Başlangıç'] ?? '',
+            'Profesyonel': saved['Profesyonel'] ?? '',
+            'Kurumsal': saved['Kurumsal'] ?? '',
+          };
+        } catch {}
+      }
       setFormData({
         name: provider.name,
         url: provider.url,
@@ -351,7 +364,7 @@ export default function GlobalXmlAdminPage() {
         logo: provider.logo || '',
         barcodePrefix: provider.barcodePrefix || '',
         priceMarkup: provider.priceMarkup || '',
-        priceMarkupPct: provider.priceMarkupPct || '',
+        priceMarkupPctByPlan: parsedByPlan,
         creditCost: provider.creditCost || '',
         orderFee: provider.orderFee || '',
         purchaseVatRate: String(provider.purchaseVatRate ?? 0),
@@ -386,7 +399,7 @@ export default function GlobalXmlAdminPage() {
         logo: '',
         barcodePrefix: '',
         priceMarkup: '',
-        priceMarkupPct: '',
+        priceMarkupPctByPlan: { 'Başlangıç': '', 'Profesyonel': '', 'Kurumsal': '' },
         creditCost: '',
         orderFee: '',
         purchaseVatRate: '0',
@@ -656,19 +669,40 @@ export default function GlobalXmlAdminPage() {
                   Bu ayarlar kullanıcıdan tamamen gizlenir. Kullanıcı ürünleri çektiğinde alış fiyatları ve barkodlar bu ayarlara göre değişmiş olarak gelir.
                 </p>
 
-                <div className="grid grid-3" style={{ marginBottom: '24px', gap: '16px' }}>
-                  <div className="form-group">
-                    <label className="form-label">Sabit Kâr Ekle (TL)</label>
-                    <input type="number" step="0.01" className="form-input" value={formData.priceMarkup} onChange={e => setFormData({...formData, priceMarkup: e.target.value})} placeholder="Örn: 10" />
+                <div className="form-group" style={{ marginBottom: '24px' }}>
+                  <label className="form-label">Sabit Kâr Ekle (TL)</label>
+                  <input type="number" step="0.01" className="form-input" value={formData.priceMarkup} onChange={e => setFormData({...formData, priceMarkup: e.target.value})} placeholder="Örn: 10" style={{ maxWidth: 200 }} />
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '24px' }}>
+                  <label className="form-label">Pakete Göre Yüzdelik Kâr (%)</label>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+                    Her paket kendi oranıyla XML fiyatına gizli markup uygular. Boş bırakılırsa o paket için markup uygulanmaz.
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                    {PLANS.map(plan => (
+                      <div key={plan}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>{plan}</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          className="form-input"
+                          value={formData.priceMarkupPctByPlan[plan]}
+                          onChange={e => setFormData({
+                            ...formData,
+                            priceMarkupPctByPlan: { ...formData.priceMarkupPctByPlan, [plan]: e.target.value }
+                          })}
+                          placeholder="Örn: 20"
+                        />
+                      </div>
+                    ))}
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Yüzdelik Kâr Ekle (%)</label>
-                    <input type="number" step="0.01" className="form-input" value={formData.priceMarkupPct} onChange={e => setFormData({...formData, priceMarkupPct: e.target.value})} placeholder="Örn: 20" />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Global Barkod Ön Eki</label>
-                    <input type="text" className="form-input" value={formData.barcodePrefix} onChange={e => setFormData({...formData, barcodePrefix: e.target.value})} placeholder="Örn: GLOB-" />
-                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '24px' }}>
+                  <label className="form-label">Global Barkod Ön Eki</label>
+                  <input type="text" className="form-input" value={formData.barcodePrefix} onChange={e => setFormData({...formData, barcodePrefix: e.target.value})} placeholder="Örn: GLOB-" style={{ maxWidth: 300 }} />
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>

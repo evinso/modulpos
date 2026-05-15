@@ -8,6 +8,22 @@ const { checkXmlSourceLimit, getUserQuota } = require('../utils/quotaHelper');
 const router = express.Router();
 router.use(auth);
 
+function resolveUserPlan(rawPlan) {
+  const p = (rawPlan || '').toLowerCase();
+  if (p === 'kurumsal' || p === 'enterprise') return 'Kurumsal';
+  if (p === 'profesyonel' || p === 'premium' || p === 'pro' || p === 'growth') return 'Profesyonel';
+  return 'Başlangıç';
+}
+
+function getPerPlanMarkup(byPlanJson, userPlan) {
+  if (!byPlanJson) return null;
+  try {
+    const map = JSON.parse(byPlanJson);
+    const val = map[userPlan];
+    return (val !== undefined && val !== '' && val !== null) ? parseFloat(val) : null;
+  } catch { return null; }
+}
+
 async function getUserStore(userId) {
   return prisma.store.findFirst({ where: { userId } });
 }
@@ -159,6 +175,14 @@ router.post('/:id/sync', async (req, res, next) => {
 
     const syncLog = await prisma.syncLog.create({ data: { storeId: store.id, type: 'xml_sync', status: 'started' } });
 
+    // Kullanıcının aktif abonelik planını bul (paket bazlı markup için)
+    const userSub = await prisma.subscription.findFirst({
+      where: { userId: req.user.id, status: 'active' },
+      orderBy: { endDate: 'desc' }
+    });
+    const userPlanRaw = userSub?.plan || 'Başlangıç';
+    const userPlan = resolveUserPlan(userPlanRaw);
+
     const products = await parseXml(xmlSource.url, xmlSource.mappingConfig);
     const { maxProducts } = await getUserQuota(req.user.id);
     const currentCount = await prisma.product.count({ where: { storeId: store.id } });
@@ -168,10 +192,13 @@ router.post('/:id/sync', async (req, res, next) => {
       try {
         const sku = p.sku || p.barcode || `xml-${Date.now()}-${Math.random()}`;
         let rawXmlPrice = p.price || 0;
-        
+
         // 1. Önce Admin'in Global XML üzerinden belirlediği GİZLİ markupları uygula
         // Kullanıcı bu fiyatı "orijinal alış fiyatı" (xmlPrice) olarak görecek
-        if (xmlSource.globalPriceMarkupPct) {
+        const planMarkupPct = getPerPlanMarkup(xmlSource.globalPriceMarkupPctByPlan, userPlan);
+        if (planMarkupPct !== null) {
+          rawXmlPrice += rawXmlPrice * (planMarkupPct / 100);
+        } else if (xmlSource.globalPriceMarkupPct) {
           rawXmlPrice += rawXmlPrice * (xmlSource.globalPriceMarkupPct / 100);
         }
         if (xmlSource.globalPriceMarkup) {

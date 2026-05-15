@@ -78,7 +78,7 @@ router.get('/trendyol-categories/:catId/attributes', auth, requireAdmin, async (
 // POST /api/global-xml - Admin creates a new Global XML provider
 router.post('/', auth, requireAdmin, async (req, res, next) => {
   try {
-    const { name, url, format, mappingConfig, categoryMappingConfig, description, logo, isActive, priceMarkup, priceMarkupPct, barcodePrefix, creditCost, cargoCompanies, orderFee, purchaseVatRate } = req.body;
+    const { name, url, format, mappingConfig, categoryMappingConfig, description, logo, isActive, priceMarkup, priceMarkupPct, priceMarkupPctByPlan, barcodePrefix, creditCost, cargoCompanies, orderFee, purchaseVatRate } = req.body;
 
     if (!name || !url) {
       return res.status(400).json({ error: 'İsim ve URL zorunludur' });
@@ -95,6 +95,7 @@ router.post('/', auth, requireAdmin, async (req, res, next) => {
         logo,
         priceMarkup: priceMarkup ? parseFloat(priceMarkup) : 0,
         priceMarkupPct: priceMarkupPct ? parseFloat(priceMarkupPct) : 0,
+        priceMarkupPctByPlan: priceMarkupPctByPlan ? JSON.stringify(priceMarkupPctByPlan) : null,
         barcodePrefix: barcodePrefix || null,
         creditCost: creditCost ? parseFloat(creditCost) : 0,
         orderFee: orderFee ? parseFloat(orderFee) : 0,
@@ -113,7 +114,7 @@ router.post('/', auth, requireAdmin, async (req, res, next) => {
 // PUT /api/global-xml/:id - Admin updates a Global XML provider
 router.put('/:id', auth, requireAdmin, async (req, res, next) => {
   try {
-    const { name, url, format, mappingConfig, categoryMappingConfig, description, logo, isActive, priceMarkup, priceMarkupPct, barcodePrefix, creditCost, cargoCompanies, orderFee, purchaseVatRate } = req.body;
+    const { name, url, format, mappingConfig, categoryMappingConfig, description, logo, isActive, priceMarkup, priceMarkupPct, priceMarkupPctByPlan, barcodePrefix, creditCost, cargoCompanies, orderFee, purchaseVatRate } = req.body;
 
     const provider = await prisma.globalXmlProvider.update({
       where: { id: req.params.id },
@@ -127,6 +128,7 @@ router.put('/:id', auth, requireAdmin, async (req, res, next) => {
         logo,
         priceMarkup: priceMarkup ? parseFloat(priceMarkup) : 0,
         priceMarkupPct: priceMarkupPct ? parseFloat(priceMarkupPct) : 0,
+        priceMarkupPctByPlan: priceMarkupPctByPlan ? JSON.stringify(priceMarkupPctByPlan) : null,
         barcodePrefix: barcodePrefix || null,
         creditCost: creditCost ? parseFloat(creditCost) : 0,
         orderFee: orderFee ? parseFloat(orderFee) : 0,
@@ -294,6 +296,7 @@ router.post('/:id/import', auth, async (req, res, next) => {
         priceMarkupPct: priceMarkupPct ? parseFloat(priceMarkupPct) : 0,
         globalPriceMarkup: provider.priceMarkup,
         globalPriceMarkupPct: provider.priceMarkupPct,
+        globalPriceMarkupPctByPlan: provider.priceMarkupPctByPlan || null,
         globalBarcodePrefix: provider.barcodePrefix,
         globalProviderId: provider.id,
         purchaseVatRate: provider.purchaseVatRate || 0,

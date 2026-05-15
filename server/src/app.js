@@ -165,6 +165,17 @@ ensurePaytrLogTable();
   }
 })();
 
+// Ensure per-plan markup columns exist
+(async () => {
+  try {
+    const prisma = require('./config/database');
+    await prisma.$executeRawUnsafe(`ALTER TABLE "GlobalXmlProvider" ADD COLUMN IF NOT EXISTS "priceMarkupPctByPlan" TEXT`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "XmlSource" ADD COLUMN IF NOT EXISTS "globalPriceMarkupPctByPlan" TEXT`);
+  } catch (e) {
+    console.error('Per-plan markup column ensure error:', e.message);
+  }
+})();
+
 const cronService = require('./services/cronService');
 cronService.start();
 

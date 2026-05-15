@@ -6,6 +6,22 @@ const TrendyolService = require('./trendyol/trendyolService');
 const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
 const { processAutoAnswerForCron } = require('../routes/questions');
 
+function resolveUserPlan(rawPlan) {
+  const p = (rawPlan || '').toLowerCase();
+  if (p === 'kurumsal' || p === 'enterprise') return 'Kurumsal';
+  if (p === 'profesyonel' || p === 'premium' || p === 'pro' || p === 'growth') return 'Profesyonel';
+  return 'Başlangıç';
+}
+
+function getPerPlanMarkup(byPlanJson, userPlan) {
+  if (!byPlanJson) return null;
+  try {
+    const map = JSON.parse(byPlanJson);
+    const val = map[userPlan];
+    return (val !== undefined && val !== '' && val !== null) ? parseFloat(val) : null;
+  } catch { return null; }
+}
+
 class CronService {
   start() {
     // Run every 10 minutes to check if any XML needs syncing
@@ -66,6 +82,14 @@ class CronService {
         data: { storeId: xmlSource.storeId, type: 'xml_sync', status: 'started' }
       });
 
+      // Mağaza sahibinin aktif planını bul
+      const storeOwner = await prisma.store.findUnique({ where: { id: xmlSource.storeId }, select: { userId: true } });
+      const userSub = storeOwner ? await prisma.subscription.findFirst({
+        where: { userId: storeOwner.userId, status: 'active' },
+        orderBy: { endDate: 'desc' }
+      }) : null;
+      const userPlan = resolveUserPlan(userSub?.plan);
+
       const products = await parseXml(xmlSource.url, xmlSource.mappingConfig);
       let created = 0, updated = 0, errors = 0;
 
@@ -74,7 +98,10 @@ class CronService {
           const sku = p.sku || p.barcode || `xml-${Date.now()}-${Math.random()}`;
           let rawXmlPrice = p.price || 0;
 
-          if (xmlSource.globalPriceMarkupPct) {
+          const planMarkupPct = getPerPlanMarkup(xmlSource.globalPriceMarkupPctByPlan, userPlan);
+          if (planMarkupPct !== null) {
+            rawXmlPrice += rawXmlPrice * (planMarkupPct / 100);
+          } else if (xmlSource.globalPriceMarkupPct) {
             rawXmlPrice += rawXmlPrice * (xmlSource.globalPriceMarkupPct / 100);
           }
           if (xmlSource.globalPriceMarkup) {

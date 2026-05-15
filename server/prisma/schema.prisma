@@ -109,6 +109,7 @@ model XmlSource {
   purchaseVatRate Int      @default(0)  // Alış fiyatına eklenecek KDV: 0, 1, 10, 20
   globalPriceMarkup    Float    @default(0) // Hidden global markup
   globalPriceMarkupPct Float    @default(0) // Hidden global markup percentage
+  globalPriceMarkupPctByPlan String? // JSON: per-plan markup {"Başlangıç": 20, "Profesyonel": 15, "Kurumsal": 10}
   globalBarcodePrefix  String?  // Hidden global barcode prefix
   globalProviderId     String?  // ID of the global provider this was imported from
   createdAt       DateTime @default(now())
@@ -360,6 +361,7 @@ model GlobalXmlProvider {
   purchaseVatRate Int      @default(0)  // Alış fiyatına eklenecek KDV: 0, 1, 10, 20
   productCount    Int      @default(0) // Önizlemede güncellenir
   cargoCompanies  String?  // JSON array of cargo company names
+  priceMarkupPctByPlan String? // JSON: {"Başlangıç": 20, "Profesyonel": 15, "Kurumsal": 10}
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
