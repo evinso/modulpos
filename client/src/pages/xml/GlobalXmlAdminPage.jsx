@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Edit2, Trash2, Link, Save, X, Globe, RefreshCw, Eye, ArrowRight, Search, FolderTree, AlertCircle, Check, Loader2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, Link, Save, X, Globe, RefreshCw, Eye, ArrowRight, Search, FolderTree, AlertCircle, Check, Loader2, Wand2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 
@@ -192,6 +192,7 @@ export default function GlobalXmlAdminPage() {
   const [requiredAttributes, setRequiredAttributes] = useState([]);
   const [attributeMappings, setAttributeMappings] = useState({});
   const [attrLoading, setAttrLoading] = useState(false);
+  const [aiMatching, setAiMatching] = useState(false);
 
   useEffect(() => {
     fetchProviders();
@@ -301,6 +302,39 @@ export default function GlobalXmlAdminPage() {
     setSelectedLocal('');
     setSelectedTrendyol(null);
     setCatSearch('');
+  };
+
+  const handleAiMatch = async () => {
+    if (!xmlAnalysis?.categories?.length) return;
+    const unmapped = xmlAnalysis.categories.filter(c => !categoryMappingConfig[c]);
+    if (unmapped.length === 0) {
+      toast('Tüm kategoriler zaten eşleştirilmiş.');
+      return;
+    }
+    setAiMatching(true);
+    try {
+      const res = await api.post('/ai/category-match', { xmlCategories: unmapped });
+      const matches = res.data.matches || {};
+      let added = 0;
+      const newConfig = { ...categoryMappingConfig };
+      for (const [cat, match] of Object.entries(matches)) {
+        if (match) {
+          newConfig[cat] = {
+            marketplaceCategoryId: String(match.id),
+            marketplaceCategoryName: match.path,
+            attributes: '{}'
+          };
+          added++;
+        }
+      }
+      setCategoryMappingConfig(newConfig);
+      setCategoryMappingStr(JSON.stringify(newConfig, null, 2));
+      toast.success(`${added} / ${unmapped.length} kategori otomatik eşleştirildi.`);
+    } catch (err) {
+      toast.error('AI eşleştirme hatası: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setAiMatching(false);
+    }
   };
 
   const handleOpenModal = (provider = null) => {
@@ -760,10 +794,22 @@ export default function GlobalXmlAdminPage() {
 
                     {xmlAnalysis.categories && xmlAnalysis.categories.length > 0 && (
                       <div style={{ marginTop: 32, borderTop: '1px solid var(--border-color)', paddingTop: 24 }}>
-                        <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <Link size={18} style={{ color: 'var(--accent-primary)' }} />
-                          Kategori Eşleştirmesi
-                        </h3>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                          <h3 style={{ fontSize: '18px', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <Link size={18} style={{ color: 'var(--accent-primary)' }} />
+                            Kategori Eşleştirmesi
+                          </h3>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={handleAiMatch}
+                            disabled={aiMatching}
+                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                          >
+                            {aiMatching ? <Loader2 size={14} className="spinning" /> : <Wand2 size={14} />}
+                            {aiMatching ? 'AI Eşleştiriyor...' : 'AI ile Otomatik Eşleştir'}
+                          </button>
+                        </div>
                         <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 24 }}>
                           Bu XML içindeki kategorileri tüm kullanıcılar için otomatik eşleştirmek istiyorsanız, aşağıdan XML kategorisi ve Trendyol kategorisini seçip zorunlu alanları belirleyebilirsiniz.
                         </p>

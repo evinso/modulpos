@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowRight, Search, Check, Trash2, ChevronRight, ChevronDown, Loader2, Link2, AlertCircle, FolderTree } from 'lucide-react';
+import { ArrowRight, Search, Check, Trash2, ChevronRight, ChevronDown, Loader2, Link2, AlertCircle, FolderTree, Wand2 } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -23,6 +23,7 @@ export default function CategoryMappingPage() {
   const [requiredAttributes, setRequiredAttributes] = useState([]);
   const [attributeMappings, setAttributeMappings] = useState({});
   const [attrLoading, setAttrLoading] = useState(false);
+  const [aiMatching, setAiMatching] = useState(false);
 
   // XML Source Filter
   const [xmlSources, setXmlSources] = useState([]);
@@ -177,6 +178,40 @@ export default function CategoryMappingPage() {
     } finally { setSaving(false); }
   };
 
+  const handleAiMatch = async () => {
+    if (!selectedConn) return;
+    const unmapped = localCategories.filter(c => !mappedLookup[c]);
+    if (unmapped.length === 0) {
+      toast('Tüm kategoriler zaten eşleştirilmiş.');
+      return;
+    }
+    setAiMatching(true);
+    try {
+      const res = await api.post('/ai/category-match', { xmlCategories: unmapped });
+      const matches = res.data.matches || {};
+      let added = 0;
+      for (const [cat, match] of Object.entries(matches)) {
+        if (!match) continue;
+        try {
+          await api.post(`/marketplace/connections/${selectedConn.id}/category-mappings`, {
+            localCategory: cat,
+            marketplaceCategoryId: match.id,
+            marketplaceCategoryName: match.path,
+            attributes: {}
+          });
+          added++;
+        } catch {}
+      }
+      const mapRes = await api.get(`/marketplace/connections/${selectedConn.id}/category-mappings`);
+      setMappings(mapRes.data);
+      toast.success(`${added} / ${unmapped.length} kategori otomatik eşleştirildi.`);
+    } catch (err) {
+      toast.error('AI eşleştirme hatası: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setAiMatching(false);
+    }
+  };
+
   const handleDeleteMapping = async (id) => {
     try {
       await api.delete(`/marketplace/category-mappings/${id}`);
@@ -255,10 +290,21 @@ export default function CategoryMappingPage() {
 
         return (
           <div className="card" style={{ marginBottom: 20, padding: 24 }}>
-            <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Link2 size={18} style={{ color: 'var(--accent-primary)' }} />
-              Yeni Eşleştirme
-            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Link2 size={18} style={{ color: 'var(--accent-primary)' }} />
+                Yeni Eşleştirme
+              </h3>
+              <button
+                className="btn btn-secondary"
+                onClick={handleAiMatch}
+                disabled={aiMatching || !selectedConn}
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                {aiMatching ? <Loader2 size={14} className="spinning" /> : <Wand2 size={14} />}
+                {aiMatching ? 'AI Eşleştiriyor...' : 'AI ile Otomatik Eşleştir'}
+              </button>
+            </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 40px 1fr', gap: 16, alignItems: 'start' }}>
           {/* Local Category */}
