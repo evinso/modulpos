@@ -357,18 +357,6 @@ export default function GlobalXmlMarketPage() {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Kâr Marjı (%)</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  value={importConfig.priceMarkupPct}
-                  onChange={(e) => setImportConfig({...importConfig, priceMarkupPct: e.target.value})}
-                  placeholder="Örn: 20"
-                />
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>XML'deki fiyata eklenecek % kâr marjı</span>
-              </div>
-
-              <div className="form-group">
                 <label className="form-label">Barkod Ön Eki (Opsiyonel)</label>
                 <input
                   type="text"
