@@ -15,14 +15,28 @@ async function fetchForPreview(url) {
   const cached = previewCache.get(url);
   if (cached && Date.now() - cached.ts < PREVIEW_CACHE_TTL) return cached.data;
 
-  const res = await axios.get(url, {
-    timeout: 30000,
-    maxContentLength: 5 * 1024 * 1024, // 5 MB — enough to detect structure and first ~100 products
-    headers: HEADERS
-  });
+  let res;
+  try {
+    res = await axios.get(url, {
+      timeout: 45000,
+      maxContentLength: 20 * 1024 * 1024, // 20 MB
+      headers: HEADERS,
+      decompress: true,
+    });
+  } catch (err) {
+    if (err.code === 'ERR_FR_MAX_BODY_LENGTH_EXCEEDED' || err.message?.includes('maxContentLength')) {
+      throw new Error('XML dosyası çok büyük (20 MB limitini aşıyor). Lütfen tedarikçinizle iletişime geçin.');
+    }
+    if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+      throw new Error(`XML URL'sine bağlanılamadı: istek zaman aşımına uğradı (${url})`);
+    }
+    if (err.response) {
+      throw new Error(`XML URL'si HTTP ${err.response.status} döndürdü: ${url}`);
+    }
+    throw new Error(`XML URL'sine erişilemedi: ${err.message}`);
+  }
 
   previewCache.set(url, { data: res.data, ts: Date.now() });
-  // Evict stale entries to avoid unbounded memory growth
   if (previewCache.size > 15) {
     const now = Date.now();
     for (const [k, v] of previewCache) if (now - v.ts > PREVIEW_CACHE_TTL) previewCache.delete(k);
