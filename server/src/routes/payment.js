@@ -5,6 +5,7 @@ const { auth } = require('../middleware/auth');
 const { getOrCreateBalance } = require('./credits');
 const notificationService = require('../services/notificationService');
 const { applyPlanQuota } = require('../utils/quotaHelper');
+const whatsappService = require('../services/whatsappService');
 
 const router = express.Router();
 
@@ -263,6 +264,8 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
         await prisma.creditTransaction.create({ data: { balanceId: balance.id, amount: amountTL, type: 'topup', description: `PayTR Kredi Kartı ile Yükleme (${merchant_oid})` } });
         console.log('[PayTR] Kredi yüklendi — userId:', logUserId, '| tutar:', amountTL);
         notificationService.createForUser(logUserId, { title: 'Kredi Yüklendi', message: `₺${amountTL.toFixed(2)} kredi hesabınıza eklendi.`, type: 'success', link: '/credits' });
+        const topupUser = await prisma.user.findUnique({ where: { id: logUserId }, select: { name: true, email: true } }).catch(() => null);
+        whatsappService.notifyCreditTopup(topupUser || { email: logUserEmail }, amountTL).catch(() => {});
       } else if (!alreadyProcessed && prefix === 'SUB' && logUserId) {
         const user = await prisma.user.findUnique({ where: { id: logUserId }, include: { subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 } } });
         if (user) {
@@ -287,6 +290,7 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
 
           console.log('[PayTR] Abonelik aktive edildi — userId:', logUserId, '| bitiş:', newEndDate);
           notificationService.createForUser(logUserId, { title: 'Abonelik Aktifleştirildi', message: `Aboneliğiniz ${newEndDate.toLocaleDateString('tr-TR')} tarihine kadar uzatıldı.`, type: 'success', link: '/credits' });
+          whatsappService.notifySubscriptionUpdated(user, 'premium', newEndDate).catch(() => {});
         }
       }
       try { await prisma.paytrLog.create({ data: { merchantOid: merchant_oid, status: 'success', totalAmount: amountTL, userId: logUserId, userEmail: logUserEmail, type: logType, rawBody: JSON.stringify(req.body) } }); } catch (e) { console.error('[PayTR] Log kaydedilemedi:', e.message); }
