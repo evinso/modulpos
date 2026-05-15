@@ -51,6 +51,7 @@ router.post('/analyze', async (req, res, next) => {
     const analysis = await analyzeXml(url);
     res.json(analysis);
   } catch (error) {
+    console.error('[Analyze Error] url:', req.body?.url, '| error:', error.message);
     let msg = `XML analiz hatası: ${error.message}`;
     if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
       msg = 'XML kaynağına bağlanılamadı: Sunucu çok yavaş yanıt veriyor veya dosya çok büyük. Lütfen URL\'yi kontrol edip tekrar deneyin. (Zaman aşımı: 120 saniye)';

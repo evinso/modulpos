@@ -58,12 +58,18 @@ async function fetchForSync(url) {
  * Kullanıcının hangi tag'ları eşleştireceğini görmesi için.
  */
 async function analyzeXml(url) {
-  const response = { data: await fetchForPreview(url) };
+  const rawData = await fetchForPreview(url);
+
+  // Sunucu XML yerine HTML döndürdüyse (login sayfası, 403 redirect vb.) erken yakala
+  const dataStr = typeof rawData === 'string' ? rawData : String(rawData);
+  if (dataStr.trimStart().startsWith('<!DOCTYPE') || dataStr.trimStart().startsWith('<html')) {
+    throw new Error('URL geçerli bir XML döndürmüyor — sunucu HTML sayfası döndürdü. URL\'nin doğrudan XML dosyasına işaret ettiğinden emin olun.');
+  }
+
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
     isArray: (tagName) => {
-      // These tags can appear multiple times in RSS/Google Shopping feeds
       const arrayTags = ['item', 'Urun', 'product', 'Product', 'row', 'entry', 'category', 'product_type', 'filtre', 'resim'];
       return arrayTags.includes(tagName);
     },
@@ -71,7 +77,13 @@ async function analyzeXml(url) {
     parseTagValue: false,
     trimValues: true,
   });
-  const parsed = parser.parse(response.data);
+
+  let parsed;
+  try {
+    parsed = parser.parse(dataStr);
+  } catch (parseErr) {
+    throw new Error(`XML parse hatası: ${parseErr.message}. URL geçerli bir XML dosyasına işaret etmiyor olabilir.`);
+  }
 
   // Ürün dizisini bul
   const { rawProducts, productPath } = findProductArray(parsed);
