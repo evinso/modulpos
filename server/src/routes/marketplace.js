@@ -1644,8 +1644,16 @@ router.get('/connections/:id/webhooks', async (req, res, next) => {
     const connection = await prisma.marketplaceConnection.findFirst({ where: { id: req.params.id, storeId: store.id } });
     if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
     const service = new TrendyolService(connection);
-    const data = await service.listWebhooks();
-    res.json(data);
+    try {
+      const data = await service.listWebhooks();
+      res.json(Array.isArray(data) ? data : []);
+    } catch (trendyolErr) {
+      const detail = trendyolErr.response?.data?.message
+        || trendyolErr.response?.data?.errors?.[0]?.message
+        || trendyolErr.message;
+      console.error('[Webhook List Error]', trendyolErr.response?.status, detail, trendyolErr.response?.data);
+      res.json({ _error: detail, _status: trendyolErr.response?.status || 0 });
+    }
   } catch (error) { next(error); }
 });
 

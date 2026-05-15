@@ -98,7 +98,12 @@ export default function MarketplacePage() {
     setWebhooksLoading(true);
     try {
       const res = await api.get(`/marketplace/connections/${connId}/webhooks`);
-      setWebhooks(Array.isArray(res.data) ? res.data : []);
+      if (res.data?._error) {
+        toast.error(`Trendyol webhook API hatası: ${res.data._error}`);
+        setWebhooks([]);
+      } else {
+        setWebhooks(Array.isArray(res.data) ? res.data : []);
+      }
     } catch { toast.error('Webhook listesi alınamadı'); }
     finally { setWebhooksLoading(false); }
   };
