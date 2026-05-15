@@ -236,46 +236,6 @@ class TrendyolService {
     return res.data;
   }
 
-  // === WEBHOOK OPERATIONS ===
-  async listWebhooks() {
-    const res = await this.requestWithRetry({
-      method: 'get',
-      url: `${this.baseUrl}/webhook/sellers/${this.sellerId}/webhooks`,
-    });
-    return res.data;
-  }
-
-  async createWebhook(webhookUrl, subscribedStatuses = [], apiKey) {
-    const res = await this.requestWithRetry({
-      method: 'post',
-      url: `${this.baseUrl}/webhook/sellers/${this.sellerId}/webhooks`,
-      data: {
-        url: webhookUrl,
-        authenticationType: 'CUSTOM_HEADER',
-        apiKey,
-        subscribedStatuses,
-      }
-    });
-    return res.data; // { id: string }
-  }
-
-  async deleteWebhook(webhookId) {
-    const res = await this.requestWithRetry({
-      method: 'delete',
-      url: `${this.baseUrl}/webhook/sellers/${this.sellerId}/webhooks/${webhookId}`,
-    });
-    return res.data;
-  }
-
-  async updateWebhook(webhookId, data) {
-    const res = await this.requestWithRetry({
-      method: 'put',
-      url: `${this.baseUrl}/webhook/sellers/${this.sellerId}/webhooks/${webhookId}`,
-      data,
-    });
-    return res.data;
-  }
-
   // Test connection - detaylı hata analizi ile
   async testConnection() {
     try {

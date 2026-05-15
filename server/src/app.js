@@ -27,7 +27,6 @@ const creditRoutes = require('./routes/credits');
 const paymentRoutes = require('./routes/payment');
 const dropshipOrderRoutes = require('./routes/dropshipOrders');
 const supportRoutes = require('./routes/support');
-const webhookRoutes = require('./routes/webhooks');
 
 const { errorHandler } = require('./middleware/errorHandler');
 
@@ -95,7 +94,6 @@ app.use('/api/credits', creditRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/dropship-orders', dropshipOrderRoutes);
 app.use('/api/support', supportRoutes);
-app.use('/api/webhooks', webhookRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

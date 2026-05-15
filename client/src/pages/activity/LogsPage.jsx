@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Activity, AlertCircle, Info, Clock, AlertTriangle, ChevronDown, ChevronRight, CheckCircle, XCircle, Zap } from 'lucide-react';
+import { Activity, AlertCircle, Info, Clock, AlertTriangle, ChevronDown, ChevronRight, CheckCircle, XCircle } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -20,17 +20,8 @@ export default function LogsPage() {
   const [connections, setConnections] = useState([]);
   const [filterConn, setFilterConn] = useState('');
 
-  // Webhook events
-  const [webhookEvents, setWebhookEvents] = useState([]);
-  const [webhookLoading, setWebhookLoading] = useState(false);
-  const [webhookPage, setWebhookPage] = useState(1);
-  const [webhookTotal, setWebhookTotal] = useState(0);
-  const [webhookTotalPages, setWebhookTotalPages] = useState(1);
-  const [expandedWebhookId, setExpandedWebhookId] = useState(null);
-
   useEffect(() => { fetchLogs(); fetchConnections(); }, []);
   useEffect(() => { if (activeTab === 'trendyol') fetchApiLogs(); }, [activeTab, apiPage, filterConn]);
-  useEffect(() => { if (activeTab === 'webhook') { fetchWebhookEvents(); } }, [activeTab, webhookPage]);
 
   const fetchLogs = async () => {
     try {
@@ -60,18 +51,6 @@ export default function LogsPage() {
     finally { setApiLogsLoading(false); }
   };
 
-  const fetchWebhookEvents = async () => {
-    setWebhookLoading(true);
-    try {
-      const res = await api.get('/marketplace/webhook-events', { params: { page: webhookPage, limit: 50 } });
-      setWebhookEvents(res.data.events);
-      setWebhookTotal(res.data.total);
-      setWebhookTotalPages(res.data.totalPages);
-    } catch { toast.error('Webhook olayları alınamadı'); }
-    finally { setWebhookLoading(false); }
-  };
-
-
   const getLevelIcon = (level) => {
     if (level === 'ERROR') return <AlertCircle size={15} style={{ color: 'var(--danger)' }} />;
     if (level === 'WARNING') return <AlertTriangle size={15} style={{ color: 'var(--warning)' }} />;
@@ -100,20 +79,11 @@ export default function LogsPage() {
     catch { return str; }
   };
 
-  const eventTypeColor = (type) => {
-    if (!type) return 'var(--text-muted)';
-    if (type.includes('ORDER')) return '#10b981';
-    if (type.includes('CANCEL')) return '#ef4444';
-    if (type.includes('PRODUCT')) return '#3b82f6';
-    if (type.includes('QUESTION')) return '#f59e0b';
-    return 'var(--accent-primary)';
-  };
-
   return (
     <div>
       <div className="page-header" style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700 }}>İşlem Logları</h1>
-        <p style={{ color: 'var(--text-secondary)' }}>Sistem işlemleri, Trendyol API istekleri ve webhook olayları</p>
+        <p style={{ color: 'var(--text-secondary)' }}>Sistem işlemleri ve Trendyol API istekleri</p>
       </div>
 
       {/* Tabs */}
@@ -121,7 +91,6 @@ export default function LogsPage() {
         {[
           { key: 'system', label: 'Sistem Logları' },
           { key: 'trendyol', label: 'Trendyol API Logları' },
-          { key: 'webhook', label: 'Webhook Olayları' },
         ].map(tab => (
           <button
             key={tab.key}
@@ -312,114 +281,6 @@ export default function LogsPage() {
         </div>
       )}
 
-      {/* ── Webhook Events ── */}
-      {activeTab === 'webhook' && (
-        <div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)', marginLeft: 'auto' }}>
-              Toplam <strong>{webhookTotal}</strong> olay
-            </span>
-            <button className="btn btn-secondary btn-sm" onClick={fetchWebhookEvents}>Yenile</button>
-          </div>
-
-          <div className="card" style={{ padding: 0 }}>
-            {webhookLoading ? (
-              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-secondary)' }}>Yükleniyor...</div>
-            ) : webhookEvents.length === 0 ? (
-              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-secondary)' }}>
-                <Zap size={48} style={{ margin: '0 auto 16px', opacity: 0.3 }} />
-                <p style={{ fontWeight: 500, marginBottom: 8 }}>Henüz webhook olayı yok.</p>
-                <p style={{ fontSize: 13 }}>Trendyol Seller Panel'den webhook URL'sini ayarlayın.</p>
-              </div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    {['Tarih', 'Olay Tipi', 'Satıcı ID', 'Durum', 'Detay'].map(h => (
-                      <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {webhookEvents.map(ev => (
-                    <>
-                      <tr
-                        key={ev.id}
-                        style={{ borderBottom: expandedWebhookId === ev.id ? 'none' : '1px solid var(--border-color)', cursor: 'pointer', background: expandedWebhookId === ev.id ? 'rgba(99,102,241,0.04)' : undefined }}
-                        onClick={() => setExpandedWebhookId(expandedWebhookId === ev.id ? null : ev.id)}
-                      >
-                        <td style={{ padding: '11px 14px', fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                          {new Date(ev.createdAt).toLocaleString('tr-TR')}
-                        </td>
-                        <td style={{ padding: '11px 14px' }}>
-                          <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: eventTypeColor(ev.eventType) }}>
-                            {ev.eventType}
-                          </span>
-                        </td>
-                        <td style={{ padding: '11px 14px', fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
-                          {ev.sellerId || '—'}
-                        </td>
-                        <td style={{ padding: '11px 14px' }}>
-                          {ev.error ? (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--danger)' }}>
-                              <XCircle size={13} /> Hata
-                            </span>
-                          ) : ev.processed ? (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--success)' }}>
-                              <CheckCircle size={13} /> İşlendi
-                            </span>
-                          ) : (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>
-                              <Clock size={13} /> Alındı
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ padding: '11px 14px' }}>
-                          {expandedWebhookId === ev.id ? <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} /> : <ChevronRight size={14} style={{ color: 'var(--text-muted)' }} />}
-                        </td>
-                      </tr>
-
-                      {expandedWebhookId === ev.id && (
-                        <tr key={`${ev.id}-detail`} style={{ borderBottom: '1px solid var(--border-color)', background: 'rgba(99,102,241,0.03)' }}>
-                          <td colSpan={5} style={{ padding: '0 14px 16px' }}>
-                            <div style={{ marginTop: 12 }}>
-                              {ev.error && (
-                                <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 6, background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)', fontSize: 12, color: 'var(--danger)' }}>
-                                  <strong>Hata:</strong> {ev.error}
-                                </div>
-                              )}
-                              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                                Payload
-                              </div>
-                              <pre style={{
-                                background: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
-                                borderRadius: 6, padding: '10px 12px', fontSize: 11, fontFamily: 'monospace',
-                                overflowX: 'auto', maxHeight: 400, overflowY: 'auto', margin: 0,
-                                color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-                              }}>
-                                {fmtJson(ev.payload)}
-                              </pre>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {webhookTotalPages > 1 && (
-            <div className="pagination" style={{ marginTop: 12 }}>
-              <button disabled={webhookPage <= 1} onClick={() => setWebhookPage(p => p - 1)}>Önceki</button>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{webhookPage} / {webhookTotalPages}</span>
-              <button disabled={webhookPage >= webhookTotalPages} onClick={() => setWebhookPage(p => p + 1)}>Sonraki</button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
