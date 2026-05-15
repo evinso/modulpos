@@ -149,8 +149,9 @@ export default function XmlSourcesPage() {
     try {
       const res = await api.get(`/xml-sources/${source.id}/xml-preview`);
       setXmlPreviewData(res.data);
-    } catch {
-      toast.error('XML önizlemesi alınamadı');
+    } catch (err) {
+      const msg = err.response?.data?.error || 'XML önizlemesi alınamadı';
+      toast.error(msg);
       setXmlPreviewSource(null);
     } finally {
       setXmlPreviewLoading(false);

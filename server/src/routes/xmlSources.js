@@ -307,6 +307,7 @@ router.get('/:id/xml-preview', async (req, res, next) => {
 
     res.json({ total: products.length, preview, categories });
   } catch (error) {
+    console.error('[XML Preview Error] sourceId:', req.params.id, '|', error.message);
     res.status(400).json({ error: `Önizleme hatası: ${error.message}` });
   }
 });
