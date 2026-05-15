@@ -1669,14 +1669,22 @@ router.post('/connections/:id/webhooks', async (req, res, next) => {
     const baseUrl = process.env.API_BASE_URL || process.env.BASE_URL || 'https://api.modulpos.com';
     const webhookUrl = `${baseUrl}/api/webhooks/trendyol`;
 
-    // Generate a unique API key for this connection's webhook
     const { randomUUID } = require('crypto');
     const webhookApiKey = randomUUID().replace(/-/g, '');
 
     const service = new TrendyolService(connection);
-    const result = await service.createWebhook(webhookUrl, subscribedStatuses || [], webhookApiKey);
+    let result;
+    try {
+      result = await service.createWebhook(webhookUrl, subscribedStatuses || [], webhookApiKey);
+    } catch (trendyolErr) {
+      const detail = trendyolErr.response?.data?.message
+        || trendyolErr.response?.data?.errors?.[0]?.message
+        || (typeof trendyolErr.response?.data === 'string' ? trendyolErr.response.data : null)
+        || trendyolErr.message;
+      console.error('[Webhook Create Error]', trendyolErr.response?.status, detail, trendyolErr.response?.data);
+      return res.status(400).json({ error: `Trendyol webhook oluşturulamadı: ${detail}` });
+    }
 
-    // Persist the apiKey so the webhook handler can verify requests
     const existingConfig = connection.config ? JSON.parse(connection.config) : {};
     await prisma.marketplaceConnection.update({
       where: { id: connection.id },

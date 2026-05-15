@@ -251,7 +251,7 @@ class TrendyolService {
       url: `${this.baseUrl}/webhook/sellers/${this.sellerId}/webhooks`,
       data: {
         url: webhookUrl,
-        authenticationType: 'API_KEY',
+        authenticationType: 'CUSTOM_HEADER',
         apiKey,
         subscribedStatuses,
       }
