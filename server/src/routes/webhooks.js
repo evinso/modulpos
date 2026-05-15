@@ -8,18 +8,28 @@ const router = express.Router();
 router.post('/trendyol', async (req, res) => {
   try {
     const body = req.body;
-
-    // Trendyol sends supplierId (=sellerId) in the payload
     const sellerId = String(body.supplierId || body.sellerId || '');
-    const eventType = body.type || body.eventType || 'UNKNOWN';
+    const eventType = body.shipmentPackageStatus || body.type || body.eventType || 'UNKNOWN';
 
     // Find matching connection by sellerId
     let connection = null;
     if (sellerId) {
       connection = await prisma.marketplaceConnection.findFirst({
         where: { sellerId, marketplaceType: 'trendyol', status: 'active' },
-        select: { id: true, storeId: true }
+        select: { id: true, storeId: true, config: true }
       });
+    }
+
+    // Verify x-api-key if this connection has one configured
+    if (connection?.config) {
+      const cfg = JSON.parse(connection.config);
+      if (cfg.webhookApiKey) {
+        const sentKey = req.headers['x-api-key'];
+        if (sentKey !== cfg.webhookApiKey) {
+          console.warn(`[webhook] Invalid API key for sellerId=${sellerId}`);
+          return res.status(200).json({ received: true }); // 200 to prevent Trendyol retries
+        }
+      }
     }
 
     await prisma.webhookEvent.create({
@@ -33,74 +43,78 @@ router.post('/trendyol', async (req, res) => {
       }
     });
 
-    // Immediately try to process known event types
     if (connection) {
-      await processEvent(eventType, body, connection).catch(err => {
-        prisma.webhookEvent.updateMany({
-          where: { connectionId: connection.id, eventType, processed: false },
-          data: { error: String(err.message).slice(0, 500) }
-        }).catch(() => {});
-      });
+      processEvent(eventType, body, connection).catch(() => {});
     }
 
-    // Always respond 200 quickly so Trendyol doesn't retry
     res.status(200).json({ received: true });
   } catch (err) {
     console.error('[webhook] trendyol error:', err.message);
-    res.status(200).json({ received: true }); // still 200 to prevent retries
+    res.status(200).json({ received: true });
   }
 });
 
 async function processEvent(eventType, body, connection) {
-  if (eventType === 'ORDER_CREATED' || eventType === 'ORDER_STATUS_CHANGED') {
-    const orderData = body.data || body;
-    const orderNumber = orderData.orderNumber || orderData.id;
-    if (!orderNumber) return;
+  const orderNumber = body.orderNumber || body.id;
+  if (!orderNumber) return;
 
-    const existing = await prisma.order.findUnique({ where: { orderNumber: String(orderNumber) } });
-    if (!existing) {
-      await prisma.order.create({
-        data: {
-          storeId: connection.storeId,
-          connectionId: connection.id,
-          orderNumber: String(orderNumber),
-          marketplaceOrderId: String(orderNumber),
-          status: mapOrderStatus(orderData.status),
-          totalAmount: orderData.totalPrice || orderData.totalAmount || 0,
-          customerName: orderData.shipmentAddress?.fullName || null,
-          customerPhone: orderData.shipmentAddress?.phoneNumber || null,
-          shippingAddress: orderData.shipmentAddress ? JSON.stringify(orderData.shipmentAddress) : null,
-          items: orderData.lines ? JSON.stringify(orderData.lines) : null,
-          orderDate: orderData.orderDate ? new Date(orderData.orderDate) : new Date(),
-        }
-      });
-    } else if (orderData.status) {
-      await prisma.order.update({
-        where: { orderNumber: String(orderNumber) },
-        data: { status: mapOrderStatus(orderData.status), updatedAt: new Date() }
-      });
-    }
+  const existing = await prisma.order.findUnique({ where: { orderNumber: String(orderNumber) } });
 
-    // Mark processed
-    await prisma.webhookEvent.updateMany({
-      where: { connectionId: connection.id, eventType, processed: false },
-      data: { processed: true }
+  if (!existing) {
+    await prisma.order.create({
+      data: {
+        storeId: connection.storeId,
+        connectionId: connection.id,
+        orderNumber: String(orderNumber),
+        marketplaceOrderId: String(orderNumber),
+        status: mapOrderStatus(eventType),
+        totalAmount: body.packageGrossAmount || 0,
+        customerName: body.shipmentAddress?.firstName
+          ? `${body.shipmentAddress.firstName} ${body.shipmentAddress.lastName || ''}`.trim()
+          : null,
+        customerPhone: body.shipmentAddress?.phone || null,
+        shippingAddress: body.shipmentAddress ? JSON.stringify(body.shipmentAddress) : null,
+        items: body.lines ? JSON.stringify(body.lines) : null,
+        cargoCompany: body.cargoProviderName || null,
+        trackingNumber: body.cargoTrackingNumber || null,
+        orderDate: body.orderDate ? new Date(body.orderDate) : new Date(),
+      }
+    });
+  } else {
+    await prisma.order.update({
+      where: { orderNumber: String(orderNumber) },
+      data: {
+        status: mapOrderStatus(eventType),
+        cargoCompany: body.cargoProviderName || existing.cargoCompany,
+        trackingNumber: body.cargoTrackingNumber || existing.trackingNumber,
+        updatedAt: new Date(),
+      }
     });
   }
+
+  await prisma.webhookEvent.updateMany({
+    where: { connectionId: connection.id, processed: false },
+    data: { processed: true }
+  });
 }
 
-function mapOrderStatus(trendyolStatus) {
+function mapOrderStatus(status) {
   const map = {
-    'Created': 'new',
-    'Picking': 'processing',
-    'Invoiced': 'processing',
-    'Shipped': 'shipped',
-    'Delivered': 'delivered',
-    'Cancelled': 'cancelled',
-    'UnDelivered': 'returned',
-    'Returned': 'returned',
+    CREATED: 'new',
+    PICKING: 'processing',
+    INVOICED: 'processing',
+    SHIPPED: 'shipped',
+    DELIVERED: 'delivered',
+    CANCELLED: 'cancelled',
+    UNDELIVERED: 'returned',
+    RETURNED: 'returned',
+    UNSUPPLIED: 'cancelled',
+    AWAITING: 'processing',
+    UNPACKED: 'processing',
+    AT_COLLECTION_POINT: 'shipped',
+    VERIFIED: 'delivered',
   };
-  return map[trendyolStatus] || 'new';
+  return map[status] || 'new';
 }
 
 module.exports = router;

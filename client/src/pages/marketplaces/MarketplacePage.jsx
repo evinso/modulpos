@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, TestTube, Trash2, Store, CheckCircle, XCircle, Plug, Search, Loader2, Pencil, Zap, Copy } from 'lucide-react';
+import { Plus, TestTube, Trash2, Store, CheckCircle, XCircle, Plug, Search, Loader2, Pencil, Zap } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -17,6 +17,10 @@ export default function MarketplacePage() {
   const [testing, setTesting] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [webhookUrl, setWebhookUrl] = useState('');
+  const [webhookModal, setWebhookModal] = useState(null); // connectionId
+  const [webhooks, setWebhooks] = useState([]);
+  const [webhooksLoading, setWebhooksLoading] = useState(false);
+  const [webhookCreating, setWebhookCreating] = useState(false);
   const [form, setForm] = useState({ marketplaceType: 'trendyol', sellerId: '', apiKey: '', apiSecret: '', supplierName: '', defaultBrandId: '', defaultBrandName: '', brandStrategy: 'xml' });
 
   // Edit state
@@ -86,6 +90,36 @@ export default function MarketplacePage() {
       const res = await api.get('/marketplace/webhook-url');
       setWebhookUrl(res.data.webhookUrl);
     } catch {}
+  };
+
+  const openWebhookModal = async (connId) => {
+    setWebhookModal(connId);
+    setWebhooks([]);
+    setWebhooksLoading(true);
+    try {
+      const res = await api.get(`/marketplace/connections/${connId}/webhooks`);
+      setWebhooks(Array.isArray(res.data) ? res.data : []);
+    } catch { toast.error('Webhook listesi alınamadı'); }
+    finally { setWebhooksLoading(false); }
+  };
+
+  const handleCreateWebhook = async (connId) => {
+    setWebhookCreating(true);
+    try {
+      await api.post(`/marketplace/connections/${connId}/webhooks`, { subscribedStatuses: [] });
+      toast.success('Webhook Trendyol\'a kaydedildi');
+      const res = await api.get(`/marketplace/connections/${connId}/webhooks`);
+      setWebhooks(Array.isArray(res.data) ? res.data : []);
+    } catch (err) { toast.error(err.response?.data?.error || 'Webhook oluşturulamadı'); }
+    finally { setWebhookCreating(false); }
+  };
+
+  const handleDeleteWebhook = async (connId, webhookId) => {
+    try {
+      await api.delete(`/marketplace/connections/${connId}/webhooks/${webhookId}`);
+      toast.success('Webhook silindi');
+      setWebhooks(w => w.filter(x => x.id !== webhookId));
+    } catch { toast.error('Webhook silinemedi'); }
   };
 
   const handleAdd = async (e) => {
@@ -244,46 +278,18 @@ export default function MarketplacePage() {
                   {brandName && <span>🏷️ {brandName}</span>}
                   <span>{brandStrategy === 'override' ? '🔒 Kendi markam' : '📦 XML markası'}</span>
                 </div>
-                <div style={{ display: 'flex', gap: 8, marginBottom: c.marketplaceType === 'trendyol' && webhookUrl ? 12 : 0 }}>
+                <div style={{ display: 'flex', gap: 8 }}>
                   <button className="btn btn-secondary btn-sm" onClick={() => handleTest(c.id)} disabled={testing === c.id}>
                     <TestTube size={14} /> {testing === c.id ? 'Test ediliyor...' : 'Bağlantıyı Test Et'}
                   </button>
                   <button className="btn btn-secondary btn-sm" onClick={() => openEdit(c)}><Pencil size={14} /> Düzenle</button>
+                  {c.marketplaceType === 'trendyol' && (
+                    <button className="btn btn-secondary btn-sm" onClick={() => openWebhookModal(c.id)}>
+                      <Zap size={14} /> Webhook
+                    </button>
+                  )}
                   <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(c.id)}><Trash2 size={14} /> Sil</button>
                 </div>
-
-                {c.marketplaceType === 'trendyol' && webhookUrl && (
-                  <div style={{
-                    padding: '12px 14px', borderRadius: 8,
-                    background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                      <Zap size={13} style={{ color: 'var(--accent-primary)' }} />
-                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent-primary)' }}>Anlık Sipariş Bildirimleri (Webhook)</span>
-                    </div>
-                    <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.5 }}>
-                      Siparişler geldiğinde anında haberdar olmak için aşağıdaki URL'yi Trendyol destek ekibine bildirin:<br />
-                      <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>integration@trendyol.com adresine "webhook aktivasyonu" talebinde bulunup bu URL'yi paylaşın.</span>
-                    </p>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <code style={{
-                        flex: 1, fontSize: 11, padding: '6px 10px', borderRadius: 6,
-                        background: 'var(--bg-secondary)', border: '1px solid var(--border-color)',
-                        color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        display: 'block',
-                      }}>
-                        {webhookUrl}
-                      </code>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        style={{ flexShrink: 0 }}
-                        onClick={() => { navigator.clipboard.writeText(webhookUrl); toast.success('URL kopyalandı'); }}
-                      >
-                        <Copy size={13} /> Kopyala
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })}
@@ -490,6 +496,96 @@ export default function MarketplacePage() {
                 <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===== WEBHOOK MODAL ===== */}
+      {webhookModal && (
+        <div className="modal-overlay" onClick={() => setWebhookModal(null)}>
+          <div className="modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Zap size={18} /> Webhook Yönetimi</h3>
+              <button className="modal-close" onClick={() => setWebhookModal(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6 }}>
+                Webhook'lar Trendyol'dan gelen sipariş bildirimlerini <strong>anında</strong> almanızı sağlar.
+                Kur butonuna basın, gerisini sistem halleder.
+              </p>
+
+              {/* Current webhook URL info */}
+              {webhookUrl && (
+                <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Webhook URL</div>
+                  <code style={{ fontSize: 11, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{webhookUrl}</code>
+                </div>
+              )}
+
+              {webhooksLoading ? (
+                <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <Loader2 size={20} className="spinning" style={{ margin: '0 auto 8px' }} />
+                  <div style={{ fontSize: 13 }}>Trendyol'dan webhook listesi alınıyor...</div>
+                </div>
+              ) : webhooks.length === 0 ? (
+                <div style={{ padding: '20px 0', textAlign: 'center' }}>
+                  <Zap size={36} style={{ margin: '0 auto 12px', opacity: 0.25 }} />
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                    Henüz kayıtlı webhook yok. Aşağıdaki butona basarak otomatik kurulum yapabilirsiniz.
+                  </p>
+                  <button
+                    className="btn btn-primary"
+                    disabled={webhookCreating}
+                    onClick={() => handleCreateWebhook(webhookModal)}
+                  >
+                    <Zap size={15} /> {webhookCreating ? 'Kuruluyor...' : 'Webhook Kur'}
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{webhooks.length} webhook kayıtlı</span>
+                    {webhooks.length < 15 && (
+                      <button className="btn btn-secondary btn-sm" disabled={webhookCreating} onClick={() => handleCreateWebhook(webhookModal)}>
+                        <Plus size={13} /> {webhookCreating ? 'Ekleniyor...' : 'Yeni Ekle'}
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {webhooks.map(wh => (
+                      <div key={wh.id} style={{ padding: '12px 14px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                              <span style={{
+                                fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                                background: wh.status === 'ACTIVE' ? 'rgba(16,185,129,0.1)' : 'rgba(107,114,128,0.1)',
+                                color: wh.status === 'ACTIVE' ? 'var(--success)' : 'var(--text-muted)',
+                              }}>
+                                {wh.status === 'ACTIVE' ? '● Aktif' : '○ Pasif'}
+                              </span>
+                              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{wh.authenticationType}</span>
+                            </div>
+                            <code style={{ fontSize: 11, color: 'var(--text-secondary)', wordBreak: 'break-all', display: 'block', marginBottom: 4 }}>{wh.url}</code>
+                            {wh.subscribedStatuses?.length > 0 && (
+                              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                {wh.subscribedStatuses.length === 13 ? 'Tüm olaylar' : wh.subscribedStatuses.join(', ')}
+                              </div>
+                            )}
+                          </div>
+                          <button className="btn btn-danger btn-sm" style={{ flexShrink: 0 }} onClick={() => handleDeleteWebhook(webhookModal, wh.id)}>
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setWebhookModal(null)}>Kapat</button>
+            </div>
           </div>
         </div>
       )}

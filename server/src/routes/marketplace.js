@@ -1636,6 +1636,62 @@ router.get('/trendyol-api-logs', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+// GET /connections/:id/webhooks — list webhooks registered on Trendyol for this connection
+router.get('/connections/:id/webhooks', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const connection = await prisma.marketplaceConnection.findFirst({ where: { id: req.params.id, storeId: store.id } });
+    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+    const service = new TrendyolService(connection);
+    const data = await service.listWebhooks();
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+// POST /connections/:id/webhooks — register our webhook URL on Trendyol
+router.post('/connections/:id/webhooks', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const connection = await prisma.marketplaceConnection.findFirst({ where: { id: req.params.id, storeId: store.id } });
+    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+
+    const { subscribedStatuses } = req.body;
+    const baseUrl = process.env.API_BASE_URL || process.env.BASE_URL || 'https://api.modulpos.com';
+    const webhookUrl = `${baseUrl}/api/webhooks/trendyol`;
+
+    // Generate a unique API key for this connection's webhook
+    const { randomUUID } = require('crypto');
+    const webhookApiKey = randomUUID().replace(/-/g, '');
+
+    const service = new TrendyolService(connection);
+    const result = await service.createWebhook(webhookUrl, subscribedStatuses || [], webhookApiKey);
+
+    // Persist the apiKey so the webhook handler can verify requests
+    const existingConfig = connection.config ? JSON.parse(connection.config) : {};
+    await prisma.marketplaceConnection.update({
+      where: { id: connection.id },
+      data: { config: JSON.stringify({ ...existingConfig, webhookApiKey }) }
+    });
+
+    res.json({ id: result.id, webhookUrl, webhookApiKey });
+  } catch (error) { next(error); }
+});
+
+// DELETE /connections/:id/webhooks/:webhookId — remove a webhook from Trendyol
+router.delete('/connections/:id/webhooks/:webhookId', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const connection = await prisma.marketplaceConnection.findFirst({ where: { id: req.params.id, storeId: store.id } });
+    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+    const service = new TrendyolService(connection);
+    await service.deleteWebhook(req.params.webhookId);
+    res.json({ success: true });
+  } catch (error) { next(error); }
+});
+
 // GET /marketplace/webhook-events — paginated webhook event history for this store
 router.get('/webhook-events', async (req, res, next) => {
   try {
