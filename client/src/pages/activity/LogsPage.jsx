@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Activity, AlertCircle, Info, Clock, AlertTriangle, ChevronDown, ChevronRight, CheckCircle, XCircle, Zap, Copy } from 'lucide-react';
+import { Activity, AlertCircle, Info, Clock, AlertTriangle, ChevronDown, ChevronRight, CheckCircle, XCircle, Zap } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -26,12 +26,11 @@ export default function LogsPage() {
   const [webhookPage, setWebhookPage] = useState(1);
   const [webhookTotal, setWebhookTotal] = useState(0);
   const [webhookTotalPages, setWebhookTotalPages] = useState(1);
-  const [webhookUrl, setWebhookUrl] = useState('');
   const [expandedWebhookId, setExpandedWebhookId] = useState(null);
 
   useEffect(() => { fetchLogs(); fetchConnections(); }, []);
   useEffect(() => { if (activeTab === 'trendyol') fetchApiLogs(); }, [activeTab, apiPage, filterConn]);
-  useEffect(() => { if (activeTab === 'webhook') { fetchWebhookEvents(); fetchWebhookUrl(); } }, [activeTab, webhookPage]);
+  useEffect(() => { if (activeTab === 'webhook') { fetchWebhookEvents(); } }, [activeTab, webhookPage]);
 
   const fetchLogs = async () => {
     try {
@@ -72,13 +71,6 @@ export default function LogsPage() {
     finally { setWebhookLoading(false); }
   };
 
-  const fetchWebhookUrl = async () => {
-    if (webhookUrl) return;
-    try {
-      const res = await api.get('/marketplace/webhook-url');
-      setWebhookUrl(res.data.webhookUrl);
-    } catch {}
-  };
 
   const getLevelIcon = (level) => {
     if (level === 'ERROR') return <AlertCircle size={15} style={{ color: 'var(--danger)' }} />;
@@ -323,26 +315,6 @@ export default function LogsPage() {
       {/* ── Webhook Events ── */}
       {activeTab === 'webhook' && (
         <div>
-          {/* Webhook URL info box */}
-          {webhookUrl && (
-            <div className="card" style={{ padding: '14px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
-              <Zap size={16} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
-                  Trendyol Webhook URL'si — Seller Panel → Entegrasyon Ayarları'na girin
-                </div>
-                <code style={{ fontSize: 12, color: 'var(--accent-primary)', wordBreak: 'break-all' }}>{webhookUrl}</code>
-              </div>
-              <button
-                className="btn btn-secondary btn-sm"
-                style={{ flexShrink: 0 }}
-                onClick={() => { navigator.clipboard.writeText(webhookUrl); toast.success('Kopyalandı'); }}
-              >
-                <Copy size={13} style={{ marginRight: 4 }} />
-                Kopyala
-              </button>
-            </div>
-          )}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
             <span style={{ fontSize: 13, color: 'var(--text-secondary)', marginLeft: 'auto' }}>
