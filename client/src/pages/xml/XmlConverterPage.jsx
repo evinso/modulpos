@@ -1,22 +1,53 @@
 import { useState, useEffect } from 'react';
-import { ArrowRight, Download, Copy, RefreshCw, CheckCircle, AlertCircle, Zap, Globe, FileCode2, Link2, Wallet, Info } from 'lucide-react';
+import { ArrowRight, Download, Copy, RefreshCw, CheckCircle, AlertCircle, Zap, Globe, FileCode2, Link2, Wallet, Info, Trash2, History } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://api.modulpos.com/api';
+const HISTORY_KEY = 'xmlConverterHistory';
+const MAX_HISTORY = 50;
 
 export default function XmlConverterPage() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState(null);
+  const [history, setHistory] = useState([]);
 
   const [balance, setBalance] = useState(null);
   const [convertCost, setConvertCost] = useState(1);
 
   useEffect(() => {
     fetchCreditInfo();
+    try {
+      const saved = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+      setHistory(saved);
+    } catch {}
   }, []);
+
+  const addToHistory = (originalUrl, proxyUrl, productCount) => {
+    const entry = { originalUrl, proxyUrl, productCount, date: new Date().toISOString() };
+    setHistory(prev => {
+      const filtered = prev.filter(h => h.originalUrl !== originalUrl);
+      const next = [entry, ...filtered].slice(0, MAX_HISTORY);
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const removeFromHistory = (originalUrl) => {
+    setHistory(prev => {
+      const next = prev.filter(h => h.originalUrl !== originalUrl);
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const clearHistory = () => {
+    setHistory([]);
+    try { localStorage.removeItem(HISTORY_KEY); } catch {}
+  };
 
   const fetchCreditInfo = async () => {
     try {
@@ -51,6 +82,7 @@ export default function XmlConverterPage() {
         setBalance(prev => prev !== null ? Math.max(0, prev - convertCost) : null);
         toast.success(`${res.data.totalProducts} ürün dönüştürüldü! (${convertCost} kredi kullanıldı)`);
         fetchCreditInfo();
+        addToHistory(url, `${API_BASE}/xml-converter/proxy?url=${encodeURIComponent(url)}`, res.data.totalProducts);
       }
     } catch (err) {
       const msg = err.response?.data?.error || 'Dönüştürme hatası';
@@ -256,6 +288,78 @@ export default function XmlConverterPage() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* Conversion History */}
+      {history.length > 0 && (
+        <div className="card" style={{ marginTop: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <History size={18} style={{ color: 'var(--accent-primary)' }} />
+              Dönüştürme Geçmişi ({history.length})
+            </h3>
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: 12, padding: '4px 10px' }}
+              onClick={() => { if (window.confirm('Tüm geçmiş silinsin mi?')) clearHistory(); }}
+            >
+              <Trash2 size={13} /> Temizle
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {history.map((h, i) => (
+              <div key={i} style={{
+                padding: '12px 16px', borderRadius: 'var(--radius-sm)',
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                display: 'flex', alignItems: 'center', gap: 12
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>{new Date(h.date).toLocaleString('tr-TR')}</span>
+                    <span className="badge badge-success" style={{ fontSize: 10 }}>{h.productCount} ürün</span>
+                  </div>
+                  <div style={{
+                    fontSize: 12, fontFamily: 'monospace', color: 'var(--accent-primary)',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                  }} title={h.proxyUrl}>
+                    {h.proxyUrl}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.originalUrl}>
+                    ↳ {h.originalUrl}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: 12, padding: '5px 10px' }}
+                    onClick={() => {
+                      navigator.clipboard.writeText(h.proxyUrl);
+                      setCopiedIndex(i);
+                      toast.success('Kopyalandı!');
+                      setTimeout(() => setCopiedIndex(null), 2000);
+                    }}
+                  >
+                    {copiedIndex === i ? <CheckCircle size={13} /> : <Copy size={13} />}
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: 12, padding: '5px 10px' }}
+                    onClick={() => { setUrl(h.originalUrl); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  >
+                    <RefreshCw size={13} />
+                  </button>
+                  <button
+                    className="btn btn-danger"
+                    style={{ fontSize: 12, padding: '5px 10px' }}
+                    onClick={() => removeFromHistory(h.originalUrl)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
