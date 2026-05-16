@@ -1,6 +1,7 @@
 const express = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
 const { auth } = require('../middleware/auth');
+const { getSetting } = require('./credits');
 const staticCategories = require('../data/trendyolCategories');
 
 const router = express.Router();
@@ -42,8 +43,8 @@ router.post('/category-match', async (req, res, next) => {
       return res.status(400).json({ error: 'En fazla 200 kategori gönderilebilir' });
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY ayarlanmamış' });
+    const apiKey = await getSetting('anthropic_api_key', process.env.ANTHROPIC_API_KEY || '');
+    if (!apiKey) return res.status(500).json({ error: 'Anthropic API Key ayarlanmamış. Superadmin → Genel Ayarlar sayfasından ekleyin.' });
 
     const leaves = getLeaves();
     const categoryList = leaves.map(l => `${l.id}|${l.path}`).join('\n');

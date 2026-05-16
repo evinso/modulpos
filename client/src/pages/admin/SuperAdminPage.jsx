@@ -50,7 +50,7 @@ export default function SuperAdminPage() {
     footer_copyright: `© ${new Date().getFullYear()} ModulPOS. Tüm hakları saklıdır.`
   });
 
-  const [generalSettings, setGeneralSettings] = useState({ trial_days: '3' });
+  const [generalSettings, setGeneralSettings] = useState({ trial_days: '3', anthropic_api_key: '' });
   const [whatsappSettings, setWhatsappSettings] = useState({
     whatsapp_enabled: 'false',
     whatsapp_token: '',
@@ -148,9 +148,10 @@ export default function SuperAdminPage() {
         const res = await api.get(`/admin/support-tickets${params}`);
         setSupportTickets(res.data);
       } else if (activeTab === 'settings') {
-        const settingsRes = await api.get('/admin/system-settings?keys=trial_days,whatsapp_enabled,whatsapp_token,whatsapp_phone,whatsapp_events');
+        const settingsRes = await api.get('/admin/system-settings?keys=trial_days,anthropic_api_key,whatsapp_enabled,whatsapp_token,whatsapp_phone,whatsapp_events');
         setGeneralSettings({
           trial_days: settingsRes.data.trial_days || '3',
+          anthropic_api_key: settingsRes.data.anthropic_api_key || '',
         });
         setWhatsappSettings({
           whatsapp_enabled: settingsRes.data.whatsapp_enabled || 'false',
@@ -175,6 +176,7 @@ export default function SuperAdminPage() {
     try {
       await api.post('/admin/system-settings', {
         trial_days: generalSettings.trial_days,
+        anthropic_api_key: generalSettings.anthropic_api_key,
       });
       toast.success('Genel ayarlar kaydedildi');
     } catch {
@@ -1425,6 +1427,19 @@ export default function SuperAdminPage() {
                     />
                     <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 6 }}>
                       Yeni üye olan kullanıcılara otomatik verilen ücretsiz deneme süresi. 0 girersen deneme verilmez.
+                    </span>
+                  </div>
+                  <div className="form-group" style={{ marginTop: 16 }}>
+                    <label className="form-label">🤖 Anthropic (Claude) API Key</label>
+                    <input
+                      type="password"
+                      className="form-input"
+                      placeholder="sk-ant-..."
+                      value={generalSettings.anthropic_api_key}
+                      onChange={e => setGeneralSettings({ ...generalSettings, anthropic_api_key: e.target.value })}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 6 }}>
+                      Kategori eşleştirme AI özelliği için kullanılır. Boş bırakılırsa ortam değişkeni (ANTHROPIC_API_KEY) kullanılır.
                     </span>
                   </div>
                   <div style={{ textAlign: 'right', marginTop: 8 }}>
