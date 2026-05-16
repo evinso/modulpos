@@ -189,7 +189,14 @@ export default function CategoryMappingPage() {
     try {
       const res = await api.post('/ai/category-match', { xmlCategories: unmapped });
       const matches = res.data.matches || {};
+      const aiMatched = Object.values(matches).filter(Boolean).length;
+      if (aiMatched === 0) {
+        toast.error(`AI hiçbir kategori eşleştiremedi. Kategori isimleri Trendyol'daki kategorilerle çok farklı olabilir.`);
+        setAiMatching(false);
+        return;
+      }
       let added = 0;
+      let saveErrors = 0;
       for (const [cat, match] of Object.entries(matches)) {
         if (!match) continue;
         try {
@@ -200,11 +207,18 @@ export default function CategoryMappingPage() {
             attributes: {}
           });
           added++;
-        } catch {}
+        } catch (saveErr) {
+          saveErrors++;
+          console.error('[AI Save Error]', cat, saveErr?.response?.data || saveErr.message);
+        }
       }
       const mapRes = await api.get(`/marketplace/connections/${selectedConn.id}/category-mappings`);
       setMappings(mapRes.data);
-      toast.success(`${added} / ${unmapped.length} kategori otomatik eşleştirildi.`);
+      if (saveErrors > 0) {
+        toast.error(`${added} kaydedildi, ${saveErrors} kaydedilemedi. Konsola bakın.`);
+      } else {
+        toast.success(`${added} / ${unmapped.length} kategori otomatik eşleştirildi.`);
+      }
     } catch (err) {
       toast.error('AI eşleştirme hatası: ' + (err.response?.data?.error || err.message));
     } finally {

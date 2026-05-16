@@ -113,13 +113,17 @@ JSON formatı:
   if (!text) throw new Error('Boş yanıt');
 
   console.log('[AI] stop_reason:', message.stop_reason, '| response length:', text.length);
+  console.log('[AI] Claude yanıtı (ilk 500):', text.substring(0, 500));
 
   if (message.stop_reason === 'max_tokens') {
     console.error('[AI] Yanıt max_tokens limitinde kesildi. Batch boyutu düşürülmeli.');
     throw new Error('Yanıt çok uzun, daha az kategori gönderin');
   }
 
-  return extractJson(text);
+  const parsed = extractJson(text);
+  const nonNull = Object.values(parsed.matches || {}).filter(Boolean).length;
+  console.log(`[AI] Batch sonuç: ${nonNull}/${Object.keys(parsed.matches || {}).length} eşleşti`);
+  return parsed;
 }
 
 // POST /api/ai/category-match
@@ -164,9 +168,12 @@ router.post('/category-match', async (req, res, next) => {
     const enriched = {};
     for (const [cat, match] of Object.entries(allMatches)) {
       if (!match) { enriched[cat] = null; continue; }
-      const leaf = leafById.get(match.id);
+      // Claude bazen string ID döndürebilir, Number'a çevir
+      const leaf = leafById.get(Number(match.id)) || leafById.get(match.id);
       enriched[cat] = leaf ? { id: leaf.id, name: leaf.name, path: leaf.path } : null;
     }
+    const matchedCount = Object.values(enriched).filter(Boolean).length;
+    console.log(`[AI] Enriched: ${matchedCount}/${Object.keys(enriched).length} eşleşti`);
 
     res.json({ matches: enriched });
   } catch (error) {
