@@ -20,55 +20,22 @@ function flattenLeaves(categories, parentPath = '') {
   return leaves;
 }
 
-let cachedLeaves = null;
-function getLeaves() {
-  if (!cachedLeaves) {
+let cachedData = null;
+function getCategoryData() {
+  if (!cachedData) {
     const root = staticCategories.categories || staticCategories;
-    cachedLeaves = flattenLeaves(Array.isArray(root) ? root : [root]);
+    const topLevel = Array.isArray(root) ? root : [root];
+    const allLeaves = flattenLeaves(topLevel);
+    const leafById = new Map(allLeaves.map(l => [l.id, l]));
+    const byTopLevel = {};
+    for (const cat of topLevel) {
+      byTopLevel[cat.id] = { id: cat.id, name: cat.name, leaves: flattenLeaves([cat]) };
+    }
+    cachedData = { topLevel, allLeaves, leafById, byTopLevel };
   }
-  return cachedLeaves;
+  return cachedData;
 }
 
-// Her XML kategorisi için anahtar kelime eşleşmesine göre en alakalı Trendyol adaylarını bul
-function findCandidates(xmlCategories, leaves) {
-  // Tüm XML kategorilerinden benzersiz kelimeleri çıkar
-  const allWords = new Set();
-  for (const cat of xmlCategories) {
-    cat.toLowerCase()
-      .split(/[\s>\/,&\-_\(\)]+/)
-      .filter(w => w.length > 2)
-      .forEach(w => allWords.add(w));
-  }
-
-  if (allWords.size === 0) return leaves.slice(0, 200);
-
-  // Her Trendyol yaprağını puanla
-  const scored = [];
-  for (const leaf of leaves) {
-    const lpath = leaf.path.toLowerCase();
-    let score = 0;
-    for (const word of allWords) {
-      if (lpath.includes(word)) score++;
-    }
-    if (score > 0) scored.push({ leaf, score });
-  }
-
-  scored.sort((a, b) => b.score - a.score);
-
-  // En fazla 250 aday — yeterliyse bunları kullan, yoksa genel listeden tamamla
-  const candidates = scored.slice(0, 250).map(x => x.leaf);
-  if (candidates.length < 30) {
-    // Hiç eşleşme yoksa ilk 200 kategoriyi fallback olarak kullan
-    const existing = new Set(candidates.map(c => c.id));
-    for (const leaf of leaves) {
-      if (!existing.has(leaf.id)) candidates.push(leaf);
-      if (candidates.length >= 200) break;
-    }
-  }
-  return candidates;
-}
-
-// Claude'dan JSON yanıtını güvenilir şekilde çıkar
 function extractJson(text) {
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
@@ -76,9 +43,52 @@ function extractJson(text) {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-// Tek bir batch (≤30 kategori) için Claude'u çağır
-async function matchBatch(client, xmlBatch, candidates) {
-  const categoryList = candidates.map(l => `${l.id}|${l.path}`).join('\n');
+// Step 1: Map XML categories to one of 16 top-level Trendyol categories
+async function mapToTopLevel(client, xmlCategories, topLevel) {
+  const catList = topLevel.map(c => `${c.id}|${c.name}`).join('\n');
+
+  const message = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 4096,
+    system: `Sen bir e-ticaret kategori eşleştirme asistanısın. Cevabını SADECE geçerli JSON olarak ver, başka hiçbir şey yazma.`,
+    messages: [{
+      role: 'user',
+      content: `XML kategorilerini aşağıdaki Trendyol ANA kategorilerinden biriyle eşleştir.
+
+XML Kategorileri:
+${xmlCategories.map(c => `- ${c}`).join('\n')}
+
+Trendyol Ana Kategorileri (format: id|ad):
+${catList}
+
+Kurallar:
+- Her XML kategorisi için en uygun ana kategori ID'sini seç (listedeki ID'lerden biri olmalı)
+- Hiç uymuyorsa null döndür
+- Sadece JSON döndür, açıklama yazma
+
+JSON formatı:
+{
+  "mappings": {
+    "XML Kategori Adı": 1234,
+    "Uymayan Kategori": null
+  }
+}`
+    }],
+  });
+
+  const text = message.content[0]?.text?.trim() || '';
+  if (!text) throw new Error('Step-1 boş yanıt');
+  console.log('[AI] Step-1 stop_reason:', message.stop_reason, '| length:', text.length);
+  const parsed = extractJson(text);
+  const mappings = parsed.mappings || {};
+  const matched = Object.values(mappings).filter(Boolean).length;
+  console.log(`[AI] Step-1: ${matched}/${Object.keys(mappings).length} ana kategori eşleşti`);
+  return mappings;
+}
+
+// Step 2: Match XML categories to a specific leaf within a top-level subtree
+async function matchInSubtree(client, xmlBatch, leaves) {
+  const categoryList = leaves.map(l => `${l.id}|${l.path}`).join('\n');
 
   const message = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
@@ -110,19 +120,16 @@ JSON formatı:
   });
 
   const text = message.content[0]?.text?.trim() || '';
-  if (!text) throw new Error('Boş yanıt');
-
-  console.log('[AI] stop_reason:', message.stop_reason, '| response length:', text.length);
-  console.log('[AI] Claude yanıtı (ilk 500):', text.substring(0, 500));
+  if (!text) throw new Error('Step-2 boş yanıt');
+  console.log('[AI] Step-2 stop_reason:', message.stop_reason, '| length:', text.length);
 
   if (message.stop_reason === 'max_tokens') {
-    console.error('[AI] Yanıt max_tokens limitinde kesildi. Batch boyutu düşürülmeli.');
     throw new Error('Yanıt çok uzun, daha az kategori gönderin');
   }
 
   const parsed = extractJson(text);
   const nonNull = Object.values(parsed.matches || {}).filter(Boolean).length;
-  console.log(`[AI] Batch sonuç: ${nonNull}/${Object.keys(parsed.matches || {}).length} eşleşti`);
+  console.log(`[AI] Step-2 batch: ${nonNull}/${Object.keys(parsed.matches || {}).length} eşleşti`);
   return parsed;
 }
 
@@ -140,7 +147,6 @@ router.post('/category-match', async (req, res, next) => {
     const apiKey = await getSetting('anthropic_api_key', process.env.ANTHROPIC_API_KEY || '');
     if (!apiKey) return res.status(500).json({ error: 'Anthropic API Key ayarlanmamış. Superadmin → Genel Ayarlar sayfasından ekleyin.' });
 
-    // Kredi kontrolü ve düşme
     const costPerCat = parseFloat(await getSetting('credit_category_ai', '0.5'));
     const totalCost = parseFloat((costPerCat * xmlCategories.length).toFixed(2));
     if (totalCost > 0) {
@@ -156,40 +162,74 @@ router.post('/category-match', async (req, res, next) => {
       }
     }
 
-    const leaves = getLeaves();
-    const candidates = findCandidates(xmlCategories, leaves);
-    const leafById = new Map(leaves.map(l => [l.id, l]));
-
-    console.log(`[AI] XML kategoriler: ${xmlCategories.length}, Trendyol adaylar: ${candidates.length}`);
+    const { topLevel, leafById, byTopLevel } = getCategoryData();
+    console.log(`[AI] XML kategoriler: ${xmlCategories.length}, top-level: ${topLevel.length}`);
 
     const client = new Anthropic({ apiKey });
 
-    // 30'ar kategoriden oluşan batch'ler halinde işle
-    const BATCH_SIZE = 30;
-    const allMatches = {};
+    // Step 1: Map all XML categories to a top-level Trendyol category
+    const STEP1_BATCH = 60; // 60 cats per step-1 call (output is small)
+    const topLevelMappings = {};
 
-    for (let i = 0; i < xmlCategories.length; i += BATCH_SIZE) {
-      const batch = xmlCategories.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < xmlCategories.length; i += STEP1_BATCH) {
+      const batch = xmlCategories.slice(i, i + STEP1_BATCH);
       try {
-        const result = await matchBatch(client, batch, candidates);
-        Object.assign(allMatches, result.matches || {});
+        const result = await mapToTopLevel(client, batch, topLevel);
+        Object.assign(topLevelMappings, result);
       } catch (err) {
-        console.error(`[AI] Batch ${i}-${i + BATCH_SIZE} hatası:`, err.message);
-        // Bu batch için null döndür, diğerlerine devam et
-        for (const cat of batch) allMatches[cat] = null;
+        console.error('[AI] Step-1 batch hatası:', err.message);
+        for (const cat of batch) topLevelMappings[cat] = null;
       }
     }
 
-    // ID'leri doğrula ve tam leaf verisini ekle
+    // Group XML categories by their top-level match
+    const groupedByTopLevel = {};
+    const unmatchedTop = [];
+
+    for (const xmlCat of xmlCategories) {
+      const topId = Number(topLevelMappings[xmlCat]);
+      if (!topId || !byTopLevel[topId]) {
+        unmatchedTop.push(xmlCat);
+      } else {
+        if (!groupedByTopLevel[topId]) groupedByTopLevel[topId] = [];
+        groupedByTopLevel[topId].push(xmlCat);
+      }
+    }
+
+    console.log(`[AI] Gruplar: ${Object.keys(groupedByTopLevel).length} ana kategori, ${unmatchedTop.length} eşleşmedi`);
+
+    // Step 2: For each group, find the specific leaf within that subtree
+    const STEP2_BATCH = 30;
+    const allMatches = {};
+
+    for (const cat of unmatchedTop) allMatches[cat] = null;
+
+    for (const [topId, xmlCats] of Object.entries(groupedByTopLevel)) {
+      const subtreeLeaves = byTopLevel[Number(topId)]?.leaves || [];
+      console.log(`[AI] Step-2: "${byTopLevel[Number(topId)]?.name}" → ${xmlCats.length} XML kat, ${subtreeLeaves.length} yaprak`);
+
+      for (let i = 0; i < xmlCats.length; i += STEP2_BATCH) {
+        const batch = xmlCats.slice(i, i + STEP2_BATCH);
+        try {
+          const result = await matchInSubtree(client, batch, subtreeLeaves);
+          Object.assign(allMatches, result.matches || {});
+        } catch (err) {
+          console.error(`[AI] Step-2 batch hatası (topId=${topId}):`, err.message);
+          for (const cat of batch) allMatches[cat] = null;
+        }
+      }
+    }
+
+    // Validate IDs against leafById
     const enriched = {};
     for (const [cat, match] of Object.entries(allMatches)) {
       if (!match) { enriched[cat] = null; continue; }
-      // Claude bazen string ID döndürebilir, Number'a çevir
       const leaf = leafById.get(Number(match.id)) || leafById.get(match.id);
       enriched[cat] = leaf ? { id: leaf.id, name: leaf.name, path: leaf.path } : null;
     }
+
     const matchedCount = Object.values(enriched).filter(Boolean).length;
-    console.log(`[AI] Enriched: ${matchedCount}/${Object.keys(enriched).length} eşleşti`);
+    console.log(`[AI] Final: ${matchedCount}/${Object.keys(enriched).length} eşleşti`);
 
     res.json({ matches: enriched });
   } catch (error) {
