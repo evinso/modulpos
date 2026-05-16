@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowRight, Search, Check, Trash2, ChevronRight, ChevronDown, Loader2, Link2, AlertCircle, FolderTree, Wand2 } from 'lucide-react';
+import { ArrowRight, Search, Check, Loader2, Link2, AlertCircle, FolderTree, Wand2 } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -210,14 +210,6 @@ export default function CategoryMappingPage() {
     } finally {
       setAiMatching(false);
     }
-  };
-
-  const handleDeleteMapping = async (id) => {
-    try {
-      await api.delete(`/marketplace/category-mappings/${id}`);
-      toast.success('Eşleştirme silindi');
-      setMappings(prev => prev.filter(m => m.id !== id));
-    } catch { toast.error('Silme hatası'); }
   };
 
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
@@ -479,102 +471,6 @@ export default function CategoryMappingPage() {
         );
       })()}
 
-      {/* Existing Mappings */}
-      {!isGlobalXml && (
-        <>
-          <div className="table-container">
-          <div className="table-header">
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FolderTree size={18} style={{ color: 'var(--accent-secondary)' }} />
-            Eşleştirmeler ({mappings.length})
-          </h3>
-        </div>
-
-        {mappings.length === 0 ? (
-          <div className="empty-state">
-            <FolderTree size={40} className="empty-icon" />
-            <h3>Henüz eşleştirme yok</h3>
-            <p>Yukarıdaki formdan yerel kategorilerinizi Trendyol kategorileriyle eşleştirin</p>
-          </div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Yerel Kategori</th>
-                <th></th>
-                <th>Trendyol Kategorisi</th>
-                <th style={{ width: 60 }}>İşlem</th>
-              </tr>
-            </thead>
-            <tbody>
-              {mappings.map(m => (
-                <tr key={m.id}>
-                  <td>
-                    <span className="badge badge-info" style={{ fontSize: 13, padding: '5px 12px' }}>{m.localCategory}</span>
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <ArrowRight size={16} style={{ color: 'var(--text-muted)' }} />
-                  </td>
-                  <td>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{m.marketplaceCategoryName || m.marketplaceCategoryId}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>ID: {m.marketplaceCategoryId}</div>
-                    {m.attributes && m.attributes !== '{}' && (
-                      <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {Object.values(JSON.parse(m.attributes)).map((attr, idx) => (
-                          <span key={idx} style={{ 
-                            fontSize: 10, padding: '2px 6px', background: 'var(--bg-secondary)', 
-                            borderRadius: 4, border: '1px solid var(--border-color)', color: 'var(--text-secondary)'
-                          }}>
-                            {attr.name}: {attr.valueName || attr.valueId}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </td>
-                  <td>
-                    <button className="btn btn-danger btn-sm" onClick={() => handleDeleteMapping(m.id)}>
-                      <Trash2 size={14} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Unmapped categories warning */}
-      {localCategories.length > 0 && (() => {
-        const unmapped = localCategories.filter(c => !mappedLookup[c]);
-        if (unmapped.length === 0) return null;
-        return (
-          <div style={{
-            marginTop: 20, padding: 16, borderRadius: 'var(--radius)',
-            background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <AlertCircle size={16} style={{ color: 'var(--warning)' }} />
-              <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--warning)' }}>
-                Eşleştirilmemiş Kategoriler ({unmapped.length})
-              </span>
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {unmapped.map(c => (
-                <button
-                  key={c}
-                  onClick={() => setSelectedLocal(c)}
-                  className="badge badge-warning"
-                  style={{ cursor: 'pointer', border: 'none', fontSize: 12, fontFamily: 'inherit' }}
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
-        </>
-      )}
     </div>
   );
 }
