@@ -28,8 +28,13 @@ export default function CategoryMappingPage() {
   // XML Source Filter
   const [xmlSources, setXmlSources] = useState([]);
   const [filterXmlSource, setFilterXmlSource] = useState('');
+  const [categoryAiCost, setCategoryAiCost] = useState(0.5);
 
-  useEffect(() => { fetchConnections(); fetchXmlSources(); }, []);
+  useEffect(() => {
+    fetchConnections();
+    fetchXmlSources();
+    api.get('/credits/prices').then(r => setCategoryAiCost(r.data.categoryAiCost ?? 0.5)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (selectedConn) fetchLocalCategories();
@@ -308,7 +313,7 @@ export default function CategoryMappingPage() {
                 style={{ display: 'flex', alignItems: 'center', gap: 6 }}
               >
                 {aiMatching ? <Loader2 size={14} className="spinning" /> : <Wand2 size={14} />}
-                {aiMatching ? 'AI Eşleştiriyor...' : 'AI ile Otomatik Eşleştir'}
+                {aiMatching ? 'AI Eşleştiriyor...' : `AI ile Otomatik Eşleştir${categoryAiCost > 0 ? ` (${categoryAiCost} kredi/kategori)` : ''}`}
               </button>
             </div>
 

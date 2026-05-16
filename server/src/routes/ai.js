@@ -1,7 +1,7 @@
 const express = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
 const { auth } = require('../middleware/auth');
-const { getSetting } = require('./credits');
+const { getSetting, deductCredits } = require('./credits');
 const staticCategories = require('../data/trendyolCategories');
 
 const router = express.Router();
@@ -139,6 +139,22 @@ router.post('/category-match', async (req, res, next) => {
 
     const apiKey = await getSetting('anthropic_api_key', process.env.ANTHROPIC_API_KEY || '');
     if (!apiKey) return res.status(500).json({ error: 'Anthropic API Key ayarlanmamış. Superadmin → Genel Ayarlar sayfasından ekleyin.' });
+
+    // Kredi kontrolü ve düşme
+    const costPerCat = parseFloat(await getSetting('credit_category_ai', '0.5'));
+    const totalCost = parseFloat((costPerCat * xmlCategories.length).toFixed(2));
+    if (totalCost > 0) {
+      try {
+        await deductCredits(
+          req.user.id,
+          totalCost,
+          'category_ai',
+          `AI Kategori Eşleştirme: ${xmlCategories.length} kategori × ${costPerCat} kredi`
+        );
+      } catch (creditErr) {
+        return res.status(402).json({ error: creditErr.message });
+      }
+    }
 
     const leaves = getLeaves();
     const candidates = findCandidates(xmlCategories, leaves);
