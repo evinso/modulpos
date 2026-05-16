@@ -85,6 +85,12 @@ async function analyzeXml(url) {
     throw new Error(`XML parse hatası: ${parseErr.message}. URL geçerli bir XML dosyasına işaret etmiyor olabilir.`);
   }
 
+  // XML Converter proxy hata yapısını tanı
+  if (parsed?.XmlConverterError) {
+    const msg = parsed.XmlConverterError?.message || 'Bilinmeyen hata';
+    return { success: false, error: `XML dönüştürücü hatası: ${msg}. Orijinal XML kaynağı erişilemiyor olabilir — XML Converter sayfasından yeni bir link oluşturun.` };
+  }
+
   // Ürün dizisini bul
   const { rawProducts, productPath } = findProductArray(parsed);
 

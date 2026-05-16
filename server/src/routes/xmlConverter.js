@@ -280,7 +280,10 @@ router.get('/proxy', async (req, res) => {
     res.set('Cache-Control', 'no-cache');
     res.send(xml);
   } catch (err) {
-    res.status(500).set('Content-Type', 'application/xml').send(`<error>${err.message}</error>`);
+    console.error('[Proxy Error] url:', url, '| error:', err.message);
+    // 200 dönüyoruz ki analyze endpoint bu URL'yi fetch ettiğinde axios exception fırlatmasın
+    res.set('Content-Type', 'application/xml; charset=utf-8');
+    res.send(`<?xml version="1.0" encoding="UTF-8"?><XmlConverterError><message>${err.message.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]))}</message></XmlConverterError>`);
   }
 });
 
