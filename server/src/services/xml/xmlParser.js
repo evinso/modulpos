@@ -117,6 +117,7 @@ async function streamProductObjects(url, { maxProducts = 0, responseStream, onPr
     let inProduct = false;
     let stack = []; // [{ name, obj, text }]
     let done = false;
+    const tagDepthCounts = {}; // `${depth}:${name}` → count, for auto-detection
 
     function finish(result) {
       if (done) return;
@@ -145,12 +146,27 @@ async function streamProductObjects(url, { maxProducts = 0, responseStream, onPr
       if (done) return;
       currentDepth++;
 
-      if (!inProduct && PRODUCT_TAGS.has(name)) {
-        if (productTagName === null) {
+      if (!inProduct) {
+        // Count every tag by depth for auto-detection of non-standard product tags
+        const depthKey = `${currentDepth}:${name}`;
+        tagDepthCounts[depthKey] = (tagDepthCounts[depthKey] || 0) + 1;
+
+        if (PRODUCT_TAGS.has(name)) {
+          // Known tag: start collecting from the FIRST occurrence
+          if (productTagName === null) {
+            productTagName = name;
+            productTagDepth = currentDepth;
+          }
+          if (name === productTagName && currentDepth === productTagDepth) {
+            inProduct = true;
+            stack = [{ name, obj: buildAttrObj(attributes), text: '' }];
+            return;
+          }
+        } else if (productTagName === null && tagDepthCounts[depthKey] >= 2 && currentDepth >= 2) {
+          // Auto-detected: any tag that repeats at depth ≥ 2 is treated as product tag.
+          // We start from the 2nd occurrence (first is already gone), so product #1 is skipped.
           productTagName = name;
           productTagDepth = currentDepth;
-        }
-        if (name === productTagName && currentDepth === productTagDepth) {
           inProduct = true;
           stack = [{ name, obj: buildAttrObj(attributes), text: '' }];
           return;
@@ -233,54 +249,32 @@ async function streamProductObjects(url, { maxProducts = 0, responseStream, onPr
 // ─── analyzeXml ──────────────────────────────────────────────────────────────
 
 async function analyzeXml(url) {
-  // Fetch up to 3 MB (prevents OOM on large files; enough for field detection)
-  const rawData = await fetchPartialStream(url);
-  const dataStr = typeof rawData === 'string' ? rawData : String(rawData);
-
-  if (dataStr.trimStart().startsWith('<!DOCTYPE') || dataStr.trimStart().startsWith('<html')) {
+  // Peek at first 512 bytes to detect HTML error pages before committing to SAX
+  const peek = await fetchPartialStream(url);
+  const peekStr = peek.trimStart();
+  if (peekStr.startsWith('<!DOCTYPE') || peekStr.startsWith('<html') || peekStr.startsWith('<HTML')) {
     throw new Error('URL geçerli bir XML döndürmüyor — sunucu HTML sayfası döndürdü. URL\'nin doğrudan XML dosyasına işaret ettiğinden emin olun.');
   }
+  if (peekStr.includes('<XmlConverterError>')) {
+    const m = peekStr.match(/<message>(.*?)<\/message>/s);
+    const msg = m ? m[1] : 'Bilinmeyen hata';
+    return { success: false, error: `XML dönüştürücü hatası: ${msg}` };
+  }
 
-  const parser = new XMLParser({
-    ignoreAttributes: false,
-    attributeNamePrefix: '@_',
-    isArray: (tagName) => {
-      const arrayTags = ['item', 'Urun', 'product', 'Product', 'row', 'entry', 'category', 'product_type', 'filtre', 'resim'];
-      return arrayTags.includes(tagName);
-    },
-    allowBooleanAttributes: true,
-    parseTagValue: false,
-    trimValues: true,
-  });
-
-  let parsed;
+  // Stream first 500 products via SAX — enough for field analysis + category collection.
+  // Auto-detection inside streamProductObjects handles non-standard product tag names.
+  let rawProducts;
   try {
-    parsed = parser.parse(dataStr);
-  } catch (parseErr) {
-    // Truncated XML will throw — try to recover a partial object via SAX
-    try {
-      const { Readable } = require('stream');
-      const readable = Readable.from([Buffer.from(dataStr, 'utf8')]);
-      const products = await streamProductObjects(null, { maxProducts: 10, responseStream: readable });
-      if (products.length === 0) throw new Error('empty');
-      return buildAnalysisFromProducts(products);
-    } catch {
-      throw new Error(`XML parse hatası: ${parseErr.message}. URL geçerli bir XML dosyasına işaret etmiyor olabilir.`);
-    }
+    rawProducts = await streamProductObjects(url, { maxProducts: 500 });
+  } catch (err) {
+    throw new Error(`XML analiz hatası: ${err.message}`);
   }
-
-  if (parsed?.XmlConverterError) {
-    const msg = parsed.XmlConverterError?.message || 'Bilinmeyen hata';
-    return { success: false, error: `XML dönüştürücü hatası: ${msg}. Orijinal XML kaynağı erişilemiyor olabilir — XML Converter sayfasından yeni bir link oluşturun.` };
-  }
-
-  const { rawProducts, productPath } = findProductArray(parsed);
 
   if (!rawProducts || rawProducts.length === 0) {
-    return { success: false, error: 'XML içinde ürün listesi bulunamadı', structure: flattenKeys(parsed) };
+    return { success: false, error: 'XML içinde ürün listesi bulunamadı. Lütfen XML URL\'sinin doğru olduğunu ve geçerli bir ürün listesi içerdiğini kontrol edin.' };
   }
 
-  return buildAnalysisFromProducts(rawProducts, productPath);
+  return buildAnalysisFromProducts(rawProducts);
 }
 
 function buildAnalysisFromProducts(rawProducts, productPath) {
