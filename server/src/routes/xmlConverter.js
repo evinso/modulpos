@@ -1,9 +1,54 @@
 const express = require('express');
-const { XMLBuilder } = require('fast-xml-parser');
+const axios = require('axios');
+const { XMLParser, XMLBuilder } = require('fast-xml-parser');
 const { auth } = require('../middleware/auth');
 const { deductCredits, getSetting } = require('./credits');
 const notificationService = require('../services/notificationService');
 const { streamProductObjects } = require('../services/xml/xmlParser');
+
+const FETCH_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  'Accept': 'application/xml, text/xml, */*'
+};
+
+/** Fallback: download first 5 MB, parse with fast-xml-parser, return raw products array. */
+async function bufferedPreviewProducts(url) {
+  const res = await axios.get(url, {
+    timeout: 60000,
+    maxContentLength: 5 * 1024 * 1024,
+    maxBodyLength: 5 * 1024 * 1024,
+    headers: FETCH_HEADERS,
+    decompress: true,
+  });
+
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '@_',
+    isArray: (name) => ['item','Urun','product','Product','row','entry'].includes(name),
+    allowBooleanAttributes: true,
+    parseTagValue: true,
+    trimValues: true,
+  });
+
+  const parsed = parser.parse(typeof res.data === 'string' ? res.data : String(res.data));
+  const rootKeys = Object.keys(parsed).filter(k => !k.startsWith('?'));
+
+  for (const rootKey of rootKeys) {
+    const root = parsed[rootKey];
+    if (!root || typeof root !== 'object') continue;
+    for (const childKey of Object.keys(root)) {
+      const child = root[childKey];
+      if (Array.isArray(child) && child.length > 0 && typeof child[0] === 'object') return child;
+      if (child && typeof child === 'object') {
+        for (const grandKey of Object.keys(child)) {
+          const grand = child[grandKey];
+          if (Array.isArray(grand) && grand.length > 0 && typeof grand[0] === 'object') return grand;
+        }
+      }
+    }
+  }
+  return [];
+}
 
 const router = express.Router();
 
@@ -132,8 +177,12 @@ router.post('/preview', auth, async (req, res) => {
       }
     }
 
-    // Stream only first 20 products — enough for preview + total count estimation
-    const rawProducts = await streamProductObjects(url, { maxProducts: 20 });
+    // Try SAX streaming first; fall back to buffered parse for non-standard tag names
+    let rawProducts = await streamProductObjects(url, { maxProducts: 20 });
+    if (!rawProducts || rawProducts.length === 0) {
+      console.log('[xml-converter/preview] SAX found 0 products, trying buffered fallback for:', url);
+      rawProducts = await bufferedPreviewProducts(url);
+    }
     if (!rawProducts || rawProducts.length === 0) throw new Error('XML içinde ürün listesi bulunamadı');
 
     const sample = rawProducts.slice(0, 5).map(normalizeProduct);
@@ -152,9 +201,11 @@ router.post('/preview', auth, async (req, res) => {
       convertedUrl: `/api/xml-converter/proxy?url=${encodeURIComponent(url)}`
     });
   } catch (err) {
+    console.error('[xml-converter/preview] error:', err.message, '| url:', req.body?.url);
     let msg = err.message;
-    if (msg.includes('zaman aşımı') || msg.includes('timeout')) msg = 'XML sunucusu zaman aşımına uğradı. Sunucu çok yavaş.';
-    else if (msg.includes('ENOTFOUND')) msg = 'XML sunucusuna ulaşılamadı. URL\'yi kontrol edin.';
+    if (msg.includes('zaman aşımı') || msg.includes('timeout') || err.code === 'ECONNABORTED') msg = 'XML sunucusu zaman aşımına uğradı. Sunucu çok yavaş.';
+    else if (msg.includes('ENOTFOUND') || err.code === 'ENOTFOUND') msg = 'XML sunucusuna ulaşılamadı. URL\'yi kontrol edin.';
+    else if (msg.includes('maxContentLength') || msg.includes('maxBodyLength')) msg = 'XML dosyası çok büyük (5 MB önizleme limiti). Orijinal URL\'yi kullanmayı deneyin.';
     res.status(400).json({ error: msg });
   }
 });
