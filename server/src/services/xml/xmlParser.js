@@ -264,45 +264,46 @@ async function analyzeXml(url) {
     return { success: false, error: `XML dönüştürücü hatası: ${msg}` };
   }
 
-  // Stream first 500 products via SAX — enough for field analysis + category collection.
-  // Auto-detection inside streamProductObjects handles non-standard product tag names.
-  let rawProducts;
+  // Stream full XML via SAX using onProduct callback:
+  // - Keep only first 10 products in memory for field/sample analysis
+  // - Collect ALL unique categories without storing all products
+  // - Count total products accurately
+  const categoryPaths = ['Category', 'category', 'Kategori', 'kategori', 'CategoryName', 'KategoriAdi', 'product_type'];
+  const sampleProducts = [];
+  const uniqueCategories = new Set();
+  let totalCount = 0;
+
   try {
-    rawProducts = await streamProductObjects(url, { maxProducts: 500 });
+    await streamProductObjects(url, {
+      onProduct: (product, index) => {
+        totalCount++;
+        if (index < 10) sampleProducts.push(product);
+        for (const cp of categoryPaths) {
+          const catVal = getNestedValue(product, cp);
+          if (catVal && typeof catVal === 'string') { uniqueCategories.add(catVal.trim()); break; }
+        }
+      }
+    });
   } catch (err) {
     throw new Error(`XML analiz hatası: ${err.message}`);
   }
 
-  if (!rawProducts || rawProducts.length === 0) {
+  if (sampleProducts.length === 0) {
     return { success: false, error: 'XML içinde ürün listesi bulunamadı. Lütfen XML URL\'sinin doğru olduğunu ve geçerli bir ürün listesi içerdiğini kontrol edin.' };
   }
 
-  return buildAnalysisFromProducts(rawProducts);
-}
-
-function buildAnalysisFromProducts(rawProducts, productPath) {
-  const sampleProduct = rawProducts[0];
+  const sampleProduct = sampleProducts[0];
   const fields = extractFields(sampleProduct);
-
-  const sampleData = rawProducts.slice(0, 5).map(p => {
+  const sampleData = sampleProducts.slice(0, 5).map(p => {
     const row = {};
     for (const field of fields) row[field.path] = getNestedValue(p, field.path);
     return row;
   });
 
-  const categoryPaths = ['Category', 'category', 'Kategori', 'kategori', 'CategoryName', 'KategoriAdi', 'product_type'];
-  const uniqueCategories = new Set();
-  for (const p of rawProducts) {
-    for (const cp of categoryPaths) {
-      const catVal = getNestedValue(p, cp);
-      if (catVal && typeof catVal === 'string') { uniqueCategories.add(catVal.trim()); break; }
-    }
-  }
-
   return {
     success: true,
-    totalProducts: rawProducts.length,
-    productPath: productPath || 'streamed',
+    totalProducts: totalCount,
+    productPath: 'streamed',
     fields,
     sampleData,
     sampleProduct,
