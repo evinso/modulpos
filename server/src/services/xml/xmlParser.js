@@ -18,7 +18,7 @@ async function fetchForPreview(url) {
   let res;
   try {
     res = await axios.get(url, {
-      timeout: 120000,
+      timeout: 300000,
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
       headers: HEADERS,
