@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 
 const marketplaceOptions = [
   { value: 'trendyol', label: 'Trendyol', color: '#f27a1a' },
+  { value: 'pazarama', label: 'Pazarama', color: '#1565c0' },
   { value: 'hepsiburada', label: 'Hepsiburada', color: '#ff6000' },
   { value: 'n11', label: 'N11', color: '#7b2d8e' },
   { value: 'ciceksepeti', label: 'Çiçeksepeti', color: '#69b22a' },
