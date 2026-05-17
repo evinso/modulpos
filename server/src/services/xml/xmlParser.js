@@ -242,6 +242,9 @@ async function streamProductObjects(url, { maxProducts = 0, responseStream, onPr
       if (!done) resolve(onProduct ? { count: productCount } : allProducts);
     });
 
+    // Swallow stream-destroy errors — they fire after we call finish() and are expected
+    stream.on('error', () => {});
+
     stream.pipe(saxStream);
   });
 }

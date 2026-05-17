@@ -201,12 +201,14 @@ router.post('/preview', auth, async (req, res) => {
       convertedUrl: `/api/xml-converter/proxy?url=${encodeURIComponent(url)}`
     });
   } catch (err) {
-    console.error('[xml-converter/preview] error:', err.message, '| url:', req.body?.url);
-    let msg = err.message;
-    if (msg.includes('zaman aşımı') || msg.includes('timeout') || err.code === 'ECONNABORTED') msg = 'XML sunucusu zaman aşımına uğradı. Sunucu çok yavaş.';
-    else if (msg.includes('ENOTFOUND') || err.code === 'ENOTFOUND') msg = 'XML sunucusuna ulaşılamadı. URL\'yi kontrol edin.';
-    else if (msg.includes('maxContentLength') || msg.includes('maxBodyLength')) msg = 'XML dosyası çok büyük (5 MB önizleme limiti). Orijinal URL\'yi kullanmayı deneyin.';
-    res.status(400).json({ error: msg });
+    const rawMsg = err.message || String(err);
+    console.error('[xml-converter/preview] error:', rawMsg, '| code:', err.code, '| url:', req.body?.url);
+    let msg = rawMsg;
+    if (rawMsg.includes('timeout') || err.code === 'ECONNABORTED') msg = 'XML sunucusu zaman aşımına uğradı. Sunucu çok yavaş.';
+    else if (err.code === 'ENOTFOUND' || rawMsg.includes('ENOTFOUND')) msg = 'XML sunucusuna ulaşılamadı. URL\'yi kontrol edin.';
+    else if (rawMsg.includes('maxContentLength') || rawMsg.includes('maxBodyLength')) msg = 'XML dosyası çok büyük (5 MB önizleme limiti).';
+    // Pass the raw technical message so the UI can show it for debugging
+    res.status(400).json({ error: msg, detail: rawMsg });
   }
 });
 

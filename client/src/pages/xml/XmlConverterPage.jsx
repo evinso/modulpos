@@ -85,12 +85,14 @@ export default function XmlConverterPage() {
         addToHistory(url, `${API_BASE}/xml-converter/proxy?url=${encodeURIComponent(url)}`, res.data.totalProducts);
       }
     } catch (err) {
-      const msg = err.response?.data?.error || 'Dönüştürme hatası';
+      const data = err.response?.data;
+      const msg = data?.error || 'Dönüştürme hatası';
+      const detail = data?.detail && data.detail !== msg ? ` — ${data.detail}` : '';
       if (err.response?.status === 402) {
         toast.error(msg);
         fetchCreditInfo();
       } else {
-        toast.error(msg);
+        toast.error(msg + detail);
       }
     } finally {
       setLoading(false);
