@@ -7,8 +7,9 @@ const HEADERS = {
   'Accept': 'application/xml, text/xml, */*'
 };
 
-// Tags that are always product-level elements
-const PRODUCT_TAGS = new Set(['item', 'Item', 'Urun', 'urun', 'product', 'Product', 'row', 'Row', 'entry', 'Entry', 'PRODUCT', 'URUN', 'ITEM']);
+// Lowercase product-level tag names — compared with name.toLowerCase() so SAX lax-mode
+// uppercasing doesn't break detection (lax mode forces all tags to UPPERCASE).
+const PRODUCT_TAGS = new Set(['item', 'urun', 'product', 'row', 'entry']);
 
 // Preview cache stores up to PREVIEW_MAX_BYTES of XML per URL (for analyzeXml only)
 const previewCache = new Map();
@@ -145,26 +146,27 @@ async function streamProductObjects(url, { maxProducts = 0, responseStream, onPr
     saxStream.on('opentag', ({ name, attributes }) => {
       if (done) return;
       currentDepth++;
+      const nameLower = name.toLowerCase();
 
       if (!inProduct) {
-        // Count every tag by depth for auto-detection of non-standard product tags
-        const depthKey = `${currentDepth}:${name}`;
+        // Use lowercase key so SAX lax-mode uppercasing doesn't affect detection
+        const depthKey = `${currentDepth}:${nameLower}`;
         tagDepthCounts[depthKey] = (tagDepthCounts[depthKey] || 0) + 1;
 
-        if (PRODUCT_TAGS.has(name)) {
+        if (PRODUCT_TAGS.has(nameLower)) {
           // Known tag: start collecting from the FIRST occurrence
           if (productTagName === null) {
-            productTagName = name;
+            productTagName = name; // keep original case for closetag matching
             productTagDepth = currentDepth;
           }
-          if (name === productTagName && currentDepth === productTagDepth) {
+          if (nameLower === productTagName.toLowerCase() && currentDepth === productTagDepth) {
             inProduct = true;
             stack = [{ name, obj: buildAttrObj(attributes), text: '' }];
             return;
           }
         } else if (productTagName === null && tagDepthCounts[depthKey] >= 2 && currentDepth >= 2) {
-          // Auto-detected: any tag that repeats at depth ≥ 2 is treated as product tag.
-          // We start from the 2nd occurrence (first is already gone), so product #1 is skipped.
+          // Auto-detected: any non-known tag that repeats at depth ≥ 2.
+          // Starts from 2nd occurrence so product #1 is skipped — acceptable for large feeds.
           productTagName = name;
           productTagDepth = currentDepth;
           inProduct = true;
@@ -194,7 +196,7 @@ async function streamProductObjects(url, { maxProducts = 0, responseStream, onPr
       if (inProduct) {
         const current = stack.pop();
 
-        if (name === productTagName && currentDepth === productTagDepth) {
+        if (name.toLowerCase() === productTagName.toLowerCase() && currentDepth === productTagDepth) {
           inProduct = false;
           const productObj = current.obj;
           if (current.text.trim()) productObj['#text'] = current.text.trim();

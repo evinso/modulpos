@@ -56,15 +56,26 @@ const router = express.Router();
  * Gets a scalar value from an object, handling arrays from duplicate tags
  */
 function getVal(obj, ...keys) {
+  // Build a lowercase-key index once per object for case-insensitive lookup
+  // (SAX lax mode uppercases all tag names; fast-xml-parser preserves case)
+  const lc = obj && typeof obj === 'object' ? Object.fromEntries(Object.keys(obj).map(k => [k.toLowerCase(), obj[k]])) : {};
+
   for (const key of keys) {
     const parts = key.split('.');
     let val = obj;
+    let lcVal = lc;
     for (const p of parts) {
-      if (val == null) break;
-      val = val[p];
+      if (val == null && lcVal == null) break;
+      // Try original case first, then lowercase fallback
+      const next = val?.[p] ?? lcVal?.[p.toLowerCase()];
+      val = next;
+      lcVal = val && typeof val === 'object' && !Array.isArray(val)
+        ? Object.fromEntries(Object.keys(val).map(k => [k.toLowerCase(), val[k]]))
+        : null;
       if (Array.isArray(val)) {
         const primitive = val.find(v => typeof v !== 'object');
         val = primitive !== undefined ? primitive : val[0];
+        lcVal = null;
       }
     }
     if (val != null && val !== '' && typeof val !== 'object') return String(val).trim();
@@ -77,8 +88,11 @@ function getVal(obj, ...keys) {
  */
 function getImages(p) {
   const urls = [];
+  // Build a lowercase-key map once for case-insensitive field access
+  const lc = {};
+  for (const k of Object.keys(p)) lc[k.toLowerCase()] = p[k];
 
-  // image_link, additional_image_link1, additional_image_link2 ...
+  // image_link, additional_image_link, additional_image_link1 ...
   for (const key of Object.keys(p)) {
     if (/^(image_link|additional_image_link\d*)$/i.test(key)) {
       const v = p[key];
@@ -86,21 +100,18 @@ function getImages(p) {
     }
   }
 
-  // resim.resim1, resim.resim2 ...
-  if (p.resim && typeof p.resim === 'object' && !Array.isArray(p.resim)) {
-    for (const k of Object.keys(p.resim)) {
-      const v = p.resim[k];
+  // resim / RESIM nested object
+  const resim = lc['resim'];
+  if (resim && typeof resim === 'object' && !Array.isArray(resim)) {
+    for (const v of Object.values(resim)) {
       if (typeof v === 'string' && v.startsWith('http')) urls.push(v);
     }
   }
 
-  // Images, Image, ImageUrl as string
-  const imgFields = ['Images', 'images', 'Image', 'image', 'ImageUrl', 'img', 'Pictures'];
-  for (const f of imgFields) {
-    if (p[f]) {
-      const v = p[f];
-      if (typeof v === 'string' && v.startsWith('http')) { urls.push(v); break; }
-    }
+  // Common image field names — check case-insensitively
+  for (const f of ['images', 'image', 'imageurl', 'img', 'pictures', 'gorsel', 'resimurl']) {
+    const v = lc[f];
+    if (v && typeof v === 'string' && v.startsWith('http')) { urls.push(v); break; }
   }
 
   return [...new Set(urls)];
