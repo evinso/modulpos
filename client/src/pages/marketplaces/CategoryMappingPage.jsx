@@ -192,7 +192,10 @@ export default function CategoryMappingPage() {
     }
     setAiMatching(true);
     try {
-      const res = await api.post('/ai/category-match', { xmlCategories: unmapped });
+      const res = await api.post('/ai/category-match', {
+        xmlCategories: unmapped,
+        connectionId: selectedConn.id
+      });
       const matches = res.data.matches || {};
       const aiMatched = Object.values(matches).filter(Boolean).length;
       if (aiMatched === 0) {
@@ -209,7 +212,7 @@ export default function CategoryMappingPage() {
             localCategory: cat,
             marketplaceCategoryId: match.id,
             marketplaceCategoryName: match.path,
-            attributes: {}
+            attributes: match.attributes || {}
           });
           added++;
         } catch (saveErr) {

@@ -3,9 +3,13 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { auth } = require('../middleware/auth');
 const { getSetting, deductCredits } = require('./credits');
 const staticCategories = require('../data/trendyolCategories');
+const TrendyolService = require('../services/trendyol/trendyolService');
+const prisma = require('../config/database');
 
 const router = express.Router();
 router.use(auth);
+
+// ── Category tree helpers ─────────────────────────────────────────────────────
 
 function flattenLeaves(categories, parentPath = '') {
   const leaves = [];
@@ -43,7 +47,8 @@ function extractJson(text) {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-// Step 1: Map XML categories to one of 16 top-level Trendyol categories
+// ── Step 1: Map XML categories to one of 16 top-level Trendyol categories ────
+
 async function mapToTopLevel(client, xmlCategories, topLevel) {
   const catList = topLevel.map(c => `${c.id}|${c.name}`).join('\n');
 
@@ -62,15 +67,15 @@ Trendyol Ana Kategorileri (format: id|ad):
 ${catList}
 
 Kurallar:
-- Her XML kategorisi için en uygun ana kategori ID'sini seç (listedeki ID'lerden biri olmalı)
-- Hiç uymuyorsa null döndür
+- Her XML kategorisi için listedeki ANA kategorilerden en uygun olanını seç
+- Emin olamassan bile en yakın olanı seç, mümkünse null döndürme
 - Sadece JSON döndür, açıklama yazma
 
 JSON formatı:
 {
   "mappings": {
     "XML Kategori Adı": 1234,
-    "Uymayan Kategori": null
+    "Kesinlikle Uymayan": null
   }
 }`
     }],
@@ -86,7 +91,8 @@ JSON formatı:
   return mappings;
 }
 
-// Step 2: Match XML categories to a specific leaf within a top-level subtree
+// ── Step 2: Find exact leaf within a subtree ──────────────────────────────────
+
 async function matchInSubtree(client, xmlBatch, leaves) {
   const categoryList = leaves.map(l => `${l.id}|${l.path}`).join('\n');
 
@@ -96,24 +102,25 @@ async function matchInSubtree(client, xmlBatch, leaves) {
     system: `Sen bir e-ticaret kategori eşleştirme asistanısın. Cevabını SADECE geçerli JSON olarak ver, başka hiçbir şey yazma.`,
     messages: [{
       role: 'user',
-      content: `Aşağıdaki XML kategorilerini Trendyol kategorileriyle eşleştir.
+      content: `Aşağıdaki XML kategorilerini Trendyol yaprak kategorileriyle eşleştir.
 
 XML Kategorileri:
 ${xmlBatch.map(c => `- ${c}`).join('\n')}
 
-Mevcut Trendyol kategorileri (format: id|tam yol):
+Trendyol kategorileri (format: id|tam yol):
 ${categoryList}
 
 Kurallar:
-- Her XML kategorisi için listeden en uygun Trendyol yaprağını seç
-- İyi eşleşme yoksa null döndür
+- Her XML kategorisi için listeden EN UYGUN yaprağı seç
+- Tam eşleşme olmasa bile en yakın kategoriyi seç
+- Sadece gerçekten alakasız kategoriler için null döndür
 - Sadece JSON döndür, açıklama yazma
 
 JSON formatı:
 {
   "matches": {
     "XML Kategori Adı": { "id": 1234, "path": "Üst > Alt > Yaprak" },
-    "Eşleşmeyen": null
+    "Kesinlikle Alakasız": null
   }
 }`
     }],
@@ -123,9 +130,7 @@ JSON formatı:
   if (!text) throw new Error('Step-2 boş yanıt');
   console.log('[AI] Step-2 stop_reason:', message.stop_reason, '| length:', text.length);
 
-  if (message.stop_reason === 'max_tokens') {
-    throw new Error('Yanıt çok uzun, daha az kategori gönderin');
-  }
+  if (message.stop_reason === 'max_tokens') throw new Error('Yanıt çok uzun');
 
   const parsed = extractJson(text);
   const nonNull = Object.values(parsed.matches || {}).filter(Boolean).length;
@@ -133,10 +138,83 @@ JSON formatı:
   return parsed;
 }
 
+// ── Step 3: Fetch Trendyol required attributes for matched categories ─────────
+
+async function fetchRequiredAttributes(service, categoryId) {
+  try {
+    const data = await service.getCategoryAttributes(categoryId);
+    const attrs = data?.categoryAttributes || [];
+    return attrs
+      .filter(a => a.required)
+      .map(a => ({
+        id: a.attribute.id,
+        name: a.attribute.name,
+        allowCustom: !!a.allowCustom,
+        values: (a.attributeValues || []).slice(0, 40).map(v => ({ id: v.id, name: v.name }))
+      }));
+  } catch (err) {
+    console.error(`[AI] Attribute fetch hatası catId=${categoryId}:`, err.message);
+    return [];
+  }
+}
+
+// ── Step 4: AI fills required attributes for all matched categories ───────────
+
+async function fillAttributes(client, items) {
+  // items: [{ xmlCategory, trendyolPath, requiredAttributes: [...] }]
+  const toFill = items.filter(it => it.requiredAttributes.length > 0);
+  if (toFill.length === 0) return {};
+
+  const message = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 8192,
+    system: `Sen bir e-ticaret kategori eşleştirme asistanısın. Cevabını SADECE geçerli JSON olarak ver, başka hiçbir şey yazma.`,
+    messages: [{
+      role: 'user',
+      content: `Aşağıdaki XML kategorileri için Trendyol zorunlu özelliklerini doldur.
+
+${toFill.map(it => `Kategori: "${it.xmlCategory}" → Trendyol: "${it.trendyolPath}"
+Zorunlu özellikler:
+${it.requiredAttributes.map(a =>
+  `  - ${a.name} (id:${a.id}, allowCustom:${a.allowCustom})${a.values.length ? ': ' + a.values.map(v => `${v.id}=${v.name}`).join(', ') : ''}`
+).join('\n')}`).join('\n\n')}
+
+Kurallar:
+- Kategori adı ve Trendyol yolundan anlamlı bir değer çıkarılabiliyorsa seç
+- allowCustom=false ise mutlaka verilen ID'lerden birini kullan
+- allowCustom=true ise kendi değerini yazabilirsin
+- Renk, Beden gibi ürüne özgü özellikler için null döndür
+
+JSON formatı:
+{
+  "attributes": {
+    "XML Kategori Adı": {
+      "attrId": { "valueId": "1234", "valueName": "Değer Adı" },
+      "attrId2": null
+    }
+  }
+}`
+    }],
+  });
+
+  const text = message.content[0]?.text?.trim() || '';
+  if (!text) return {};
+  try {
+    const parsed = extractJson(text);
+    console.log('[AI] Step-4 attribute fill: tamamlandı');
+    return parsed.attributes || {};
+  } catch (err) {
+    console.error('[AI] Step-4 JSON parse hatası:', err.message);
+    return {};
+  }
+}
+
+// ── Main route ────────────────────────────────────────────────────────────────
+
 // POST /api/ai/category-match
 router.post('/category-match', async (req, res, next) => {
   try {
-    const { xmlCategories } = req.body;
+    const { xmlCategories, connectionId } = req.body;
     if (!Array.isArray(xmlCategories) || xmlCategories.length === 0) {
       return res.status(400).json({ error: 'xmlCategories dizisi gerekli' });
     }
@@ -147,28 +225,24 @@ router.post('/category-match', async (req, res, next) => {
     const apiKey = await getSetting('anthropic_api_key', process.env.ANTHROPIC_API_KEY || '');
     if (!apiKey) return res.status(500).json({ error: 'Anthropic API Key ayarlanmamış. Superadmin → Genel Ayarlar sayfasından ekleyin.' });
 
+    // Kredi kontrolü
     const costPerCat = parseFloat(await getSetting('credit_category_ai', '0.5'));
     const totalCost = parseFloat((costPerCat * xmlCategories.length).toFixed(2));
     if (totalCost > 0) {
       try {
-        await deductCredits(
-          req.user.id,
-          totalCost,
-          'category_ai',
-          `AI Kategori Eşleştirme: ${xmlCategories.length} kategori × ${costPerCat} kredi`
-        );
+        await deductCredits(req.user.id, totalCost, 'category_ai',
+          `AI Kategori Eşleştirme: ${xmlCategories.length} kategori × ${costPerCat} kredi`);
       } catch (creditErr) {
         return res.status(402).json({ error: creditErr.message });
       }
     }
 
     const { topLevel, leafById, byTopLevel } = getCategoryData();
+    const client = new Anthropic({ apiKey });
     console.log(`[AI] XML kategoriler: ${xmlCategories.length}, top-level: ${topLevel.length}`);
 
-    const client = new Anthropic({ apiKey });
-
-    // Step 1: Map all XML categories to a top-level Trendyol category
-    const STEP1_BATCH = 60; // 60 cats per step-1 call (output is small)
+    // ── Step 1: Map all XML categories → top-level Trendyol category ──────────
+    const STEP1_BATCH = 60;
     const topLevelMappings = {};
 
     for (let i = 0; i < xmlCategories.length; i += STEP1_BATCH) {
@@ -182,31 +256,57 @@ router.post('/category-match', async (req, res, next) => {
       }
     }
 
-    // Group XML categories by their top-level match
+    // Group XML categories by top-level match
     const groupedByTopLevel = {};
-    const unmatchedTop = [];
+    const nullTopLevel = [];
 
     for (const xmlCat of xmlCategories) {
       const topId = Number(topLevelMappings[xmlCat]);
       if (!topId || !byTopLevel[topId]) {
-        unmatchedTop.push(xmlCat);
+        nullTopLevel.push(xmlCat);
       } else {
         if (!groupedByTopLevel[topId]) groupedByTopLevel[topId] = [];
         groupedByTopLevel[topId].push(xmlCat);
       }
     }
 
-    console.log(`[AI] Gruplar: ${Object.keys(groupedByTopLevel).length} ana kategori, ${unmatchedTop.length} eşleşmedi`);
+    console.log(`[AI] Gruplar: ${Object.keys(groupedByTopLevel).length} ana kategori, ${nullTopLevel.length} eşleşmedi`);
 
-    // Step 2: For each group, find the specific leaf within that subtree
+    // ── Step 2: Find exact leaf within each subtree ───────────────────────────
     const STEP2_BATCH = 30;
     const allMatches = {};
 
-    for (const cat of unmatchedTop) allMatches[cat] = null;
+    // Unmatched top-level: retry with all leaves combined from a broad fallback
+    if (nullTopLevel.length > 0) {
+      // Use all leaves but pick top-200 by relevance (keyword scoring)
+      const allLeaves = [...leafById.values()];
+      const words = new Set(
+        nullTopLevel.flatMap(c => c.toLowerCase().split(/[\s>\/,&\-_\(\)]+/).filter(w => w.length > 2))
+      );
+      const scored = allLeaves
+        .map(l => ({ l, s: [...words].filter(w => l.path.toLowerCase().includes(w)).length }))
+        .filter(x => x.s > 0)
+        .sort((a, b) => b.s - a.s)
+        .slice(0, 250)
+        .map(x => x.l);
+      const fallback = scored.length >= 20 ? scored : allLeaves.slice(0, 200);
+
+      for (let i = 0; i < nullTopLevel.length; i += STEP2_BATCH) {
+        const batch = nullTopLevel.slice(i, i + STEP2_BATCH);
+        try {
+          const result = await matchInSubtree(client, batch, fallback);
+          Object.assign(allMatches, result.matches || {});
+        } catch (err) {
+          console.error('[AI] Step-2 fallback hatası:', err.message);
+          for (const cat of batch) allMatches[cat] = null;
+        }
+      }
+    }
 
     for (const [topId, xmlCats] of Object.entries(groupedByTopLevel)) {
       const subtreeLeaves = byTopLevel[Number(topId)]?.leaves || [];
-      console.log(`[AI] Step-2: "${byTopLevel[Number(topId)]?.name}" → ${xmlCats.length} XML kat, ${subtreeLeaves.length} yaprak`);
+      const topName = byTopLevel[Number(topId)]?.name;
+      console.log(`[AI] Step-2: "${topName}" → ${xmlCats.length} XML kat, ${subtreeLeaves.length} yaprak`);
 
       for (let i = 0; i < xmlCats.length; i += STEP2_BATCH) {
         const batch = xmlCats.slice(i, i + STEP2_BATCH);
@@ -229,7 +329,80 @@ router.post('/category-match', async (req, res, next) => {
     }
 
     const matchedCount = Object.values(enriched).filter(Boolean).length;
-    console.log(`[AI] Final: ${matchedCount}/${Object.keys(enriched).length} eşleşti`);
+    console.log(`[AI] Step-2 Final: ${matchedCount}/${Object.keys(enriched).length} eşleşti`);
+
+    // ── Step 3 + 4: Fetch attributes & AI-fill them ──────────────────────────
+    if (connectionId) {
+      const connection = await prisma.marketplaceConnection.findUnique({ where: { id: connectionId } });
+
+      if (connection && connection.marketplaceType === 'trendyol') {
+        const service = new TrendyolService(connection);
+
+        // Deduplicate category IDs to avoid repeated API calls
+        const catIdToXmlCats = {};
+        for (const [xmlCat, match] of Object.entries(enriched)) {
+          if (!match) continue;
+          const cid = match.id;
+          if (!catIdToXmlCats[cid]) catIdToXmlCats[cid] = [];
+          catIdToXmlCats[cid].push(xmlCat);
+        }
+
+        // Fetch attributes for each unique Trendyol category (in parallel, max 5 concurrent)
+        const catIds = Object.keys(catIdToXmlCats).map(Number);
+        const attrByCatId = {};
+
+        for (let i = 0; i < catIds.length; i += 5) {
+          const chunk = catIds.slice(i, i + 5);
+          const results = await Promise.all(chunk.map(cid => fetchRequiredAttributes(service, cid)));
+          chunk.forEach((cid, idx) => { attrByCatId[cid] = results[idx]; });
+        }
+
+        // Build items for AI attribute filling
+        const fillItems = [];
+        for (const [xmlCat, match] of Object.entries(enriched)) {
+          if (!match) continue;
+          const reqAttrs = attrByCatId[match.id] || [];
+          if (reqAttrs.length > 0) {
+            fillItems.push({ xmlCategory: xmlCat, trendyolPath: match.path, requiredAttributes: reqAttrs });
+          }
+        }
+
+        // Fill attributes in batches of 20 categories
+        const ATTR_BATCH = 20;
+        const filledAttributes = {};
+        for (let i = 0; i < fillItems.length; i += ATTR_BATCH) {
+          const batch = fillItems.slice(i, i + ATTR_BATCH);
+          try {
+            const result = await fillAttributes(client, batch);
+            Object.assign(filledAttributes, result);
+          } catch (err) {
+            console.error('[AI] Step-4 batch hatası:', err.message);
+          }
+        }
+
+        // Merge attributes into enriched result
+        for (const [xmlCat, match] of Object.entries(enriched)) {
+          if (!match) continue;
+          const attrData = filledAttributes[xmlCat] || {};
+          // Convert AI attr result to the format expected by category-mappings API
+          const attributes = {};
+          const reqAttrs = attrByCatId[match.id] || [];
+          for (const attr of reqAttrs) {
+            const filled = attrData[String(attr.id)];
+            if (!filled) continue;
+            attributes[attr.id] = {
+              name: attr.name,
+              valueId: filled.valueId || '',
+              valueName: filled.valueName || ''
+            };
+          }
+          enriched[xmlCat] = { ...match, attributes };
+        }
+
+        const attrCount = Object.values(enriched).filter(m => m && Object.keys(m.attributes || {}).length > 0).length;
+        console.log(`[AI] Step-4: ${attrCount} kategoride özellik dolduruldu`);
+      }
+    }
 
     res.json({ matches: enriched });
   } catch (error) {
