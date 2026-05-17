@@ -159,11 +159,29 @@ async function fetchRequiredAttributes(service, categoryId) {
 }
 
 // ── Step 4: AI fills required attributes for all matched categories ───────────
+// Uses numeric indices as JSON keys to avoid category name mangling
 
 async function fillAttributes(client, items) {
-  // items: [{ xmlCategory, trendyolPath, requiredAttributes: [...] }]
   const toFill = items.filter(it => it.requiredAttributes.length > 0);
   if (toFill.length === 0) return {};
+
+  // Build prompt lines
+  const lines = toFill.map((it, idx) => {
+    const attrLines = it.requiredAttributes.map(a => {
+      const vals = a.values.length
+        ? ' | seçenekler: ' + a.values.map(v => `${v.id}=${v.name}`).join(', ')
+        : '';
+      return `    ${a.id}=${a.name} (allowCustom:${a.allowCustom})${vals}`;
+    }).join('\n');
+    return `[${idx}] XML:"${it.xmlCategory}" → Trendyol:"${it.trendyolPath}"\n  Özellikler:\n${attrLines}`;
+  }).join('\n\n');
+
+  // Build expected JSON example
+  const exampleIdx = '0';
+  const exampleAttr = toFill[0]?.requiredAttributes[0];
+  const exampleAttrId = exampleAttr?.id ?? 338;
+  const exampleValId = exampleAttr?.values[0]?.id ?? 1;
+  const exampleValName = exampleAttr?.values[0]?.name ?? 'Değer';
 
   const message = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
@@ -171,27 +189,21 @@ async function fillAttributes(client, items) {
     system: `Sen bir e-ticaret kategori eşleştirme asistanısın. Cevabını SADECE geçerli JSON olarak ver, başka hiçbir şey yazma.`,
     messages: [{
       role: 'user',
-      content: `Aşağıdaki XML kategorileri için Trendyol zorunlu özelliklerini doldur.
+      content: `Her kategorinin zorunlu Trendyol özelliklerini doldur.
 
-${toFill.map(it => `Kategori: "${it.xmlCategory}" → Trendyol: "${it.trendyolPath}"
-Zorunlu özellikler:
-${it.requiredAttributes.map(a =>
-  `  - ${a.name} (id:${a.id}, allowCustom:${a.allowCustom})${a.values.length ? ': ' + a.values.map(v => `${v.id}=${v.name}`).join(', ') : ''}`
-).join('\n')}`).join('\n\n')}
+${lines}
 
 Kurallar:
-- Kategori adı ve Trendyol yolundan anlamlı bir değer çıkarılabiliyorsa seç
-- allowCustom=false ise mutlaka verilen ID'lerden birini kullan
-- allowCustom=true ise kendi değerini yazabilirsin
-- Renk, Beden gibi ürüne özgü özellikler için null döndür
+- Kategori adı ve Trendyol yolundan anlamlı değer belirleniyorsa seç (örn. "Erkek" → Cinsiyet=Erkek)
+- allowCustom=false → sadece verilen seçenek ID'lerinden birini kullan
+- allowCustom=true → istediğin metni yazabilirsin
+- Renk, Beden, Model gibi ürüne özgü özellikler için null döndür
 
-JSON formatı:
+JSON formatı (anahtar = köşeli parantez içindeki sayı, alt anahtar = özellik ID'si):
 {
-  "attributes": {
-    "XML Kategori Adı": {
-      "attrId": { "valueId": "1234", "valueName": "Değer Adı" },
-      "attrId2": null
-    }
+  "${exampleIdx}": {
+    "${exampleAttrId}": { "valueId": "${exampleValId}", "valueName": "${exampleValName}" },
+    "digerAttrId": null
   }
 }`
     }],
@@ -199,12 +211,21 @@ JSON formatı:
 
   const text = message.content[0]?.text?.trim() || '';
   if (!text) return {};
+  console.log('[AI] Step-4 stop_reason:', message.stop_reason, '| length:', text.length);
   try {
     const parsed = extractJson(text);
-    console.log('[AI] Step-4 attribute fill: tamamlandı');
-    return parsed.attributes || {};
+    // Convert index-based result back to xmlCategory-keyed map
+    const result = {};
+    for (const [idxStr, attrData] of Object.entries(parsed)) {
+      const item = toFill[parseInt(idxStr, 10)];
+      if (item && attrData && typeof attrData === 'object') {
+        result[item.xmlCategory] = attrData;
+      }
+    }
+    console.log(`[AI] Step-4: ${Object.keys(result).length}/${toFill.length} kategoride özellik dolduruldu`);
+    return result;
   } catch (err) {
-    console.error('[AI] Step-4 JSON parse hatası:', err.message);
+    console.error('[AI] Step-4 JSON parse hatası:', err.message, '| text:', text.substring(0, 200));
     return {};
   }
 }
@@ -388,12 +409,13 @@ router.post('/category-match', async (req, res, next) => {
           const attributes = {};
           const reqAttrs = attrByCatId[match.id] || [];
           for (const attr of reqAttrs) {
-            const filled = attrData[String(attr.id)];
-            if (!filled) continue;
+            // Claude returns attr IDs as strings or numbers — try both
+            const filled = attrData[String(attr.id)] ?? attrData[attr.id];
+            if (!filled || typeof filled !== 'object') continue;
             attributes[attr.id] = {
               name: attr.name,
-              valueId: filled.valueId || '',
-              valueName: filled.valueName || ''
+              valueId: String(filled.valueId ?? ''),
+              valueName: filled.valueName ?? ''
             };
           }
           enriched[xmlCat] = { ...match, attributes };
