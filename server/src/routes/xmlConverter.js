@@ -164,8 +164,9 @@ const escapeXml = (s) => String(s).replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>
  * Streams first 20 products, returns sample of 5 as JSON.
  */
 router.post('/preview', auth, async (req, res) => {
-  const { url } = req.body;
+  let { url } = req.body;
   if (!url) return res.status(400).json({ error: 'URL zorunludur' });
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
 
   try {
     const convertCost = parseFloat(await getSetting('credit_xml_convert', '1'));

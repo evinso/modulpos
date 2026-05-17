@@ -45,8 +45,9 @@ router.get('/', async (req, res, next) => {
 // Analyze XML structure (before adding - discover fields)
 router.post('/analyze', async (req, res, next) => {
   try {
-    const { url } = req.body;
+    let { url } = req.body;
     if (!url) return res.status(400).json({ error: 'URL zorunludur' });
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
 
     const analysis = await analyzeXml(url);
     res.json(analysis);
