@@ -18,14 +18,15 @@ async function fetchForPreview(url) {
   let res;
   try {
     res = await axios.get(url, {
-      timeout: 45000,
-      maxContentLength: 20 * 1024 * 1024, // 20 MB
+      timeout: 120000,
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
       headers: HEADERS,
       decompress: true,
     });
   } catch (err) {
     if (err.code === 'ERR_FR_MAX_BODY_LENGTH_EXCEEDED' || err.message?.includes('maxContentLength')) {
-      throw new Error('XML dosyası çok büyük (20 MB limitini aşıyor). Lütfen tedarikçinizle iletişime geçin.');
+      throw new Error('XML dosyası indirilemedi (boyut limiti aşıldı).');
     }
     if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
       throw new Error(`XML URL'sine bağlanılamadı: istek zaman aşımına uğradı (${url})`);
