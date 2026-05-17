@@ -2,76 +2,28 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   FileCode2, Store, Tags, ArrowRight, CheckCircle, Zap,
-  FolderTree, Package,
-  MessageSquare, TrendingUp, ShieldCheck, Bell
+  FolderTree, Package, MessageSquare, TrendingUp, ShieldCheck,
+  Bell, Menu, X
 } from 'lucide-react';
 import api from '../../services/api';
 import './LandingPage.css';
 
 const features = [
-  {
-    icon: <FileCode2 size={24} />,
-    title: 'XML Otomatik İçe Aktarma',
-    desc: 'Her formattaki tedarikçi XML\'ini sisteme bağlayın. Zamanlanmış senkronizasyon ile ürün stok ve fiyatları otomatik güncellenir.',
-  },
-  {
-    icon: <Store size={24} />,
-    title: 'Trendyol Toplu Gönderim',
-    desc: 'Seçili ürünleri Trendyol\'a tek tıkla toplu gönderin. Eksik kategoriler, eşleşmeler ve hatalar anında raporlanır.',
-  },
-  {
-    icon: <TrendingUp size={24} />,
-    title: 'BuyBox İzleme',
-    desc: 'Ürünlerinizin BuyBox durumunu anlık takip edin. Rekabet analizini otomatikleştirin, fiyat fırsatlarını kaçırmayın.',
-  },
-  {
-    icon: <MessageSquare size={24} />,
-    title: 'AI Müşteri Yanıtlama',
-    desc: 'Trendyol ürün sorularını AI destekli otomatik yanıtlayın. Müşteri memnuniyetini artırın, zaman kazanın.',
-  },
-  {
-    icon: <Tags size={24} />,
-    title: 'Merkezi Fiyatlandırma',
-    desc: 'Alış fiyatına göre otomatik satış fiyatı hesaplayın. Pazaryerine özel kâr marjı ve kargo kuralları tanımlayın.',
-  },
-  {
-    icon: <FolderTree size={24} />,
-    title: 'Kategori Eşleştirme',
-    desc: 'Tedarikçi kategorilerinizi Trendyol kategorileriyle eşleştirin. Ürün gönderimi sorunsuz ve hızlı gerçekleşsin.',
-  },
-  {
-    icon: <Package size={24} />,
-    title: 'Sipariş Takibi',
-    desc: 'Tüm siparişlerinizi tek panelden izleyin. Gerçek zamanlı durum güncellemeleri ve müşteri bilgileri bir arada.',
-  },
-  {
-    icon: <Bell size={24} />,
-    title: 'Zengin Bildirimler',
-    desc: 'Stok güncelleme, sipariş, fiyat değişimi gibi tüm olaylar için detaylı bildirimler. Tıklayın, anında inceleyin.',
-  },
-  {
-    icon: <ShieldCheck size={24} />,
-    title: 'Oturum Güvenliği',
-    desc: 'Hesabınıza hangi IP\'den, hangi cihazdan giriş yapıldığını görün. Şüpheli oturumları tek tıkla sonlandırın.',
-  },
+  { icon: <FileCode2 size={22} />, title: 'XML Otomatik İçe Aktarma', desc: 'Her formattaki tedarikçi XML\'ini sisteme bağlayın. Zamanlanmış senkronizasyon ile stok ve fiyatlar otomatik güncellenir.' },
+  { icon: <Store size={22} />, title: 'Trendyol Toplu Gönderim', desc: 'Seçili ürünleri Trendyol\'a tek tıkla toplu gönderin. Eksik kategoriler ve hatalar anında raporlanır.' },
+  { icon: <TrendingUp size={22} />, title: 'BuyBox İzleme', desc: 'Ürünlerinizin BuyBox durumunu anlık takip edin. Rekabet analizini otomatikleştirin, fırsatları kaçırmayın.' },
+  { icon: <MessageSquare size={22} />, title: 'AI Müşteri Yanıtlama', desc: 'Trendyol ürün sorularını AI destekli otomatik yanıtlayın. Müşteri memnuniyetini artırın, zaman kazanın.' },
+  { icon: <Tags size={22} />, title: 'Merkezi Fiyatlandırma', desc: 'Alış fiyatına göre otomatik satış fiyatı hesaplayın. Pazaryerine özel kâr marjı ve kargo kuralları tanımlayın.' },
+  { icon: <FolderTree size={22} />, title: 'Kategori Eşleştirme', desc: 'Tedarikçi kategorilerinizi Trendyol kategorileriyle AI ile otomatik eşleştirin. Ürün gönderimi sorunsuz ve hızlı.' },
+  { icon: <Package size={22} />, title: 'Sipariş Takibi', desc: 'Tüm siparişlerinizi tek panelden izleyin. Gerçek zamanlı durum güncellemeleri ve müşteri bilgileri bir arada.' },
+  { icon: <Bell size={22} />, title: 'Zengin Bildirimler', desc: 'Stok, sipariş, fiyat değişimi gibi tüm olaylar için detaylı bildirimler. Tıklayın, anında inceleyin.' },
+  { icon: <ShieldCheck size={22} />, title: 'Oturum Güvenliği', desc: 'Hesabınıza hangi IP\'den, hangi cihazdan giriş yapıldığını görün. Şüpheli oturumları tek tıkla sonlandırın.' },
 ];
 
 const steps = [
-  {
-    n: '01',
-    title: 'XML Kaynağı Ekle',
-    desc: 'Tedarikçinizin XML linkini yapıştırın. Sistem otomatik analiz eder, alanları tanır ve senkronizasyonu başlatır.',
-  },
-  {
-    n: '02',
-    title: 'Eşleştir ve Fiyatlandır',
-    desc: 'Kategori eşleştirme yapın, kâr marjı ve kargo kurallarını tanımlayın. Ürünler satışa hazır hale gelsin.',
-  },
-  {
-    n: '03',
-    title: 'Pazaryerine Gönder',
-    desc: 'Ürünleri Trendyol\'a toplu gönderin. Stok, fiyat ve BuyBox durumu otomatik izlenmeye devam etsin.',
-  },
+  { n: '01', title: 'XML Kaynağı Ekle', desc: 'Tedarikçinizin XML linkini yapıştırın. Sistem otomatik analiz eder ve senkronizasyonu başlatır.' },
+  { n: '02', title: 'Eşleştir ve Fiyatlandır', desc: 'Kategori eşleştirme yapın, kâr marjı ve kargo kurallarını tanımlayın.' },
+  { n: '03', title: 'Pazaryerine Gönder', desc: 'Ürünleri Trendyol\'a toplu gönderin. Stok ve fiyat otomatik izlenmeye devam etsin.' },
 ];
 
 const stats = [
@@ -81,65 +33,103 @@ const stats = [
   { value: '7/24', label: 'Destek' },
 ];
 
+const navLinks = [
+  { href: '#features', label: 'Özellikler' },
+  { href: '#how', label: 'Nasıl Çalışır?' },
+  { href: '#pricing', label: 'Fiyatlar' },
+];
+
 export default function LandingPage() {
   const [plans, setPlans] = useState([]);
   const [footerSections, setFooterSections] = useState([]);
   const [footerSettings, setFooterSettings] = useState({});
   const [billingCycle, setBillingCycle] = useState('monthly');
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     fetchPlans();
     fetchFooter();
   }, []);
 
-  const fetchPlans = async () => {
-    try {
-      const res = await api.get('/public/pricing-plans');
-      setPlans(res.data);
-    } catch {
-      // silently fall back to default plans
-    }
-  };
+  useEffect(() => {
+    if (menuOpen) document.body.style.overflow = 'hidden';
+    else document.body.style.overflow = '';
+    return () => { document.body.style.overflow = ''; };
+  }, [menuOpen]);
 
+  const fetchPlans = async () => {
+    try { const res = await api.get('/public/pricing-plans'); setPlans(res.data); } catch {}
+  };
   const fetchFooter = async () => {
     try {
       const res = await api.get('/public/footer-sections');
       if (res.data.sections) setFooterSections(res.data.sections);
       if (res.data.settings) setFooterSettings(res.data.settings);
-    } catch {
-      // silently fall back to defaults
-    }
+    } catch {}
   };
+
+  const closeMenu = () => setMenuOpen(false);
 
   return (
     <div className="lp-root">
-      {/* NAV */}
+
+      {/* ── NAV ── */}
       <nav className="lp-nav">
         <div className="lp-nav-inner">
-          <Link to="/" className="lp-logo">
+          <Link to="/" className="lp-logo" onClick={closeMenu}>
             <div className="lp-logo-icon">M</div>
             <span>ModulPOS</span>
           </Link>
+
           <div className="lp-nav-links">
-            <a href="#features">Özellikler</a>
-            <a href="#how">Nasıl Çalışır?</a>
-            <a href="#pricing">Fiyatlar</a>
+            {navLinks.map(l => <a key={l.href} href={l.href}>{l.label}</a>)}
           </div>
+
           <div className="lp-nav-actions">
             <Link to="/login" className="lp-btn-ghost">Giriş Yap</Link>
             <Link to="/register" className="lp-btn-primary">Ücretsiz Başla</Link>
           </div>
+
+          <button
+            className="lp-hamburger"
+            onClick={() => setMenuOpen(o => !o)}
+            aria-label="Menüyü aç/kapat"
+          >
+            {menuOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
         </div>
       </nav>
 
-      {/* HERO */}
+      {/* ── MOBILE DRAWER ── */}
+      {menuOpen && <div className="lp-drawer-overlay" onClick={closeMenu} />}
+      <div className={`lp-drawer ${menuOpen ? 'open' : ''}`}>
+        <div className="lp-drawer-header">
+          <Link to="/" className="lp-logo" onClick={closeMenu}>
+            <div className="lp-logo-icon">M</div>
+            <span>ModulPOS</span>
+          </Link>
+          <button className="lp-hamburger" onClick={closeMenu}><X size={22} /></button>
+        </div>
+        <div className="lp-drawer-links">
+          {navLinks.map(l => (
+            <a key={l.href} href={l.href} onClick={closeMenu}>{l.label}</a>
+          ))}
+        </div>
+        <div className="lp-drawer-actions">
+          <Link to="/login" className="lp-btn-ghost lp-btn-full" onClick={closeMenu}>Giriş Yap</Link>
+          <Link to="/register" className="lp-btn-primary lp-btn-full" onClick={closeMenu}>Ücretsiz Başla <ArrowRight size={15} /></Link>
+        </div>
+      </div>
+
+      {/* ── HERO ── */}
       <section className="lp-hero">
         <div className="lp-grid-bg" />
         <div className="lp-glow lp-glow-1" />
         <div className="lp-glow lp-glow-2" />
+
         <div className="lp-hero-inner">
           <div className="lp-hero-badge">
-            <Zap size={13} /> Türkiye'nin En Hızlı Pazaryeri Entegrasyon Platformu
+            <Zap size={12} /> Türkiye'nin En Hızlı Pazaryeri Entegrasyon Platformu
           </div>
           <h1 className="lp-hero-title">
             Tüm Pazaryerlerinizi<br />
@@ -164,11 +154,9 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* Dashboard mockup */}
+        {/* Mockup — hidden on mobile via CSS */}
         <div className="lp-mockup">
-          <div className="lp-mockup-bar">
-            <span /><span /><span />
-          </div>
+          <div className="lp-mockup-bar"><span /><span /><span /></div>
           <div className="lp-mockup-body">
             <div className="lp-mockup-sidebar">
               {['Dashboard', 'Ürünler', 'XML Kaynakları', 'Pazaryerleri', 'Fiyatlandırma'].map((item, i) => (
@@ -198,9 +186,19 @@ export default function LandingPage() {
             </div>
           </div>
         </div>
+
+        {/* Mobilde mockup yerine mini stat kartları */}
+        <div className="lp-hero-mobile-stats">
+          {stats.map(s => (
+            <div key={s.label} className="lp-hero-mobile-stat">
+              <div className="lp-stat-value">{s.value}</div>
+              <div className="lp-stat-label">{s.label}</div>
+            </div>
+          ))}
+        </div>
       </section>
 
-      {/* STATS */}
+      {/* ── STATS ── */}
       <section className="lp-stats">
         {stats.map(s => (
           <div key={s.label} className="lp-stat-item">
@@ -210,7 +208,7 @@ export default function LandingPage() {
         ))}
       </section>
 
-      {/* FEATURES */}
+      {/* ── FEATURES ── */}
       <section className="lp-section" id="features">
         <div className="lp-section-inner">
           <div className="lp-section-header">
@@ -230,7 +228,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* HOW IT WORKS */}
+      {/* ── HOW IT WORKS ── */}
       <section className="lp-section lp-section-alt" id="how">
         <div className="lp-section-inner">
           <div className="lp-section-header">
@@ -252,7 +250,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* PRICING */}
+      {/* ── PRICING ── */}
       <section className="lp-section" id="pricing">
         <div className="lp-section-inner">
           <div className="lp-section-header">
@@ -275,51 +273,41 @@ export default function LandingPage() {
             </span>
           </div>
 
-          <div className="lp-pricing-grid">
-            {(plans.length > 0 ? plans : [
-              {
-                name: 'Başlangıç', price: '₺—', yearlyPrice: '',
-                features: ['1.000 Ürün Limiti', '1 XML Kaynağı', 'Trendyol Entegrasyonu', 'Temel Destek'],
-                ctaText: 'Hemen Başla', isHighlighted: false,
-              },
-              {
-                name: 'Profesyonel', price: '₺—', yearlyPrice: '',
-                features: ['10.000 Ürün Limiti', '5 XML Kaynağı', 'Trendyol Entegrasyonu', 'BuyBox İzleme', 'AI Müşteri Yanıtlama', 'Öncelikli Destek'],
-                ctaText: 'Hemen Başla', isHighlighted: true,
-              },
-              {
-                name: 'Kurumsal', price: '₺—', yearlyPrice: '',
-                features: ['Sınırsız Ürün', 'Sınırsız XML Kaynağı', 'Trendyol Entegrasyonu', 'BuyBox İzleme', 'AI Müşteri Yanıtlama', '7/24 Öncelikli Destek'],
-                ctaText: 'Bize Ulaşın', isHighlighted: false,
-              },
-            ]).map((plan, i) => {
-              const showYearly = billingCycle === 'yearly' && plan.yearlyPrice;
-              const displayPrice = showYearly ? plan.yearlyPrice : plan.price;
-              const displayPeriod = showYearly ? '/ yıl' : '/ ay';
-              return (
-                <div key={i} className={`lp-price-card ${plan.isHighlighted ? 'highlighted' : ''}`}>
-                  {plan.isHighlighted && <div className="lp-popular-badge">En Popüler</div>}
-                  <div className="lp-price-name">{plan.name}</div>
-                  <div className="lp-price-amount">
-                    <span className="lp-price-value">{displayPrice}</span>
-                    <span className="lp-price-period">{displayPeriod}</span>
+          <div className="lp-pricing-scroll">
+            <div className="lp-pricing-grid">
+              {(plans.length > 0 ? plans : [
+                { name: 'Başlangıç', price: '₺—', yearlyPrice: '', features: ['1.000 Ürün Limiti', '1 XML Kaynağı', 'Trendyol Entegrasyonu', 'Temel Destek'], ctaText: 'Hemen Başla', isHighlighted: false },
+                { name: 'Profesyonel', price: '₺—', yearlyPrice: '', features: ['10.000 Ürün Limiti', '5 XML Kaynağı', 'Trendyol Entegrasyonu', 'BuyBox İzleme', 'AI Müşteri Yanıtlama', 'Öncelikli Destek'], ctaText: 'Hemen Başla', isHighlighted: true },
+                { name: 'Kurumsal', price: '₺—', yearlyPrice: '', features: ['Sınırsız Ürün', 'Sınırsız XML Kaynağı', 'Trendyol Entegrasyonu', 'BuyBox İzleme', 'AI Müşteri Yanıtlama', '7/24 Öncelikli Destek'], ctaText: 'Bize Ulaşın', isHighlighted: false },
+              ]).map((plan, i) => {
+                const showYearly = billingCycle === 'yearly' && plan.yearlyPrice;
+                const displayPrice = showYearly ? plan.yearlyPrice : plan.price;
+                const displayPeriod = showYearly ? '/ yıl' : '/ ay';
+                return (
+                  <div key={i} className={`lp-price-card ${plan.isHighlighted ? 'highlighted' : ''}`}>
+                    {plan.isHighlighted && <div className="lp-popular-badge">En Popüler</div>}
+                    <div className="lp-price-name">{plan.name}</div>
+                    <div className="lp-price-amount">
+                      <span className="lp-price-value">{displayPrice}</span>
+                      <span className="lp-price-period">{displayPeriod}</span>
+                    </div>
+                    <ul className="lp-price-features">
+                      {(Array.isArray(plan.features) ? plan.features : JSON.parse(plan.features || '[]')).map(f => (
+                        <li key={f}><CheckCircle size={14} /> {f}</li>
+                      ))}
+                    </ul>
+                    <Link to="/register" className={`lp-price-cta ${plan.isHighlighted ? 'primary' : 'ghost'}`}>
+                      {plan.ctaText}
+                    </Link>
                   </div>
-                  <ul className="lp-price-features">
-                    {(Array.isArray(plan.features) ? plan.features : JSON.parse(plan.features || '[]')).map(f => (
-                      <li key={f}><CheckCircle size={14} /> {f}</li>
-                    ))}
-                  </ul>
-                  <Link to="/register" className={`lp-price-cta ${plan.isHighlighted ? 'primary' : 'ghost'}`}>
-                    {plan.ctaText}
-                  </Link>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       </section>
 
-      {/* CTA */}
+      {/* ── CTA ── */}
       <section className="lp-cta">
         <div className="lp-glow lp-glow-cta" />
         <div className="lp-cta-inner">
@@ -331,7 +319,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* FOOTER */}
+      {/* ── FOOTER ── */}
       <footer className="lp-footer">
         <div className="lp-footer-inner">
           <div className="lp-footer-brand">
@@ -339,9 +327,7 @@ export default function LandingPage() {
               <div className="lp-logo-icon">M</div>
               <span>ModulPOS</span>
             </Link>
-            <p>
-              {footerSettings.footer_description || 'Tüm pazaryerlerinizi tek platformdan yönetin. E-ticaret operasyonlarınızı otomatikleştirin ve satışlarınızı artırın.'}
-            </p>
+            <p>{footerSettings.footer_description || 'Tüm pazaryerlerinizi tek platformdan yönetin. E-ticaret operasyonlarınızı otomatikleştirin ve satışlarınızı artırın.'}</p>
             <div className="lp-footer-contact">
               <strong>{footerSettings.footer_company_name || 'EVİNSO Bilişim Yazılım Ve Danışmanlık'}</strong><br />
               {footerSettings.footer_address || 'Bilişim Vadisi, Teknoloji Blv. No:1, Gebze / Kocaeli'}<br />
@@ -350,45 +336,16 @@ export default function LandingPage() {
           </div>
 
           {(footerSections.length > 0 ? footerSections : [
-            {
-              title: 'Ürün',
-              links: [
-                { label: 'Özellikler', url: '#features' },
-                { label: 'Fiyatlandırma', url: '#pricing' },
-                { label: 'Nasıl Çalışır?', url: '#how' },
-                { label: 'Ücretsiz Başla', url: '/register' },
-              ],
-            },
-            {
-              title: 'Yasal Sözleşmeler',
-              links: [
-                { label: 'Mesafeli Satış Sözleşmesi', url: '/policy/mesafeli-satis-sozlesmesi' },
-                { label: 'İptal ve İade Koşulları', url: '/policy/iptal-ve-iade-kosullari' },
-                { label: 'Gizlilik ve Güvenlik Politikası', url: '/policy/gizlilik-ve-guvenlik-politikasi' },
-                { label: 'Teslimat Koşulları', url: '/policy/teslimat-kosullari' },
-                { label: 'Kullanım Şartları', url: '/policy/kullanim-sartlari' },
-              ],
-            },
-            {
-              title: 'Kurumsal',
-              links: [
-                { label: 'Hakkımızda', url: '/policy/hakkimizda' },
-                { label: 'İletişim', url: '/policy/iletisim' },
-                { label: 'Kariyer', url: '#' },
-                { label: 'Destek Merkezi', url: '#' },
-              ],
-            },
+            { title: 'Ürün', links: [{ label: 'Özellikler', url: '#features' }, { label: 'Fiyatlandırma', url: '#pricing' }, { label: 'Nasıl Çalışır?', url: '#how' }, { label: 'Ücretsiz Başla', url: '/register' }] },
+            { title: 'Yasal Sözleşmeler', links: [{ label: 'Mesafeli Satış Sözleşmesi', url: '/policy/mesafeli-satis-sozlesmesi' }, { label: 'İptal ve İade Koşulları', url: '/policy/iptal-ve-iade-kosullari' }, { label: 'Gizlilik ve Güvenlik Politikası', url: '/policy/gizlilik-ve-guvenlik-politikasi' }, { label: 'Teslimat Koşulları', url: '/policy/teslimat-kosullari' }, { label: 'Kullanım Şartları', url: '/policy/kullanim-sartlari' }] },
+            { title: 'Kurumsal', links: [{ label: 'Hakkımızda', url: '/policy/hakkimizda' }, { label: 'İletişim', url: '/policy/iletisim' }, { label: 'Kariyer', url: '#' }, { label: 'Destek Merkezi', url: '#' }] },
           ]).map((section, idx) => (
-            <div key={idx}>
+            <div key={idx} className="lp-footer-col">
               <h4>{section.title}</h4>
               <ul>
                 {(Array.isArray(section.links) ? section.links : JSON.parse(section.links || '[]')).map((link, lIdx) => (
                   <li key={lIdx}>
-                    {link.url.startsWith('#') ? (
-                      <a href={link.url}>{link.label}</a>
-                    ) : (
-                      <Link to={link.url}>{link.label}</Link>
-                    )}
+                    {link.url.startsWith('#') ? <a href={link.url}>{link.label}</a> : <Link to={link.url}>{link.label}</Link>}
                   </li>
                 ))}
               </ul>
@@ -401,24 +358,16 @@ export default function LandingPage() {
           <div className="lp-footer-payment-icons">
             <span className="lp-payment-label">Güvenli Ödeme:</span>
             <div className="lp-payment-methods">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect width="20" height="14" x="2" y="5" rx="2" />
-                <line x1="2" x2="22" y1="10" y2="10" />
-              </svg>
-              <span>Visa</span>
-              <span className="lp-dot">•</span>
-              <span>Mastercard</span>
-              <span className="lp-dot">•</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" /></svg>
+              <span>Visa</span><span className="lp-dot">•</span>
+              <span>Mastercard</span><span className="lp-dot">•</span>
               <span>Troy</span>
               <div className="lp-divider-v" />
               <span className="lp-paytr">PAY<em>TR</em></span>
             </div>
-            <div className="lp-divider-v lp-divider-v-sm" />
             <div className="lp-ssl">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
-              </svg>
-              <span>128 Bit SSL ile Güvendesiniz.</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" /></svg>
+              <span>128 Bit SSL</span>
             </div>
           </div>
         </div>
