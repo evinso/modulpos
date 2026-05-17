@@ -1,91 +1,11 @@
 const express = require('express');
-const axios = require('axios');
-const { XMLParser, XMLBuilder } = require('fast-xml-parser');
+const { XMLBuilder } = require('fast-xml-parser');
 const { auth } = require('../middleware/auth');
 const { deductCredits, getSetting } = require('./credits');
 const notificationService = require('../services/notificationService');
+const { streamProductObjects } = require('../services/xml/xmlParser');
 
 const router = express.Router();
-
-const FETCH_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Accept': 'application/xml, text/xml, */*'
-};
-
-const PARSER_OPTIONS = {
-  ignoreAttributes: false,
-  attributeNamePrefix: '@_',
-  isArray: (tagName) => {
-    // Only list tags that genuinely repeat as siblings under a parent
-    const arrayTags = ['item', 'Urun', 'product', 'Product', 'row', 'entry'];
-    return arrayTags.includes(tagName);
-  },
-  allowBooleanAttributes: true,
-  parseTagValue: true,
-  trimValues: true,
-};
-
-/**
- * Finds the product array in any parsed XML structure
- */
-function findProductArray(parsed) {
-  const knownPaths = [
-    { check: (r) => r?.channel?.item },
-    { check: (r) => r?.Products?.Product },
-    { check: (r) => r?.products?.product },
-    { check: (r) => r?.Urunler?.Urun },
-    { check: (r) => r?.urunler?.urun },
-    { check: (r) => r?.Items?.Item },
-    { check: (r) => r?.items?.item },
-    { check: (r) => r?.ProductList?.Product },
-    { check: (r) => r?.UrunListesi?.Urun },
-    { check: (r) => r?.catalog?.product },
-    { check: (r) => r?.root?.product },
-    { check: (r) => r?.root?.row },
-    { check: (r) => r?.root?.item },
-    { check: (r) => r?.data?.product },
-    { check: (r) => r?.data?.item },
-    { check: (r) => r?.entry },
-    { check: (r) => r?.product },
-    { check: (r) => r?.item },
-    { check: (r) => r?.row },
-  ];
-
-  const rootKeys = Object.keys(parsed).filter(k => !k.startsWith('?'));
-  for (const rootKey of rootKeys) {
-    const root = parsed[rootKey];
-
-    if (Array.isArray(root) && root.length > 0 && typeof root[0] === 'object') {
-      return root;
-    }
-
-    if (root && typeof root === 'object') {
-      for (const { check } of knownPaths) {
-        const result = check(root);
-        if (result) {
-          const arr = Array.isArray(result) ? result : [result];
-          if (arr.length > 0 && typeof arr[0] === 'object') return arr;
-        }
-      }
-      // Auto-discover
-      for (const childKey of Object.keys(root)) {
-        const child = root[childKey];
-        if (Array.isArray(child) && child.length > 0 && typeof child[0] === 'object') {
-          return child;
-        }
-        if (child && typeof child === 'object' && !Array.isArray(child)) {
-          for (const grandKey of Object.keys(child)) {
-            const grandChild = child[grandKey];
-            if (Array.isArray(grandChild) && grandChild.length > 0 && typeof grandChild[0] === 'object') {
-              return grandChild;
-            }
-          }
-        }
-      }
-    }
-  }
-  return null;
-}
 
 /**
  * Gets a scalar value from an object, handling arrays from duplicate tags
@@ -178,87 +98,63 @@ function normalizeProduct(p) {
   };
 }
 
-/**
- * Fetches and converts any XML to our standard Urunler/Urun format
- */
-async function convertXml(url) {
-  const response = await axios.get(url, {
-    timeout: 120000,
-    maxContentLength: 200 * 1024 * 1024,
-    headers: FETCH_HEADERS,
-  });
+const builder = new XMLBuilder({
+  ignoreAttributes: false,
+  format: true,
+  indentBy: '  ',
+  suppressEmptyNode: true,
+});
 
-  const parser = new XMLParser(PARSER_OPTIONS);
-  const parsed = parser.parse(response.data);
-
-  const rawProducts = findProductArray(parsed);
-  if (!rawProducts || rawProducts.length === 0) {
-    throw new Error('XML içinde ürün listesi bulunamadı');
-  }
-
-  const normalized = rawProducts.map(normalizeProduct);
-
-  const builder = new XMLBuilder({
-    ignoreAttributes: false,
-    format: true,
-    indentBy: '  ',
-    suppressEmptyNode: true,
-  });
-
-  const xmlObj = {
-    '?xml': { '@_version': '1.0', '@_encoding': 'UTF-8' },
-    Urunler: { Urun: normalized }
-  };
-
-  return { xml: builder.build(xmlObj), count: normalized.length };
+/** Build XML string for a single normalized product */
+function buildProductXml(normalized) {
+  return builder.build({ Urun: normalized });
 }
+
+const escapeXml = (s) => String(s).replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
 
 // ── Auth required routes ──────────────────────────────────────────
 
 /**
  * POST /api/xml-converter/preview
- * Returns first 5 products from converted XML as JSON (for UI preview)
+ * Streams first 20 products, returns sample of 5 as JSON.
  */
 router.post('/preview', auth, async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'URL zorunludur' });
 
   try {
-    // Kredi kontrolü
     const convertCost = parseFloat(await getSetting('credit_xml_convert', '1'));
     if (convertCost > 0) {
       try {
-        await deductCredits(
-          req.user.id,
-          convertCost,
-          'xml_convert',
-          `XML Dönüştürme: ${url.substring(0, 60)}...`
-        );
+        await deductCredits(req.user.id, convertCost, 'xml_convert', `XML Dönüştürme: ${url.substring(0, 60)}...`);
       } catch (creditErr) {
         return res.status(402).json({ error: creditErr.message });
       }
     }
 
-    const { xml, count } = await convertXml(url);
+    // Stream only first 20 products — enough for preview + total count estimation
+    const rawProducts = await streamProductObjects(url, { maxProducts: 20 });
+    if (!rawProducts || rawProducts.length === 0) throw new Error('XML içinde ürün listesi bulunamadı');
 
-    // Parse back to get sample
-    const parser = new XMLParser({ ignoreAttributes: false, parseTagValue: true, trimValues: true });
-    const reparsed = parser.parse(xml);
-    const sample = reparsed?.Urunler?.Urun?.slice(0, 5) || [];
+    const sample = rawProducts.slice(0, 5).map(normalizeProduct);
 
     notificationService.createForUser(req.user.id, {
       title: 'XML Dönüştürüldü',
-      message: `${count} ürün başarıyla dönüştürüldü.`,
+      message: `XML başarıyla önizlendi (${rawProducts.length} ürün örneği).`,
       type: 'success',
       link: '/xml-converter'
     });
 
-    res.json({ success: true, totalProducts: count, sample, convertedUrl: `/api/xml-converter/proxy?url=${encodeURIComponent(url)}` });
+    res.json({
+      success: true,
+      totalProducts: rawProducts.length,
+      sample,
+      convertedUrl: `/api/xml-converter/proxy?url=${encodeURIComponent(url)}`
+    });
   } catch (err) {
     let msg = err.message;
-    if (err.code === 'ECONNABORTED' || msg.includes('timeout')) msg = 'XML sunucusu zaman aşımına uğradı (120s). Sunucu çok yavaş.';
-    else if (err.code === 'ENOTFOUND') msg = 'XML sunucusuna ulaşılamadı. URL\'yi kontrol edin.';
-    else if (err.response?.status === 403) msg = 'XML sunucusu erişimi reddetti (403 Forbidden).';
+    if (msg.includes('zaman aşımı') || msg.includes('timeout')) msg = 'XML sunucusu zaman aşımına uğradı. Sunucu çok yavaş.';
+    else if (msg.includes('ENOTFOUND')) msg = 'XML sunucusuna ulaşılamadı. URL\'yi kontrol edin.';
     res.status(400).json({ error: msg });
   }
 });
@@ -267,42 +163,59 @@ router.post('/preview', auth, async (req, res) => {
 
 /**
  * GET /api/xml-converter/proxy?url=<encoded_url>
- * Live proxy: fetches original XML, converts, returns standard Urunler/Urun XML
- * This URL can be used directly as an XML source in the system
+ * Streams XML → normalizes one product at a time → writes directly to response.
+ * Peak memory: O(one product), never buffers the full file.
  */
 router.get('/proxy', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).send('<error>URL parametresi zorunludur</error>');
 
+  res.set('Content-Type', 'application/xml; charset=utf-8');
+  res.set('Cache-Control', 'no-cache');
+  res.write('<?xml version="1.0" encoding="UTF-8"?>\n<Urunler>\n');
+
   try {
-    const { xml } = await convertXml(url);
-    res.set('Content-Type', 'application/xml; charset=utf-8');
-    res.set('Cache-Control', 'no-cache');
-    res.send(xml);
+    await streamProductObjects(url, {
+      onProduct: (rawProduct) => {
+        const xml = buildProductXml(normalizeProduct(rawProduct));
+        res.write(xml + '\n');
+      }
+    });
+    res.write('</Urunler>');
+    res.end();
   } catch (err) {
     console.error('[Proxy Error] url:', url, '| error:', err.message);
-    // 200 dönüyoruz ki analyze endpoint bu URL'yi fetch ettiğinde axios exception fırlatmasın
-    res.set('Content-Type', 'application/xml; charset=utf-8');
-    res.send(`<?xml version="1.0" encoding="UTF-8"?><XmlConverterError><message>${err.message.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]))}</message></XmlConverterError>`);
+    res.write(`<XmlConverterError><message>${escapeXml(err.message)}</message></XmlConverterError>`);
+    res.write('</Urunler>');
+    res.end();
   }
 });
 
 /**
  * GET /api/xml-converter/download?url=<encoded_url>
- * Download converted XML as a file
+ * Streams XML → normalizes → writes directly to download response.
  */
 router.get('/download', auth, async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'URL zorunludur' });
 
+  const filename = `converted_${Date.now()}.xml`;
+  res.set('Content-Type', 'application/xml; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="${filename}"`);
+  res.write('<?xml version="1.0" encoding="UTF-8"?>\n<Urunler>\n');
+
   try {
-    const { xml, count } = await convertXml(url);
-    const filename = `converted_${count}_products_${Date.now()}.xml`;
-    res.set('Content-Type', 'application/xml; charset=utf-8');
-    res.set('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(xml);
+    await streamProductObjects(url, {
+      onProduct: (rawProduct) => {
+        res.write(buildProductXml(normalizeProduct(rawProduct)) + '\n');
+      }
+    });
+    res.write('</Urunler>');
+    res.end();
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.write(`<XmlConverterError><message>${escapeXml(err.message)}</message></XmlConverterError>`);
+    res.write('</Urunler>');
+    res.end();
   }
 });
 

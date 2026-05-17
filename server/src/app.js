@@ -45,16 +45,29 @@ const productionOrigins = [
   'https://www.modulpos.com'
 ];
 
-const allowedOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
-  : [...defaultDevOrigins, ...productionOrigins];
+const envOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean)
+  : [];
+
+// Always include production origins regardless of env var
+const allowedOrigins = [...new Set([...envOrigins, ...productionOrigins, ...defaultDevOrigins])];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (curl, server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin not allowed — ${origin}`));
+  },
+  credentials: true,
+  optionsSuccessStatus: 200,
+};
+
+// CORS must come before helmet so preflight OPTIONS gets correct headers
+app.use(cors(corsOptions));
 
 // Security
-app.use(helmet());
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true
-}));
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
 // Rate limiting
 const limiter = rateLimit({

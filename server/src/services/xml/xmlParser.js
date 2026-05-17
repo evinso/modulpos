@@ -1,23 +1,34 @@
 const axios = require('axios');
 const { XMLParser } = require('fast-xml-parser');
+const sax = require('sax');
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   'Accept': 'application/xml, text/xml, */*'
 };
 
-// In-memory cache for preview/analyze downloads — avoids re-downloading during
-// the analyze → field-map → preview workflow (same URL hit multiple times in minutes)
-const previewCache = new Map();
-const PREVIEW_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// Tags that are always product-level elements
+const PRODUCT_TAGS = new Set(['item', 'Item', 'Urun', 'urun', 'product', 'Product', 'row', 'Row', 'entry', 'Entry', 'PRODUCT', 'URUN', 'ITEM']);
 
-async function fetchForPreview(url) {
+// Preview cache stores up to PREVIEW_MAX_BYTES of XML per URL (for analyzeXml only)
+const previewCache = new Map();
+const PREVIEW_CACHE_TTL = 5 * 60 * 1000;
+const PREVIEW_MAX_BYTES = 3 * 1024 * 1024; // 3 MB cap — sufficient for field analysis
+
+// ─── HTTP helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Stream URL, collect at most PREVIEW_MAX_BYTES into a string.
+ * Destroys the stream early once the cap is reached.
+ */
+async function fetchPartialStream(url) {
   const cached = previewCache.get(url);
   if (cached && Date.now() - cached.ts < PREVIEW_CACHE_TTL) return cached.data;
 
   let res;
   try {
     res = await axios.get(url, {
+      responseType: 'stream',
       timeout: 300000,
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
@@ -25,44 +36,207 @@ async function fetchForPreview(url) {
       decompress: true,
     });
   } catch (err) {
-    if (err.code === 'ERR_FR_MAX_BODY_LENGTH_EXCEEDED' || err.message?.includes('maxContentLength')) {
-      throw new Error('XML dosyası indirilemedi (boyut limiti aşıldı).');
-    }
     if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
       throw new Error(`XML URL'sine bağlanılamadı: istek zaman aşımına uğradı (${url})`);
     }
-    if (err.response) {
-      throw new Error(`XML URL'si HTTP ${err.response.status} döndürdü: ${url}`);
-    }
+    if (err.response) throw new Error(`XML URL'si HTTP ${err.response.status} döndürdü: ${url}`);
     throw new Error(`XML URL'sine erişilemedi: ${err.message}`);
   }
 
-  previewCache.set(url, { data: res.data, ts: Date.now() });
+  const chunks = [];
+  let totalBytes = 0;
+
+  await new Promise((resolve, reject) => {
+    res.data.on('data', (chunk) => {
+      chunks.push(chunk);
+      totalBytes += chunk.length;
+      if (totalBytes >= PREVIEW_MAX_BYTES) {
+        res.data.destroy();
+        resolve();
+      }
+    });
+    res.data.on('end', resolve);
+    res.data.on('error', (e) => { if (e.code !== 'ERR_STREAM_DESTROYED') reject(e); else resolve(); });
+  });
+
+  const data = Buffer.concat(chunks).toString('utf8');
+  previewCache.set(url, { data, ts: Date.now() });
+
   if (previewCache.size > 15) {
     const now = Date.now();
     for (const [k, v] of previewCache) if (now - v.ts > PREVIEW_CACHE_TTL) previewCache.delete(k);
   }
-  return res.data;
+  return data;
 }
 
-async function fetchForSync(url) {
-  const res = await axios.get(url, {
-    timeout: 120000,
-    maxContentLength: 200 * 1024 * 1024,
-    headers: HEADERS
-  });
-  return res.data;
-}
+// ─── SAX streaming parser ────────────────────────────────────────────────────
 
 /**
- * XML'i analiz edip yapısını döndürür.
- * Kullanıcının hangi tag'ları eşleştireceğini görmesi için.
+ * Stream XML from url via SAX, collect raw product objects.
+ * Stops after maxProducts (0 = unlimited).
+ * Never buffers the full XML string — memory stays near O(single product).
+ *
+ * Options:
+ *   maxProducts  — stop after N products (0 = all)
+ *   responseStream — pre-opened readable stream (skips HTTP fetch)
+ *   onProduct    — async callback(product, index) called for each product.
+ *                  When provided, returns { count } instead of an array.
+ *                  Return false from callback to stop early.
  */
-async function analyzeXml(url) {
-  const rawData = await fetchForPreview(url);
+async function streamProductObjects(url, { maxProducts = 0, responseStream, onProduct } = {}) {
+  let stream = responseStream;
+  if (!stream) {
+    let res;
+    try {
+      res = await axios.get(url, {
+        responseType: 'stream',
+        timeout: 300000,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+        headers: HEADERS,
+        decompress: true,
+      });
+    } catch (err) {
+      if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        throw new Error(`XML URL'sine bağlanılamadı: istek zaman aşımına uğradı (${url})`);
+      }
+      if (err.response) throw new Error(`XML URL'si HTTP ${err.response.status} döndürdü: ${url}`);
+      throw new Error(`XML URL'sine erişilemedi: ${err.message}`);
+    }
+    stream = res.data;
+  }
 
-  // Sunucu XML yerine HTML döndürdüyse (login sayfası, 403 redirect vb.) erken yakala
+  return new Promise((resolve, reject) => {
+    const saxStream = sax.createStream(false, { trim: true, normalize: true, xmlns: false });
+
+    const allProducts = onProduct ? null : []; // null = callback mode, no array needed
+    let productCount = 0;
+    let currentDepth = 0;
+    let productTagName = null;
+    let productTagDepth = -1;
+    let inProduct = false;
+    let stack = []; // [{ name, obj, text }]
+    let done = false;
+
+    function finish(result) {
+      if (done) return;
+      done = true;
+      try { stream.destroy(); } catch {}
+      resolve(result);
+    }
+
+    function buildAttrObj(attributes) {
+      const obj = {};
+      for (const [k, v] of Object.entries(attributes || {})) obj[`@_${k}`] = v;
+      return obj;
+    }
+
+    function mergeChild(parentObj, childName, value) {
+      if (parentObj[childName] === undefined) {
+        parentObj[childName] = value;
+      } else if (Array.isArray(parentObj[childName])) {
+        parentObj[childName].push(value);
+      } else {
+        parentObj[childName] = [parentObj[childName], value];
+      }
+    }
+
+    saxStream.on('opentag', ({ name, attributes }) => {
+      if (done) return;
+      currentDepth++;
+
+      if (!inProduct && PRODUCT_TAGS.has(name)) {
+        if (productTagName === null) {
+          productTagName = name;
+          productTagDepth = currentDepth;
+        }
+        if (name === productTagName && currentDepth === productTagDepth) {
+          inProduct = true;
+          stack = [{ name, obj: buildAttrObj(attributes), text: '' }];
+          return;
+        }
+      }
+
+      if (inProduct) {
+        stack.push({ name, obj: buildAttrObj(attributes), text: '' });
+      }
+    });
+
+    saxStream.on('text', (t) => {
+      if (!inProduct || stack.length === 0) return;
+      stack[stack.length - 1].text += t;
+    });
+
+    saxStream.on('cdata', (c) => {
+      if (!inProduct || stack.length === 0) return;
+      stack[stack.length - 1].text += c;
+    });
+
+    saxStream.on('closetag', (name) => {
+      if (done) return;
+
+      if (inProduct) {
+        const current = stack.pop();
+
+        if (name === productTagName && currentDepth === productTagDepth) {
+          inProduct = false;
+          const productObj = current.obj;
+          if (current.text.trim()) productObj['#text'] = current.text.trim();
+
+          if (onProduct) {
+            // Callback mode — don't accumulate, call handler immediately
+            Promise.resolve(onProduct(productObj, productCount)).then((cont) => {
+              productCount++;
+              if (cont === false || (maxProducts > 0 && productCount >= maxProducts)) {
+                finish({ count: productCount });
+              }
+            }).catch(reject);
+          } else {
+            allProducts.push(productObj);
+            productCount++;
+            if (maxProducts > 0 && productCount >= maxProducts) {
+              finish(allProducts);
+              return;
+            }
+          }
+        } else if (stack.length > 0) {
+          const parent = stack[stack.length - 1];
+          let value;
+          if (current.text.trim() !== '' && Object.keys(current.obj).length === 0) {
+            value = current.text.trim();
+          } else {
+            if (current.text.trim()) current.obj['#text'] = current.text.trim();
+            value = current.obj;
+          }
+          mergeChild(parent.obj, name, value);
+        }
+      }
+
+      currentDepth--;
+    });
+
+    saxStream.on('error', (err) => {
+      // SAX errors on malformed/truncated XML — resolve with what we collected
+      if (onProduct) { if (!done) finish({ count: productCount }); }
+      else if (allProducts.length > 0) finish(allProducts);
+      else reject(new Error(`XML parse hatası: ${err.message}`));
+    });
+
+    saxStream.on('end', () => {
+      if (!done) resolve(onProduct ? { count: productCount } : allProducts);
+    });
+
+    stream.pipe(saxStream);
+  });
+}
+
+// ─── analyzeXml ──────────────────────────────────────────────────────────────
+
+async function analyzeXml(url) {
+  // Fetch up to 3 MB (prevents OOM on large files; enough for field detection)
+  const rawData = await fetchPartialStream(url);
   const dataStr = typeof rawData === 'string' ? rawData : String(rawData);
+
   if (dataStr.trimStart().startsWith('<!DOCTYPE') || dataStr.trimStart().startsWith('<html')) {
     throw new Error('URL geçerli bir XML döndürmüyor — sunucu HTML sayfası döndürdü. URL\'nin doğrudan XML dosyasına işaret ettiğinden emin olun.');
   }
@@ -83,110 +257,217 @@ async function analyzeXml(url) {
   try {
     parsed = parser.parse(dataStr);
   } catch (parseErr) {
-    throw new Error(`XML parse hatası: ${parseErr.message}. URL geçerli bir XML dosyasına işaret etmiyor olabilir.`);
+    // Truncated XML will throw — try to recover a partial object via SAX
+    try {
+      const { Readable } = require('stream');
+      const readable = Readable.from([Buffer.from(dataStr, 'utf8')]);
+      const products = await streamProductObjects(null, { maxProducts: 10, responseStream: readable });
+      if (products.length === 0) throw new Error('empty');
+      return buildAnalysisFromProducts(products);
+    } catch {
+      throw new Error(`XML parse hatası: ${parseErr.message}. URL geçerli bir XML dosyasına işaret etmiyor olabilir.`);
+    }
   }
 
-  // XML Converter proxy hata yapısını tanı
   if (parsed?.XmlConverterError) {
     const msg = parsed.XmlConverterError?.message || 'Bilinmeyen hata';
     return { success: false, error: `XML dönüştürücü hatası: ${msg}. Orijinal XML kaynağı erişilemiyor olabilir — XML Converter sayfasından yeni bir link oluşturun.` };
   }
 
-  // Ürün dizisini bul
   const { rawProducts, productPath } = findProductArray(parsed);
 
   if (!rawProducts || rawProducts.length === 0) {
     return { success: false, error: 'XML içinde ürün listesi bulunamadı', structure: flattenKeys(parsed) };
   }
 
-  // İlk üründen tüm alanları çıkar
+  return buildAnalysisFromProducts(rawProducts, productPath);
+}
+
+function buildAnalysisFromProducts(rawProducts, productPath) {
   const sampleProduct = rawProducts[0];
   const fields = extractFields(sampleProduct);
 
-  // İlk 5 üründen örnek veriler çıkar
   const sampleData = rawProducts.slice(0, 5).map(p => {
     const row = {};
-    for (const field of fields) {
-      row[field.path] = getNestedValue(p, field.path);
-    }
+    for (const field of fields) row[field.path] = getNestedValue(p, field.path);
     return row;
   });
 
-  // Extract all unique categories (try common paths if not specified)
   const categoryPaths = ['Category', 'category', 'Kategori', 'kategori', 'CategoryName', 'KategoriAdi', 'product_type'];
   const uniqueCategories = new Set();
-  
   for (const p of rawProducts) {
     for (const cp of categoryPaths) {
       const catVal = getNestedValue(p, cp);
-      if (catVal && typeof catVal === 'string') {
-        uniqueCategories.add(catVal.trim());
-        break;
-      }
+      if (catVal && typeof catVal === 'string') { uniqueCategories.add(catVal.trim()); break; }
     }
   }
 
   return {
     success: true,
     totalProducts: rawProducts.length,
-    productPath,
+    productPath: productPath || 'streamed',
     fields,
     sampleData,
     sampleProduct,
-    categories: Array.from(uniqueCategories).slice(0, 500) // max 500 categories
+    categories: Array.from(uniqueCategories).slice(0, 500),
   };
 }
 
-/**
- * Ürün dizisini XML yapısında bul
- */
-function findProductArray(parsed) {
-  // Bilinen yapıları kontrol et
-  const knownPaths = [
-    // RSS / Google Shopping Feed
-    { path: 'channel.item', check: (r) => r?.channel?.item },
-    // Türk e-ticaret XML formatları
-    { path: 'Products.Product', check: (r) => r?.Products?.Product },
-    { path: 'products.product', check: (r) => r?.products?.product },
-    { path: 'Urunler.Urun', check: (r) => r?.Urunler?.Urun },
-    { path: 'urunler.urun', check: (r) => r?.urunler?.urun },
-    { path: 'Items.Item', check: (r) => r?.Items?.Item },
-    { path: 'items.item', check: (r) => r?.items?.item },
-    { path: 'ProductList.Product', check: (r) => r?.ProductList?.Product },
-    { path: 'UrunListesi.Urun', check: (r) => r?.UrunListesi?.Urun },
-    // Catalog / generic formats
-    { path: 'catalog.product', check: (r) => r?.catalog?.product },
-    { path: 'catalog.products.product', check: (r) => r?.catalog?.products?.product },
-    { path: 'root.product', check: (r) => r?.root?.product },
-    { path: 'root.row', check: (r) => r?.root?.row },
-    { path: 'root.item', check: (r) => r?.root?.item },
-    { path: 'data.product', check: (r) => r?.data?.product },
-    { path: 'data.item', check: (r) => r?.data?.item },
-    // Atom feed
-    { path: 'entry', check: (r) => r?.entry },
-    // Flat arrays
-    { path: 'product', check: (r) => r?.product },
-    { path: 'item', check: (r) => r?.item },
-    { path: 'row', check: (r) => r?.row },
-  ];
+// ─── parseXml ────────────────────────────────────────────────────────────────
 
-  // XML kök elemanını bul (?xml, ?xml-stylesheet gibi deklarasyonları atla)
-  const rootKeys = Object.keys(parsed).filter(k => !k.startsWith('?'));
-  if (rootKeys.length === 0) {
-    return { rawProducts: [], productPath: null };
+/**
+ * Parse XML and return mapped product array.
+ * Uses SAX streaming to avoid loading the full XML into memory.
+ * options.preview = true  → cap at 200 products (for UI preview)
+ * options.limit   = N     → return at most N products (0 = all)
+ */
+async function parseXml(url, mappingConfigStr, options = {}) {
+  let mappingConfig = {};
+  if (mappingConfigStr) {
+    try { mappingConfig = JSON.parse(mappingConfigStr); } catch {}
   }
 
-  // Her kök elemanı dene
+  const maxProducts = options.preview ? 200 : (options.limit ?? 0);
+
+  let rawProducts;
+  try {
+    rawProducts = await streamProductObjects(url, { maxProducts });
+  } catch (err) {
+    throw new Error(`XML parse hatası: ${err.message}`);
+  }
+
+  if (!rawProducts || rawProducts.length === 0) {
+    // SAX found no known product tags — fall back to buffered parse for unusual formats
+    rawProducts = await parseXmlBuffered(url, options);
+  }
+
+  if (!rawProducts || rawProducts.length === 0) {
+    throw new Error('XML içinde ürün listesi bulunamadı');
+  }
+
+  return mapProducts(rawProducts, mappingConfig);
+}
+
+/**
+ * Fallback buffered parse for XML formats not using standard product tags.
+ * Downloads up to 200 MB to handle large but unusual formats.
+ */
+async function parseXmlBuffered(url, options = {}) {
+  const res = await axios.get(url, {
+    timeout: 300000,
+    maxContentLength: 200 * 1024 * 1024,
+    maxBodyLength: 200 * 1024 * 1024,
+    headers: HEADERS,
+    decompress: true,
+  });
+
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '@_',
+    isArray: (tagName) => {
+      const arrayTags = ['item', 'Urun', 'product', 'Product', 'row', 'entry', 'category', 'product_type', 'filtre', 'resim'];
+      return arrayTags.includes(tagName);
+    },
+    allowBooleanAttributes: true,
+    parseTagValue: false,
+    trimValues: true,
+  });
+
+  const parsed = parser.parse(typeof res.data === 'string' ? res.data : String(res.data));
+  const { rawProducts: allProducts } = findProductArray(parsed);
+
+  const limit = options.limit ?? 0;
+  return limit > 0 ? allProducts.slice(0, limit) : allProducts;
+}
+
+// ─── Product mapping ─────────────────────────────────────────────────────────
+
+function mapProducts(rawProducts, mc) {
+  const cleanPrice = (val) => {
+    if (!val) return 0;
+    const str = String(val).replace(/[^\d.,]/g, '');
+    if (!str) return 0;
+    const dots   = (str.match(/\./g) || []).length;
+    const commas = (str.match(/,/g)  || []).length;
+
+    if (dots >= 2 && commas === 0) {
+      const parts = str.split('.');
+      return parseFloat(parts.slice(0, -1).join('') + '.' + parts[parts.length - 1]) || 0;
+    }
+    if (commas >= 2 && dots === 0) {
+      const parts = str.split(',');
+      return parseFloat(parts.slice(0, -1).join('') + '.' + parts[parts.length - 1]) || 0;
+    }
+    if (dots >= 1 && commas === 1 && str.lastIndexOf(',') > str.lastIndexOf('.')) {
+      return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
+    }
+    if (commas >= 1 && dots === 1 && str.lastIndexOf('.') > str.lastIndexOf(',')) {
+      return parseFloat(str.replace(/,/g, '')) || 0;
+    }
+    if (dots === 1 && commas === 0) {
+      const [intPart, decPart] = str.split('.');
+      if (decPart.length === 3 && intPart.length <= 3) return parseFloat(str.replace('.', '')) || 0;
+      return parseFloat(str) || 0;
+    }
+    if (commas === 1 && dots === 0) {
+      const [intPart, decPart] = str.split(',');
+      if (decPart.length === 3 && intPart.length <= 3) return parseFloat(str.replace(',', '')) || 0;
+      return parseFloat(str.replace(',', '.')) || 0;
+    }
+    return parseFloat(str) || 0;
+  };
+
+  return rawProducts.map(p => ({
+    sku:         getFieldValue(p, mc.sku,         ['StockCode', 'stockCode', 'sku', 'SKU', 'urunKodu', 'UrunKodu', 'ProductCode', 'productCode', 'Sku', 'id', 'ID', 'model_number', 'mpn', 'g:id', 'g:mpn']),
+    barcode:     getFieldValue(p, mc.barcode,     ['Barcode', 'barcode', 'Barkod', 'barkod', 'EAN', 'ean', 'gtin', 'GTIN', 'g:gtin', 'g:barcode']),
+    title:       getFieldValue(p, mc.title,       ['Name', 'name', 'Title', 'title', 'UrunAdi', 'urunAdi', 'ProductName', 'productName', 'Baslik', 'g:title']),
+    description: getFieldValue(p, mc.description, ['Description', 'description', 'Aciklama', 'aciklama', 'Detay', 'detay', 'Detail', 'g:description']),
+    price:       cleanPrice(getFieldValue(p, mc.price,     ['Price', 'price', 'Fiyat', 'fiyat', 'SalePrice', 'salePrice', 'SatisFiyat', 'sale_price', 'g:price', 'g:sale_price'])),
+    listPrice:   cleanPrice(getFieldValue(p, mc.listPrice, ['ListPrice', 'listPrice', 'ListeFiyat', 'listeFiyat', 'MarketPrice', 'PiyasaFiyat', 'listprice', 'g:list_price'])),
+    cost:        cleanPrice(getFieldValue(p, mc.cost,      ['Cost', 'cost', 'Maliyet', 'maliyet', 'AlisFiyat'])),
+    stock:       parseInt(getFieldValue(p, mc.stock,       ['Stock', 'stock', 'Stok', 'stok', 'Quantity', 'quantity', 'Adet', 'Miktar', 'g:quantity']) || 0),
+    brand:       getFieldValue(p, mc.brand,       ['Brand', 'brand', 'Marka', 'marka', 'BrandName', 'g:brand']),
+    category:    getFieldValue(p, mc.category,    ['Category', 'category', 'Kategori', 'kategori', 'CategoryName', 'KategoriAdi', 'product_type', 'google_product_category', 'g:product_type', 'g:google_product_category']),
+    images:      getImagesValue(p, mc.images,     ['Images', 'images', 'Resimler', 'Image', 'image', 'Resim', 'ImageUrl', 'imageUrl', 'img', 'Img', 'Pictures', 'Gorsel', 'gorsel', 'image_link', 'g:image_link', 'additional_image_link', 'g:additional_image_link', 'ProductImage', 'productImage', 'UrunResim', 'urunResim', 'BigImage', 'bigImage', 'MainImage', 'mainImage', 'Thumbnail', 'thumbnail', 'resim_url', 'gorsel_url', 'image_url', 'ImageURL', 'Photo', 'photo', 'Picture', 'picture', 'Foto', 'foto']),
+    attributes:  {}
+  }));
+}
+
+// ─── XML structure helpers ───────────────────────────────────────────────────
+
+function findProductArray(parsed) {
+  const knownPaths = [
+    { path: 'channel.item',              check: (r) => r?.channel?.item },
+    { path: 'Products.Product',          check: (r) => r?.Products?.Product },
+    { path: 'products.product',          check: (r) => r?.products?.product },
+    { path: 'Urunler.Urun',              check: (r) => r?.Urunler?.Urun },
+    { path: 'urunler.urun',              check: (r) => r?.urunler?.urun },
+    { path: 'Items.Item',                check: (r) => r?.Items?.Item },
+    { path: 'items.item',                check: (r) => r?.items?.item },
+    { path: 'ProductList.Product',       check: (r) => r?.ProductList?.Product },
+    { path: 'UrunListesi.Urun',          check: (r) => r?.UrunListesi?.Urun },
+    { path: 'catalog.product',           check: (r) => r?.catalog?.product },
+    { path: 'catalog.products.product',  check: (r) => r?.catalog?.products?.product },
+    { path: 'root.product',              check: (r) => r?.root?.product },
+    { path: 'root.row',                  check: (r) => r?.root?.row },
+    { path: 'root.item',                 check: (r) => r?.root?.item },
+    { path: 'data.product',              check: (r) => r?.data?.product },
+    { path: 'data.item',                 check: (r) => r?.data?.item },
+    { path: 'entry',                     check: (r) => r?.entry },
+    { path: 'product',                   check: (r) => r?.product },
+    { path: 'item',                      check: (r) => r?.item },
+    { path: 'row',                       check: (r) => r?.row },
+  ];
+
+  const rootKeys = Object.keys(parsed).filter(k => !k.startsWith('?'));
+  if (rootKeys.length === 0) return { rawProducts: [], productPath: null };
+
   for (const rootKey of rootKeys) {
     const root = parsed[rootKey];
-
-    // Doğrudan kök bir dizi ise (item, Urun, product gibi her zaman array parse edilenler)
     if (Array.isArray(root) && root.length > 0 && typeof root[0] === 'object') {
       return { rawProducts: root, productPath: rootKey };
     }
-
     if (root && typeof root === 'object') {
-      // Bilinen yolları kontrol et
       for (const { path, check } of knownPaths) {
         const result = check(root);
         if (result) {
@@ -196,14 +477,11 @@ function findProductArray(parsed) {
           }
         }
       }
-
-      // Kök elemanının doğrudan alt elemanlarında dizi ara
       for (const childKey of Object.keys(root)) {
         const child = root[childKey];
         if (Array.isArray(child) && child.length > 0 && typeof child[0] === 'object') {
           return { rawProducts: child, productPath: `${rootKey}.${childKey}` };
         }
-        // Tek eleman ama obje — içinde dizi olabilir
         if (child && typeof child === 'object' && !Array.isArray(child)) {
           for (const grandKey of Object.keys(child)) {
             const grandChild = child[grandKey];
@@ -213,13 +491,10 @@ function findProductArray(parsed) {
           }
         }
       }
-
-      // Derinlemesine dizi ara
       const found = deepFindArray(root, rootKey);
       if (found) return found;
     }
   }
-
   return { rawProducts: [], productPath: null };
 }
 
@@ -232,12 +507,6 @@ function deepFindArray(obj, currentPath, depth = 0) {
       return { rawProducts: val, productPath: newPath };
     }
     if (val && typeof val === 'object' && !Array.isArray(val)) {
-      // Tek obje olan ama aslında liste olan durumlar
-      const keys = Object.keys(val);
-      if (keys.length > 2) {
-        // Muhtemelen tek bir ürün objesi - dizi olarak sarmala
-        // Ama altında dizi olabilir, devam et
-      }
       const found = deepFindArray(val, newPath, depth + 1);
       if (found) return found;
     }
@@ -245,27 +514,18 @@ function deepFindArray(obj, currentPath, depth = 0) {
   return null;
 }
 
-/**
- * Bir objeden tüm alan yollarını çıkar (nested dahil)
- */
 function extractFields(obj, prefix = '', depth = 0) {
   const fields = [];
   if (depth > 4 || !obj || typeof obj !== 'object') return fields;
-
   for (const key of Object.keys(obj)) {
     const val = obj[key];
     const path = prefix ? `${prefix}.${key}` : key;
-
     if (val === null || val === undefined) {
       fields.push({ path, key, type: 'null', sample: null });
     } else if (Array.isArray(val)) {
-      // Dizi ise ilk elemanının yapısını göster
       const sampleVal = val.length > 0 ? (typeof val[0] === 'object' ? JSON.stringify(val[0]).substring(0, 100) : String(val[0])) : '';
       fields.push({ path, key, type: 'array', sample: sampleVal, length: val.length });
-      // Dizi elemanları obje ise alt alanları da çıkar
-      if (val.length > 0 && typeof val[0] === 'object') {
-        fields.push(...extractFields(val[0], `${path}[0]`, depth + 1));
-      }
+      if (val.length > 0 && typeof val[0] === 'object') fields.push(...extractFields(val[0], `${path}[0]`, depth + 1));
     } else if (typeof val === 'object') {
       fields.push({ path, key, type: 'object', sample: '' });
       fields.push(...extractFields(val, path, depth + 1));
@@ -296,7 +556,6 @@ function getNestedValue(obj, path) {
   let val = obj;
   for (const part of parts) {
     if (val === null || val === undefined) return null;
-    // Dizi indeksi kontrolü: "images[0]" gibi
     const match = part.match(/^(.+)\[(\d+)\]$/);
     if (match) {
       val = val[match[1]];
@@ -304,7 +563,6 @@ function getNestedValue(obj, path) {
     } else {
       val = val[part];
     }
-    // If value is an array (from duplicate XML tags), take first non-object element or first element
     if (Array.isArray(val)) {
       const primitive = val.find(v => typeof v !== 'object');
       val = primitive !== undefined ? primitive : val[0];
@@ -315,109 +573,8 @@ function getNestedValue(obj, path) {
   return String(val);
 }
 
-/**
- * Mapping config ile XML parse et.
- * options.preview = true  → 5 MB cap + cache (for UI preview, analyze)
- * options.limit   = N     → return at most N products (0 = all)
- */
-async function parseXml(url, mappingConfigStr, options = {}) {
-  const xmlData = options.preview ? await fetchForPreview(url) : await fetchForSync(url);
-  const response = { data: xmlData };
-  const parser = new XMLParser({
-    ignoreAttributes: false,
-    attributeNamePrefix: '@_',
-    isArray: (tagName) => {
-      const arrayTags = ['item', 'Urun', 'product', 'Product', 'row', 'entry', 'category', 'product_type', 'filtre', 'resim'];
-      return arrayTags.includes(tagName);
-    },
-    allowBooleanAttributes: true,
-    parseTagValue: false,
-    trimValues: true,
-  });
-  const parsed = parser.parse(response.data);
-
-  let mappingConfig = {};
-  if (mappingConfigStr) {
-    try { mappingConfig = JSON.parse(mappingConfigStr); } catch {}
-  }
-
-  const { rawProducts: allProducts } = findProductArray(parsed);
-  if (!allProducts || allProducts.length === 0) {
-    throw new Error('XML içinde ürün listesi bulunamadı');
-  }
-
-  const limit = options.limit ?? 0;
-  const rawProducts = limit > 0 ? allProducts.slice(0, limit) : allProducts;
-
-  const mc = mappingConfig;
-  const hasMappings = Object.keys(mc).some(k => mc[k] && mc[k] !== '');
-
-  // Handles Turkish format (1.990,00), European (1.990,00), and standard (1990.50)
-  const cleanPrice = (val) => {
-    if (!val) return 0;
-    const str = String(val).replace(/[^\d.,]/g, '');
-    if (!str) return 0;
-    const dots   = (str.match(/\./g) || []).length;
-    const commas = (str.match(/,/g)  || []).length;
-
-    // Multiple dots, no comma: "1.990.00" → last segment = decimal, rest = integer
-    if (dots >= 2 && commas === 0) {
-      const parts = str.split('.');
-      return parseFloat(parts.slice(0, -1).join('') + '.' + parts[parts.length - 1]) || 0;
-    }
-    // Multiple commas, no dot: "1,990,00" → same logic
-    if (commas >= 2 && dots === 0) {
-      const parts = str.split(',');
-      return parseFloat(parts.slice(0, -1).join('') + '.' + parts[parts.length - 1]) || 0;
-    }
-    // Dot(s) + comma: comma is decimal if it comes last → "1.990,00"
-    if (dots >= 1 && commas === 1 && str.lastIndexOf(',') > str.lastIndexOf('.')) {
-      return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
-    }
-    // Comma(s) + dot: dot is decimal if it comes last → "1,990.00"
-    if (commas >= 1 && dots === 1 && str.lastIndexOf('.') > str.lastIndexOf(',')) {
-      return parseFloat(str.replace(/,/g, '')) || 0;
-    }
-    // Single dot: thousands if exactly 3 digits after and ≤3 digits before → "1.990"
-    if (dots === 1 && commas === 0) {
-      const [intPart, decPart] = str.split('.');
-      if (decPart.length === 3 && intPart.length <= 3) return parseFloat(str.replace('.', '')) || 0;
-      return parseFloat(str) || 0;
-    }
-    // Single comma: thousands if exactly 3 digits after and ≤3 digits before → "1,990"
-    if (commas === 1 && dots === 0) {
-      const [intPart, decPart] = str.split(',');
-      if (decPart.length === 3 && intPart.length <= 3) return parseFloat(str.replace(',', '')) || 0;
-      return parseFloat(str.replace(',', '.')) || 0;
-    }
-    return parseFloat(str) || 0;
-  };
-
-  return rawProducts.map(p => ({
-    sku: getFieldValue(p, mc.sku, ['StockCode', 'stockCode', 'sku', 'SKU', 'urunKodu', 'UrunKodu', 'ProductCode', 'productCode', 'Sku', 'id', 'ID', 'model_number', 'mpn', 'g:id', 'g:mpn']),
-    barcode: getFieldValue(p, mc.barcode, ['Barcode', 'barcode', 'Barkod', 'barkod', 'EAN', 'ean', 'gtin', 'GTIN', 'g:gtin', 'g:barcode']),
-    title: getFieldValue(p, mc.title, ['Name', 'name', 'Title', 'title', 'UrunAdi', 'urunAdi', 'ProductName', 'productName', 'Baslik', 'g:title']),
-    description: getFieldValue(p, mc.description, ['Description', 'description', 'Aciklama', 'aciklama', 'Detay', 'detay', 'Detail', 'g:description']),
-    price: cleanPrice(getFieldValue(p, mc.price, ['Price', 'price', 'Fiyat', 'fiyat', 'SalePrice', 'salePrice', 'SatisFiyat', 'sale_price', 'g:price', 'g:sale_price'])),
-    listPrice: cleanPrice(getFieldValue(p, mc.listPrice, ['ListPrice', 'listPrice', 'ListeFiyat', 'listeFiyat', 'MarketPrice', 'PiyasaFiyat', 'listprice', 'g:list_price'])),
-    cost: cleanPrice(getFieldValue(p, mc.cost, ['Cost', 'cost', 'Maliyet', 'maliyet', 'AlisFiyat'])),
-    stock: parseInt(getFieldValue(p, mc.stock, ['Stock', 'stock', 'Stok', 'stok', 'Quantity', 'quantity', 'Adet', 'Miktar', 'g:quantity']) || 0),
-    brand: getFieldValue(p, mc.brand, ['Brand', 'brand', 'Marka', 'marka', 'BrandName', 'g:brand']),
-    category: getFieldValue(p, mc.category, ['Category', 'category', 'Kategori', 'kategori', 'CategoryName', 'KategoriAdi', 'product_type', 'google_product_category', 'g:product_type', 'g:google_product_category']),
-    images: getImagesValue(p, mc.images, ['Images', 'images', 'Resimler', 'Image', 'image', 'Resim', 'ImageUrl', 'imageUrl', 'img', 'Img', 'Pictures', 'Gorsel', 'gorsel', 'image_link', 'g:image_link', 'additional_image_link', 'g:additional_image_link', 'ProductImage', 'productImage', 'UrunResim', 'urunResim', 'BigImage', 'bigImage', 'MainImage', 'mainImage', 'Thumbnail', 'thumbnail', 'resim_url', 'gorsel_url', 'image_url', 'ImageURL', 'Photo', 'photo', 'Picture', 'picture', 'Foto', 'foto']),
-    attributes: {}
-  }));
-}
-
-/**
- * Kullanıcının eşleştirdiği alan varsa onu kullan, yoksa varsayılanları dene
- */
 function getFieldValue(obj, mappedField, fallbackFields) {
-  // Kullanıcı eşleştirme yaptıysa sadece onu kullan
-  if (mappedField && mappedField.trim() !== '') {
-    return getNestedValue(obj, mappedField);
-  }
-  // Eşleştirme yoksa varsayılanları dene
+  if (mappedField && mappedField.trim() !== '') return getNestedValue(obj, mappedField);
   for (const field of fallbackFields) {
     const val = getNestedValue(obj, field);
     if (val !== null && val !== undefined && val !== '') return val;
@@ -426,53 +583,37 @@ function getFieldValue(obj, mappedField, fallbackFields) {
 }
 
 function getImagesValue(obj, mappedField, fallbackFields) {
-  // Eşleştirme varsa
   if (mappedField && mappedField.trim() !== '') {
     const fields = mappedField.split(',').map(s => s.trim()).filter(Boolean);
     const resultImages = [];
-    
     for (const field of fields) {
       const val = getNestedValue(obj, field);
       if (!val) continue;
-      
       try {
         const parsed = JSON.parse(val);
-        if (Array.isArray(parsed)) {
-          resultImages.push(...parsed);
-          continue;
-        }
+        if (Array.isArray(parsed)) { resultImages.push(...parsed); continue; }
       } catch {}
-      
       if (typeof val === 'string') {
-        if (val.includes(',') && !val.startsWith('http')) {
-          resultImages.push(...val.split(',').map(s => s.trim()).filter(Boolean));
-        } else {
-          resultImages.push(val);
-        }
+        if (val.includes(',') && !val.startsWith('http')) resultImages.push(...val.split(',').map(s => s.trim()).filter(Boolean));
+        else resultImages.push(val);
       }
     }
-    
     if (resultImages.length > 0) return resultImages;
   }
 
-  // Fallback - collect from ALL matching fields (RSS has image_link + additional_image_link as separate fields)
   const collectedImages = [];
   for (const key of fallbackFields) {
     const val = obj[key];
     if (!val) continue;
     if (typeof val === 'string') {
-      if (val.includes(',')) {
-        collectedImages.push(...val.split(',').map(s => s.trim()).filter(Boolean));
-      } else if (val.startsWith('http') || val.startsWith('//')) {
-        collectedImages.push(val);
-      }
+      if (val.includes(',')) collectedImages.push(...val.split(',').map(s => s.trim()).filter(Boolean));
+      else if (val.startsWith('http') || val.startsWith('//')) collectedImages.push(val);
     } else if (Array.isArray(val)) {
       collectedImages.push(...val.map(v => {
         if (typeof v === 'string') return v;
         return v?.url || v?.Url || v?.URL || v?.src || '';
       }).filter(Boolean));
     } else if (typeof val === 'object' && !Array.isArray(val)) {
-      // Handle nested structures like { Image: "url" } or { Image: ["url1","url2"] }
       for (const v of Object.values(val)) {
         if (typeof v === 'string' && (v.startsWith('http') || v.startsWith('//'))) {
           collectedImages.push(v);
@@ -483,20 +624,17 @@ function getImagesValue(obj, mappedField, fallbackFields) {
           }).filter(s => typeof s === 'string' && (s.startsWith('http') || s.startsWith('//'))));
         } else if (typeof v === 'object' && v !== null) {
           const nested = v?.url || v?.Url || v?.URL || v?.src || v?.['#text'] || '';
-          if (typeof nested === 'string' && (nested.startsWith('http') || nested.startsWith('//'))) {
-            collectedImages.push(nested);
-          }
+          if (typeof nested === 'string' && (nested.startsWith('http') || nested.startsWith('//'))) collectedImages.push(nested);
         }
       }
     }
   }
 
-  // Also scan for additional_image_link1..10, g:additional_image_link patterns
   for (const key of Object.keys(obj)) {
     if (/^(additional_image_link\d*|g:additional_image_link\d*)$/i.test(key)) {
       const val = obj[key];
-      if (typeof val === 'string' && (val.startsWith('http') || val.startsWith('//'))) {
-        if (!collectedImages.includes(val)) collectedImages.push(val);
+      if (typeof val === 'string' && (val.startsWith('http') || val.startsWith('//')) && !collectedImages.includes(val)) {
+        collectedImages.push(val);
       }
     }
   }
@@ -504,4 +642,4 @@ function getImagesValue(obj, mappedField, fallbackFields) {
   return collectedImages;
 }
 
-module.exports = { parseXml, analyzeXml };
+module.exports = { parseXml, analyzeXml, streamProductObjects };
