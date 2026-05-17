@@ -9,8 +9,6 @@ const PRODUCT_FIELDS = [
   { key: 'title', label: 'Ürün Adı', required: true, icon: '📝' },
   { key: 'description', label: 'Açıklama', required: false, icon: '📄' },
   { key: 'price', label: 'Alış Fiyatı', required: true, icon: '💰' },
-  { key: 'listPrice', label: 'Liste Fiyatı', required: false, icon: '🏷️' },
-  { key: 'cost', label: 'Maliyet Fiyatı', required: false, icon: '💵' },
   { key: 'stock', label: 'Stok Miktarı', required: true, icon: '📦' },
   { key: 'brand', label: 'Marka', required: false, icon: '🏢' },
   { key: 'category', label: 'Kategori', required: false, icon: '📁' },
