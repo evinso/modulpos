@@ -67,15 +67,15 @@ Trendyol Ana Kategorileri (format: id|ad):
 ${catList}
 
 Kurallar:
-- Her XML kategorisi için listedeki ANA kategorilerden en uygun olanını seç
-- Emin olamassan bile en yakın olanı seç, mümkünse null döndürme
+- Her XML kategorisi için listedeki ANA kategorilerden birini SEÇ
+- Kesinlikle null döndürme — her zaman en yakın ana kategoriyi seç
 - Sadece JSON döndür, açıklama yazma
 
 JSON formatı:
 {
   "mappings": {
     "XML Kategori Adı": 1234,
-    "Kesinlikle Uymayan": null
+    "Başka Kategori": 5678
   }
 }`
     }],
@@ -111,16 +111,15 @@ Trendyol kategorileri (format: id|tam yol):
 ${categoryList}
 
 Kurallar:
-- Her XML kategorisi için listeden EN UYGUN yaprağı seç
-- Tam eşleşme olmasa bile en yakın kategoriyi seç
-- Sadece gerçekten alakasız kategoriler için null döndür
+- Her XML kategorisi için listeden mutlaka bir yaprak seç
+- Kesinlikle null döndürme — tam eşleşme olmasa da en yakın yaprağı seç
 - Sadece JSON döndür, açıklama yazma
 
 JSON formatı:
 {
   "matches": {
     "XML Kategori Adı": { "id": 1234, "path": "Üst > Alt > Yaprak" },
-    "Kesinlikle Alakasız": null
+    "Başka Kategori": { "id": 5678, "path": "Üst > Alt > Yaprak2" }
   }
 }`
     }],
@@ -341,12 +340,29 @@ router.post('/category-match', async (req, res, next) => {
       }
     }
 
-    // Validate IDs against leafById
+    // Validate IDs against leafById; if still null, pick first leaf from the matched subtree
     const enriched = {};
     for (const [cat, match] of Object.entries(allMatches)) {
-      if (!match) { enriched[cat] = null; continue; }
+      if (!match) {
+        // Last resort: use first leaf from the top-level group this cat was in
+        const topId = Number(topLevelMappings[cat]);
+        const fallbackLeaf = byTopLevel[topId]?.leaves?.[0];
+        enriched[cat] = fallbackLeaf
+          ? { id: fallbackLeaf.id, name: fallbackLeaf.name, path: fallbackLeaf.path }
+          : null;
+        continue;
+      }
       const leaf = leafById.get(Number(match.id)) || leafById.get(match.id);
-      enriched[cat] = leaf ? { id: leaf.id, name: leaf.name, path: leaf.path } : null;
+      if (leaf) {
+        enriched[cat] = { id: leaf.id, name: leaf.name, path: leaf.path };
+      } else {
+        // Claude hallucinated an ID — fall back to first leaf of the subtree
+        const topId = Number(topLevelMappings[cat]);
+        const fallbackLeaf = byTopLevel[topId]?.leaves?.[0];
+        enriched[cat] = fallbackLeaf
+          ? { id: fallbackLeaf.id, name: fallbackLeaf.name, path: fallbackLeaf.path }
+          : null;
+      }
     }
 
     const matchedCount = Object.values(enriched).filter(Boolean).length;
