@@ -189,26 +189,40 @@ router.post('/preview', auth, async (req, res) => {
       }
     }
 
-    // Try SAX streaming first; fall back to buffered parse for non-standard tag names
-    let rawProducts = await streamProductObjects(url, { maxProducts: 20 });
-    if (!rawProducts || rawProducts.length === 0) {
+    // Stream full XML: count all products, keep only first 20 in memory for sampling
+    const rawProducts = [];
+    let totalProducts = 0;
+
+    await streamProductObjects(url, {
+      onProduct: (rawProduct) => {
+        totalProducts++;
+        if (rawProducts.length < 20) rawProducts.push(rawProduct);
+      }
+    });
+
+    if (totalProducts === 0) {
       console.log('[xml-converter/preview] SAX found 0 products, trying buffered fallback for:', url);
-      rawProducts = await bufferedPreviewProducts(url);
+      const buffered = await bufferedPreviewProducts(url);
+      if (buffered && buffered.length > 0) {
+        rawProducts.push(...buffered.slice(0, 20));
+        totalProducts = buffered.length;
+      }
     }
-    if (!rawProducts || rawProducts.length === 0) throw new Error('XML içinde ürün listesi bulunamadı');
+
+    if (totalProducts === 0) throw new Error('XML içinde ürün listesi bulunamadı');
 
     const sample = rawProducts.slice(0, 5).map(normalizeProduct);
 
     notificationService.createForUser(req.user.id, {
       title: 'XML Dönüştürüldü',
-      message: `XML başarıyla önizlendi (${rawProducts.length} ürün örneği).`,
+      message: `XML başarıyla önizlendi (${totalProducts} ürün).`,
       type: 'success',
       link: '/xml-converter'
     });
 
     res.json({
       success: true,
-      totalProducts: rawProducts.length,
+      totalProducts,
       sample,
       convertedUrl: `/api/xml-converter/proxy?url=${encodeURIComponent(url)}`
     });
