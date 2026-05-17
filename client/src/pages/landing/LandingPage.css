@@ -394,6 +394,55 @@
 }
 .lp-section-header p { font-size: 15px; color: #64748b; max-width: 520px; margin: 0 auto; line-height: 1.7; }
 
+/* ─── MARKETPLACES ─── */
+.lp-mp-section { padding: 64px 16px; }
+.lp-mp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 14px;
+}
+.lp-mp-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 12px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 16px;
+  transition: border-color 0.2s, background 0.2s, transform 0.2s;
+  opacity: 0.65;
+}
+.lp-mp-card.active {
+  opacity: 1;
+  border-color: rgba(255,255,255,0.12);
+}
+.lp-mp-card:hover { transform: translateY(-3px); background: rgba(255,255,255,0.04); }
+.lp-mp-icon {
+  width: 52px; height: 52px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 900;
+}
+.lp-mp-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cbd5e1;
+  text-align: center;
+}
+.lp-mp-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 100px;
+  letter-spacing: 0.04em;
+}
+.lp-mp-badge.active { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.25); }
+.lp-mp-badge.soon { background: rgba(100,116,139,0.15); color: #94a3b8; border: 1px solid rgba(100,116,139,0.2); }
+
 /* ─── FEATURES ─── */
 .lp-features-grid {
   display: grid;
@@ -636,6 +685,10 @@
   .lp-section { padding: 60px 16px; }
   .lp-section-header { margin-bottom: 36px; }
 
+  /* Marketplaces */
+  .lp-mp-grid { grid-template-columns: repeat(4, 1fr); }
+  .lp-mp-section { padding: 48px 16px; }
+
   /* Features */
   .lp-features-grid { grid-template-columns: 1fr; gap: 12px; }
   .lp-feature-card { padding: 20px; display: flex; gap: 16px; align-items: flex-start; }
@@ -673,6 +726,7 @@
   .lp-hero-mobile-stats { grid-template-columns: repeat(2,1fr); }
   .lp-stats { grid-template-columns: repeat(2,1fr); }
   .lp-stat-value { font-size: 24px; }
+  .lp-mp-grid { grid-template-columns: repeat(4, 1fr); gap: 10px; }
   .lp-billing-toggle { font-size: 13px; flex-wrap: wrap; justify-content: center; gap: 8px; }
   .lp-pricing-grid { grid-template-columns: repeat(3, 240px); }
   .lp-payment-methods { font-size: 11px; }
