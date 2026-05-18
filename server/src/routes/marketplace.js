@@ -382,12 +382,16 @@ router.post('/connections/:id/hepsiburada-create', async (req, res, next) => {
       const priceStr = priceVal.toFixed(2).replace('.', ',');
       const stockVal = Math.max(parseInt(p.stock || 0) - minStock, 0);
 
+      // merchantSku: HepsiBurada requires uppercase, no spaces
+      const rawSku = p.sku || p.barcode || '';
+      const merchantSku = rawSku.toUpperCase().replace(/\s+/g, '_');
+
       toCreate.push({
         categoryId: parseInt(mapping.marketplaceCategoryId),
         merchant: connection.sellerId,
         attributes: {
-          merchantSku: p.sku || p.barcode,
-          VaryantGroupID: p.sku || p.barcode,
+          merchantSku,
+          VaryantGroupID: merchantSku,
           Barcode: p.barcode || p.sku || '',
           UrunAdi: p.title || p.name || '',
           UrunAciklamasi: p.description || '',
@@ -424,7 +428,7 @@ router.post('/connections/:id/hepsiburada-create', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-// HepsiBurada: check import status
+// HepsiBurada: check import status by trackingId
 router.get('/connections/:id/hepsiburada-import-status/:trackingId', async (req, res, next) => {
   try {
     const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
@@ -434,6 +438,52 @@ router.get('/connections/:id/hepsiburada-import-status/:trackingId', async (req,
     const service = new HepsiburadaService(connection);
     const data = await service.getImportStatus(req.params.trackingId);
     res.json(data);
+  } catch (error) { next(error); }
+});
+
+// HepsiBurada: tracking history (past trackingIds)
+router.get('/connections/:id/hepsiburada-tracking-history', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    const { page = 0, size = 20 } = req.query;
+    const service = new HepsiburadaService(connection);
+    const data = await service.getTrackingHistory(parseInt(page), parseInt(size));
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+// HepsiBurada: list store products by status
+router.get('/connections/:id/hepsiburada-products', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    const { status, page = 0, size = 100 } = req.query;
+    const service = new HepsiburadaService(connection);
+    const data = await service.getProductsByStatus(status, parseInt(page), parseInt(size));
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+// HepsiBurada: approve matched product
+router.post('/connections/:id/hepsiburada-products/:productId/approve', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    const service = new HepsiburadaService(connection);
+    const data = await service.approveMatchedProduct(req.params.productId);
+    res.json(data || { success: true });
+  } catch (error) { next(error); }
+});
+
+// HepsiBurada: reject matched product
+router.post('/connections/:id/hepsiburada-products/:productId/reject', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    const service = new HepsiburadaService(connection);
+    const data = await service.rejectMatchedProduct(req.params.productId);
+    res.json(data || { success: true });
   } catch (error) { next(error); }
 });
 

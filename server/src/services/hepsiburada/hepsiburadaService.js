@@ -200,6 +200,38 @@ class HepsiburadaService {
     });
   }
 
+  // List past trackingIds (tracking history)
+  async getTrackingHistory(page = 0, size = 20) {
+    return this._request('get', MPOP_BASE, '/product/api/products/tracking-history', null, {
+      merchant: this.merchantId,
+      version: 1,
+      page,
+      size,
+    });
+  }
+
+  // Get store products by status (Incelenecek, Eksik Bilgi, Katalog Sürecinde, Eşleşen, Satışa Hazır, Görev Açılmış)
+  async getProductsByStatus(status, page = 0, size = 100) {
+    return this._request('get', MPOP_BASE, '/product/api/products', null, {
+      merchant: this.merchantId,
+      status,
+      version: 1,
+      page,
+      size,
+      taskStatus: false,
+    });
+  }
+
+  // Approve a matched ("Eşleşen") product
+  async approveMatchedProduct(productId) {
+    return this._request('post', MPOP_BASE, `/product/api/products/${productId}/approve`, {}, { version: 1 });
+  }
+
+  // Reject a matched ("Eşleşen") product
+  async rejectMatchedProduct(productId) {
+    return this._request('post', MPOP_BASE, `/product/api/products/${productId}/reject`, {}, { version: 1 });
+  }
+
   // ─── Orders ───────────────────────────────────────────────────────────────
 
   async getOrders(status = 'Created', params = {}) {
