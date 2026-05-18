@@ -9,21 +9,22 @@ class HepsiburadaService {
     this.credentials = Buffer.from(`${connection.apiKey}:${connection.apiSecret}`).toString('base64');
   }
 
-  _headers(contentType = 'application/json') {
+  _headers() {
     return {
       Authorization: `Basic ${this.credentials}`,
-      'Content-Type': contentType,
       Accept: 'application/json',
     };
   }
 
   async _request(method, baseUrl, path, data, params) {
     try {
-      const res = await axios({ method, url: `${baseUrl}${path}`, headers: this._headers(), data, params, timeout: 20000 });
+      const headers = { ...this._headers() };
+      if (data) headers['Content-Type'] = 'application/json';
+      const res = await axios({ method, url: `${baseUrl}${path}`, headers, data, params, timeout: 20000 });
       return res.data;
     } catch (err) {
-      const status  = err.response?.status;
-      const detail  = err.response?.data;
+      const status = err.response?.status;
+      const detail = err.response?.data;
       if (status === 401 || status === 403) throw new Error('Kimlik doğrulama hatası: Kullanıcı adı veya şifre hatalı');
       if (status === 404) throw new Error('Kaynak bulunamadı (404)');
       throw new Error(detail?.message || detail?.Message || err.message);
@@ -45,14 +46,8 @@ class HepsiburadaService {
     return this._request('get', LISTING_BASE, `/Listings/merchantid/${this.merchantId}`, null, { limit: 1000, offset: 0, ...params });
   }
 
-  /**
-   * Get BuyBox rankings for all active listings.
-   * HepsiBurada Listing API includes buyboxOrder, buyboxPrice, hasMultipleSeller
-   * in each listing item — this wraps getListings() with explicit BuyBox fields.
-   */
   async getBuyboxRankings(limit = 500, offset = 0) {
-    return this._request('get', LISTING_BASE, `/Listings/merchantid/${this.merchantId}`,
-      null, { limit, offset });
+    return this._request('get', LISTING_BASE, `/Listings/merchantid/${this.merchantId}`, null, { limit, offset });
   }
 
   async updateListing(sku, price, availableCount) {
@@ -66,21 +61,46 @@ class HepsiburadaService {
     return this._request('delete', LISTING_BASE, `/Listings/merchantid/${this.merchantId}/sku/${encodeURIComponent(sku)}`);
   }
 
-  // ─── MPOP Catalog API (new product creation) ───────────────────────────────
+  // ─── MPOP Catalog API ──────────────────────────────────────────────────────
 
-  async getCategories() {
-    return this._request('get', MPOP_BASE, '/product/api/categories/get-all-categories');
+  /**
+   * Get leaf categories available for product creation.
+   * leaf=true → only bottom-level categories (where products can be created)
+   * status=ACTIVE, available=true → only usable categories
+   * size max 1000 per docs.
+   */
+  async getCategories(page = 0, size = 1000) {
+    return this._request('get', MPOP_BASE, '/product/api/categories/get-all-categories', null, {
+      leaf: true,
+      status: 'ACTIVE',
+      available: true,
+      version: 1,
+      page,
+      size,
+    });
   }
 
+  /**
+   * Get attributes for a category (version=1 per docs).
+   * Returns array of attributes; those with type=enum need getAttributeValues() next.
+   */
   async getCategoryAttributes(categoryId) {
-    return this._request('get', MPOP_BASE, `/product/api/categories/${categoryId}/attributes`);
+    return this._request('get', MPOP_BASE, `/product/api/categories/${categoryId}/attributes`, null, { version: 1 });
+  }
+
+  /**
+   * Get allowed values for an enum attribute.
+   * version=4, page=0, size=1000 per docs.
+   */
+  async getAttributeValues(categoryId, attributeId, page = 0, size = 1000) {
+    return this._request('get', MPOP_BASE,
+      `/product/api/categories/${categoryId}/attribute/${attributeId}/values`, null,
+      { version: 4, page, size });
   }
 
   /**
    * Submit new product listing(s) to HepsiBurada catalog.
-   * Each product: { merchantSku, VatRate, Barcode, UnitType, productName,
-   *   description, brand, categoryId, listingPrice, price, stock, images[], attributes[] }
-   * Returns: { trackingId } — use getImportStatus() to poll.
+   * Returns { trackingId } — poll with getImportStatus().
    */
   async createProducts(products) {
     return this._request('post', MPOP_BASE, '/product/api/products/import/commit', {

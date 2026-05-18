@@ -120,10 +120,13 @@ router.get('/connections/:id/categories', async (req, res, next) => {
     }
     if (connection.marketplaceType === 'hepsiburada') {
       const service = new HepsiburadaService(connection);
-      const data = await service.getCategories();
-      // Normalize: HepsiBurada may return { categories: [...] } or flat array
-      const cats = data?.categories || data?.data || (Array.isArray(data) ? data : []);
-      return res.json({ categories: cats });
+      const page = parseInt(req.query.page) || 0;
+      const size = Math.min(parseInt(req.query.size) || 1000, 1000);
+      const data = await service.getCategories(page, size);
+      // Docs: response is flat array of leaf categories (leaf=true)
+      // May be wrapped: { data: [...] } or { categories: [...] } or plain array
+      const cats = data?.data || data?.categories || (Array.isArray(data) ? data : []);
+      return res.json({ categories: cats, total: data?.totalCount || cats.length });
     }
     res.json([]);
   } catch (error) {
@@ -395,6 +398,21 @@ router.get('/connections/:id/categories/:catId/attributes', async (req, res, nex
       return res.json(data);
     }
     res.json({ categoryAttributes: [] });
+  } catch (error) { next(error); }
+});
+
+// HepsiBurada: get enum attribute values (version=4, page/size)
+router.get('/connections/:id/hepsiburada-attribute-values/:catId/:attrId', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') {
+      return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    }
+    const service = new HepsiburadaService(connection);
+    const page = parseInt(req.query.page) || 0;
+    const size = Math.min(parseInt(req.query.size) || 1000, 1000);
+    const data = await service.getAttributeValues(req.params.catId, req.params.attrId, page, size);
+    res.json(data);
   } catch (error) { next(error); }
 });
 
