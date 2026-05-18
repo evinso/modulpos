@@ -112,11 +112,19 @@ export default function Sidebar({ isOpen }) {
 
           {trendyolOpen && (
             <div style={{ marginLeft: 12, borderLeft: '2px solid var(--border-color)', paddingLeft: 8, marginBottom: 2 }}>
-              {trendyolItems.map(item => (
-                <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} style={{ fontSize: 13 }}>
-                  <item.icon size={16} className="icon" /><span>{item.label}</span>
-                </NavLink>
-              ))}
+              {trendyolItems.map(item => {
+                const disabled = mpStatuses.trendyol === 'maintenance';
+                if (disabled) return (
+                  <div key={item.to} className="nav-item" style={{ fontSize: 13, opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' }}>
+                    <item.icon size={16} className="icon" /><span>{item.label}</span>
+                  </div>
+                );
+                return (
+                  <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} style={{ fontSize: 13 }}>
+                    <item.icon size={16} className="icon" /><span>{item.label}</span>
+                  </NavLink>
+                );
+              })}
             </div>
           )}
 
@@ -143,11 +151,19 @@ export default function Sidebar({ isOpen }) {
 
           {hepsiburadaOpen && (
             <div style={{ marginLeft: 12, borderLeft: '2px solid var(--border-color)', paddingLeft: 8, marginBottom: 2 }}>
-              {hepsiburadaItems.map(item => (
-                <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} style={{ fontSize: 13 }}>
-                  <item.icon size={16} className="icon" /><span>{item.label}</span>
-                </NavLink>
-              ))}
+              {hepsiburadaItems.map(item => {
+                const disabled = mpStatuses.hepsiburada === 'maintenance';
+                if (disabled) return (
+                  <div key={item.to} className="nav-item" style={{ fontSize: 13, opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' }}>
+                    <item.icon size={16} className="icon" /><span>{item.label}</span>
+                  </div>
+                );
+                return (
+                  <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} style={{ fontSize: 13 }}>
+                    <item.icon size={16} className="icon" /><span>{item.label}</span>
+                  </NavLink>
+                );
+              })}
             </div>
           )}
 
