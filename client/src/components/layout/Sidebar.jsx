@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, FolderTree, Send, ArrowLeftRight, Shield, Globe, Wallet, CreditCard, Activity, Truck, TrendingUp, ChevronDown, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, FolderTree, Send, ArrowLeftRight, Shield, Globe, Wallet, CreditCard, Activity, Truck, TrendingUp, ChevronDown, RefreshCw, BookOpen } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import api from '../../services/api';
 
@@ -79,6 +79,9 @@ export default function Sidebar({ isOpen }) {
           </NavLink>
           <NavLink to="/support" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <MessageSquare size={18} className="icon" /><span>Destek</span>
+          </NavLink>
+          <NavLink to="/guide" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <BookOpen size={18} className="icon" /><span>Kullanma Kılavuzu</span>
           </NavLink>
         </div>
 

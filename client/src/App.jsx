@@ -40,6 +40,7 @@ const LogsPage            = lazy(() => import('./pages/activity/LogsPage'));
 const SettingsPage        = lazy(() => import('./pages/settings/SettingsPage'));
 const SuperAdminPage      = lazy(() => import('./pages/admin/SuperAdminPage'));
 const CreditAdminPage     = lazy(() => import('./pages/admin/CreditAdminPage'));
+const GuidePage           = lazy(() => import('./pages/guide/GuidePage'));
 
 function PageLoader() {
   return (
@@ -102,6 +103,7 @@ function App() {
             <Route path="/superadmin"       element={<AdminRoute><SuperAdminPage /></AdminRoute>} />
             <Route path="/credit-admin"       element={<AdminRoute><CreditAdminPage /></AdminRoute>} />
             <Route path="/questions-admin"  element={<AdminRoute><QuestionsAdminPage /></AdminRoute>} />
+            <Route path="/guide"            element={<GuidePage />} />
           </Route>
         </Routes>
       </Suspense>
