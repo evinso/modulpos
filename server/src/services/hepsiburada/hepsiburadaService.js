@@ -45,9 +45,21 @@ class HepsiburadaService {
     return this._request('get', LISTING_BASE, `/Listings/merchantid/${this.merchantId}`, null, { limit: 1000, offset: 0, ...params });
   }
 
+  /**
+   * Get BuyBox rankings for all active listings.
+   * HepsiBurada Listing API includes buyboxOrder, buyboxPrice, hasMultipleSeller
+   * in each listing item — this wraps getListings() with explicit BuyBox fields.
+   */
+  async getBuyboxRankings(limit = 500, offset = 0) {
+    return this._request('get', LISTING_BASE, `/Listings/merchantid/${this.merchantId}`,
+      null, { limit, offset });
+  }
+
   async updateListing(sku, price, availableCount) {
-    return this._request('post', LISTING_BASE, `/Listings/merchantid/${this.merchantId}/sku/${encodeURIComponent(sku)}`,
-      { price, availableCount });
+    const body = {};
+    if (price !== null && price !== undefined) body.price = price;
+    if (availableCount !== null && availableCount !== undefined) body.availableCount = availableCount;
+    return this._request('post', LISTING_BASE, `/Listings/merchantid/${this.merchantId}/sku/${encodeURIComponent(sku)}`, body);
   }
 
   async suspendListing(sku) {

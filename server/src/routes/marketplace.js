@@ -202,6 +202,83 @@ router.get('/connections/:id/hepsiburada-listings', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+// HepsiBurada BuyBox: fetch rankings from listing API
+router.post('/connections/:id/hepsiburada-buybox-check', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') {
+      return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    }
+
+    const { limit = 500, offset = 0 } = req.body;
+    const service = new HepsiburadaService(connection);
+    const raw = await service.getBuyboxRankings(limit, offset);
+
+    // Normalise: API may return { listings: [...] } or flat array
+    const listings = raw?.listings || raw?.data?.listings || (Array.isArray(raw) ? raw : []);
+
+    const results = listings.map(l => ({
+      sku: l.merchantSku || l.sku,
+      hbSku: l.hbSku || l.listingId,
+      productName: l.productName || l.name || '',
+      barcode: l.barcode || '',
+      ourPrice: l.price ?? l.salesPrice ?? null,
+      listingPrice: l.listingPrice ?? null,
+      buyboxOrder: l.buyboxOrder ?? l.buyBoxOrder ?? null,
+      buyboxPrice: l.buyboxPrice ?? l.buyBoxPrice ?? null,
+      hasMultipleSeller: l.hasMultipleSeller ?? false,
+      stock: l.availableCount ?? l.stock ?? null,
+      state: l.state || 'UNKNOWN',
+    }));
+
+    res.json({
+      total: results.length,
+      winning: results.filter(r => r.buyboxOrder === 1).length,
+      losing: results.filter(r => r.buyboxOrder != null && r.buyboxOrder > 1).length,
+      unknown: results.filter(r => r.buyboxOrder == null).length,
+      listings: results,
+    });
+  } catch (error) { next(error); }
+});
+
+// HepsiBurada BuyBox: price adjustment
+router.post('/connections/:id/hepsiburada-buybox-adjust', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') {
+      return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    }
+
+    const { items, mode } = req.body;
+    // items: [{ sku, buyboxPrice, ourPrice }]
+    if (!items?.length) return res.status(400).json({ error: 'Ürün listesi boş' });
+
+    const service = new HepsiburadaService(connection);
+    const results = [];
+
+    for (const item of items) {
+      try {
+        let newPrice;
+        if (mode === 'match') newPrice = item.buyboxPrice;
+        else if (mode === 'undercut') newPrice = Math.max(0, item.buyboxPrice - (req.body.amount || 1));
+        else newPrice = item.buyboxPrice;
+
+        newPrice = Math.round(newPrice * 100) / 100;
+        await service.updateListing(item.sku, newPrice, null);
+        results.push({ sku: item.sku, success: true, newPrice });
+      } catch (err) {
+        results.push({ sku: item.sku, success: false, error: err.message });
+      }
+    }
+
+    res.json({
+      updated: results.filter(r => r.success).length,
+      failed: results.filter(r => !r.success).length,
+      results,
+    });
+  } catch (error) { next(error); }
+});
+
 // Delete connection
 router.delete('/connections/:id', async (req, res, next) => {
   try {
