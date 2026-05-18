@@ -95,6 +95,22 @@ export default function SuperAdminPage() {
   const [policyForm, setPolicyForm] = useState({ title: '', content: '' });
   const [policySaving, setPolicySaving] = useState(false);
 
+  const MP_LIST = [
+    { key: 'trendyol',    label: 'Trendyol' },
+    { key: 'hepsiburada', label: 'Hepsiburada' },
+    { key: 'amazon',      label: 'Amazon' },
+    { key: 'n11',         label: 'N11' },
+    { key: 'ciceksepeti', label: 'Çiçeksepeti' },
+    { key: 'pttavm',      label: 'Pttavm' },
+  ];
+  const MP_STATUS_OPTIONS = [
+    { value: 'active',      label: 'Aktif',            color: '#10b981' },
+    { value: 'maintenance', label: 'Bakımda',          color: '#f59e0b' },
+    { value: 'development', label: 'Yapım Aşamasında', color: '#94a3b8' },
+  ];
+  const [mpStatuses, setMpStatuses] = useState({ trendyol: 'active', hepsiburada: 'active', amazon: 'development', n11: 'development', ciceksepeti: 'development', pttavm: 'development' });
+  const [mpSaving, setMpSaving] = useState(false);
+
   const POLICY_LABELS = {
     'mesafeli-satis-sozlesmesi': 'Mesafeli Satış Sözleşmesi',
     'iptal-ve-iade-kosullari': 'İptal ve İade Koşulları',
@@ -163,12 +179,27 @@ export default function SuperAdminPage() {
       } else if (activeTab === 'policies') {
         const res = await api.get('/admin/policy-pages');
         setPolicyPages(res.data);
+      } else if (activeTab === 'marketplace') {
+        const res = await api.get('/marketplace/statuses');
+        setMpStatuses(res.data);
       }
     } catch (error) {
       console.error('Admin verileri yüklenemedi:', error);
       toast.error('Veriler yüklenirken hata oluştu');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveMpStatuses = async () => {
+    setMpSaving(true);
+    try {
+      await api.put('/marketplace/statuses', mpStatuses);
+      toast.success('Pazaryeri durumları güncellendi');
+    } catch {
+      toast.error('Kaydedilemedi');
+    } finally {
+      setMpSaving(false);
     }
   };
 
@@ -737,6 +768,9 @@ export default function SuperAdminPage() {
         <button className={`admin-tab ${activeTab === 'policies' ? 'active' : ''}`} onClick={() => setActiveTab('policies')}>
           <FileText size={16} /> Yasal Sayfalar
         </button>
+        <button className={`admin-tab ${activeTab === 'marketplace' ? 'active' : ''}`} onClick={() => setActiveTab('marketplace')}>
+          <Store size={16} /> Pazaryerleri
+        </button>
         <button className={`admin-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
           <Sliders size={16} /> Genel Ayarlar
         </button>
@@ -752,7 +786,8 @@ export default function SuperAdminPage() {
                activeTab === 'pricing' ? 'Fiyat Planları' :
                activeTab === 'footer' ? 'Footer Yönetimi' :
                activeTab === 'dropship' ? 'Tedarikçi Siparişleri' :
-               activeTab === 'support' ? 'Destek Biletleri' : 'Genel Ayarlar'}
+               activeTab === 'support' ? 'Destek Biletleri' :
+               activeTab === 'marketplace' ? 'Pazaryeri Durum Yönetimi' : 'Genel Ayarlar'}
             </h3>
             {activeTab === 'users' && (
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -1558,6 +1593,47 @@ export default function SuperAdminPage() {
                 </form>
               </div>
 
+            </div>
+          ) : activeTab === 'marketplace' ? (
+            <div style={{ padding: '8px 0' }}>
+              <div className="card" style={{ padding: 24, maxWidth: 560 }}>
+                <h4 style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Store size={18} /> Pazaryeri Durum Etiketleri
+                </h4>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24 }}>
+                  Sol menüde her pazaryerinin yanında görünen durum etiketini buradan yönetebilirsiniz.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {MP_LIST.map(mp => (
+                    <div key={mp.key} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 16px', background: 'var(--bg-tertiary)', borderRadius: 10 }}>
+                      <span style={{ flex: 1, fontWeight: 600, fontSize: 14 }}>{mp.label}</span>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        {MP_STATUS_OPTIONS.map(opt => (
+                          <button
+                            key={opt.value}
+                            onClick={() => setMpStatuses(s => ({ ...s, [mp.key]: opt.value }))}
+                            style={{
+                              padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                              cursor: 'pointer', border: '2px solid',
+                              borderColor: mpStatuses[mp.key] === opt.value ? opt.color : 'transparent',
+                              background: mpStatuses[mp.key] === opt.value ? `${opt.color}20` : 'var(--bg-secondary)',
+                              color: mpStatuses[mp.key] === opt.value ? opt.color : 'var(--text-secondary)',
+                              transition: 'all 0.15s',
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ textAlign: 'right', marginTop: 24 }}>
+                  <button className="btn btn-primary" onClick={handleSaveMpStatuses} disabled={mpSaving}>
+                    {mpSaving ? 'Kaydediliyor...' : 'Kaydet'}
+                  </button>
+                </div>
+              </div>
             </div>
           ) : activeTab === 'support' ? (() => {
             const ST = {

@@ -1,10 +1,27 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, FolderTree, Send, ArrowLeftRight, Shield, Globe, Wallet, CreditCard, Activity, Truck, TrendingUp, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, FolderTree, Send, ArrowLeftRight, Shield, Globe, Wallet, CreditCard, Activity, Truck, TrendingUp, ChevronDown, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
+import api from '../../services/api';
+
+const STATUS_BADGE = {
+  active:      { label: 'Aktif',            color: '#10b981', bg: 'rgba(16,185,129,0.15)' },
+  maintenance: { label: 'Bakımda',          color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
+  development: { label: 'Yapım Aşamasında', color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' },
+};
+
+function MpBadge({ status }) {
+  const s = STATUS_BADGE[status];
+  if (!s) return null;
+  return (
+    <span style={{ fontSize: 9, fontWeight: 700, color: s.color, background: s.bg, borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap', letterSpacing: 0.3 }}>
+      {s.label}
+    </span>
+  );
+}
 
 const TRENDYOL_ROUTES = ['/category-mapping', '/trendyol-send', '/buybox', '/questions'];
-const HEPSIBURADA_ROUTES = ['/hepsiburada-send', '/hepsiburada-mapping', '/hepsiburada-create', '/hepsiburada-buybox', '/hepsiburada-questions'];
+const HEPSIBURADA_ROUTES = ['/hepsiburada-send', '/hepsiburada-mapping', '/hepsiburada-create', '/hepsiburada-buybox', '/hepsiburada-questions', '/hepsiburada-update'];
 
 const trendyolItems = [
   { to: '/category-mapping', icon: FolderTree, label: 'Kategori Eşleştirme' },
@@ -19,6 +36,7 @@ const hepsiburadaItems = [
   { to: '/hepsiburada-buybox', icon: TrendingUp, label: 'BuyBox Sırası' },
   { to: '/hepsiburada-send', icon: ArrowLeftRight, label: 'Stok/Fiyat Güncelle' },
   { to: '/hepsiburada-questions', icon: MessageSquare, label: 'Müşteri Soruları' },
+  { to: '/hepsiburada-update', icon: RefreshCw, label: 'Ürün Güncelle' },
 ];
 
 export default function Sidebar({ isOpen }) {
@@ -30,6 +48,11 @@ export default function Sidebar({ isOpen }) {
   const isHepsiburadaActive = HEPSIBURADA_ROUTES.some(r => location.pathname.startsWith(r));
   const [trendyolOpen, setTrendyolOpen] = useState(isTrendyolActive);
   const [hepsiburadaOpen, setHepsiburadaOpen] = useState(isHepsiburadaActive);
+
+  const [mpStatuses, setMpStatuses] = useState({});
+  useEffect(() => {
+    api.get('/marketplace/statuses').then(r => setMpStatuses(r.data)).catch(() => {});
+  }, []);
 
   return (
     <aside className={`sidebar${isOpen ? ' sidebar-open' : ''}`}>
@@ -77,6 +100,7 @@ export default function Sidebar({ isOpen }) {
           >
             <Store size={18} style={{ flexShrink: 0 }} />
             <span style={{ flex: 1, textAlign: 'left' }}>Trendyol</span>
+            <MpBadge status={mpStatuses.trendyol} />
             <ChevronDown
               size={14}
               style={{ transition: 'transform 0.2s', transform: trendyolOpen ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}
@@ -107,6 +131,7 @@ export default function Sidebar({ isOpen }) {
           >
             <Store size={18} style={{ flexShrink: 0 }} />
             <span style={{ flex: 1, textAlign: 'left' }}>Hepsiburada</span>
+            <MpBadge status={mpStatuses.hepsiburada} />
             <ChevronDown
               size={14}
               style={{ transition: 'transform 0.2s', transform: hepsiburadaOpen ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}
@@ -123,12 +148,12 @@ export default function Sidebar({ isOpen }) {
             </div>
           )}
 
-          {/* Yakında gelecek pazaryerleri */}
+          {/* Diğer pazaryerleri */}
           {[
-            { label: 'Amazon' },
-            { label: 'N11' },
-            { label: 'Çiçeksepeti' },
-            { label: 'Pttavm' },
+            { label: 'Amazon',      key: 'amazon' },
+            { label: 'N11',         key: 'n11' },
+            { label: 'Çiçeksepeti', key: 'ciceksepeti' },
+            { label: 'Pttavm',      key: 'pttavm' },
           ].map(mp => (
             <div
               key={mp.label}
@@ -140,7 +165,7 @@ export default function Sidebar({ isOpen }) {
             >
               <Store size={18} style={{ flexShrink: 0 }} />
               <span style={{ flex: 1 }}>{mp.label}</span>
-              <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(148,163,184,0.15)', color: 'var(--text-muted)', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }}>Yakında</span>
+              <MpBadge status={mpStatuses[mp.key] || 'development'} />
             </div>
           ))}
         </div>

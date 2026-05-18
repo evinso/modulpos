@@ -1,8 +1,9 @@
 const axios = require('axios');
 const FormData = require('form-data');
 
-const LISTING_BASE = 'https://listing-external.hepsiburada.com';
-const MPOP_BASE    = 'https://mpop.hepsiburada.com';
+const LISTING_BASE   = 'https://listing-external.hepsiburada.com';
+const MPOP_BASE      = 'https://mpop.hepsiburada.com';
+const TICKET_BASE    = 'https://mpop.hepsiburada.com/ticket-api';
 
 class HepsiburadaService {
   constructor(connection) {
@@ -44,12 +45,23 @@ class HepsiburadaService {
 
   // ─── Listing API (price / stock for existing SKUs) ─────────────────────────
 
+  // Get listings with optional filters: hbSkuList, merchantSkuList, 'salable-listings', 'notsalable-listings', updateStartDate, updateEndDate
   async getListings(params = {}) {
     return this._request('get', LISTING_BASE, `/listings/merchantid/${this.merchantId}`, null, { limit: 2000, offset: 0, ...params });
   }
 
-  async getBuyboxRankings(limit = 500, offset = 0) {
-    return this._request('get', LISTING_BASE, `/listings/merchantid/${this.merchantId}`, null, { limit, offset });
+  // Get BuyBox rankings for up to 10 SKUs at a time (pass hbSku list)
+  async getBuyboxRankings(skuList = []) {
+    const params = {};
+    if (skuList.length) params.skuList = skuList.join(',');
+    return this._request('get', LISTING_BASE, `/buybox-orders/merchantid/${this.merchantId}`, null, params);
+  }
+
+  // Get commission rates for up to 50 SKUs at a time
+  async getCommissions(skuList = []) {
+    const params = {};
+    if (skuList.length) params.skuList = skuList.join(',');
+    return this._request('get', LISTING_BASE, `/commissions/merchantid/${this.merchantId}`, null, params);
   }
 
   // Batch inventory update via XML (price, stock, dispatch time, cargo company)
@@ -104,6 +116,53 @@ class HepsiburadaService {
   // Convenience: single-item price/stock update via XML batch
   async updateListing(sku, price, stock) {
     return this.uploadInventory([{ merchantSku: sku, price: price ?? 0, stock: stock ?? 0 }]);
+  }
+
+  // Query inventory-upload batch status by uploadId
+  async getInventoryUploadStatus(uploadId) {
+    return this._request('get', LISTING_BASE, `/listings/merchantid/${this.merchantId}/inventory-uploads/id/${uploadId}`, null, null);
+  }
+
+  // Stock-only batch update — items: [{ hepsiburadaSku?, merchantSku?, availableStock }]
+  async uploadStock(items) {
+    return this._request('post', LISTING_BASE, `/listings/merchantid/${this.merchantId}/stock-uploads`,
+      { Items: items.map(i => ({ HepsiburadaSku: i.hepsiburadaSku || '', MerchantSku: i.merchantSku || '', AvailableStock: i.availableStock ?? 0 })) });
+  }
+
+  async getStockUploadStatus(uploadId) {
+    return this._request('get', LISTING_BASE, `/listings/merchantid/${this.merchantId}/stock-uploads/id/${uploadId}`, null, null);
+  }
+
+  // Price-only batch update — items: [{ hepsiburadaSku?, merchantSku?, price }]
+  async uploadPrice(items) {
+    return this._request('post', LISTING_BASE, `/listings/merchantid/${this.merchantId}/price-uploads`, items);
+  }
+
+  async getPriceUploadStatus(uploadId) {
+    return this._request('get', LISTING_BASE, `/listings/merchantid/${this.merchantId}/price-uploads/id/${uploadId}`, null, null);
+  }
+
+  // Delivery/shipping batch update — items: [{ hepsiburadaSku?, merchantSku?, dispatchTime?, shippingProfileName?, cargoCompany1?, cargoCompany2?, cargoCompany3? }]
+  async uploadShippingInfo(items) {
+    return this._request('post', LISTING_BASE, `/listings/merchantid/${this.merchantId}/shipping-info-uploads`, items);
+  }
+
+  async getShippingUploadStatus(uploadId) {
+    return this._request('get', LISTING_BASE, `/listings/merchantid/${this.merchantId}/shipping-info-uploads/id/${uploadId}`, null, null);
+  }
+
+  // Additional info batch update — items: [{ hepsiburadaSku?, merchantSku?, productName?, maximumPurchasableQuantity? }]
+  async uploadAdditionalInfo(items) {
+    return this._request('post', LISTING_BASE, `/listings/merchantid/${this.merchantId}/additional-info-uploads`, items);
+  }
+
+  async getAdditionalInfoUploadStatus(uploadId) {
+    return this._request('get', LISTING_BASE, `/listings/merchantid/${this.merchantId}/additional-info-uploads/id/${uploadId}`, null, null);
+  }
+
+  // Bulk unlock listings locked due to price threshold breaches
+  async bulkUnlock(hbSkuList) {
+    return this._request('post', LISTING_BASE, `/listings/merchantid/${this.merchantId}/bulk-unlock`, { hbSkuList });
   }
 
   async activateListing(sku) {
@@ -189,42 +248,111 @@ class HepsiburadaService {
     });
   }
 
-  // List past trackingIds (tracking history)
-  async getTrackingHistory(page = 0, size = 20) {
-    return this._request('get', MPOP_BASE, '/product/api/products/tracking-history', null, {
-      merchant: this.merchantId,
-      version: 1,
+  // trackingId-history: version=2 (docs default)
+  async getTrackingHistory(page = 0, size = 1000) {
+    return this._request('get', MPOP_BASE, '/product/api/products/trackingId-history', null, {
+      version: 2,
       page,
       size,
     });
   }
 
-  // Get store products by status (Incelenecek, Eksik Bilgi, Katalog Sürecinde, Eşleşen, Satışa Hazır, Görev Açılmış)
-  async getProductsByStatus(status, page = 0, size = 100) {
-    return this._request('get', MPOP_BASE, '/product/api/products', null, {
-      merchant: this.merchantId,
-      status,
-      version: 1,
-      page,
-      size,
-      taskStatus: false,
-    });
+  // Products by merchant + status — English statuses: WAITING, IN_EXTERNAL_PROGRESS, PRE_MATCHED, MATCHED, REJECTED
+  async getProductsByStatus(productStatus, page = 0, size = 1000) {
+    const params = { merchantId: this.merchantId, version: 1, page, size, taskStatus: false };
+    if (productStatus) params.productStatus = productStatus;
+    return this._request('get', MPOP_BASE, '/product/api/products/products-by-merchant-and-status', null, params);
   }
 
-  // Approve a matched ("Eşleşen") product
-  async approveMatchedProduct(productId) {
-    return this._request('post', MPOP_BASE, `/product/api/products/${productId}/approve`, {}, { version: 1 });
+  // All products of merchant (catalog integration only) — searchable by barcode/merchantSku/hbSku
+  async getAllMerchantProducts({ barcode, merchantSku, hbSku, page = 0, size = 1000 } = {}) {
+    const params = { page, size };
+    if (barcode) params.barcode = barcode;
+    if (merchantSku) params.merchantSku = merchantSku;
+    if (hbSku) params.hbSku = hbSku;
+    return this._request('get', MPOP_BASE, `/product/api/products/all-products-of-merchant/${this.merchantId}`, null, params);
   }
 
-  // Reject a matched ("Eşleşen") product
-  async rejectMatchedProduct(productId) {
-    return this._request('post', MPOP_BASE, `/product/api/products/${productId}/reject`, {}, { version: 1 });
+  // Batch approve PRE_MATCHED products
+  async approvePrematch(merchantSkuList) {
+    return this._request('post', MPOP_BASE, '/product/api/products/approve-prematch',
+      { merchantSkuList }, { version: 1 });
+  }
+
+  // Batch reject PRE_MATCHED products
+  async rejectPrematch(merchantSkuList) {
+    return this._request('post', MPOP_BASE, '/product/api/products/reject-prematch',
+      { merchantSkuList }, { version: 1 });
+  }
+
+  // Fast listing — simplified product creation for catalog-matched products
+  async fastListing(products) {
+    return this._request('post', MPOP_BASE, '/product/api/products/fastlisting', products, { version: 1 });
+  }
+
+  // Delete products by merchantSku list — returns trackingId
+  async deleteProducts(merchantSkuList) {
+    return this._request('post', MPOP_BASE, '/product/api/products/delete-process',
+      { merchantSkuList }, { version: 1 });
+  }
+
+  // Check delete process status by trackingId
+  async getDeleteProcess(trackingId) {
+    return this._request('get', MPOP_BASE, `/product/api/products/delete-process/${trackingId}`, null, null);
+  }
+
+  // Check product status by merchantSku list
+  async checkProductStatus(merchantSkuList) {
+    return this._request('post', MPOP_BASE, '/product/api/products/check-product-status',
+      { merchantSkuList }, { version: 1 });
   }
 
   // ─── Orders ───────────────────────────────────────────────────────────────
 
   async getOrders(status = 'Created', params = {}) {
     return this._request('get', LISTING_BASE, `/orders/merchantid/${this.merchantId}/status/${status}`, null, params);
+  }
+
+  // ─── Ticket API (Product Content Update) ──────────────────────────────────
+
+  // items: [{ hbSku, productName?, productDescription?, image1-10?, video?, attributes?, barcode?, kdv?, warrantyPeriod?, desi? }]
+  // Only include fields you want to update — omitting preserves HB-enriched data.
+  // To delete an attribute value, send it with an empty string "".
+  async uploadProductUpdate(items) {
+    const payload = { merchantId: this.merchantId, items };
+    const form = new FormData();
+    form.append('file', Buffer.from(JSON.stringify(payload)), {
+      filename: 'integrator-ticket-upload.json',
+      contentType: 'application/json',
+    });
+    try {
+      const res = await axios.post(`${TICKET_BASE}/api/integrator/import`, form, {
+        headers: {
+          Authorization: `Basic ${this.credentials}`,
+          Accept: 'application/json',
+          ...form.getHeaders(),
+        },
+        params: { version: 1 },
+        timeout: 30000,
+      });
+      return res.data;
+    } catch (err) {
+      const status = err.response?.status;
+      const detail = err.response?.data;
+      if (status === 401 || status === 403) throw new Error('Kimlik doğrulama hatası');
+      throw new Error(detail?.message || detail?.description || err.message);
+    }
+  }
+
+  // Poll update request status by trackingId
+  async getTicketStatus(trackingId, page = 0, size = 1000) {
+    return this._request('get', TICKET_BASE, `/api/integrator/status/${trackingId}`, null, { version: 1, page, size });
+  }
+
+  // Get update history for a product by hbSku
+  async getProductUpdateHistory(hbSku) {
+    return this._request('get', TICKET_BASE,
+      `/api/integrator/merchant/${this.merchantId}/hbSku/${encodeURIComponent(hbSku)}`, null, null);
   }
 
   // ─── Ask to Seller (Customer Questions) ───────────────────────────────────

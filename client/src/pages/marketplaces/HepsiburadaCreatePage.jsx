@@ -3,14 +3,13 @@ import { Send, Search, CheckSquare, Square, Package, RefreshCw, AlertCircle, Che
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
-// HepsiBurada product status labels and colors
+// HepsiBurada product status labels and colors (English API values)
 const STATUS_MAP = {
-  'Incelenecek':       { label: 'İncelenecek',        color: '#3b82f6', bg: 'rgba(59,130,246,0.1)' },
-  'Eksik Bilgi':       { label: 'Eksik Bilgi',         color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
-  'Katalog Sürecinde': { label: 'Katalog Sürecinde',   color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)' },
-  'Eşleşen':          { label: 'Eşleşen ⚠ Onay Gerekli', color: '#ff6000', bg: 'rgba(255,96,0,0.1)' },
-  'Satışa Hazır':      { label: 'Satışa Hazır',        color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
-  'Görev Açılmış':    { label: 'Görev Açılmış',       color: '#ef4444', bg: 'rgba(239,68,68,0.1)' },
+  'WAITING':             { label: 'İncelenecek',           color: '#3b82f6', bg: 'rgba(59,130,246,0.1)' },
+  'IN_EXTERNAL_PROGRESS':{ label: 'Katalog Sürecinde',     color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)' },
+  'PRE_MATCHED':         { label: 'Eşleşen ⚠ Onay Gerekli', color: '#ff6000', bg: 'rgba(255,96,0,0.1)' },
+  'MATCHED':             { label: 'Satışa Hazır',          color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
+  'REJECTED':            { label: 'Reddedildi',            color: '#ef4444', bg: 'rgba(239,68,68,0.1)' },
 };
 
 function StatusBadge({ status }) {
@@ -205,7 +204,7 @@ export default function HepsiburadaCreatePage() {
     ? (trackingResult.data || trackingResult.items || trackingResult.products || (Array.isArray(trackingResult) ? trackingResult : []))
     : [];
 
-  const STORE_STATUSES = ['Incelenecek', 'Eksik Bilgi', 'Katalog Sürecinde', 'Eşleşen', 'Satışa Hazır', 'Görev Açılmış'];
+  const STORE_STATUSES = ['WAITING', 'IN_EXTERNAL_PROGRESS', 'PRE_MATCHED', 'MATCHED', 'REJECTED'];
 
   return (
     <div>
@@ -383,31 +382,32 @@ export default function HepsiburadaCreatePage() {
                 const pid = p.id || p.productId || i;
                 const name = p.productName || p.name || p.merchantSku || `Ürün ${i + 1}`;
                 const status = p.productStatus || p.status || storeTab;
-                const isEslesen = status === 'Eşleşen';
+                const isPrematch = status === 'PRE_MATCHED';
+                const msku = p.merchantSku || p.merchantSKU || '';
                 return (
                   <div key={pid} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 6, fontSize: 13 }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 500 }}>{name}</div>
-                      {p.merchantSku && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.merchantSku}</div>}
+                      {msku && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{msku}</div>}
                     </div>
                     <StatusBadge status={status} />
-                    {isEslesen && (
+                    {isPrematch && msku && (
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button className="btn btn-secondary btn-sm"
                           style={{ fontSize: 11, color: 'var(--success)', borderColor: 'var(--success)', padding: '3px 10px' }}
-                          disabled={!!actionLoading[`approve_${pid}`]}
-                          onClick={() => doProductAction(`approve_${pid}`,
-                            () => api.post(`/marketplace/connections/${selectedConn.id}/hepsiburada-products/${pid}/approve`),
+                          disabled={!!actionLoading[`approve_${msku}`]}
+                          onClick={() => doProductAction(`approve_${msku}`,
+                            () => api.post(`/marketplace/connections/${selectedConn.id}/hepsiburada-approve-prematch`, { merchantSkuList: [msku] }),
                             'Ürün onaylandı')}>
-                          <ThumbsUp size={12} /> {actionLoading[`approve_${pid}`] ? '...' : 'Onayla'}
+                          <ThumbsUp size={12} /> {actionLoading[`approve_${msku}`] ? '...' : 'Onayla'}
                         </button>
                         <button className="btn btn-secondary btn-sm"
                           style={{ fontSize: 11, color: '#ef4444', borderColor: '#ef4444', padding: '3px 10px' }}
-                          disabled={!!actionLoading[`reject_${pid}`]}
-                          onClick={() => doProductAction(`reject_${pid}`,
-                            () => api.post(`/marketplace/connections/${selectedConn.id}/hepsiburada-products/${pid}/reject`),
+                          disabled={!!actionLoading[`reject_${msku}`]}
+                          onClick={() => doProductAction(`reject_${msku}`,
+                            () => api.post(`/marketplace/connections/${selectedConn.id}/hepsiburada-reject-prematch`, { merchantSkuList: [msku] }),
                             'Ürün reddedildi')}>
-                          <ThumbsDown size={12} /> {actionLoading[`reject_${pid}`] ? '...' : 'Reddet'}
+                          <ThumbsDown size={12} /> {actionLoading[`reject_${msku}`] ? '...' : 'Reddet'}
                         </button>
                       </div>
                     )}
