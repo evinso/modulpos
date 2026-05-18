@@ -48,8 +48,13 @@ router.get('/', async (req, res, next) => {
     if (brand) where.brand = brand;
     if (categories) {
       const catList = categories.split(',').map(c => c.trim()).filter(Boolean);
-      if (catList.length === 1) where.category = catList[0];
-      else if (catList.length > 1) where.category = { in: catList };
+      // Match exact OR pipe-separated format (e.g. localCategory "Elbise" matches p.category "Kadın|Elbise|Günlük")
+      where.OR = catList.flatMap(c => [
+        { category: c },
+        { category: { contains: `|${c}|` } },
+        { category: { startsWith: `${c}|` } },
+        { category: { endsWith: `|${c}` } },
+      ]);
     } else if (category) {
       where.category = category;
     }

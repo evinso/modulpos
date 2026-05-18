@@ -1334,7 +1334,12 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
     const productWhere = { storeId: connection.storeId };
     if (xmlSourceId) productWhere.xmlSourceId = xmlSourceId;
     if (Array.isArray(localCategories) && localCategories.length > 0) {
-      productWhere.category = { in: localCategories };
+      productWhere.OR = localCategories.flatMap(c => [
+        { category: c },
+        { category: { contains: `|${c}|` } },
+        { category: { startsWith: `${c}|` } },
+        { category: { endsWith: `|${c}` } },
+      ]);
     }
     const products = await prisma.product.findMany({ where: productWhere });
 

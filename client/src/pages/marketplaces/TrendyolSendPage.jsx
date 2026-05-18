@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Send, Search, CheckSquare, Square, Package, AlertCircle, RefreshCw, ChevronDown, Filter, Eye } from 'lucide-react';
+import { Send, Search, CheckSquare, Square, Package, AlertCircle } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -381,27 +381,34 @@ export default function TrendyolSendPage() {
                   ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Hiç eşleme bulunamadı</span>
                   : mappings.slice(0, 20).map(m => {
                     const selected = filterCategories.has(m.localCategory);
+                    const trendyolName = m.marketplaceCategoryName?.split(' > ').pop() || m.marketplaceCategoryName || '';
                     return (
                       <button
                         key={m.id}
                         onClick={() => toggleCategoryFilter(m.localCategory)}
+                        title={`XML: ${m.localCategory}\nTrendyol: ${m.marketplaceCategoryName || ''}`}
                         style={{
-                          background: selected ? 'rgba(99,102,241,0.2)' : 'rgba(34,197,94,0.12)',
-                          color: selected ? 'var(--accent-primary)' : 'var(--success)',
-                          border: selected ? '1px solid var(--accent-primary)' : '1px solid transparent',
-                          borderRadius: 4, padding: '2px 8px', fontSize: 11,
-                          fontFamily: 'monospace', cursor: 'pointer',
-                          fontWeight: selected ? 700 : 400,
+                          background: selected ? 'rgba(99,102,241,0.15)' : 'rgba(34,197,94,0.08)',
+                          border: selected ? '1px solid var(--accent-primary)' : '1px solid rgba(34,197,94,0.3)',
+                          borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
+                          textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 1,
                         }}
                       >
-                        {m.localCategory}
+                        <span style={{ fontSize: 11, fontFamily: 'monospace', color: selected ? 'var(--accent-primary)' : 'var(--success)', fontWeight: selected ? 700 : 500 }}>
+                          {m.localCategory}
+                        </span>
+                        {trendyolName && (
+                          <span style={{ fontSize: 10, color: selected ? 'var(--accent-primary)' : 'var(--text-muted)', opacity: 0.8 }}>
+                            → {trendyolName}
+                          </span>
+                        )}
                       </button>
                     );
                   })}
               </div>
               {mappings.length > 0 && (
                 <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text-muted)' }}>
-                  Kategoriye tıklayarak ürün listesini filtrele
+                  XML kategorisi (üst) → Trendyol kategorisi (alt). Tıklayarak filtrele.
                 </p>
               )}
             </div>
