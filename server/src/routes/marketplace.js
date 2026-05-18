@@ -1325,7 +1325,7 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
 // Bulk send all ready products to Trendyol (batches of 100, 100ms delay between batches)
 router.post('/connections/:id/send-all-ready', async (req, res, next) => {
   try {
-    const { xmlSourceId, minStock = 0 } = req.body;
+    const { xmlSourceId, minStock = 0, localCategories } = req.body;
 
     const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
     if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
@@ -1333,6 +1333,9 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
     // Fetch all products for this store
     const productWhere = { storeId: connection.storeId };
     if (xmlSourceId) productWhere.xmlSourceId = xmlSourceId;
+    if (Array.isArray(localCategories) && localCategories.length > 0) {
+      productWhere.category = { in: localCategories };
+    }
     const products = await prisma.product.findMany({ where: productWhere });
 
     if (products.length === 0) return res.status(400).json({ error: 'Ürün bulunamadı' });

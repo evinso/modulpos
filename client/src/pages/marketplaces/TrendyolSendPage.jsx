@@ -22,6 +22,7 @@ export default function TrendyolSendPage() {
   const [xmlSources, setXmlSources] = useState([]);
   const [filterXmlSource, setFilterXmlSource] = useState('');
   const [pricingRules, setPricingRules] = useState([]);
+  const [filterCategories, setFilterCategories] = useState(new Set());
 
   useEffect(() => { fetchConnections(); fetchXmlSources(); fetchPricingRules(); }, []);
   useEffect(() => { if (selectedConn) { fetchProducts(); fetchMappings(); } }, [selectedConn, pagination.page, search, filterXmlSource]);
@@ -174,9 +175,28 @@ export default function TrendyolSendPage() {
     return 'missing';
   };
 
-  const filteredProducts = filterStatus === 'all'
-    ? products
-    : products.filter(p => getProductStatus(p) === filterStatus);
+  const toggleCategoryFilter = (localCategory) => {
+    setFilterCategories(prev => {
+      const next = new Set(prev);
+      next.has(localCategory) ? next.delete(localCategory) : next.add(localCategory);
+      return next;
+    });
+  };
+
+  const filteredProducts = products.filter(p => {
+    if (filterStatus !== 'all' && getProductStatus(p) !== filterStatus) return false;
+    if (filterCategories.size > 0) {
+      const cat = p.category?.toLowerCase().trim() || '';
+      const matched = [...filterCategories].some(fc => {
+        const fck = fc.toLowerCase().trim();
+        if (cat === fck) return true;
+        if (cat.includes('|')) return cat.split('|').map(s => s.trim()).includes(fck);
+        return false;
+      });
+      if (!matched) return false;
+    }
+    return true;
+  });
 
   const toggleSelect = (id) => {
     setSelectedIds(prev => {
@@ -200,6 +220,7 @@ export default function TrendyolSendPage() {
     try {
       const body = { minStock };
       if (filterXmlSource) body.xmlSourceId = filterXmlSource;
+      if (filterCategories.size > 0) body.localCategories = [...filterCategories];
       const res = await api.post(`/marketplace/connections/${selectedConn.id}/send-all-ready`, body);
       setSendAllResult(res.data);
       toast.success(`${res.data.sent} ürün ${res.data.batches} parti halinde gönderildi`);
@@ -353,18 +374,45 @@ export default function TrendyolSendPage() {
         <div style={{ background: unmappedCategories.length > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.06)', border: `1px solid ${unmappedCategories.length > 0 ? 'var(--warning)' : 'var(--success)'}`, borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
           <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 200 }}>
-              <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 8 }}>
                 Yüklenen Eşlemeler ({mappings.length})
+                {filterCategories.size > 0 && (
+                  <button
+                    onClick={() => setFilterCategories(new Set())}
+                    style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent-primary)', background: 'rgba(99,102,241,0.1)', border: 'none', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', textTransform: 'none', letterSpacing: 0 }}
+                  >
+                    {filterCategories.size} seçili — temizle ✕
+                  </button>
+                )}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 {mappings.length === 0
                   ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Hiç eşleme bulunamadı</span>
-                  : mappings.slice(0, 20).map(m => (
-                    <span key={m.id} style={{ background: 'rgba(34,197,94,0.12)', color: 'var(--success)', borderRadius: 4, padding: '2px 8px', fontSize: 11, fontFamily: 'monospace' }}>
-                      {m.localCategory}
-                    </span>
-                  ))}
+                  : mappings.slice(0, 20).map(m => {
+                    const selected = filterCategories.has(m.localCategory);
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => toggleCategoryFilter(m.localCategory)}
+                        style={{
+                          background: selected ? 'rgba(99,102,241,0.2)' : 'rgba(34,197,94,0.12)',
+                          color: selected ? 'var(--accent-primary)' : 'var(--success)',
+                          border: selected ? '1px solid var(--accent-primary)' : '1px solid transparent',
+                          borderRadius: 4, padding: '2px 8px', fontSize: 11,
+                          fontFamily: 'monospace', cursor: 'pointer',
+                          fontWeight: selected ? 700 : 400,
+                        }}
+                      >
+                        {m.localCategory}
+                      </button>
+                    );
+                  })}
               </div>
+              {mappings.length > 0 && (
+                <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text-muted)' }}>
+                  Kategoriye tıklayarak ürün listesini filtrele
+                </p>
+              )}
             </div>
             {unmappedCategories.length > 0 && (
               <div style={{ flex: 1, minWidth: 200 }}>
