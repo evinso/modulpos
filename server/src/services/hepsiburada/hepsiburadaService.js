@@ -44,22 +44,84 @@ class HepsiburadaService {
   // ─── Listing API (price / stock for existing SKUs) ─────────────────────────
 
   async getListings(params = {}) {
-    return this._request('get', LISTING_BASE, `/Listings/merchantid/${this.merchantId}`, null, { limit: 1000, offset: 0, ...params });
+    return this._request('get', LISTING_BASE, `/listings/merchantid/${this.merchantId}`, null, { limit: 2000, offset: 0, ...params });
   }
 
   async getBuyboxRankings(limit = 500, offset = 0) {
-    return this._request('get', LISTING_BASE, `/Listings/merchantid/${this.merchantId}`, null, { limit, offset });
+    return this._request('get', LISTING_BASE, `/listings/merchantid/${this.merchantId}`, null, { limit, offset });
   }
 
-  async updateListing(sku, price, availableCount) {
-    const body = {};
-    if (price !== null && price !== undefined) body.price = price;
-    if (availableCount !== null && availableCount !== undefined) body.availableCount = availableCount;
-    return this._request('post', LISTING_BASE, `/Listings/merchantid/${this.merchantId}/sku/${encodeURIComponent(sku)}`, body);
+  // Batch inventory update via XML (price, stock, dispatch time, cargo company)
+  // listings: [{ merchantSku, hbSku?, price, stock, dispatchTime?, cargoCompany? }]
+  async uploadInventory(listings) {
+    const items = listings.map(l => {
+      const price = typeof l.price === 'number'
+        ? l.price.toFixed(2).replace('.', ',')
+        : String(l.price).replace('.', ',');
+      return [
+        '  <listing>',
+        '    <UniqueIdentifier />',
+        `    <HepsiburadaSku>${l.hbSku || ''}</HepsiburadaSku>`,
+        `    <MerchantSku>${l.merchantSku}</MerchantSku>`,
+        `    <Price>${price}</Price>`,
+        `    <AvailableStock>${l.stock ?? 0}</AvailableStock>`,
+        `    <DispatchTime>${l.dispatchTime ?? 1}</DispatchTime>`,
+        `    <CargoCompany1>${l.cargoCompany || 'Yurtiçi Kargo'}</CargoCompany1>`,
+        '  </listing>',
+      ].join('\n');
+    }).join('\n');
+
+    const xml = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<listings xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">',
+      items,
+      '</listings>',
+    ].join('\n');
+
+    try {
+      const res = await axios.post(
+        `${LISTING_BASE}/listings/merchantid/${this.merchantId}/inventory-uploads`,
+        xml,
+        {
+          headers: {
+            Authorization: `Basic ${this.credentials}`,
+            'Content-Type': 'application/xml',
+            Accept: 'application/json',
+          },
+          timeout: 30000,
+        }
+      );
+      return res.data;
+    } catch (err) {
+      const status = err.response?.status;
+      const detail = err.response?.data;
+      if (status === 401 || status === 403) throw new Error('Kimlik doğrulama hatası');
+      throw new Error(detail?.message || detail?.Message || err.message);
+    }
   }
 
+  // Convenience: single-item price/stock update via XML batch
+  async updateListing(sku, price, stock) {
+    return this.uploadInventory([{ merchantSku: sku, price: price ?? 0, stock: stock ?? 0 }]);
+  }
+
+  async activateListing(sku) {
+    return this._request('post', LISTING_BASE, `/listings/merchantid/${this.merchantId}/sku/${encodeURIComponent(sku)}/activate`);
+  }
+
+  async deactivateListing(sku) {
+    return this._request('post', LISTING_BASE, `/listings/merchantid/${this.merchantId}/sku/${encodeURIComponent(sku)}/deactivate`);
+  }
+
+  async deleteListing(sku, merchantSku) {
+    return this._request('delete', LISTING_BASE,
+      `/listings/merchantid/${this.merchantId}/sku/${encodeURIComponent(sku)}/merchantsku/${encodeURIComponent(merchantSku)}`
+    );
+  }
+
+  // Legacy alias kept for BuyBox adjust route
   async suspendListing(sku) {
-    return this._request('delete', LISTING_BASE, `/Listings/merchantid/${this.merchantId}/sku/${encodeURIComponent(sku)}`);
+    return this.deactivateListing(sku);
   }
 
   // ─── MPOP Catalog API ──────────────────────────────────────────────────────
