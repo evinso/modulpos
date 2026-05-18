@@ -39,11 +39,12 @@ class HepsiburadaService {
     }
   }
 
+  // ─── Listing API (price / stock for existing SKUs) ─────────────────────────
+
   async getListings(params = {}) {
     return this._request('get', LISTING_BASE, `/Listings/merchantid/${this.merchantId}`, null, { limit: 1000, offset: 0, ...params });
   }
 
-  // Update price and/or stock for an existing listing
   async updateListing(sku, price, availableCount) {
     return this._request('post', LISTING_BASE, `/Listings/merchantid/${this.merchantId}/sku/${encodeURIComponent(sku)}`,
       { price, availableCount });
@@ -53,17 +54,35 @@ class HepsiburadaService {
     return this._request('delete', LISTING_BASE, `/Listings/merchantid/${this.merchantId}/sku/${encodeURIComponent(sku)}`);
   }
 
-  // Get categories from MPOP (product catalog)
+  // ─── MPOP Catalog API (new product creation) ───────────────────────────────
+
   async getCategories() {
     return this._request('get', MPOP_BASE, '/product/api/categories/get-all-categories');
   }
 
-  // Get category attributes for product creation
   async getCategoryAttributes(categoryId) {
     return this._request('get', MPOP_BASE, `/product/api/categories/${categoryId}/attributes`);
   }
 
-  // Get orders
+  /**
+   * Submit new product listing(s) to HepsiBurada catalog.
+   * Each product: { merchantSku, VatRate, Barcode, UnitType, productName,
+   *   description, brand, categoryId, listingPrice, price, stock, images[], attributes[] }
+   * Returns: { trackingId } — use getImportStatus() to poll.
+   */
+  async createProducts(products) {
+    return this._request('post', MPOP_BASE, '/product/api/products/import/commit', {
+      merchantId: this.merchantId,
+      products,
+    });
+  }
+
+  async getImportStatus(trackingId) {
+    return this._request('get', MPOP_BASE, `/product/api/products/import/${trackingId}`);
+  }
+
+  // ─── Orders ───────────────────────────────────────────────────────────────
+
   async getOrders(status = 'Created', params = {}) {
     return this._request('get', LISTING_BASE, `/orders/merchantid/${this.merchantId}/status/${status}`, null, params);
   }

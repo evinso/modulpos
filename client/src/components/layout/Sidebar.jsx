@@ -4,7 +4,7 @@ import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, Message
 import { useAuthStore } from '../../store/authStore';
 
 const TRENDYOL_ROUTES = ['/category-mapping', '/trendyol-send', '/buybox', '/questions'];
-const HEPSIBURADA_ROUTES = ['/hepsiburada-send'];
+const HEPSIBURADA_ROUTES = ['/hepsiburada-send', '/hepsiburada-mapping', '/hepsiburada-create'];
 
 const trendyolItems = [
   { to: '/category-mapping', icon: FolderTree, label: 'Kategori Eşleştirme' },
@@ -14,7 +14,9 @@ const trendyolItems = [
 ];
 
 const hepsiburadaItems = [
-  { to: '/hepsiburada-send', icon: Send, label: 'Ürün Senkronizasyonu' },
+  { to: '/hepsiburada-mapping', icon: FolderTree, label: 'Kategori Eşleştirme' },
+  { to: '/hepsiburada-create', icon: Send, label: 'Yeni Ürün Listele' },
+  { to: '/hepsiburada-send', icon: ArrowLeftRight, label: 'Stok/Fiyat Güncelle' },
 ];
 
 export default function Sidebar() {

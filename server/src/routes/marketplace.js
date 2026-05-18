@@ -108,7 +108,7 @@ router.post('/connections/:id/test', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-// Get categories (Trendyol)
+// Get categories (Trendyol or HepsiBurada)
 router.get('/connections/:id/categories', async (req, res, next) => {
   try {
     const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
@@ -118,12 +118,19 @@ router.get('/connections/:id/categories', async (req, res, next) => {
       const categories = await service.getCategories();
       return res.json(categories);
     }
-    res.json([]);
-  } catch (error) { 
-    if (error.response && error.response.status === 403) {
-      return res.status(403).json({ error: 'Trendyol API erişimi reddedildi (403 Forbidden). Lütfen Satıcı ID, API Key ve API Secret bilgilerinizin doğru olduğundan emin olun.' });
+    if (connection.marketplaceType === 'hepsiburada') {
+      const service = new HepsiburadaService(connection);
+      const data = await service.getCategories();
+      // Normalize: HepsiBurada may return { categories: [...] } or flat array
+      const cats = data?.categories || data?.data || (Array.isArray(data) ? data : []);
+      return res.json({ categories: cats });
     }
-    next(error); 
+    res.json([]);
+  } catch (error) {
+    if (error.response && error.response.status === 403) {
+      return res.status(403).json({ error: 'API erişimi reddedildi (403). Lütfen kimlik bilgilerinizi kontrol edin.' });
+    }
+    next(error);
   }
 });
 
@@ -203,7 +210,99 @@ router.delete('/connections/:id', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-// Get category attributes (for Trendyol)
+// HepsiBurada: create new product listings via MPOP catalog API
+router.post('/connections/:id/hepsiburada-create', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') {
+      return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    }
+
+    const { productIds, minStock = 0 } = req.body;
+    if (!productIds?.length) return res.status(400).json({ error: 'Ürün listesi boş' });
+
+    const store = await prisma.store.findFirst({ where: { userId: req.user.id } });
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+
+    // Load products + category mappings
+    const [dbProducts, mappings] = await Promise.all([
+      prisma.product.findMany({ where: { id: { in: productIds }, storeId: store.id } }),
+      prisma.categoryMapping.findMany({ where: { connectionId: req.params.id } }),
+    ]);
+
+    const mappingLookup = {};
+    for (const m of mappings) mappingLookup[m.localCategory?.toLowerCase().trim()] = m;
+
+    const service = new HepsiburadaService(connection);
+    const toCreate = [];
+    const skipped = [];
+
+    for (const p of dbProducts) {
+      const catKey = p.category?.toLowerCase().trim();
+      const mapping = catKey ? mappingLookup[catKey] : null;
+
+      if (!mapping) { skipped.push({ id: p.id, reason: 'Kategori eşlemesi yok' }); continue; }
+      if (!p.barcode && !p.sku) { skipped.push({ id: p.id, reason: 'Barkod/SKU eksik' }); continue; }
+
+      let images = [];
+      try {
+        const parsed = p.images ? JSON.parse(p.images) : [];
+        images = Array.isArray(parsed) ? parsed : [parsed];
+      } catch { images = p.images ? [p.images] : []; }
+
+      const attrs = mapping.attributes ? JSON.parse(mapping.attributes) : [];
+
+      toCreate.push({
+        merchantSku: p.sku || p.barcode,
+        VatRate: 18,
+        Barcode: p.barcode || '',
+        UnitType: 'Adet',
+        productName: p.title || p.name || '',
+        description: p.description || '',
+        brand: p.brand || '',
+        categoryId: parseInt(mapping.marketplaceCategoryId),
+        listingPrice: Number(p.listPrice || p.price || 0),
+        price: Number(p.price || 0),
+        stock: Math.max(parseInt(p.stock || 0) - minStock, 0),
+        images,
+        attributes: Array.isArray(attrs) ? attrs : [],
+      });
+    }
+
+    if (toCreate.length === 0) {
+      return res.json({ sent: 0, skipped, message: 'Gönderilecek ürün yok' });
+    }
+
+    let result;
+    try {
+      result = await service.createProducts(toCreate);
+    } catch (err) {
+      return res.status(502).json({ error: `HepsiBurada API hatası: ${err.message}` });
+    }
+
+    res.json({
+      sent: toCreate.length,
+      skipped,
+      trackingId: result?.trackingId || result?.data?.trackingId || null,
+      result,
+    });
+  } catch (error) { next(error); }
+});
+
+// HepsiBurada: check import status
+router.get('/connections/:id/hepsiburada-import-status/:trackingId', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') {
+      return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    }
+    const service = new HepsiburadaService(connection);
+    const data = await service.getImportStatus(req.params.trackingId);
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+// Get category attributes (Trendyol or HepsiBurada)
 router.get('/connections/:id/categories/:catId/attributes', async (req, res, next) => {
   try {
     const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
@@ -212,6 +311,11 @@ router.get('/connections/:id/categories/:catId/attributes', async (req, res, nex
       const service = new TrendyolService(connection);
       const attributes = await service.getCategoryAttributes(parseInt(req.params.catId));
       return res.json(attributes);
+    }
+    if (connection.marketplaceType === 'hepsiburada') {
+      const service = new HepsiburadaService(connection);
+      const data = await service.getCategoryAttributes(req.params.catId);
+      return res.json(data);
     }
     res.json({ categoryAttributes: [] });
   } catch (error) { next(error); }
