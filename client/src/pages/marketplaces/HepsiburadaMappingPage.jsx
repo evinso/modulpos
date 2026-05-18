@@ -11,6 +11,7 @@ export default function HepsiburadaMappingPage() {
   const [mappings, setMappings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [catLoading, setCatLoading] = useState(false);
+  const [categoryType, setCategoryType] = useState('');
 
   // Mapping form
   const [selectedLocal, setSelectedLocal] = useState('');
@@ -38,7 +39,7 @@ export default function HepsiburadaMappingPage() {
     finally { setLoading(false); }
   };
 
-  const loadData = async (conn) => {
+  const loadData = async (conn, type = '') => {
     setSelectedConn(conn);
     setCatLoading(true);
     setHbCategories([]);
@@ -46,19 +47,25 @@ export default function HepsiburadaMappingPage() {
     setAttributes([]);
     setAttrState({});
     try {
+      const params = {};
+      if (type) params.type = type;
       const [localRes, catRes, mapRes] = await Promise.all([
         api.get('/marketplace/local-categories'),
-        api.get(`/marketplace/connections/${conn.id}/categories`),
+        api.get(`/marketplace/connections/${conn.id}/categories`, { params }),
         api.get(`/marketplace/connections/${conn.id}/category-mappings`),
       ]);
       setLocalCategories(localRes.data);
-      // Flat leaf list (leaf=true ensures no tree nesting needed)
       const cats = catRes.data?.categories || catRes.data?.data || (Array.isArray(catRes.data) ? catRes.data : []);
       setHbCategories(cats);
       setMappings(mapRes.data);
     } catch (err) {
       toast.error('Veriler yüklenemedi: ' + (err.response?.data?.error || err.message));
     } finally { setCatLoading(false); }
+  };
+
+  const reloadCategories = (type) => {
+    setCategoryType(type);
+    if (selectedConn) loadData(selectedConn, type);
   };
 
   // Filtered categories by search
@@ -241,10 +248,33 @@ export default function HepsiburadaMappingPage() {
             <div className="card">
               <h3 style={{ marginBottom: 16, fontSize: 15 }}>Yeni Eşleme Ekle</h3>
 
+              {/* Category type filter */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Kategori Tipi</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {[
+                    { value: '', label: 'Tümü' },
+                    { value: 'HB', label: 'HB (Hepsiburada)' },
+                    { value: 'HX', label: 'HX (Express)' },
+                    { value: 'HC', label: 'HC (Çarşı)' },
+                  ].map(opt => (
+                    <button key={opt.value} onClick={() => reloadCategories(opt.value)}
+                      style={{
+                        fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
+                        border: `1px solid ${categoryType === opt.value ? '#ff6000' : 'var(--border-color)'}`,
+                        background: categoryType === opt.value ? 'rgba(255,96,0,0.1)' : 'transparent',
+                        color: categoryType === opt.value ? '#ff6000' : 'var(--text-secondary)',
+                      }}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Info: leaf categories */}
               <div style={{ background: 'rgba(255,96,0,0.08)', border: '1px solid rgba(255,96,0,0.2)', borderRadius: 6, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: 'var(--text-secondary)', display: 'flex', gap: 8 }}>
                 <AlertCircle size={14} style={{ color: '#ff6000', flexShrink: 0, marginTop: 1 }} />
-                <span>Sadece ürün oluşturulabilecek <strong>yaprak kategoriler</strong> listeleniyor (leaf=true, ACTIVE, available).</span>
+                <span>Yaprak kategoriler ({hbCategories.length} adet) — leaf=true, ACTIVE, available{categoryType ? `, type=${categoryType}` : ''}.</span>
               </div>
 
               {/* Local category */}

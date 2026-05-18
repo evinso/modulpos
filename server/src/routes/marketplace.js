@@ -120,11 +120,18 @@ router.get('/connections/:id/categories', async (req, res, next) => {
     }
     if (connection.marketplaceType === 'hepsiburada') {
       const service = new HepsiburadaService(connection);
-      const page = parseInt(req.query.page) || 0;
-      const size = Math.min(parseInt(req.query.size) || 1000, 1000);
-      const data = await service.getCategories(page, size);
-      // Docs: response is flat array of leaf categories (leaf=true)
-      // May be wrapped: { data: [...] } or { categories: [...] } or plain array
+      const {
+        page = 0, size = 1000,
+        leaf, status, available, type,
+      } = req.query;
+      const data = await service.getCategories({
+        leaf: leaf !== undefined ? leaf === 'true' : true,
+        status: status || 'ACTIVE',
+        available: available !== undefined ? available === 'true' : true,
+        type: type || undefined,
+        page: parseInt(page) || 0,
+        size: Math.min(parseInt(size) || 1000, 1000),
+      });
       const cats = data?.data || data?.categories || (Array.isArray(data) ? data : []);
       return res.json({ categories: cats, total: data?.totalCount || cats.length });
     }
@@ -558,7 +565,7 @@ router.get('/connections/:id/categories/:catId/attributes', async (req, res, nex
   } catch (error) { next(error); }
 });
 
-// HepsiBurada: get enum attribute values (version=4, page/size)
+// HepsiBurada: get enum attribute values (version=5, page/size, optional modifiedAtSince)
 router.get('/connections/:id/hepsiburada-attribute-values/:catId/:attrId', async (req, res, next) => {
   try {
     const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
@@ -568,7 +575,8 @@ router.get('/connections/:id/hepsiburada-attribute-values/:catId/:attrId', async
     const service = new HepsiburadaService(connection);
     const page = parseInt(req.query.page) || 0;
     const size = Math.min(parseInt(req.query.size) || 1000, 1000);
-    const data = await service.getAttributeValues(req.params.catId, req.params.attrId, page, size);
+    const modifiedAtSince = req.query.modifiedAtSince || undefined;
+    const data = await service.getAttributeValues(req.params.catId, req.params.attrId, page, size, modifiedAtSince);
     res.json(data);
   } catch (error) { next(error); }
 });

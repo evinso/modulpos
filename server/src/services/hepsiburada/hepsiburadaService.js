@@ -14,6 +14,7 @@ class HepsiburadaService {
     return {
       Authorization: `Basic ${this.credentials}`,
       Accept: 'application/json',
+      'User-Agent': 'ModulPOS/1.0',
     };
   }
 
@@ -126,39 +127,27 @@ class HepsiburadaService {
 
   // ─── MPOP Catalog API ──────────────────────────────────────────────────────
 
-  /**
-   * Get leaf categories available for product creation.
-   * leaf=true → only bottom-level categories (where products can be created)
-   * status=ACTIVE, available=true → only usable categories
-   * size max 1000 per docs.
-   */
-  async getCategories(page = 0, size = 1000) {
-    return this._request('get', MPOP_BASE, '/product/api/categories/get-all-categories', null, {
-      leaf: true,
-      status: 'ACTIVE',
-      available: true,
-      version: 1,
-      page,
-      size,
-    });
+  // leaf: true=only leaf nodes (default), status: ACTIVE/INACTIVE/ARCHIVED (default ACTIVE)
+  // available: true (default), type: HX/HB/HC (optional), version: 1 (default)
+  async getCategories({ leaf = true, status = 'ACTIVE', available = true, type, page = 0, size = 1000 } = {}) {
+    const params = { leaf, status, available, version: 1, page, size };
+    if (type) params.type = type;
+    return this._request('get', MPOP_BASE, '/product/api/categories/get-all-categories', null, params);
   }
 
-  /**
-   * Get attributes for a category (version=1 per docs).
-   * Returns array of attributes; those with type=enum need getAttributeValues() next.
-   */
-  async getCategoryAttributes(categoryId) {
-    return this._request('get', MPOP_BASE, `/product/api/categories/${categoryId}/attributes`, null, { version: 1 });
+  // version=2 per API docs (previously 1 — updated)
+  async getCategoryAttributes(categoryId, modifiedAtSince) {
+    const params = { version: 2 };
+    if (modifiedAtSince) params.modifiedAtSince = modifiedAtSince;
+    return this._request('get', MPOP_BASE, `/product/api/categories/${categoryId}/attributes`, null, params);
   }
 
-  /**
-   * Get allowed values for an enum attribute.
-   * version=4, page=0, size=1000 per docs.
-   */
-  async getAttributeValues(categoryId, attributeId, page = 0, size = 1000) {
+  // version=5 per API docs (previously 4 — updated), page/size with default 1000
+  async getAttributeValues(categoryId, attributeId, page = 0, size = 1000, modifiedAtSince) {
+    const params = { version: 5, page, size };
+    if (modifiedAtSince) params.modifiedAtSince = modifiedAtSince;
     return this._request('get', MPOP_BASE,
-      `/product/api/categories/${categoryId}/attribute/${attributeId}/values`, null,
-      { version: 4, page, size });
+      `/product/api/categories/${categoryId}/attribute/${attributeId}/values`, null, params);
   }
 
   /**
