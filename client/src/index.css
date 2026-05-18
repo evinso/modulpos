@@ -639,9 +639,53 @@ html, body, #root {
   .grid-3 { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* Mobile hamburger button — hidden on desktop */
+.hamburger-btn {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 6px;
+  border-radius: 6px;
+  align-items: center;
+  justify-content: center;
+}
+.hamburger-btn:hover { background: var(--bg-tertiary); }
+
+/* Sidebar overlay — only visible on mobile when sidebar is open */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 999;
+}
+
 @media (max-width: 768px) {
   .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
-  .sidebar { display: none; }
+
+  .hamburger-btn { display: flex; }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 280px;
+    z-index: 1000;
+    transform: translateX(-100%);
+    overflow-y: auto;
+  }
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay.sidebar-overlay-visible {
+    display: block;
+  }
+
+  .page-content { padding: 16px; }
 }
 
 /* Buttons */

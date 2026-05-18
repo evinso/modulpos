@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
-import { Search, Bell, LogOut, User, Settings, Shield, CreditCard, ChevronDown, Check, Clock, Info } from 'lucide-react';
+import { Search, Bell, LogOut, User, Settings, Shield, CreditCard, ChevronDown, Check, Clock, Info, Menu } from 'lucide-react';
 import NotificationDetailModal from '../NotificationDetailModal';
 
 import { useAuthStore } from '../../store/authStore';
@@ -20,7 +20,7 @@ const pageTitles = {
   '/pricing': 'Fiyatlandırma Kuralları',
 };
 
-export default function Header() {
+export default function Header({ onMenuClick }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
@@ -167,6 +167,9 @@ export default function Header() {
     <>
     <header className="header">
       <div className="header-left">
+        <button className="hamburger-btn" onClick={onMenuClick} aria-label="Menüyü aç">
+          <Menu size={22} />
+        </button>
         <h2>{title}</h2>
       </div>
       <div className="header-right">

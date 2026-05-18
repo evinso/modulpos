@@ -21,7 +21,7 @@ const hepsiburadaItems = [
   { to: '/hepsiburada-questions', icon: MessageSquare, label: 'Müşteri Soruları' },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ isOpen }) {
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
   const location = useLocation();
@@ -32,7 +32,7 @@ export default function Sidebar() {
   const [hepsiburadaOpen, setHepsiburadaOpen] = useState(isHepsiburadaActive);
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${isOpen ? ' sidebar-open' : ''}`}>
       <Link to="/dashboard" className="sidebar-logo">
         <div className="logo-icon">M</div>
         <h1>ModulPOS</h1>
