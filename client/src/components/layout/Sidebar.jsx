@@ -4,6 +4,7 @@ import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, Message
 import { useAuthStore } from '../../store/authStore';
 
 const TRENDYOL_ROUTES = ['/category-mapping', '/trendyol-send', '/buybox', '/questions'];
+const HEPSIBURADA_ROUTES = ['/hepsiburada-send'];
 
 const trendyolItems = [
   { to: '/category-mapping', icon: FolderTree, label: 'Kategori Eşleştirme' },
@@ -12,13 +13,19 @@ const trendyolItems = [
   { to: '/questions', icon: MessageSquare, label: 'Müşteri Soruları' },
 ];
 
+const hepsiburadaItems = [
+  { to: '/hepsiburada-send', icon: Send, label: 'Ürün Senkronizasyonu' },
+];
+
 export default function Sidebar() {
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
   const location = useLocation();
 
   const isTrendyolActive = TRENDYOL_ROUTES.some(r => location.pathname.startsWith(r));
+  const isHepsiburadaActive = HEPSIBURADA_ROUTES.some(r => location.pathname.startsWith(r));
   const [trendyolOpen, setTrendyolOpen] = useState(isTrendyolActive);
+  const [hepsiburadaOpen, setHepsiburadaOpen] = useState(isHepsiburadaActive);
 
   return (
     <aside className="sidebar">
@@ -82,9 +89,38 @@ export default function Sidebar() {
             </div>
           )}
 
+          {/* Hepsiburada collapsible */}
+          <button
+            onClick={() => setHepsiburadaOpen(o => !o)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+              padding: '8px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+              background: isHepsiburadaActive ? 'rgba(255,96,0,0.10)' : 'transparent',
+              color: isHepsiburadaActive ? '#ff6000' : 'var(--text-secondary)',
+              fontSize: 13, fontWeight: isHepsiburadaActive ? 600 : 400,
+              marginTop: 2,
+            }}
+          >
+            <Store size={18} style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, textAlign: 'left' }}>Hepsiburada</span>
+            <ChevronDown
+              size={14}
+              style={{ transition: 'transform 0.2s', transform: hepsiburadaOpen ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}
+            />
+          </button>
+
+          {hepsiburadaOpen && (
+            <div style={{ marginLeft: 12, borderLeft: '2px solid var(--border-color)', paddingLeft: 8, marginBottom: 2 }}>
+              {hepsiburadaItems.map(item => (
+                <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} style={{ fontSize: 13 }}>
+                  <item.icon size={16} className="icon" /><span>{item.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          )}
+
           {/* Yakında gelecek pazaryerleri */}
           {[
-            { label: 'Hepsiburada' },
             { label: 'Amazon' },
             { label: 'N11' },
             { label: 'Çiçeksepeti' },

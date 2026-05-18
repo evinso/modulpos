@@ -21,7 +21,8 @@ const GlobalXmlMarketPage = lazy(() => import('./pages/xml/GlobalXmlMarketPage')
 const GlobalXmlAdminPage  = lazy(() => import('./pages/xml/GlobalXmlAdminPage'));
 const MarketplacePage     = lazy(() => import('./pages/marketplaces/MarketplacePage'));
 const CategoryMappingPage = lazy(() => import('./pages/marketplaces/CategoryMappingPage'));
-const TrendyolSendPage    = lazy(() => import('./pages/marketplaces/TrendyolSendPage'));
+const TrendyolSendPage       = lazy(() => import('./pages/marketplaces/TrendyolSendPage'));
+const HepsiburadaSendPage    = lazy(() => import('./pages/marketplaces/HepsiburadaSendPage'));
 const BuyboxPage          = lazy(() => import('./pages/marketplaces/BuyboxPage'));
 const QuestionsPage       = lazy(() => import('./pages/questions/QuestionsPage'));
 const QuestionsAdminPage  = lazy(() => import('./pages/questions/QuestionsAdminPage'));
@@ -77,7 +78,8 @@ function App() {
             <Route path="/global-xml-admin" element={<AdminRoute><GlobalXmlAdminPage /></AdminRoute>} />
             <Route path="/marketplace"      element={<MarketplacePage />} />
             <Route path="/category-mapping" element={<CategoryMappingPage />} />
-            <Route path="/trendyol-send"    element={<TrendyolSendPage />} />
+            <Route path="/trendyol-send"       element={<TrendyolSendPage />} />
+            <Route path="/hepsiburada-send"    element={<HepsiburadaSendPage />} />
             <Route path="/buybox"           element={<BuyboxPage />} />
             <Route path="/questions"        element={<QuestionsPage />} />
             <Route path="/orders"           element={<OrdersPage />} />

@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const TrendyolService = require('../services/trendyol/trendyolService');
+const HepsiburadaService = require('../services/hepsiburada/hepsiburadaService');
 const notificationService = require('../services/notificationService');
 const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
 const { deductCredits, getSetting } = require('./credits');
@@ -93,6 +94,16 @@ router.post('/connections/:id/test', async (req, res, next) => {
       }
       return res.json(result);
     }
+
+    if (connection.marketplaceType === 'hepsiburada') {
+      const service = new HepsiburadaService(connection);
+      const result = await service.testConnection();
+      if (result.success) {
+        await prisma.marketplaceConnection.update({ where: { id: connection.id }, data: { status: 'active', errorMessage: null } });
+      }
+      return res.json(result);
+    }
+
     res.json({ success: false, message: 'Bu pazaryeri henüz desteklenmiyor' });
   } catch (error) { next(error); }
 });
@@ -138,6 +149,50 @@ router.get('/brands/search', async (req, res, next) => {
     console.error('[Brand Search Error]', error.response?.data || error.message);
     res.json([]);
   }
+});
+
+// HepsiBurada: sync price & stock for selected products
+router.post('/connections/:id/hepsiburada-sync', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') {
+      return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    }
+
+    const { products } = req.body; // [{ sku, price, stock }]
+    if (!products?.length) return res.status(400).json({ error: 'Ürün listesi boş' });
+
+    const service = new HepsiburadaService(connection);
+    const results = [];
+
+    for (const p of products) {
+      try {
+        await service.updateListing(p.sku, p.price, p.stock);
+        results.push({ sku: p.sku, success: true });
+      } catch (err) {
+        results.push({ sku: p.sku, success: false, error: err.message });
+      }
+    }
+
+    res.json({
+      results,
+      sent: results.filter(r => r.success).length,
+      failed: results.filter(r => !r.success).length,
+    });
+  } catch (error) { next(error); }
+});
+
+// HepsiBurada: get active listings
+router.get('/connections/:id/hepsiburada-listings', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') {
+      return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    }
+    const service = new HepsiburadaService(connection);
+    const data = await service.getListings();
+    res.json(data);
+  } catch (error) { next(error); }
 });
 
 // Delete connection
