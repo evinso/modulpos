@@ -323,6 +323,7 @@ router.post('/connections/:id/hepsiburada-create', async (req, res, next) => {
 
       if (!mapping) { skipped.push({ id: p.id, reason: 'Kategori eşlemesi yok' }); continue; }
       if (!p.barcode && !p.sku) { skipped.push({ id: p.id, reason: 'Barkod/SKU eksik' }); continue; }
+      if (!p.brand) { skipped.push({ id: p.id, reason: 'Marka eksik' }); continue; }
 
       let images = [];
       try {
@@ -330,22 +331,42 @@ router.post('/connections/:id/hepsiburada-create', async (req, res, next) => {
         images = Array.isArray(parsed) ? parsed : [parsed];
       } catch { images = p.images ? [p.images] : []; }
 
-      const attrs = mapping.attributes ? JSON.parse(mapping.attributes) : [];
+      // Category-specific attributes from mapping (attributeId -> value)
+      const mappingAttrs = mapping.attributes ? JSON.parse(mapping.attributes) : [];
+      const categoryAttrMap = {};
+      if (Array.isArray(mappingAttrs)) {
+        for (const a of mappingAttrs) {
+          if (a.attributeId) categoryAttrMap[a.attributeId] = a.valueName || a.value || '';
+        }
+      }
+
+      // Image fields Image1..Image5
+      const imageFields = {};
+      images.slice(0, 5).forEach((url, i) => { imageFields[`Image${i + 1}`] = url; });
+
+      // Price in Turkish decimal format (comma separator)
+      const priceVal = Number(p.price || 0);
+      const priceStr = priceVal.toFixed(2).replace('.', ',');
+      const stockVal = Math.max(parseInt(p.stock || 0) - minStock, 0);
 
       toCreate.push({
-        merchantSku: p.sku || p.barcode,
-        VatRate: 18,
-        Barcode: p.barcode || '',
-        UnitType: 'Adet',
-        productName: p.title || p.name || '',
-        description: p.description || '',
-        brand: p.brand || '',
         categoryId: parseInt(mapping.marketplaceCategoryId),
-        listingPrice: Number(p.listPrice || p.price || 0),
-        price: Number(p.price || 0),
-        stock: Math.max(parseInt(p.stock || 0) - minStock, 0),
-        images,
-        attributes: Array.isArray(attrs) ? attrs : [],
+        merchant: connection.sellerId,
+        attributes: {
+          merchantSku: p.sku || p.barcode,
+          VaryantGroupID: p.sku || p.barcode,
+          Barcode: p.barcode || p.sku || '',
+          UrunAdi: p.title || p.name || '',
+          UrunAciklamasi: p.description || '',
+          Marka: p.brand,
+          GarantiSuresi: 24,
+          kg: '1',
+          tax_vat_rate: '18',
+          price: priceStr,
+          stock: String(stockVal),
+          ...imageFields,
+          ...categoryAttrMap,
+        },
       });
     }
 
@@ -360,10 +381,11 @@ router.post('/connections/:id/hepsiburada-create', async (req, res, next) => {
       return res.status(502).json({ error: `HepsiBurada API hatası: ${err.message}` });
     }
 
+    const trackingId = result?.trackingId || result?.data?.trackingId || result?.id || null;
     res.json({
       sent: toCreate.length,
       skipped,
-      trackingId: result?.trackingId || result?.data?.trackingId || null,
+      trackingId,
       result,
     });
   } catch (error) { next(error); }

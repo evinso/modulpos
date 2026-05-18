@@ -1,4 +1,5 @@
 const axios = require('axios');
+const FormData = require('form-data');
 
 const LISTING_BASE = 'https://listing-external.hepsiburada.com';
 const MPOP_BASE    = 'https://mpop.hepsiburada.com';
@@ -99,18 +100,42 @@ class HepsiburadaService {
   }
 
   /**
-   * Submit new product listing(s) to HepsiBurada catalog.
+   * Submit new product listing(s) to HepsiBurada catalog via multipart/form-data file upload.
+   * products: array of { categoryId, merchant, attributes } per HepsiBurada integrator.json spec.
    * Returns { trackingId } — poll with getImportStatus().
    */
   async createProducts(products) {
-    return this._request('post', MPOP_BASE, '/product/api/products/import/commit', {
-      merchantId: this.merchantId,
-      products,
-    });
+    try {
+      const form = new FormData();
+      const json = JSON.stringify(products);
+      form.append('file', Buffer.from(json), {
+        filename: 'integrator.json',
+        contentType: 'application/json',
+      });
+      const res = await axios.post(`${MPOP_BASE}/product/api/products/import`, form, {
+        headers: {
+          Authorization: `Basic ${this.credentials}`,
+          Accept: 'application/json',
+          ...form.getHeaders(),
+        },
+        params: { version: 1 },
+        timeout: 30000,
+      });
+      return res.data;
+    } catch (err) {
+      const status = err.response?.status;
+      const detail = err.response?.data;
+      if (status === 401 || status === 403) throw new Error('Kimlik doğrulama hatası: Kullanıcı adı veya şifre hatalı');
+      throw new Error(detail?.message || detail?.Message || err.message);
+    }
   }
 
   async getImportStatus(trackingId) {
-    return this._request('get', MPOP_BASE, `/product/api/products/import/${trackingId}`);
+    return this._request('get', MPOP_BASE, `/product/api/products/status/${trackingId}`, null, {
+      version: 1,
+      page: 0,
+      size: 1000,
+    });
   }
 
   // ─── Orders ───────────────────────────────────────────────────────────────
