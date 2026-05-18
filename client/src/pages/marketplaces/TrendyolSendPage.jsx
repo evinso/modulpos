@@ -25,7 +25,7 @@ export default function TrendyolSendPage() {
   const [filterCategories, setFilterCategories] = useState(new Set());
 
   useEffect(() => { fetchConnections(); fetchXmlSources(); fetchPricingRules(); }, []);
-  useEffect(() => { if (selectedConn) { fetchProducts(); fetchMappings(); } }, [selectedConn, pagination.page, search, filterXmlSource]);
+  useEffect(() => { if (selectedConn) { fetchProducts(); fetchMappings(); } }, [selectedConn, pagination.page, search, filterXmlSource, filterCategories]);
 
   const fetchPricingRules = async () => {
     try {
@@ -57,6 +57,7 @@ export default function TrendyolSendPage() {
     try {
       const params = { page: pagination.page, limit: 20, search };
       if (filterXmlSource) params.xmlSourceId = filterXmlSource;
+      if (filterCategories.size > 0) params.categories = [...filterCategories].join(',');
       const res = await api.get('/products', { params });
       setProducts(res.data.products);
       setPagination(p => ({ ...p, total: res.data.pagination.total, totalPages: res.data.pagination.totalPages }));
@@ -176,6 +177,7 @@ export default function TrendyolSendPage() {
   };
 
   const toggleCategoryFilter = (localCategory) => {
+    setPagination(p => ({ ...p, page: 1 }));
     setFilterCategories(prev => {
       const next = new Set(prev);
       next.has(localCategory) ? next.delete(localCategory) : next.add(localCategory);
@@ -183,20 +185,9 @@ export default function TrendyolSendPage() {
     });
   };
 
-  const filteredProducts = products.filter(p => {
-    if (filterStatus !== 'all' && getProductStatus(p) !== filterStatus) return false;
-    if (filterCategories.size > 0) {
-      const cat = p.category?.toLowerCase().trim() || '';
-      const matched = [...filterCategories].some(fc => {
-        const fck = fc.toLowerCase().trim();
-        if (cat === fck) return true;
-        if (cat.includes('|')) return cat.split('|').map(s => s.trim()).includes(fck);
-        return false;
-      });
-      if (!matched) return false;
-    }
-    return true;
-  });
+  const filteredProducts = filterStatus === 'all'
+    ? products
+    : products.filter(p => getProductStatus(p) === filterStatus);
 
   const toggleSelect = (id) => {
     setSelectedIds(prev => {

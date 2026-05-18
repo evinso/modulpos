@@ -26,6 +26,7 @@ router.get('/', async (req, res, next) => {
       status,
       brand,
       category,
+      categories,
       xmlSourceId,
       connectionId,
       marketplaceStatus,
@@ -45,7 +46,13 @@ router.get('/', async (req, res, next) => {
     }
     if (status) where.status = status;
     if (brand) where.brand = brand;
-    if (category) where.category = category;
+    if (categories) {
+      const catList = categories.split(',').map(c => c.trim()).filter(Boolean);
+      if (catList.length === 1) where.category = catList[0];
+      else if (catList.length > 1) where.category = { in: catList };
+    } else if (category) {
+      where.category = category;
+    }
     if (xmlSourceId) where.xmlSourceId = xmlSourceId;
     if (globalXmlOnly === 'true') where.xmlSource = { globalProviderId: { not: null } };
     if (connectionId || marketplaceStatus) {
