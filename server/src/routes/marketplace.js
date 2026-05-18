@@ -404,6 +404,58 @@ router.get('/connections/:id/hepsiburada-import-status/:trackingId', async (req,
   } catch (error) { next(error); }
 });
 
+// HepsiBurada: List customer questions
+router.get('/connections/:id/hepsiburada-questions', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    const { status, sortBy = 0, page = 0, size = 20 } = req.query;
+    const service = new HepsiburadaService(connection);
+    const data = await service.getQuestions(
+      status !== undefined && status !== '' ? parseInt(status) : undefined,
+      parseInt(sortBy), parseInt(page), parseInt(size)
+    );
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+// HepsiBurada: Question counts by status
+router.get('/connections/:id/hepsiburada-questions/count', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    const service = new HepsiburadaService(connection);
+    const data = await service.getQuestionCount();
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+// HepsiBurada: Answer a question
+router.post('/connections/:id/hepsiburada-questions/:number/answer', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    const { answerText } = req.body;
+    if (!answerText?.trim()) return res.status(400).json({ error: 'Yanıt boş olamaz' });
+    const service = new HepsiburadaService(connection);
+    const data = await service.answerQuestion(req.params.number, answerText.trim());
+    res.json(data || { success: true });
+  } catch (error) { next(error); }
+});
+
+// HepsiBurada: Reject/report a question
+router.post('/connections/:id/hepsiburada-questions/:number/reject', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    const { rejectReason } = req.body;
+    if (!rejectReason?.trim()) return res.status(400).json({ error: 'Sorun sebebi boş olamaz' });
+    const service = new HepsiburadaService(connection);
+    const data = await service.rejectQuestion(req.params.number, rejectReason.trim());
+    res.json(data || { success: true });
+  } catch (error) { next(error); }
+});
+
 // Get category attributes (Trendyol or HepsiBurada)
 router.get('/connections/:id/categories/:catId/attributes', async (req, res, next) => {
   try {

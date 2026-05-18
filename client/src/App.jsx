@@ -25,7 +25,8 @@ const TrendyolSendPage       = lazy(() => import('./pages/marketplaces/TrendyolS
 const HepsiburadaSendPage    = lazy(() => import('./pages/marketplaces/HepsiburadaSendPage'));
 const HepsiburadaMappingPage = lazy(() => import('./pages/marketplaces/HepsiburadaMappingPage'));
 const HepsiburadaCreatePage  = lazy(() => import('./pages/marketplaces/HepsiburadaCreatePage'));
-const HepsiburadaBuyboxPage  = lazy(() => import('./pages/marketplaces/HepsiburadaBuyboxPage'));
+const HepsiburadaBuyboxPage      = lazy(() => import('./pages/marketplaces/HepsiburadaBuyboxPage'));
+const HepsiburadaQuestionsPage   = lazy(() => import('./pages/marketplaces/HepsiburadaQuestionsPage'));
 const BuyboxPage          = lazy(() => import('./pages/marketplaces/BuyboxPage'));
 const QuestionsPage       = lazy(() => import('./pages/questions/QuestionsPage'));
 const QuestionsAdminPage  = lazy(() => import('./pages/questions/QuestionsAdminPage'));
@@ -85,7 +86,8 @@ function App() {
             <Route path="/hepsiburada-send"       element={<HepsiburadaSendPage />} />
             <Route path="/hepsiburada-mapping"    element={<HepsiburadaMappingPage />} />
             <Route path="/hepsiburada-create"     element={<HepsiburadaCreatePage />} />
-            <Route path="/hepsiburada-buybox"     element={<HepsiburadaBuyboxPage />} />
+            <Route path="/hepsiburada-buybox"      element={<HepsiburadaBuyboxPage />} />
+            <Route path="/hepsiburada-questions"  element={<HepsiburadaQuestionsPage />} />
             <Route path="/buybox"           element={<BuyboxPage />} />
             <Route path="/questions"        element={<QuestionsPage />} />
             <Route path="/orders"           element={<OrdersPage />} />

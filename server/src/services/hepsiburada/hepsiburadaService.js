@@ -143,6 +143,64 @@ class HepsiburadaService {
   async getOrders(status = 'Created', params = {}) {
     return this._request('get', LISTING_BASE, `/orders/merchantid/${this.merchantId}/status/${status}`, null, params);
   }
+
+  // ─── Ask to Seller (Customer Questions) ───────────────────────────────────
+
+  _askHeaders() {
+    return {
+      Authorization: `Basic ${this.credentials}`,
+      merchantId: this.merchantId,
+      Accept: 'application/json',
+    };
+  }
+
+  async _askRequest(method, path, data, params) {
+    const ASK_BASE = 'https://api-asktoseller-merchant.hepsiburada.com';
+    try {
+      const headers = { ...this._askHeaders() };
+      if (data) headers['Content-Type'] = 'application/json';
+      const res = await axios({ method, url: `${ASK_BASE}${path}`, headers, data, params, timeout: 20000 });
+      return res.data;
+    } catch (err) {
+      const status = err.response?.status;
+      const detail = err.response?.data;
+      if (status === 401 || status === 403) throw new Error('Kimlik doğrulama hatası');
+      if (status === 404) throw new Error('Kaynak bulunamadı (404)');
+      throw new Error(detail?.message || detail?.Message || err.message);
+    }
+  }
+
+  // status: undefined=WaitingForAnswer, 2=Answered, 3=Rejected, 4=AutoClosed
+  // sortBy: 0=question date, 1=last updated date
+  async getQuestions(status, sortBy = 0, page = 0, size = 20) {
+    const params = { sortBy, page, size };
+    if (status !== undefined && status !== null && status !== '') params.status = status;
+    return this._askRequest('get', '/api/v1.0/issues', null, params);
+  }
+
+  async getQuestionCount() {
+    return this._askRequest('get', '/api/v1.0/issues/count', null, null);
+  }
+
+  async answerQuestion(number, answerText) {
+    const ASK_BASE = 'https://api-asktoseller-merchant.hepsiburada.com';
+    const form = new FormData();
+    form.append('Answer', answerText);
+    try {
+      const res = await axios.post(`${ASK_BASE}/api/v1.0/issues/${number}/answer`, form, {
+        headers: { ...this._askHeaders(), ...form.getHeaders() },
+        timeout: 20000,
+      });
+      return res.data;
+    } catch (err) {
+      const detail = err.response?.data;
+      throw new Error(detail?.message || detail?.Message || err.message);
+    }
+  }
+
+  async rejectQuestion(number, rejectReason) {
+    return this._askRequest('post', `/api/v1.0/issues/${number}/reject`, { rejectReason });
+  }
 }
 
 module.exports = HepsiburadaService;
