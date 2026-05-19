@@ -95,7 +95,8 @@ class CronService {
 
       for (const p of products) {
         try {
-          const sku = p.sku || p.barcode || `xml-${Date.now()}-${Math.random()}`;
+          const cleanVal = (v) => (v && !/^[{}[\]\s]+$/.test(String(v).trim()) && String(v).trim().length >= 2) ? String(v).trim() : null;
+          const sku = cleanVal(p.sku) || cleanVal(p.barcode) || `xml-${Date.now()}-${Math.random()}`;
           let rawXmlPrice = p.price || 0;
 
           const planMarkupPct = getPerPlanMarkup(xmlSource.globalPriceMarkupPctByPlan, userPlan);
@@ -121,7 +122,7 @@ class CronService {
 
           let finalPrice = xmlPrice;
 
-          const rawBarcode = (p.barcode && !/^[{}[\]]+$/.test(p.barcode.trim())) ? p.barcode : null;
+          const rawBarcode = cleanVal(p.barcode);
           const baseBarcode = xmlSource.globalBarcodePrefix
             ? `${xmlSource.globalBarcodePrefix}${rawBarcode || sku}`
             : (rawBarcode || sku);
