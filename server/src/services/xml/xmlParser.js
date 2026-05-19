@@ -569,7 +569,13 @@ function getNestedValue(obj, path) {
     }
   }
   if (val === null || val === undefined) return null;
-  if (typeof val === 'object') return JSON.stringify(val).substring(0, 200);
+  if (typeof val === 'object') {
+    const keys = Object.keys(val);
+    if (keys.length === 0) return null; // boş obje {} → null
+    const serialized = JSON.stringify(val);
+    if (serialized === '{}' || serialized === '[]') return null;
+    return serialized.substring(0, 200);
+  }
   return String(val);
 }
 

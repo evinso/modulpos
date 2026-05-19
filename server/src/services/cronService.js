@@ -121,9 +121,10 @@ class CronService {
 
           let finalPrice = xmlPrice;
 
-          const baseBarcode = xmlSource.globalBarcodePrefix 
-            ? `${xmlSource.globalBarcodePrefix}${p.barcode || sku}` 
-            : (p.barcode || sku);
+          const rawBarcode = (p.barcode && !/^[{}[\]]+$/.test(p.barcode.trim())) ? p.barcode : null;
+          const baseBarcode = xmlSource.globalBarcodePrefix
+            ? `${xmlSource.globalBarcodePrefix}${rawBarcode || sku}`
+            : (rawBarcode || sku);
 
           const finalBarcode = xmlSource.barcodePrefix
             ? `${xmlSource.barcodePrefix}${baseBarcode}`
