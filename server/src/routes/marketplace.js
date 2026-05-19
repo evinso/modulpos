@@ -14,8 +14,8 @@ async function getUserStore(userId) {
   return prisma.store.findFirst({ where: { userId } });
 }
 
-const MP_STATUS_KEYS = ['trendyol', 'hepsiburada', 'amazon', 'n11', 'ciceksepeti', 'pttavm'];
-const MP_STATUS_DEFAULTS = { trendyol: 'active', hepsiburada: 'active', amazon: 'development', n11: 'development', ciceksepeti: 'development', pttavm: 'development' };
+const MP_STATUS_KEYS = ['trendyol', 'hepsiburada', 'amazon', 'n11', 'ciceksepeti', 'pttavm', 'pazarama'];
+const MP_STATUS_DEFAULTS = { trendyol: 'active', hepsiburada: 'active', amazon: 'development', n11: 'development', ciceksepeti: 'development', pttavm: 'development', pazarama: 'development' };
 
 // GET marketplace status labels (used by sidebar)
 router.get('/statuses', async (_req, res, next) => {

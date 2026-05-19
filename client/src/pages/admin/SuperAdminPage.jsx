@@ -98,6 +98,7 @@ export default function SuperAdminPage() {
   const MP_LIST = [
     { key: 'trendyol',    label: 'Trendyol' },
     { key: 'hepsiburada', label: 'Hepsiburada' },
+    { key: 'pazarama',    label: 'Pazarama' },
     { key: 'amazon',      label: 'Amazon' },
     { key: 'n11',         label: 'N11' },
     { key: 'ciceksepeti', label: 'Çiçeksepeti' },
@@ -108,7 +109,7 @@ export default function SuperAdminPage() {
     { value: 'maintenance', label: 'Bakımda',          color: '#f59e0b' },
     { value: 'development', label: 'Yapım Aşamasında', color: '#94a3b8' },
   ];
-  const [mpStatuses, setMpStatuses] = useState({ trendyol: 'active', hepsiburada: 'active', amazon: 'development', n11: 'development', ciceksepeti: 'development', pttavm: 'development' });
+  const [mpStatuses, setMpStatuses] = useState({ trendyol: 'active', hepsiburada: 'active', pazarama: 'development', amazon: 'development', n11: 'development', ciceksepeti: 'development', pttavm: 'development' });
   const [mpSaving, setMpSaving] = useState(false);
 
   const POLICY_LABELS = {

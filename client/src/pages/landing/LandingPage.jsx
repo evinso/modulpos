@@ -34,13 +34,13 @@ const stats = [
 ];
 
 const marketplaces = [
-  { name: 'Trendyol', color: '#f27a1a', letter: 'T', active: true },
-  { name: 'Pazarama', color: '#1565c0', letter: 'P', active: false },
-  { name: 'Hepsiburada', color: '#ff6000', letter: 'H', active: false },
-  { name: 'Amazon', color: '#ff9900', letter: 'A', active: false },
-  { name: 'N11', color: '#7b2d8e', letter: 'N', active: false },
-  { name: 'Çiçeksepeti', color: '#69b22a', letter: 'Ç', active: false },
-  { name: 'Pttavm', color: '#e30000', letter: 'P', active: false },
+  { name: 'Trendyol',    color: '#f27a1a', letter: 'T', status: 'active' },
+  { name: 'Hepsiburada', color: '#ff6000', letter: 'H', status: 'active' },
+  { name: 'Pazarama',    color: '#1565c0', letter: 'P', status: 'development' },
+  { name: 'Amazon',      color: '#ff9900', letter: 'A', status: 'development' },
+  { name: 'N11',         color: '#7b2d8e', letter: 'N', status: 'development' },
+  { name: 'Çiçeksepeti', color: '#69b22a', letter: 'Ç', status: 'development' },
+  { name: 'Pttavm',      color: '#e30000', letter: 'P', status: 'development' },
 ];
 
 const navLinks = [
@@ -228,14 +228,14 @@ export default function LandingPage() {
           </div>
           <div className="lp-mp-grid">
             {marketplaces.map((m) => (
-              <div key={m.name} className={`lp-mp-card ${m.active ? 'active' : ''}`}>
+              <div key={m.name} className={`lp-mp-card ${m.status === 'active' ? 'active' : ''}`}>
                 <div className="lp-mp-icon" style={{ background: `${m.color}18`, border: `1.5px solid ${m.color}35`, color: m.color }}>
                   {m.letter}
                 </div>
                 <div className="lp-mp-name">{m.name}</div>
-                {m.active
+                {m.status === 'active'
                   ? <span className="lp-mp-badge active">Aktif</span>
-                  : <span className="lp-mp-badge soon">Yakında</span>
+                  : <span className="lp-mp-badge soon">Yapım Aşamasında</span>
                 }
               </div>
             ))}

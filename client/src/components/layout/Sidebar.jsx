@@ -169,6 +169,7 @@ export default function Sidebar({ isOpen }) {
 
           {/* Diğer pazaryerleri */}
           {[
+            { label: 'Pazarama',    key: 'pazarama' },
             { label: 'Amazon',      key: 'amazon' },
             { label: 'N11',         key: 'n11' },
             { label: 'Çiçeksepeti', key: 'ciceksepeti' },
