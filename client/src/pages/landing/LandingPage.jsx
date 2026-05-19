@@ -335,7 +335,7 @@ export default function LandingPage() {
                         borderRadius: 20, padding: '3px 11px', fontSize: 12, fontWeight: 600,
                         color: 'var(--accent-primary)', marginBottom: 12
                       }}>
-                        📦 Tedarikçi marjı: %{planMarkup[plan.name]}
+                        🏷️ XML ürün alış avantajı: %{planMarkup[plan.name]}
                       </div>
                     )}
                     <ul className="lp-price-features">
