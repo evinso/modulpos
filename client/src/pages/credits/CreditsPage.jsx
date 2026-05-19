@@ -307,7 +307,7 @@ export default function CreditsPage() {
                     )}
                   </div>
 
-                  {planMarkup[plan.name] !== undefined && (
+                  {planMarkup[plan.name] > 0 && (
                     <div style={{
                       display: 'inline-flex', alignItems: 'center', gap: 6,
                       background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)',

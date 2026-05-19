@@ -328,7 +328,7 @@ export default function LandingPage() {
                       <span className="lp-price-value">{displayPrice}</span>
                       <span className="lp-price-period">{displayPeriod}</span>
                     </div>
-                    {planMarkup[plan.name] !== undefined && (
+                    {planMarkup[plan.name] > 0 && (
                       <div style={{
                         display: 'inline-flex', alignItems: 'center', gap: 5,
                         background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)',

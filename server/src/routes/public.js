@@ -11,12 +11,12 @@ router.get('/xml-plan-markup', async (req, res) => {
       select: { priceMarkupPct: true, priceMarkupPctByPlan: true, priceMarkup: true }
     });
 
-    // Aggregate: minimum effective markup per plan across all providers
+    // Aggregate per plan: use the first provider that has a non-zero configured markup
     const result = {};
     PLANS.forEach(plan => {
-      let min = null;
       for (const p of providers) {
-        let eff = p.priceMarkupPct || 0;
+        const base = p.priceMarkupPct || 0;
+        let eff = base;
         if (p.priceMarkupPctByPlan) {
           try {
             const byPlan = JSON.parse(p.priceMarkupPctByPlan);
@@ -25,9 +25,12 @@ router.get('/xml-plan-markup', async (req, res) => {
             }
           } catch {}
         }
-        if (min === null || eff < min) min = eff;
+        // Only use this provider's value if it has a meaningful base markup configured
+        if (base > 0) {
+          result[plan] = eff;
+          break;
+        }
       }
-      if (min !== null) result[plan] = min;
     });
 
     res.json(result);
