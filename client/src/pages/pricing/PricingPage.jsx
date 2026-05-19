@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Tags, ToggleLeft, ToggleRight, Calculator, TrendingUp, Package, Percent, Truck, Save } from 'lucide-react';
+import { Plus, Trash2, Tags, ToggleLeft, ToggleRight, Calculator, TrendingUp, Package, Percent, Truck, Save, Edit2 } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -143,6 +143,7 @@ export default function PricingPage() {
   const [rules, setRules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [xmlSources, setXmlSources] = useState([]);
@@ -170,7 +171,28 @@ export default function PricingPage() {
   };
 
   const openModal = (prefill = null) => {
-    if (prefill) {
+    if (prefill && prefill.id) {
+      // Editing existing rule — prefill is a rule object from the API
+      const conds = prefill.conditions ? JSON.parse(prefill.conditions) : {};
+      const isRange = prefill.applyTo === 'price_range';
+      setEditingId(prefill.id);
+      setForm({
+        ...EMPTY_FORM,
+        ruleMode: isRange ? 'price_range' : 'standard',
+        name: prefill.name || '',
+        value: prefill.value ?? '',
+        type: prefill.type || 'percentage',
+        connectionId: conds.connectionId || '',
+        xmlSourceId: conds.xmlSourceId || '',
+        minPurchasePrice: conds.minPurchasePrice ?? '',
+        maxPurchasePrice: conds.maxPurchasePrice ?? '',
+        shippingCost: conds.shippingCost ?? '',
+        commissionPct: conds.commissionPct ?? '',
+        vatRate: String(conds.vatRate ?? '0'),
+      });
+    } else if (prefill) {
+      // Pre-fill from calculator result
+      setEditingId(null);
       setForm({
         ...EMPTY_FORM,
         ruleMode: 'price_range',
@@ -181,12 +203,19 @@ export default function PricingPage() {
         name: prefill.marginPct ? `%${prefill.marginPct} Kâr Marjı Kuralı` : '',
       });
     } else {
+      setEditingId(null);
       setForm({ ...EMPTY_FORM });
     }
     setShowModal(true);
   };
 
-  const handleAdd = async (e) => {
+  const closeModal = () => {
+    setShowModal(false);
+    setEditingId(null);
+    setForm({ ...EMPTY_FORM });
+  };
+
+  const handleSave = async (e) => {
     e.preventDefault();
     try {
       let conditions, applyTo;
@@ -205,16 +234,15 @@ export default function PricingPage() {
         conditions = { connectionId: form.connectionId, xmlSourceId: form.xmlSourceId };
         applyTo = 'marketplace_xml';
       }
-      await api.post('/pricing', {
-        name: form.name,
-        type: 'percentage',
-        value: parseFloat(form.value),
-        applyTo,
-        conditions
-      });
-      toast.success('Fiyatlandırma kuralı eklendi');
-      setShowModal(false);
-      setForm({ ...EMPTY_FORM });
+      const payload = { name: form.name, type: form.type || 'percentage', value: parseFloat(form.value), applyTo, conditions };
+      if (editingId) {
+        await api.put(`/pricing/${editingId}`, payload);
+        toast.success('Kural güncellendi');
+      } else {
+        await api.post('/pricing', payload);
+        toast.success('Fiyatlandırma kuralı eklendi');
+      }
+      closeModal();
       fetchRules();
     } catch (err) { toast.error(err.response?.data?.error || 'Hata'); }
   };
@@ -319,7 +347,10 @@ export default function PricingPage() {
                       {r.isActive ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
                     </button>
                   </td>
-                  <td><button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(r.id)}><Trash2 size={14} /></button></td>
+                  <td style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => openModal(r)}><Edit2 size={14} /></button>
+                    <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(r.id)}><Trash2 size={14} /></button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -329,13 +360,13 @@ export default function PricingPage() {
 
       {/* ADD RULE MODAL */}
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+        <div className="modal-overlay" onClick={closeModal}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
             <div className="modal-header">
-              <h3>Fiyatlandırma Kuralı Ekle</h3>
-              <button className="modal-close" onClick={() => setShowModal(false)}>×</button>
+              <h3>{editingId ? 'Kuralı Düzenle' : 'Fiyatlandırma Kuralı Ekle'}</h3>
+              <button className="modal-close" onClick={closeModal}>×</button>
             </div>
-            <form onSubmit={handleAdd}>
+            <form onSubmit={handleSave}>
               <div className="modal-body">
 
                 {/* Rule mode toggle */}
@@ -483,8 +514,8 @@ export default function PricingPage() {
                 )}
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>İptal</button>
-                <button type="submit" className="btn btn-primary">Kaydet</button>
+                <button type="button" className="btn btn-secondary" onClick={closeModal}>İptal</button>
+                <button type="submit" className="btn btn-primary">{editingId ? 'Güncelle' : 'Kaydet'}</button>
               </div>
             </form>
           </div>

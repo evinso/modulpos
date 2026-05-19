@@ -187,6 +187,22 @@ router.put('/:id', auth, requireAdmin, async (req, res, next) => {
       }
     }
 
+    // Propagate updated price/barcode/vat fields to all users who imported this provider
+    try {
+      await prisma.xmlSource.updateMany({
+        where: { globalProviderId: req.params.id },
+        data: {
+          globalPriceMarkup: priceMarkup ? parseFloat(priceMarkup) : 0,
+          globalPriceMarkupPct: priceMarkupPct ? parseFloat(priceMarkupPct) : 0,
+          globalPriceMarkupPctByPlan: priceMarkupPctByPlan ? JSON.stringify(priceMarkupPctByPlan) : null,
+          globalBarcodePrefix: barcodePrefix || null,
+          purchaseVatRate: purchaseVatRate !== undefined ? parseInt(purchaseVatRate) : 0,
+        }
+      });
+    } catch (e) {
+      // Non-fatal
+    }
+
     res.json(provider);
   } catch (error) {
     next(error);
