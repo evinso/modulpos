@@ -3,6 +3,7 @@ import { Download, Search, Tag, CheckCircle2, PackageSearch, Wallet, Eye, X, Ima
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 import { useNavigate } from 'react-router-dom';
+import LoadingOverlay from '../../components/LoadingOverlay';
 
 export default function GlobalXmlMarketPage() {
   const [providers, setProviders] = useState([]);
@@ -97,6 +98,7 @@ export default function GlobalXmlMarketPage() {
 
   return (
     <div className="global-xml-market">
+      <LoadingOverlay visible={importing} message="İçe Aktarılıyor..." submessage="XML kaynağı mağazanıza ekleniyor, lütfen bekleyin." />
       <div className="page-header" style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h2 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '8px' }}>Hazır XML Market</h2>

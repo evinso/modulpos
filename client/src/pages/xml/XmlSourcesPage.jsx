@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Plus, RefreshCw, Trash2, FileCode2, Clock, CheckCircle, XCircle, Settings, Eye, ArrowRight, Link2, Send, Tag, DollarSign, Search, Check, FolderTree, Loader2, AlertCircle, ImageOff, X } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+import LoadingOverlay from '../../components/LoadingOverlay';
 
 // Ürün alanları tanımı
 const PRODUCT_FIELDS = [
@@ -534,6 +535,8 @@ export default function XmlSourcesPage() {
 
   return (
     <div>
+      <LoadingOverlay visible={analyzing} message="XML Analiz Ediliyor..." submessage="Kaynak okunuyor ve alanlar tespit ediliyor, lütfen bekleyin." />
+      <LoadingOverlay visible={!analyzing && previewing} message="Önizleme Hazırlanıyor..." submessage="Eşleştirme örnek veriye uygulanıyor." />
       <div className="page-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div><h1>XML Kaynakları</h1><p>Tedarikçi XML'lerinizi bağlayın, alanları eşleştirin ve ürünleri otomatik çekin</p></div>
         <button className="btn btn-primary" onClick={() => { resetAddWizard(); setShowAddModal(true); }}><Plus size={16} /> XML Kaynağı Ekle</button>

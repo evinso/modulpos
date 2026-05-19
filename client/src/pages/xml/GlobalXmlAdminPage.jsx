@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Edit2, Trash2, Link, Save, X, Globe, RefreshCw, Eye, ArrowRight, Search, FolderTree, AlertCircle, Check, Loader2, Wand2, Users, ShieldOff, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
+import LoadingOverlay from '../../components/LoadingOverlay';
 import api from '../../services/api';
 
 const PRODUCT_FIELDS = [
@@ -558,6 +559,9 @@ export default function GlobalXmlAdminPage() {
 
   return (
     <div className="global-xml-admin">
+      <LoadingOverlay visible={analyzing} message="XML Analiz Ediliyor..." submessage="Kaynak okunuyor ve alanlar tespit ediliyor, lütfen bekleyin." />
+      <LoadingOverlay visible={aiMatching} message="AI Eşleştirme Yapılıyor..." submessage="Kategoriler otomatik olarak eşleştiriliyor." />
+      <LoadingOverlay visible={saving} message="Kaydediliyor..." submessage="Tedarikçi bilgileri ve değişiklikler güncelleniyor." />
       <div className="page-header" style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h2 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '8px' }}>Global XML Tedarikçileri (Sistem Geneli)</h2>
