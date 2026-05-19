@@ -1147,6 +1147,10 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
         errors.push(`${p.sku}: Barkod eksik`);
         continue;
       }
+      if (/[{}]/.test(p.barcode) || p.barcode.trim().length < 3) {
+        errors.push(`${p.sku}: Barkod geçersiz (${p.barcode})`);
+        continue;
+      }
 
       // Find and apply Pricing Rule
       const rule = pricingLookup[p.xmlSourceId];
@@ -1448,7 +1452,7 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
 
     for (const p of products) {
       const mapping = resolveCatMapping(p.category, catMap, p.xmlSourceId, globalCatMap);
-      if (!mapping || !p.barcode || (minStock > 0 && (p.stock ?? 0) < minStock)) { skipped++; continue; }
+      if (!mapping || !p.barcode || /[{}]/.test(p.barcode) || p.barcode.trim().length < 3 || (minStock > 0 && (p.stock ?? 0) < minStock)) { skipped++; continue; }
 
       const rule = pricingLookup[p.xmlSourceId];
       const xmlPrice = p.xmlPrice || p.price;
