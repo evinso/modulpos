@@ -24,6 +24,7 @@ export default function CreditsPage() {
   const [loading, setLoading]       = useState(true);
   const [subPlans, setSubPlans]     = useState([]);
   const [billingCycle, setBillingCycle] = useState('monthly');
+  const [planMarkup, setPlanMarkup] = useState({});
 
   // Credit top-up
   const [creditModal, setCreditModal]       = useState(false);
@@ -71,14 +72,16 @@ export default function CreditsPage() {
 
   const fetchData = async () => {
     try {
-      const [balRes, txRes, plansRes] = await Promise.all([
+      const [balRes, txRes, plansRes, markupRes] = await Promise.all([
         api.get('/credits/balance'),
         api.get('/credits/transactions'),
-        api.get('/public/pricing-plans').catch(() => ({ data: [] }))
+        api.get('/public/pricing-plans').catch(() => ({ data: [] })),
+        api.get('/public/xml-plan-markup').catch(() => ({ data: {} }))
       ]);
       setBalance(balRes.data.balance);
       setTransactions(txRes.data);
       setSubPlans(plansRes.data);
+      setPlanMarkup(markupRes.data);
     } catch {
       toast.error('Veriler yüklenemedi');
     } finally {
@@ -303,6 +306,17 @@ export default function CreditsPage() {
                       </div>
                     )}
                   </div>
+
+                  {planMarkup[plan.name] !== undefined && (
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)',
+                      borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 600,
+                      color: 'var(--accent-primary)', marginBottom: 14, width: 'fit-content'
+                    }}>
+                      📦 Tedarikçi marjı: %{planMarkup[plan.name]}
+                    </div>
+                  )}
 
                   <ul style={{ listStyle: 'none', margin: '0 0 20px', padding: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {(Array.isArray(plan.features) ? plan.features : []).map((f, i) => (

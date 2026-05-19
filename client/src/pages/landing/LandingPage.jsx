@@ -55,10 +55,12 @@ export default function LandingPage() {
   const [footerSettings, setFooterSettings] = useState({});
   const [billingCycle, setBillingCycle] = useState('monthly');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [planMarkup, setPlanMarkup] = useState({});
 
   useEffect(() => {
     fetchPlans();
     fetchFooter();
+    api.get('/public/xml-plan-markup').then(r => setPlanMarkup(r.data)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -326,6 +328,16 @@ export default function LandingPage() {
                       <span className="lp-price-value">{displayPrice}</span>
                       <span className="lp-price-period">{displayPeriod}</span>
                     </div>
+                    {planMarkup[plan.name] !== undefined && (
+                      <div style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)',
+                        borderRadius: 20, padding: '3px 11px', fontSize: 12, fontWeight: 600,
+                        color: 'var(--accent-primary)', marginBottom: 12
+                      }}>
+                        📦 Tedarikçi marjı: %{planMarkup[plan.name]}
+                      </div>
+                    )}
                     <ul className="lp-price-features">
                       {(Array.isArray(plan.features) ? plan.features : JSON.parse(plan.features || '[]')).map(f => (
                         <li key={f}><CheckCircle size={14} /> {f}</li>
