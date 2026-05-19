@@ -188,9 +188,10 @@ router.put('/:id', auth, requireAdmin, async (req, res, next) => {
     }
 
     // Propagate updated price/barcode/vat fields to all users who imported this provider
+    // (skip sources where admin has excluded them from global markup updates)
     try {
       await prisma.xmlSource.updateMany({
-        where: { globalProviderId: req.params.id },
+        where: { globalProviderId: req.params.id, excludeGlobalMarkup: false },
         data: {
           globalPriceMarkup: priceMarkup ? parseFloat(priceMarkup) : 0,
           globalPriceMarkupPct: priceMarkupPct ? parseFloat(priceMarkupPct) : 0,
@@ -204,6 +205,48 @@ router.put('/:id', auth, requireAdmin, async (req, res, next) => {
     }
 
     res.json(provider);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/global-xml/:id/subscribers - List all xml-sources imported from this provider
+router.get('/:id/subscribers', auth, requireAdmin, async (req, res, next) => {
+  try {
+    const sources = await prisma.xmlSource.findMany({
+      where: { globalProviderId: req.params.id },
+      select: {
+        id: true,
+        name: true,
+        excludeGlobalMarkup: true,
+        globalPriceMarkup: true,
+        globalPriceMarkupPct: true,
+        globalPriceMarkupPctByPlan: true,
+        store: {
+          select: {
+            id: true,
+            name: true,
+            user: { select: { id: true, name: true, email: true } }
+          }
+        }
+      },
+      orderBy: { store: { name: 'asc' } }
+    });
+    res.json(sources);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/global-xml/subscribers/:xmlSourceId - Toggle excludeGlobalMarkup for a subscriber
+router.patch('/subscribers/:xmlSourceId', auth, requireAdmin, async (req, res, next) => {
+  try {
+    const { excludeGlobalMarkup } = req.body;
+    const updated = await prisma.xmlSource.update({
+      where: { id: req.params.xmlSourceId },
+      data: { excludeGlobalMarkup: Boolean(excludeGlobalMarkup) }
+    });
+    res.json({ id: updated.id, excludeGlobalMarkup: updated.excludeGlobalMarkup });
   } catch (error) {
     next(error);
   }

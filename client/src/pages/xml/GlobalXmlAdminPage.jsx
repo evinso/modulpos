@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Edit2, Trash2, Link, Save, X, Globe, RefreshCw, Eye, ArrowRight, Search, FolderTree, AlertCircle, Check, Loader2, Wand2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, Link, Save, X, Globe, RefreshCw, Eye, ArrowRight, Search, FolderTree, AlertCircle, Check, Loader2, Wand2, Users, ShieldOff, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 
@@ -166,13 +166,18 @@ export default function GlobalXmlAdminPage() {
     logo: '',
     barcodePrefix: '',
     priceMarkup: '',
-    priceMarkupPctByPlan: { 'Başlangıç': '', 'Profesyonel': '', 'Kurumsal': '' },
+    priceMarkupPct: '',
+    planDiscounts: { 'Başlangıç': '', 'Profesyonel': '', 'Kurumsal': '' },
     creditCost: '',
     orderFee: '',
     purchaseVatRate: '0',
     cargoCompanies: [],
     isActive: true
   });
+
+  const [subscribersModal, setSubscribersModal] = useState(null); // provider id
+  const [subscribers, setSubscribers] = useState([]);
+  const [subsLoading, setSubsLoading] = useState(false);
 
   // Mapping state
   const [mapping, setMapping] = useState({});
@@ -337,21 +342,40 @@ export default function GlobalXmlAdminPage() {
     }
   };
 
+  const fetchSubscribers = async (providerId) => {
+    setSubsLoading(true);
+    try {
+      const res = await api.get(`/global-xml/${providerId}/subscribers`);
+      setSubscribers(res.data);
+    } catch { toast.error('Kullanıcılar yüklenemedi'); }
+    finally { setSubsLoading(false); }
+  };
+
+  const toggleExclude = async (xmlSourceId, currentValue) => {
+    try {
+      await api.patch(`/global-xml/subscribers/${xmlSourceId}`, { excludeGlobalMarkup: !currentValue });
+      setSubscribers(prev => prev.map(s => s.id === xmlSourceId ? { ...s, excludeGlobalMarkup: !currentValue } : s));
+    } catch { toast.error('Güncelleme başarısız'); }
+  };
+
   const handleOpenModal = (provider = null) => {
     if (provider) {
       let parsedCargo = [];
       if (provider.cargoCompanies) {
         try { parsedCargo = JSON.parse(provider.cargoCompanies); } catch {}
       }
-      let parsedByPlan = { 'Başlangıç': '', 'Profesyonel': '', 'Kurumsal': '' };
+      const base = parseFloat(provider.priceMarkupPct) || 0;
+      let planDiscounts = { 'Başlangıç': '', 'Profesyonel': '', 'Kurumsal': '' };
       if (provider.priceMarkupPctByPlan) {
         try {
           const saved = JSON.parse(provider.priceMarkupPctByPlan);
-          parsedByPlan = {
-            'Başlangıç': saved['Başlangıç'] ?? '',
-            'Profesyonel': saved['Profesyonel'] ?? '',
-            'Kurumsal': saved['Kurumsal'] ?? '',
-          };
+          PLANS.forEach(plan => {
+            const eff = saved[plan];
+            if (eff !== undefined && eff !== '' && eff !== null) {
+              const discount = base - parseFloat(eff);
+              planDiscounts[plan] = discount > 0 ? String(Math.round(discount * 100) / 100) : '';
+            }
+          });
         } catch {}
       }
       setFormData({
@@ -362,7 +386,8 @@ export default function GlobalXmlAdminPage() {
         logo: provider.logo || '',
         barcodePrefix: provider.barcodePrefix || '',
         priceMarkup: provider.priceMarkup || '',
-        priceMarkupPctByPlan: parsedByPlan,
+        priceMarkupPct: base ? String(base) : '',
+        planDiscounts,
         creditCost: provider.creditCost || '',
         orderFee: provider.orderFee || '',
         purchaseVatRate: String(provider.purchaseVatRate ?? 0),
@@ -397,7 +422,8 @@ export default function GlobalXmlAdminPage() {
         logo: '',
         barcodePrefix: '',
         priceMarkup: '',
-        priceMarkupPctByPlan: { 'Başlangıç': '', 'Profesyonel': '', 'Kurumsal': '' },
+        priceMarkupPct: '',
+        planDiscounts: { 'Başlangıç': '', 'Profesyonel': '', 'Kurumsal': '' },
         creditCost: '',
         orderFee: '',
         purchaseVatRate: '0',
@@ -477,8 +503,20 @@ export default function GlobalXmlAdminPage() {
         return;
       }
 
-      const payload = { 
-        ...formData, 
+      // Compute per-plan effective markup: base - discount per plan
+      const base = parseFloat(formData.priceMarkupPct) || 0;
+      const priceMarkupPctByPlan = {};
+      PLANS.forEach(plan => {
+        const discount = parseFloat(formData.planDiscounts[plan]);
+        if (!isNaN(discount) && formData.planDiscounts[plan] !== '') {
+          priceMarkupPctByPlan[plan] = Math.max(0, base - discount);
+        }
+      });
+
+      const payload = {
+        ...formData,
+        priceMarkupPct: base,
+        priceMarkupPctByPlan: Object.keys(priceMarkupPctByPlan).length > 0 ? priceMarkupPctByPlan : null,
         mappingConfig: mapping,
         categoryMappingConfig: Object.keys(parsedCatConfig).length > 0 ? parsedCatConfig : null
       };
@@ -579,7 +617,10 @@ export default function GlobalXmlAdminPage() {
                         </span>
                       </td>
                       <td style={{ textAlign: 'right' }}>
-                        <button className="btn btn-sm btn-secondary" onClick={() => handleOpenModal(p)} style={{ marginRight: '8px' }}>
+                        <button className="btn btn-sm btn-secondary" title="Kullananları Yönet" onClick={() => { setSubscribersModal(p.id); fetchSubscribers(p.id); }} style={{ marginRight: '4px' }}>
+                          <Users size={14} />
+                        </button>
+                        <button className="btn btn-sm btn-secondary" onClick={() => handleOpenModal(p)} style={{ marginRight: '4px' }}>
                           <Edit2 size={14} />
                         </button>
                         <button className="btn btn-sm btn-danger" onClick={() => handleDelete(p)}>
@@ -594,6 +635,58 @@ export default function GlobalXmlAdminPage() {
           </table>
         )}
       </div>
+
+      {/* Subscribers Management Modal */}
+      {subscribersModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 640, padding: 0, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="table-header" style={{ flexShrink: 0 }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Users size={18} /> Kullanan Mağazalar</h3>
+              <button className="text-btn" onClick={() => { setSubscribersModal(null); setSubscribers([]); }}><X size={20} /></button>
+            </div>
+            <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
+              {subsLoading ? (
+                <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Yükleniyor...</div>
+              ) : subscribers.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Bu XML'i henüz hiç mağaza eklememiş.</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 12, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)' }}>Mağaza / Kullanıcı</th>
+                      <th style={{ textAlign: 'center', padding: '8px 12px', fontSize: 12, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)' }}>Global Markup</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {subscribers.map(s => (
+                      <tr key={s.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                        <td style={{ padding: '10px 12px' }}>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{s.store?.name || '—'}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{s.store?.user?.email}</div>
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                          <button
+                            onClick={() => toggleExclude(s.id, s.excludeGlobalMarkup)}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 6,
+                              padding: '5px 12px', borderRadius: 20, fontSize: 12, cursor: 'pointer', border: 'none',
+                              background: s.excludeGlobalMarkup ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)',
+                              color: s.excludeGlobalMarkup ? 'var(--danger)' : 'var(--success)',
+                              fontWeight: 600
+                            }}
+                          >
+                            {s.excludeGlobalMarkup ? <><ShieldOff size={13} /> Hariç Tutuldu</> : <><ShieldCheck size={13} /> Uygulanıyor</>}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal */}
       {deleteModalProvider && (
@@ -673,28 +766,45 @@ export default function GlobalXmlAdminPage() {
                 </div>
 
                 <div className="form-group" style={{ marginBottom: '24px' }}>
-                  <label className="form-label">Pakete Göre Yüzdelik Kâr (%)</label>
+                  <label className="form-label">Temel Yüzdelik Kâr (%)</label>
+                  <input
+                    type="number" step="0.01" min="0" className="form-input"
+                    value={formData.priceMarkupPct}
+                    onChange={e => setFormData({ ...formData, priceMarkupPct: e.target.value })}
+                    placeholder="Örn: 20" style={{ maxWidth: 200 }}
+                  />
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                    Bu değer tüm kullanıcılara uygulanır. Pakete göre indirim tanımlamak için aşağıyı kullanın.
+                  </p>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '24px' }}>
+                  <label className="form-label">Pakete Göre İndirim (temel % üzerinden düşülür)</label>
                   <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
-                    Her paket kendi oranıyla XML fiyatına gizli markup uygular. Boş bırakılırsa o paket için markup uygulanmaz.
+                    Temel %{formData.priceMarkupPct || '?'} üzerinden her paket için indirim miktarı. Efektif = Temel − İndirim.
                   </p>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                    {PLANS.map(plan => (
-                      <div key={plan}>
-                        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>{plan}</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          className="form-input"
-                          value={formData.priceMarkupPctByPlan[plan]}
-                          onChange={e => setFormData({
-                            ...formData,
-                            priceMarkupPctByPlan: { ...formData.priceMarkupPctByPlan, [plan]: e.target.value }
-                          })}
-                          placeholder="Örn: 20"
-                        />
-                      </div>
-                    ))}
+                    {PLANS.map(plan => {
+                      const base = parseFloat(formData.priceMarkupPct) || 0;
+                      const disc = parseFloat(formData.planDiscounts[plan]);
+                      const effective = !isNaN(disc) && formData.planDiscounts[plan] !== '' ? Math.max(0, base - disc) : base;
+                      return (
+                        <div key={plan}>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>
+                            {plan}
+                          </label>
+                          <input
+                            type="number" step="0.01" min="0" className="form-input"
+                            value={formData.planDiscounts[plan]}
+                            onChange={e => setFormData({ ...formData, planDiscounts: { ...formData.planDiscounts, [plan]: e.target.value } })}
+                            placeholder="İndirim yok"
+                          />
+                          <div style={{ fontSize: 11, color: 'var(--accent-primary)', marginTop: 4, fontWeight: 600 }}>
+                            Efektif: %{effective.toFixed(2)}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
