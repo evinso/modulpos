@@ -1,8 +1,8 @@
-// Token bucket rate limiter — 8 req/sec per connection (Trendyol limit: ~10/sec)
+// Token bucket rate limiter — 15 req/sec per connection (Trendyol limit: ~16.67/sec)
 const limiters = new Map();
 
 class TokenBucket {
-  constructor(rate = 8, capacity = 8) {
+  constructor(rate = 15, capacity = 15) {
     this.rate = rate;       // tokens added per second
     this.capacity = capacity;
     this.tokens = capacity;
@@ -45,7 +45,7 @@ class TokenBucket {
 function getLimiter(connectionId) {
   const key = connectionId || 'default';
   if (!limiters.has(key)) {
-    limiters.set(key, new TokenBucket(8, 8));
+    limiters.set(key, new TokenBucket(15, 15));
   }
   return limiters.get(key);
 }
