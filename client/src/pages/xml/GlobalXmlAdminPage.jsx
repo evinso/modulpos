@@ -445,7 +445,7 @@ export default function GlobalXmlAdminPage() {
     if (!formData.url) return toast.error('Lütfen önce XML URL girin');
     setAnalyzing(true);
     try {
-      const res = await api.post('/xml-sources/analyze', { url: formData.url });
+      const res = await api.post('/xml-sources/analyze', { url: formData.url, categoryField: mapping.category || null });
       if (res.data && res.data.success) {
         setXmlAnalysis(res.data);
         toast.success(`${res.data.totalProducts} ürün başarıyla analiz edildi`);

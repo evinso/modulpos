@@ -253,7 +253,7 @@ async function streamProductObjects(url, { maxProducts = 0, responseStream, onPr
 
 // ─── analyzeXml ──────────────────────────────────────────────────────────────
 
-async function analyzeXml(url) {
+async function analyzeXml(url, options = {}) {
   // Peek at first 512 bytes to detect HTML error pages before committing to SAX
   const peek = await fetchPartialStream(url);
   const peekStr = peek.trimStart();
@@ -271,6 +271,9 @@ async function analyzeXml(url) {
   // - Collect ALL unique categories without storing all products
   // - Count total products accurately
   const categoryPaths = ['Category', 'category', 'Kategori', 'kategori', 'CategoryName', 'KategoriAdi', 'product_type'];
+  if (options.categoryField && !categoryPaths.includes(options.categoryField)) {
+    categoryPaths.unshift(options.categoryField);
+  }
   const sampleProducts = [];
   const uniqueCategories = new Set();
   let totalCount = 0;

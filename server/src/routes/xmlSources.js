@@ -45,11 +45,11 @@ router.get('/', async (req, res, next) => {
 // Analyze XML structure (before adding - discover fields)
 router.post('/analyze', async (req, res, next) => {
   try {
-    let { url } = req.body;
+    let { url, categoryField } = req.body;
     if (!url) return res.status(400).json({ error: 'URL zorunludur' });
     if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
 
-    const analysis = await analyzeXml(url);
+    const analysis = await analyzeXml(url, { categoryField });
     res.json(analysis);
   } catch (error) {
     console.error('[Analyze Error] url:', req.body?.url, '| error:', error.message);
@@ -94,7 +94,11 @@ router.post('/:id/analyze', async (req, res, next) => {
     const xmlSource = await prisma.xmlSource.findUnique({ where: { id: req.params.id } });
     if (!xmlSource) return res.status(404).json({ error: 'XML kaynağı bulunamadı' });
 
-    const analysis = await analyzeXml(xmlSource.url);
+    let categoryField = null;
+    if (xmlSource.mappingConfig) {
+      try { categoryField = JSON.parse(xmlSource.mappingConfig)?.category || null; } catch {}
+    }
+    const analysis = await analyzeXml(xmlSource.url, { categoryField });
     res.json(analysis);
   } catch (error) {
     res.status(400).json({ error: `XML analiz hatası: ${error.message}` });
