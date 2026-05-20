@@ -199,6 +199,7 @@ export default function GlobalXmlAdminPage() {
   const [attributeMappings, setAttributeMappings] = useState({});
   const [attrLoading, setAttrLoading] = useState(false);
   const [aiMatching, setAiMatching] = useState(false);
+  const [catMappingMarketplace, setCatMappingMarketplace] = useState('trendyol');
 
   useEffect(() => {
     fetchProviders();
@@ -412,7 +413,8 @@ export default function GlobalXmlAdminPage() {
       }
       setCategoryMappingConfig(initialCatMapping);
       setCategoryMappingStr(initialCatStr);
-      
+      setCatMappingMarketplace(initialCatMapping._marketplace || 'trendyol');
+
       setEditingProvider(provider);
     } else {
       setFormData({
@@ -434,6 +436,7 @@ export default function GlobalXmlAdminPage() {
       setMapping({});
       setCategoryMappingConfig({});
       setCategoryMappingStr('{}');
+      setCatMappingMarketplace('trendyol');
       setEditingProvider(null);
     }
     setXmlAnalysis(null);
@@ -514,12 +517,16 @@ export default function GlobalXmlAdminPage() {
         }
       });
 
+      const catConfigWithMeta = Object.keys(parsedCatConfig).length > 0
+        ? { ...parsedCatConfig, _marketplace: catMappingMarketplace }
+        : null;
+
       const payload = {
         ...formData,
         priceMarkupPct: base,
         priceMarkupPctByPlan: Object.keys(priceMarkupPctByPlan).length > 0 ? priceMarkupPctByPlan : null,
         mappingConfig: mapping,
-        categoryMappingConfig: Object.keys(parsedCatConfig).length > 0 ? parsedCatConfig : null
+        categoryMappingConfig: catConfigWithMeta
       };
 
       if (editingProvider) {
@@ -940,6 +947,25 @@ export default function GlobalXmlAdminPage() {
 
                     {xmlAnalysis.categories && xmlAnalysis.categories.length > 0 && (
                       <div style={{ marginTop: 32, borderTop: '1px solid var(--border-color)', paddingTop: 24 }}>
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                          {[
+                            { key: 'trendyol', label: '🟠 Trendyol', active: true },
+                            { key: 'hepsiburada', label: '🟡 Hepsiburada', active: false },
+                          ].map(({ key, label, active }) => (
+                            <button key={key} type="button" disabled={!active}
+                              onClick={() => active && setCatMappingMarketplace(key)}
+                              style={{
+                                padding: '6px 16px', borderRadius: 20, fontSize: 13,
+                                cursor: active ? 'pointer' : 'default',
+                                border: `2px solid ${catMappingMarketplace === key ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                                background: catMappingMarketplace === key ? 'rgba(99,102,241,0.1)' : 'var(--bg-secondary)',
+                                color: catMappingMarketplace === key ? 'var(--accent-primary)' : 'var(--text-muted)',
+                                fontWeight: 600, opacity: active ? 1 : 0.5
+                              }}>
+                              {label}{!active ? ' (Yakında)' : ''}
+                            </button>
+                          ))}
+                        </div>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                           <h3 style={{ fontSize: '18px', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                             <Link size={18} style={{ color: 'var(--accent-primary)' }} />

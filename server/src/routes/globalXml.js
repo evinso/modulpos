@@ -141,7 +141,8 @@ router.put('/:id', auth, requireAdmin, async (req, res, next) => {
     // Propagate updated category mappings to all users who imported this provider
     if (categoryMappingConfig) {
       try {
-        const entries = Object.entries(categoryMappingConfig);
+        const targetMarketplace = categoryMappingConfig._marketplace || 'trendyol';
+        const entries = Object.entries(categoryMappingConfig).filter(([k]) => !k.startsWith('_'));
         if (entries.length > 0) {
           const xmlSources = await prisma.xmlSource.findMany({
             where: { globalProviderId: req.params.id },
@@ -149,7 +150,7 @@ router.put('/:id', auth, requireAdmin, async (req, res, next) => {
           });
           const storeIds = [...new Set(xmlSources.map(s => s.storeId))];
           const connections = await prisma.marketplaceConnection.findMany({
-            where: { storeId: { in: storeIds } },
+            where: { storeId: { in: storeIds }, marketplaceType: targetMarketplace },
             select: { id: true }
           });
           for (const conn of connections) {
