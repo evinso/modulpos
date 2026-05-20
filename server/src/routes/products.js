@@ -118,6 +118,73 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+// Aggregate stats for TrendyolSendPage (total, marketplace status, ready/missing)
+router.get('/stats', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+
+    const { xmlSourceId, connectionId } = req.query;
+
+    const where = { storeId: store.id };
+    if (xmlSourceId) where.xmlSourceId = xmlSourceId;
+
+    // Total count
+    const total = await prisma.product.count({ where });
+
+    // Marketplace status counts
+    let mpStatus = { active: 0, pending: 0, rejected: 0, passive: 0, not_sent: 0 };
+    if (connectionId) {
+      const mpRows = await prisma.marketplaceProduct.groupBy({
+        by: ['status'],
+        where: {
+          connectionId,
+          product: { storeId: store.id, ...(xmlSourceId ? { xmlSourceId } : {}) }
+        },
+        _count: { status: true }
+      });
+      for (const r of mpRows) mpStatus[r.status] = (mpStatus[r.status] || 0) + r._count.status;
+      const sent = mpRows.reduce((s, r) => s + r._count.status, 0);
+      mpStatus.not_sent = Math.max(0, total - sent);
+    }
+
+    // Ready/missing counts
+    let ready = 0;
+    if (connectionId) {
+      const [catMappings, pricingRules, lightProducts] = await Promise.all([
+        prisma.categoryMapping.findMany({ where: { connectionId }, select: { localCategory: true } }),
+        prisma.pricingRule.findMany({ where: { isActive: true }, select: { conditions: true, applyTo: true } }),
+        prisma.product.findMany({ where, select: { barcode: true, category: true, xmlSourceId: true } })
+      ]);
+
+      const mappedCats = new Set(catMappings.map(m => m.localCategory.toLowerCase().trim()));
+      const pricedSources = new Set();
+      let hasRangeRule = false;
+      for (const r of pricingRules) {
+        try {
+          const c = JSON.parse(r.conditions || '{}');
+          if (c.connectionId && c.connectionId !== connectionId) continue;
+          if (r.applyTo === 'price_range') { hasRangeRule = true; continue; }
+          if (c.xmlSourceId) pricedSources.add(c.xmlSourceId);
+        } catch {}
+      }
+
+      ready = lightProducts.filter(p => {
+        if (!p.barcode) return false;
+        const key = (p.category || '').toLowerCase().trim();
+        const hasCat = mappedCats.has(key) ||
+          (key.includes('|') && key.split('|').some(k => mappedCats.has(k.trim())));
+        const hasRule = pricedSources.has(p.xmlSourceId) || hasRangeRule;
+        return hasCat && hasRule;
+      }).length;
+    }
+
+    res.json({ total, mpStatus, ready, missing: total - ready });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Get all product IDs (for bulk select all)
 router.get('/ids', async (req, res, next) => {
   try {

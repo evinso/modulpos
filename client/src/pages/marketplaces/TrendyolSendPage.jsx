@@ -34,12 +34,16 @@ export default function TrendyolSendPage() {
   const [xmlSources, setXmlSources] = useState([]);
   const [filterXmlSource, setFilterXmlSource] = useState('');
   const [pricingRules, setPricingRules] = useState([]);
+  const [aggregateStats, setAggregateStats] = useState(null);
   const [filterCategories, setFilterCategories] = useState(new Set());
 
   useEffect(() => { fetchConnections(); fetchXmlSources(); fetchPricingRules(); }, []);
   useEffect(() => {
     if (selectedConn) { fetchProducts(); fetchMappings(); }
   }, [selectedConn, pagination.page, search, filterXmlSource, filterCategories]);
+  useEffect(() => {
+    if (selectedConn) fetchStats();
+  }, [selectedConn, filterXmlSource]);
 
   const fetchPricingRules = async () => {
     try { const res = await api.get('/pricing'); setPricingRules(res.data); } catch {}
@@ -74,6 +78,16 @@ export default function TrendyolSendPage() {
     try {
       const res = await api.get(`/marketplace/connections/${selectedConn.id}/category-mappings`);
       setMappings(res.data);
+    } catch {}
+  };
+
+  const fetchStats = async () => {
+    if (!selectedConn) return;
+    try {
+      const params = { connectionId: selectedConn.id };
+      if (filterXmlSource) params.xmlSourceId = filterXmlSource;
+      const res = await api.get('/products/stats', { params });
+      setAggregateStats(res.data);
     } catch {}
   };
 
@@ -236,6 +250,7 @@ export default function TrendyolSendPage() {
     try {
       const res = await api.post(`/marketplace/connections/${selectedConn.id}/sync-status`);
       fetchProducts();
+      fetchStats();
       const d = res.data;
       toast.success(`Güncellendi: ${d.activated || 0} aktif, ${d.rejected || 0} reddedildi, ${d.passived || 0} kaldırıldı`);
     } catch { toast.error('Durum sorgulanamadı'); }
@@ -280,12 +295,13 @@ export default function TrendyolSendPage() {
     return rows.slice(0, 5);
   }, [products, pricingLookup, priceRangeRules, selectedConn, xmlSources]);
 
-  // Stats
-  const readyCount   = products.filter(p => getProductStatus(p) === 'ready').length;
-  const missingCount = products.filter(p => getProductStatus(p) === 'missing').length;
-  const activeCount  = products.filter(p => getMpStatus(p) === 'active').length;
-  const pendingCount = products.filter(p => getMpStatus(p) === 'pending').length;
-  const passiveCount = products.filter(p => getMpStatus(p) === 'passive').length;
+  // Stats from aggregate API (not page-level)
+  const totalCount   = aggregateStats?.total ?? pagination.total;
+  const readyCount   = aggregateStats?.ready ?? 0;
+  const missingCount = aggregateStats?.missing ?? 0;
+  const activeCount  = aggregateStats?.mpStatus?.active ?? 0;
+  const pendingCount = aggregateStats?.mpStatus?.pending ?? 0;
+  const passiveCount = aggregateStats?.mpStatus?.passive ?? 0;
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
 
   if (connections.length === 0) {
@@ -333,7 +349,7 @@ export default function TrendyolSendPage() {
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 20 }}>
         {[
-          { label: 'Toplam', value: pagination.total, color: 'var(--text-primary)', filter: null },
+          { label: 'Toplam', value: totalCount, color: 'var(--text-primary)', filter: null },
           { label: 'Gönderilebilir', value: readyCount, color: 'var(--success)', filter: 'ready', field: 'status' },
           { label: 'Eksik Bilgi', value: missingCount, color: 'var(--warning)', filter: 'missing', field: 'status' },
           { label: 'Trendyol Aktif', value: activeCount, color: 'var(--success)', filter: 'active', field: 'mp' },
