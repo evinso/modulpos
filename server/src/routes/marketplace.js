@@ -513,6 +513,29 @@ router.delete('/connections/:id', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+// Trendyol: fetch products directly from Trendyol API by status
+router.get('/connections/:id/trendyol-products', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const conn = await prisma.marketplaceConnection.findFirst({ where: { id: req.params.id, storeId: store.id } });
+    if (!conn || conn.marketplaceType !== 'trendyol') return res.status(404).json({ error: 'Trendyol bağlantısı bulunamadı' });
+
+    const { status = 'active', page = 0, size = 50 } = req.query;
+    const service = new TrendyolService(conn);
+
+    const filterMap = {
+      active:   { approved: true, onSale: true },
+      pending:  { approved: false, archived: false },
+      rejected: { rejected: true },
+      passive:  { archived: true },
+    };
+    const filters = filterMap[status] || { approved: true, onSale: true };
+    const data = await service.getFilteredProducts(filters, parseInt(page), parseInt(size));
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
 // HepsiBurada: create new product listings via MPOP catalog API
 router.post('/connections/:id/hepsiburada-create', async (req, res, next) => {
   try {

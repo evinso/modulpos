@@ -49,6 +49,9 @@ export default function ProductsPage() {
   const [connections, setConnections] = useState([]);
   const [pricingRules, setPricingRules] = useState([]);
   const [mpStats, setMpStats] = useState(null);
+  const [trendyolProducts, setTrendyolProducts] = useState([]);
+  const [trendyolLoading, setTrendyolLoading] = useState(false);
+  const [trendyolPagination, setTrendyolPagination] = useState({ page: 0, total: 0, totalPages: 1 });
 
   useEffect(() => {
     fetchOptions();
@@ -62,6 +65,17 @@ export default function ProductsPage() {
     if (filterConnection) fetchMpStats();
     else setMpStats(null);
   }, [filterConnection, filterXmlSource]);
+
+  // Trendyol sekme seçilince Trendyol'dan çek
+  const isTrendyolTab = filterConnection && filterMarketplaceStatus && filterMarketplaceStatus !== 'not_sent';
+  useEffect(() => {
+    const conn = connections.find(c => c.id === filterConnection);
+    if (isTrendyolTab && conn?.marketplaceType === 'trendyol') {
+      fetchTrendyolProducts(0);
+    } else {
+      setTrendyolProducts([]);
+    }
+  }, [filterConnection, filterMarketplaceStatus, connections]);
 
   const fetchOptions = async () => {
     try {
@@ -85,6 +99,23 @@ export default function ProductsPage() {
       const res = await api.get('/products/stats', { params });
       setMpStats(res.data);
     } catch {}
+  };
+
+  const fetchTrendyolProducts = async (page = 0) => {
+    setTrendyolLoading(true);
+    try {
+      const res = await api.get(`/marketplace/connections/${filterConnection}/trendyol-products`, {
+        params: { status: filterMarketplaceStatus, page, size: 50 }
+      });
+      const data = res.data;
+      setTrendyolProducts(data.content || []);
+      setTrendyolPagination({
+        page,
+        total: data.totalElements || 0,
+        totalPages: data.totalPages || 1,
+      });
+    } catch { toast.error('Trendyol ürünleri yüklenemedi'); }
+    finally { setTrendyolLoading(false); }
   };
 
   const fetchProducts = async () => {
@@ -593,7 +624,83 @@ export default function ProductsPage() {
           );
         })()}
 
-        {loading ? (
+        {/* ===== TRENDYOL CANLI VERİ TABLOSU ===== */}
+        {isTrendyolTab && connections.find(c => c.id === filterConnection)?.marketplaceType === 'trendyol' ? (
+          trendyolLoading ? (
+            <div className="loading-spinner"><div className="spinner"></div></div>
+          ) : trendyolProducts.length === 0 ? (
+            <div className="empty-state">
+              <Package size={48} className="empty-icon" />
+              <h3>Bu kategoride ürün bulunamadı</h3>
+              <p>Trendyol'dan veri çekildi, eşleşen ürün yok.</p>
+            </div>
+          ) : (
+            <>
+              <div style={{ padding: '8px 20px', background: 'rgba(249,115,22,0.05)', borderBottom: '1px solid var(--border-color)', fontSize: 12, color: '#f97316', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>Trendyol'dan canlı çekilen veri — {trendyolPagination.total} ürün</span>
+                <button onClick={() => fetchTrendyolProducts(trendyolPagination.page)} style={{ background: 'none', border: 'none', color: '#f97316', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <RefreshCw size={12} /> Yenile
+                </button>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Görsel</th>
+                    <th>Barkod</th>
+                    <th>Ürün Adı</th>
+                    <th>SKU</th>
+                    <th>Stok</th>
+                    <th>Liste Fiyatı</th>
+                    <th>Satış Fiyatı</th>
+                    <th>Durum</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trendyolProducts.map((tp, i) => {
+                    const img = tp.images?.[0]?.url;
+                    const isActive = tp.approved && tp.onSale;
+                    const isRejected = tp.rejected;
+                    const isPassive = tp.archived;
+                    const statusLabel = isActive ? 'Satışta' : isRejected ? 'Reddedildi' : isPassive ? 'Kaldırıldı' : 'Onay Bekliyor';
+                    const statusColor = isActive ? 'var(--success)' : isRejected ? 'var(--danger)' : isPassive ? '#f97316' : 'var(--warning)';
+                    return (
+                      <tr key={tp.barcode || i}>
+                        <td>
+                          <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {img ? <img src={img} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} referrerPolicy="no-referrer" onError={e => { e.currentTarget.style.display = 'none'; }} /> : <Package size={14} color="var(--text-muted)" />}
+                          </div>
+                        </td>
+                        <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{tp.barcode}</td>
+                        <td style={{ maxWidth: 260 }}>
+                          <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tp.title}</div>
+                          {tp.rejectionReasonDetails?.length > 0 && (
+                            <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 2 }}>{tp.rejectionReasonDetails[0]?.reason}</div>
+                          )}
+                        </td>
+                        <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tp.stockCode}</td>
+                        <td>{tp.quantity ?? '—'}</td>
+                        <td>{tp.listPrice != null ? `₺${tp.listPrice.toLocaleString('tr-TR')}` : '—'}</td>
+                        <td style={{ fontWeight: 600 }}>{tp.salePrice != null ? `₺${tp.salePrice.toLocaleString('tr-TR')}` : '—'}</td>
+                        <td>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 6, background: `${statusColor}18`, color: statusColor }}>
+                            {statusLabel}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {trendyolPagination.totalPages > 1 && (
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, padding: 16 }}>
+                  <button className="btn btn-secondary btn-sm" disabled={trendyolPagination.page === 0} onClick={() => fetchTrendyolProducts(trendyolPagination.page - 1)}>← Önceki</button>
+                  <span style={{ lineHeight: '32px', fontSize: 13 }}>{trendyolPagination.page + 1} / {trendyolPagination.totalPages}</span>
+                  <button className="btn btn-secondary btn-sm" disabled={trendyolPagination.page + 1 >= trendyolPagination.totalPages} onClick={() => fetchTrendyolProducts(trendyolPagination.page + 1)}>Sonraki →</button>
+                </div>
+              )}
+            </>
+          )
+        ) : loading ? (
           <div className="loading-spinner"><div className="spinner"></div></div>
         ) : products.length === 0 ? (
           <div className="empty-state">
