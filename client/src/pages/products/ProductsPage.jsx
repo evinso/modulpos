@@ -280,6 +280,7 @@ export default function ProductsPage() {
         aggregate.connections.push({ name: conn.supplierName || conn.marketplaceType, ...d });
       }
 
+      aggregate.passived = aggregate.connections.reduce((s, c) => s + (c.passived || 0), 0);
       aggregate.syncedAt = new Date().toLocaleString('tr-TR');
       setSyncResult(aggregate);
       fetchProducts();
@@ -541,6 +542,7 @@ export default function ProductsPage() {
               <option value="pending">Bekleyenler</option>
               <option value="active">Aktif/Onaylı</option>
               <option value="rejected">Reddedilenler</option>
+              <option value="passive">Satıştan Kaldırılanlar</option>
             </select>
           )}
         </div>
@@ -716,8 +718,13 @@ export default function ProductsPage() {
                         {p.marketplaceProducts && p.marketplaceProducts.length > 0 ? (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                             {p.marketplaceProducts.map(mp => (
-                              <span key={mp.id} className={`badge badge-${mp.status === 'active' ? 'success' : mp.status === 'rejected' ? 'danger' : 'warning'}`} title={mp.errorMessage || 'Durum: ' + mp.status}>
-                                {mp.connection.marketplaceType === 'trendyol' ? 'Trendyol' : mp.connection.marketplaceType}: {mp.status === 'pending' ? 'Bekliyor' : mp.status === 'active' ? 'Aktif' : mp.status === 'rejected' ? 'Hata' : mp.status}
+                              <span key={mp.id}
+                                className={`badge badge-${mp.status === 'active' ? 'success' : mp.status === 'rejected' ? 'danger' : mp.status === 'passive' ? 'error' : 'warning'}`}
+                                title={mp.errorMessage || 'Durum: ' + mp.status}
+                                style={mp.status === 'passive' ? { background: 'rgba(249,115,22,0.12)', color: '#f97316', borderColor: 'rgba(249,115,22,0.3)' } : undefined}
+                              >
+                                {mp.connection.marketplaceType === 'trendyol' ? 'Trendyol' : mp.connection.marketplaceType}:{' '}
+                                {mp.status === 'pending' ? 'Bekliyor' : mp.status === 'active' ? 'Aktif' : mp.status === 'rejected' ? 'Reddedildi' : mp.status === 'passive' ? 'Kaldırıldı' : mp.status}
                               </span>
                             ))}
                           </div>
@@ -772,6 +779,7 @@ export default function ProductsPage() {
                   { label: 'Aktifleşti', value: syncResult.activated, color: 'var(--success)', icon: '✓' },
                   { label: 'Reddedildi', value: syncResult.rejected, color: 'var(--danger)', icon: '✕' },
                   { label: 'Trendyol\'da Bulundu', value: syncResult.discovered, color: 'var(--warning)', icon: '⊕' },
+                  { label: 'Satıştan Kaldırıldı', value: syncResult.passived || 0, color: '#f97316', icon: '⊘' },
                 ].map(stat => (
                   <div key={stat.label} style={{
                     padding: '14px 16px', borderRadius: 10,
@@ -824,7 +832,7 @@ export default function ProductsPage() {
                 </div>
               )}
 
-              {syncResult.updated === 0 && syncResult.discovered === 0 && (
+              {syncResult.updated === 0 && syncResult.discovered === 0 && !syncResult.passived && (
                 <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 13, color: 'var(--text-muted)' }}>
                   Tüm durumlar güncel, değişen ürün yok.
                 </div>

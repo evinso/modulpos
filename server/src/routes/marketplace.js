@@ -2348,6 +2348,73 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
         console.log(`[Trendyol Sync] Discovered ${discovered} previously untracked products`);
       }
 
+      // --- 4. Detect active products that were removed/archived/rejected on Trendyol ---
+      // Fetch our currently-active MarketplaceProduct records, then paginate through
+      // Trendyol's archived and rejected lists to find ones we still show as active.
+      let passived = 0;
+      try {
+        const activeMps = await prisma.marketplaceProduct.findMany({
+          where: { connectionId: connection.id, status: 'active' },
+          include: { product: { select: { barcode: true, sku: true } } }
+        });
+
+        if (activeMps.length > 0) {
+          // Build barcode → MarketplaceProduct map for our active products
+          const activeBarcodeMap = new Map();
+          for (const mp of activeMps) {
+            if (mp.product.barcode) activeBarcodeMap.set(mp.product.barcode, mp);
+            if (mp.product.sku && mp.product.sku !== mp.product.barcode)
+              activeBarcodeMap.set(mp.product.sku, mp);
+          }
+
+          // Helper: paginate through a Trendyol filter and call handler per item
+          const scanTrendyol = async (filters, handler) => {
+            let page = 0;
+            while (true) {
+              try {
+                const r = await service.getFilteredProducts(filters, page, 50);
+                const items = r?.content || [];
+                if (items.length === 0) break;
+                for (const tp of items) handler(tp);
+                const totalPages = r?.totalPages ?? 1;
+                if (page >= totalPages - 1 || items.length < 50) break;
+                page++;
+              } catch (err) {
+                console.error('[Trendyol Removal Scan Error]', filters, err.message);
+                break;
+              }
+            }
+          };
+
+          // Collect barcodes that are archived or rejected on Trendyol
+          const removedMap = new Map(); // barcode → { reason, trendyolStatus }
+          await scanTrendyol({ archived: true }, tp => {
+            const b = tp.barcode || tp.stockCode;
+            if (b && activeBarcodeMap.has(b)) removedMap.set(b, { reason: 'Trendyol\'da arşivlendi', trendyolStatus: 'archived' });
+          });
+          await scanTrendyol({ rejected: true, approved: false }, tp => {
+            const b = tp.barcode || tp.stockCode;
+            if (b && activeBarcodeMap.has(b) && !removedMap.has(b))
+              removedMap.set(b, { reason: tp.rejectReason || 'Trendyol tarafından reddedildi', trendyolStatus: 'rejected' });
+          });
+
+          // Update matched products to passive
+          for (const [barcode, info] of removedMap) {
+            const mp = activeBarcodeMap.get(barcode);
+            if (!mp) continue;
+            await prisma.marketplaceProduct.update({
+              where: { id: mp.id },
+              data: { status: 'passive', errorMessage: info.reason, lastSyncedAt: new Date() }
+            });
+            passived++;
+            updatedCount++;
+          }
+        }
+      } catch (err) {
+        console.error('[Trendyol Removal Detection Error]', err.message);
+        errorMessages.push(`Satıştan kaldırılan ürünler kontrol edilemedi: ${err.message}`);
+      }
+
       const warnMsg = errorMessages.length > 0 ? ` (${errorMessages.length} hata oluştu)` : '';
       const discoverMsg = discovered > 0 ? ` ${discovered} yeni ürün Trendyol'da bulundu.` : '';
       return res.json({
@@ -2356,6 +2423,7 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
         activated,
         rejected,
         discovered,
+        passived,
         batchChecked,
         fallbackChecked,
         errors: errorMessages

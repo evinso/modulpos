@@ -179,6 +179,17 @@ class TrendyolService {
     return res.data;
   }
 
+  // Generic filtered product listing — supports archived, rejected, onSale, approved etc.
+  async getFilteredProducts(filters = {}, page = 0, size = 50) {
+    const params = { page, size, ...filters };
+    const res = await this.requestWithRetry({
+      method: 'get',
+      url: `${this.baseUrl}/product/sellers/${this.sellerId}/products`,
+      params
+    });
+    return res.data;
+  }
+
   async getBuyboxInfo(barcodes) {
     const res = await this.requestWithRetry({
       method: 'post',
