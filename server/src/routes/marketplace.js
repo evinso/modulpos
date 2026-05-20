@@ -2127,36 +2127,56 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
             const batchResult = await service.getBatchRequestResult(batchId);
             if (!batchResult) continue;
 
-            // If batch is still processing, skip — don't act on incomplete results
-            if (batchResult.status === 'PROCESSING') continue;
+            // Trendyol uses IN_PROGRESS (not PROCESSING) — skip until COMPLETED
+            if (batchResult.status === 'IN_PROGRESS') continue;
 
             const batchType = batchResult.batchRequestType || '';
-            // Only product onboarding batches can flip a product to active/rejected.
-            // Inventory/price update batches mean the product was already active.
-            const isOnboarding = /onboarding/i.test(batchType) || /product(?!.*(?:inventory|price|stock|deletion))/i.test(batchType);
+            // Only ProductV2OnBoarding flips a product from pending → active/rejected.
+            // All other types (ProductV2Update, ApprovedProductContentUpdate,
+            // ProductInventoryUpdate, etc.) don't change the listing approval status.
+            const isOnboarding = batchType === 'ProductV2OnBoarding';
 
             if (!Array.isArray(batchResult.items)) continue;
 
             for (const item of batchResult.items) {
-              // Extract barcode — structure varies by batchRequestType:
-              // OnBoarding: requestItem.barcode | requestItem.product.barcode | requestItem.productMainId
-              // InventoryUpdate: requestItem.barcode | requestItem.items[0].barcode
+              // Skip items still processing
+              if (item.status === 'IN_PROGRESS') continue;
+
+              // Extract barcode by batchRequestType:
+              // ProductV2OnBoarding / ProductV2Update / ProductInventoryUpdate:
+              //   requestItem.barcode | requestItem.stockCode | requestItem.productMainId
+              // ApprovedProductContentUpdate:
+              //   requestItem.contentId (no barcode — match by marketplaceProductId instead)
               const ri = item.requestItem || {};
-              const barcode =
-                ri.barcode ||
-                ri.product?.barcode ||
-                ri.updateRequest?.barcode ||
-                ri.productMainId ||
-                ri.stockCode ||
-                (Array.isArray(ri.items) && ri.items[0]?.barcode) ||
-                null;
 
-              if (!barcode) continue;
+              let matchingMp = null;
 
-              const matchingMp = productsWithBatch.find(p =>
-                p.batchRequestId === batchId &&
-                (p.product.barcode === barcode || p.product.sku === barcode)
-              );
+              if (batchType === 'ApprovedProductContentUpdate') {
+                // Match via contentId stored as marketplaceProductId
+                const contentId = ri.contentId != null ? String(ri.contentId) : null;
+                if (contentId) {
+                  matchingMp = productsWithBatch.find(p =>
+                    p.batchRequestId === batchId &&
+                    p.marketplaceProductId === contentId
+                  );
+                }
+              } else {
+                const barcode =
+                  ri.barcode ||
+                  ri.stockCode ||
+                  ri.productMainId ||
+                  ri.product?.barcode ||
+                  ri.updateRequest?.barcode ||
+                  (Array.isArray(ri.items) && ri.items[0]?.barcode) ||
+                  null;
+
+                if (barcode) {
+                  matchingMp = productsWithBatch.find(p =>
+                    p.batchRequestId === batchId &&
+                    (p.product.barcode === barcode || p.product.sku === barcode)
+                  );
+                }
+              }
 
               if (!matchingMp) continue;
 
@@ -2164,14 +2184,15 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
               let newError = matchingMp.errorMessage;
 
               if (item.status === 'SUCCESS' && isOnboarding) {
+                // Only onboarding SUCCESS means the product listing was approved
                 newStatus = 'active';
                 newError = null;
               } else if (item.status === 'FAILED') {
+                // Any batch type can FAIL — record the rejection reason
                 newStatus = 'rejected';
                 newError = (item.failureReasons || []).join(', ') || 'Trendyol tarafından reddedildi';
               }
-              // For non-onboarding SUCCESS, keep current status — the update was accepted but
-              // it doesn't change whether the product listing is active or not.
+              // Non-onboarding SUCCESS = update accepted, listing status unchanged
 
               if (newStatus !== matchingMp.status) {
                 await prisma.marketplaceProduct.update({
