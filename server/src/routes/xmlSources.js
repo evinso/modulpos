@@ -179,7 +179,7 @@ router.post('/:id/sync', async (req, res, next) => {
     const xmlSource = await prisma.xmlSource.findUnique({ where: { id: req.params.id } });
     if (!xmlSource) return res.status(404).json({ error: 'XML kaynağı bulunamadı' });
 
-    const syncLog = await prisma.syncLog.create({ data: { storeId: store.id, type: 'xml_sync', status: 'started' } });
+    const syncLog = await prisma.syncLog.create({ data: { storeId: store.id, xmlSourceId: xmlSource.id, type: 'xml_sync', status: 'started' } });
 
     // Kullanıcının aktif abonelik planını bul (paket bazlı markup için)
     const userSub = await prisma.subscription.findFirst({
@@ -314,7 +314,7 @@ router.post('/:id/sync', async (req, res, next) => {
       } catch { errors++; }
     }
 
-    await prisma.syncLog.update({ where: { id: syncLog.id }, data: { status: 'completed', itemCount: created + updated, errorCount: errors, completedAt: new Date() } });
+    await prisma.syncLog.update({ where: { id: syncLog.id }, data: { status: 'completed', itemCount: created + updated, errorCount: errors, created, updated, skipped, completedAt: new Date() } });
     await prisma.xmlSource.update({ where: { id: xmlSource.id }, data: { lastSyncedAt: new Date(), totalProducts: products.length, status: 'active' } });
 
     const skippedNote = skipped > 0 ? ` ${skipped} ürün limit nedeniyle atlandı.` : '';
@@ -417,6 +417,22 @@ router.delete('/:id', async (req, res, next) => {
     await prisma.xmlSource.delete({ where: { id: req.params.id } });
 
     res.json({ message: 'XML kaynağı ve bağlı ürünler silindi' });
+  } catch (error) { next(error); }
+});
+
+// GET /api/xml-sources/:id/logs — sync history for an XML source
+router.get('/:id/logs', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const source = await prisma.xmlSource.findFirst({ where: { id: req.params.id, storeId: store.id } });
+    if (!source) return res.status(404).json({ error: 'Kaynak bulunamadı' });
+    const logs = await prisma.syncLog.findMany({
+      where: { xmlSourceId: req.params.id },
+      orderBy: { startedAt: 'desc' },
+      take: 50
+    });
+    res.json(logs);
   } catch (error) { next(error); }
 });
 

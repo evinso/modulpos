@@ -116,8 +116,9 @@ model XmlSource {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  store    Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store    Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
   products Product[]
+  syncLogs SyncLog[]
 }
 
 model Product {
@@ -337,17 +338,24 @@ model Subscription {
 }
 
 model SyncLog {
-  id         String   @id @default(uuid())
-  storeId    String
-  type       String   // xml_sync, stock_sync, price_sync, order_sync, product_send
-  status     String   // started, completed, failed
-  details    String?  // JSON details
-  itemCount  Int      @default(0)
-  errorCount Int      @default(0)
-  startedAt  DateTime @default(now())
+  id          String   @id @default(uuid())
+  storeId     String
+  xmlSourceId String?
+  type        String   // xml_sync, stock_sync, price_sync, order_sync, product_send
+  status      String   // started, completed, failed
+  details     String?  // JSON details
+  itemCount   Int      @default(0)
+  errorCount  Int      @default(0)
+  created     Int      @default(0)
+  updated     Int      @default(0)
+  skipped     Int      @default(0)
+  startedAt   DateTime @default(now())
   completedAt DateTime?
 
-  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  xmlSource XmlSource? @relation(fields: [xmlSourceId], references: [id], onDelete: SetNull)
+
+  @@index([xmlSourceId])
 }
 
 model Notification {

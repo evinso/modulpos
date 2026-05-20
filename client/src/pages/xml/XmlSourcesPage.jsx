@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, RefreshCw, Trash2, FileCode2, Clock, CheckCircle, XCircle, Settings, Eye, ArrowRight, Link2, Send, Tag, DollarSign, Search, Check, FolderTree, Loader2, AlertCircle, ImageOff, X } from 'lucide-react';
+import { Plus, RefreshCw, Trash2, FileCode2, Clock, CheckCircle, XCircle, Settings, Eye, ArrowRight, Link2, Send, Tag, DollarSign, Search, Check, FolderTree, Loader2, AlertCircle, ImageOff, X, History, Sparkles } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 import LoadingOverlay from '../../components/LoadingOverlay';
@@ -27,6 +27,11 @@ export default function XmlSourcesPage() {
   const [xmlPreviewSource, setXmlPreviewSource] = useState(null);
   const [xmlPreviewData, setXmlPreviewData] = useState(null);
   const [xmlPreviewLoading, setXmlPreviewLoading] = useState(false);
+
+  // Sync history
+  const [historySource, setHistorySource] = useState(null);
+  const [syncLogs, setSyncLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
 
   // Add form
   const [addForm, setAddForm] = useState({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10', purchaseVatRate: '0' });
@@ -338,6 +343,17 @@ export default function XmlSourcesPage() {
     finally { setSyncing(null); }
   };
 
+  const openHistory = async (source) => {
+    setHistorySource(source);
+    setSyncLogs([]);
+    setLogsLoading(true);
+    try {
+      const res = await api.get(`/xml-sources/${source.id}/logs`);
+      setSyncLogs(res.data);
+    } catch { toast.error('Geçmiş yüklenemedi'); }
+    finally { setLogsLoading(false); }
+  };
+
   const handleDelete = async () => {
     if (!deleteConfirm) return;
     const id = deleteConfirm;
@@ -593,12 +609,15 @@ export default function XmlSourcesPage() {
                     <button className="btn btn-secondary btn-sm" onClick={() => handleOpenXmlPreview(s)}>
                       <Eye size={14} /> Önizle
                     </button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => openHistory(s)} title="Senkronizasyon Geçmişi">
+                      <History size={14} /> Geçmiş
+                    </button>
                     <button className="btn btn-primary btn-sm" onClick={() => handleSync(s.id)} disabled={syncing === s.id}>
                       <RefreshCw size={14} className={syncing === s.id ? 'spinning' : ''} />
-                    {syncing === s.id ? 'Çekiliyor...' : 'Şimdi Çek'}
-                  </button>
-                  <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(s.id)}><Trash2 size={14} /> Sil</button>
-                </div>
+                      {syncing === s.id ? 'Çekiliyor...' : 'Şimdi Çek'}
+                    </button>
+                    <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(s.id)}><Trash2 size={14} /> Sil</button>
+                  </div>
               </div>
             );
           })}
@@ -837,6 +856,103 @@ export default function XmlSourcesPage() {
               <button className="btn btn-primary" onClick={handleSaveMapping} disabled={savingMapping}>
                 {savingMapping ? 'Kaydediliyor...' : '✓ Eşleştirmeyi Kaydet'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== SYNC HISTORY MODAL ===== */}
+      {historySource && (
+        <div className="modal-overlay" onClick={() => setHistorySource(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 600 }}>
+            <div className="modal-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <History size={18} style={{ color: 'var(--accent-primary)' }} />
+                Senkronizasyon Geçmişi
+              </h3>
+              <button className="modal-close" onClick={() => setHistorySource(null)}>×</button>
+            </div>
+            <div className="modal-body" style={{ padding: '16px 24px' }}>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                <strong style={{ color: 'var(--text-primary)' }}>{historySource.name}</strong>
+                <span style={{ marginLeft: 8, color: 'var(--text-muted)' }}>— son 50 senkronizasyon</span>
+              </div>
+              {logsLoading ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: 32 }}>
+                  <div className="spinner" />
+                </div>
+              ) : syncLogs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)' }}>
+                  <History size={32} style={{ marginBottom: 8, opacity: 0.3 }} />
+                  <p style={{ fontSize: 13 }}>Henüz senkronizasyon geçmişi yok.<br />İlk "Şimdi Çek" işleminden itibaren burada görünecek.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                  {syncLogs.map((log, i) => {
+                    const isFirst = log.created > 0 && log.updated === 0;
+                    const hasError = log.errorCount > 0;
+                    const duration = log.completedAt
+                      ? Math.round((new Date(log.completedAt) - new Date(log.startedAt)) / 1000)
+                      : null;
+                    return (
+                      <div key={log.id} style={{ display: 'flex', gap: 12, paddingBottom: 16, position: 'relative' }}>
+                        {i < syncLogs.length - 1 && (
+                          <div style={{ position: 'absolute', left: 15, top: 32, bottom: 0, width: 2, background: 'var(--border-color)' }} />
+                        )}
+                        <div style={{
+                          width: 32, height: 32, borderRadius: '50%', flexShrink: 0, zIndex: 1,
+                          background: hasError ? 'rgba(239,68,68,0.1)' : isFirst ? 'rgba(16,185,129,0.12)' : 'rgba(99,102,241,0.08)',
+                          border: `2px solid ${hasError ? 'var(--danger)' : isFirst ? 'var(--success)' : 'var(--accent-primary)'}`,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center'
+                        }}>
+                          {hasError
+                            ? <XCircle size={14} style={{ color: 'var(--danger)' }} />
+                            : isFirst
+                            ? <Sparkles size={14} style={{ color: 'var(--success)' }} />
+                            : <RefreshCw size={13} style={{ color: 'var(--accent-primary)' }} />}
+                        </div>
+                        <div style={{ flex: 1, paddingTop: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                            <span style={{
+                              fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+                              background: hasError ? 'rgba(239,68,68,0.08)' : isFirst ? 'rgba(16,185,129,0.1)' : 'rgba(99,102,241,0.08)',
+                              color: hasError ? 'var(--danger)' : isFirst ? 'var(--success)' : 'var(--accent-primary)'
+                            }}>
+                              {log.status === 'started' ? '⏳ Devam Ediyor' : hasError ? '⚠ Hatalarla Tamamlandı' : isFirst ? '✨ İlk Senkronizasyon' : '✓ Tamamlandı'}
+                            </span>
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                              {new Date(log.startedAt).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            {duration != null && (
+                              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{duration}s</span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                            {log.created > 0 && (
+                              <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 600 }}>+{log.created} yeni</span>
+                            )}
+                            {log.updated > 0 && (
+                              <span style={{ fontSize: 12, color: 'var(--accent-primary)', fontWeight: 600 }}>↺ {log.updated} güncellendi</span>
+                            )}
+                            {log.skipped > 0 && (
+                              <span style={{ fontSize: 12, color: 'var(--warning)', fontWeight: 600 }}>⊘ {log.skipped} atlandı</span>
+                            )}
+                            {log.errorCount > 0 && (
+                              <span style={{ fontSize: 12, color: 'var(--danger)', fontWeight: 600 }}>✕ {log.errorCount} hata</span>
+                            )}
+                            {log.created === 0 && log.updated === 0 && log.errorCount === 0 && log.status === 'completed' && (
+                              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Değişiklik yok</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setHistorySource(null)}>Kapat</button>
             </div>
           </div>
         </div>
