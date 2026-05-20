@@ -48,14 +48,20 @@ export default function ProductsPage() {
   const [xmlSources, setXmlSources] = useState([]);
   const [connections, setConnections] = useState([]);
   const [pricingRules, setPricingRules] = useState([]);
+  const [mpStats, setMpStats] = useState(null);
 
-  useEffect(() => { 
+  useEffect(() => {
     fetchOptions();
   }, []);
 
-  useEffect(() => { 
-    fetchProducts(); 
+  useEffect(() => {
+    fetchProducts();
   }, [pagination.page, search, filterXmlSource, filterConnection, filterMarketplaceStatus]);
+
+  useEffect(() => {
+    if (filterConnection) fetchMpStats();
+    else setMpStats(null);
+  }, [filterConnection, filterXmlSource]);
 
   const fetchOptions = async () => {
     try {
@@ -72,13 +78,24 @@ export default function ProductsPage() {
     }
   };
 
+  const fetchMpStats = async () => {
+    try {
+      const params = { connectionId: filterConnection };
+      if (filterXmlSource) params.xmlSourceId = filterXmlSource;
+      const res = await api.get('/products/stats', { params });
+      setMpStats(res.data);
+    } catch {}
+  };
+
   const fetchProducts = async () => {
     setLoading(true);
     try {
       const params = { page: pagination.page, search };
       if (filterXmlSource) params.xmlSourceId = filterXmlSource;
       if (filterConnection) params.connectionId = filterConnection;
-      if (filterMarketplaceStatus) params.marketplaceStatus = filterMarketplaceStatus;
+      if (filterMarketplaceStatus && filterMarketplaceStatus !== 'not_sent') params.marketplaceStatus = filterMarketplaceStatus;
+      // "Gönderilmemiş": connectionId ile eşleşen MP kaydı olmayan ürünler
+      if (filterMarketplaceStatus === 'not_sent') { delete params.connectionId; params.notSentConnectionId = filterConnection; }
       
       const res = await api.get('/products', { params });
       setProducts(res.data.products);
@@ -524,28 +541,57 @@ export default function ProductsPage() {
         </div>
         
         {/* Filtreler */}
-        <div style={{ display: 'flex', gap: 12, padding: '12px 20px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-tertiary)', flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 12, padding: '12px 20px', borderBottom: filterConnection ? 'none' : '1px solid var(--border-color)', background: 'var(--bg-tertiary)', flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Filtrele:</div>
           <select className="form-select" style={{ width: 200, padding: '6px 12px', fontSize: 13 }} value={filterXmlSource} onChange={e => setFilterXmlSource(e.target.value)}>
             <option value="">Tüm Tedarikçiler (XML)</option>
             {xmlSources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
-          
-          <select className="form-select" style={{ width: 200, padding: '6px 12px', fontSize: 13 }} value={filterConnection} onChange={e => { setFilterConnection(e.target.value); if(!e.target.value) setFilterMarketplaceStatus(''); }}>
+
+          <select className="form-select" style={{ width: 200, padding: '6px 12px', fontSize: 13 }} value={filterConnection} onChange={e => { setFilterConnection(e.target.value); setFilterMarketplaceStatus(''); }}>
             <option value="">Tüm Pazaryerleri</option>
             {connections.map(c => <option key={c.id} value={c.id}>{c.supplierName || c.marketplaceType}</option>)}
           </select>
-
-          {filterConnection && (
-            <select className="form-select" style={{ width: 180, padding: '6px 12px', fontSize: 13 }} value={filterMarketplaceStatus} onChange={e => setFilterMarketplaceStatus(e.target.value)}>
-              <option value="">Tüm Durumlar</option>
-              <option value="pending">Bekleyenler</option>
-              <option value="active">Aktif/Onaylı</option>
-              <option value="rejected">Reddedilenler</option>
-              <option value="passive">Satıştan Kaldırılanlar</option>
-            </select>
-          )}
         </div>
+
+        {/* Marketplace durum sekmeleri */}
+        {filterConnection && (() => {
+          const s = mpStats?.mpStatus;
+          const tabs = [
+            { key: '', label: 'Tümü', count: mpStats?.total ?? null, color: 'var(--text-primary)' },
+            { key: 'active', label: 'Satışta', count: s?.active ?? null, color: 'var(--success)' },
+            { key: 'pending', label: 'Onay Bekliyor', count: s?.pending ?? null, color: 'var(--warning)' },
+            { key: 'rejected', label: 'Reddedildi', count: s?.rejected ?? null, color: 'var(--danger)' },
+            { key: 'passive', label: 'Satıştan Kaldırıldı', count: s?.passive ?? null, color: '#f97316' },
+            { key: 'not_sent', label: 'Gönderilmemiş', count: s?.not_sent ?? null, color: 'var(--text-muted)' },
+          ];
+          return (
+            <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)', paddingLeft: 20, overflowX: 'auto' }}>
+              {tabs.map(t => {
+                const active = filterMarketplaceStatus === t.key;
+                return (
+                  <button key={t.key} onClick={() => { setFilterMarketplaceStatus(t.key); setPagination(p => ({ ...p, page: 1 })); }}
+                    style={{
+                      padding: '10px 18px', fontSize: 13, fontWeight: active ? 700 : 500,
+                      color: active ? t.color : 'var(--text-secondary)',
+                      background: 'none', border: 'none', borderBottom: active ? `2px solid ${t.color}` : '2px solid transparent',
+                      cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 7
+                    }}
+                  >
+                    {t.label}
+                    {t.count !== null && (
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 10,
+                        background: active ? t.color : 'var(--bg-tertiary)',
+                        color: active ? '#fff' : 'var(--text-muted)'
+                      }}>{t.count}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {loading ? (
           <div className="loading-spinner"><div className="spinner"></div></div>

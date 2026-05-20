@@ -30,6 +30,7 @@ router.get('/', async (req, res, next) => {
       xmlSourceId,
       connectionId,
       marketplaceStatus,
+      notSentConnectionId,
       globalXmlOnly,
       sortBy = 'createdAt',
       sortOrder = 'desc'
@@ -60,7 +61,10 @@ router.get('/', async (req, res, next) => {
     }
     if (xmlSourceId) where.xmlSourceId = xmlSourceId;
     if (globalXmlOnly === 'true') where.xmlSource = { globalProviderId: { not: null } };
-    if (connectionId || marketplaceStatus) {
+    if (notSentConnectionId) {
+      // Products that have NO MarketplaceProduct record for this connection
+      where.marketplaceProducts = { none: { connectionId: notSentConnectionId } };
+    } else if (connectionId || marketplaceStatus) {
       where.marketplaceProducts = { some: {} };
       if (connectionId) where.marketplaceProducts.some.connectionId = connectionId;
       if (marketplaceStatus) where.marketplaceProducts.some.status = marketplaceStatus;
