@@ -86,6 +86,7 @@ model Store {
   notifications         Notification[]
   dropshipOrders        DropshipOrder[]
   autoReplyRules        AutoReplyRule[]
+  whatsappConnections   WhatsappConnection[]
 }
 
 model XmlSource {
@@ -595,6 +596,21 @@ model TrendyolApiLog {
 
   @@index([connectionId])
   @@index([createdAt])
+}
+
+model WhatsappConnection {
+  id         String   @id @default(uuid())
+  storeId    String
+  name       String
+  instanceId String
+  apiToken   String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
 }
 
 model WebhookEvent {

@@ -41,6 +41,7 @@ const SettingsPage        = lazy(() => import('./pages/settings/SettingsPage'));
 const SuperAdminPage      = lazy(() => import('./pages/admin/SuperAdminPage'));
 const CreditAdminPage     = lazy(() => import('./pages/admin/CreditAdminPage'));
 const GuidePage           = lazy(() => import('./pages/guide/GuidePage'));
+const WhatsappPage        = lazy(() => import('./pages/whatsapp/WhatsappPage'));
 
 function PageLoader() {
   return (
@@ -104,6 +105,7 @@ function App() {
             <Route path="/credit-admin"       element={<AdminRoute><CreditAdminPage /></AdminRoute>} />
             <Route path="/questions-admin"  element={<AdminRoute><QuestionsAdminPage /></AdminRoute>} />
             <Route path="/guide"            element={<GuidePage />} />
+            <Route path="/whatsapp"         element={<WhatsappPage />} />
           </Route>
         </Routes>
       </Suspense>

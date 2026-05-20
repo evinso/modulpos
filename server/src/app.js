@@ -28,6 +28,7 @@ const paymentRoutes = require('./routes/payment');
 const dropshipOrderRoutes = require('./routes/dropshipOrders');
 const supportRoutes = require('./routes/support');
 const aiRoutes = require('./routes/ai');
+const whatsappRoutes = require('./routes/whatsapp');
 
 const { errorHandler } = require('./middleware/errorHandler');
 
@@ -109,6 +110,7 @@ app.use('/api/payment', paymentRoutes);
 app.use('/api/dropship-orders', dropshipOrderRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
