@@ -2110,39 +2110,42 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
       });
 
       let updatedCount = 0;
+      let activated = 0;
+      let rejected = 0;
+      let batchChecked = 0;
+      let fallbackChecked = 0;
       let errorMessages = [];
 
       // --- 1. Check via getBatchRequestResult (PRIMARY) ---
       const productsWithBatch = allPendingProducts.filter(p => p.batchRequestId != null);
       if (productsWithBatch.length > 0) {
         const batchIds = [...new Set(productsWithBatch.map(p => p.batchRequestId))];
-        
+        batchChecked = productsWithBatch.length;
+
         for (const batchId of batchIds) {
           try {
             const batchResult = await service.getBatchRequestResult(batchId);
             if (batchResult && batchResult.items && Array.isArray(batchResult.items)) {
               for (const item of batchResult.items) {
-                // Determine barcode from various Trendyol batch request structures
-                let barcode = item.requestItem?.barcode || 
-                              item.requestItem?.product?.barcode || 
+                let barcode = item.requestItem?.barcode ||
+                              item.requestItem?.product?.barcode ||
                               item.requestItem?.updateRequest?.barcode;
-                              
+
                 if (!barcode && item.requestItem?.productMainId) {
                   barcode = item.requestItem.productMainId;
                 }
 
                 if (!barcode) continue;
 
-                // Find matching pending product
-                const matchingMp = productsWithBatch.find(p => 
-                  p.batchRequestId === batchId && 
+                const matchingMp = productsWithBatch.find(p =>
+                  p.batchRequestId === batchId &&
                   (p.product.barcode === barcode || p.product.sku === barcode)
                 );
 
                 if (matchingMp) {
                   let newStatus = matchingMp.status;
                   let newError = matchingMp.errorMessage;
-                  
+
                   if (item.status === 'SUCCESS') {
                     newStatus = 'active';
                     newError = null;
@@ -2150,14 +2153,15 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
                     newStatus = 'rejected';
                     newError = (item.failureReasons || []).join(', ') || 'Trendyol tarafından reddedildi';
                   }
-                  
+
                   if (newStatus !== matchingMp.status) {
                     await prisma.marketplaceProduct.update({
                       where: { id: matchingMp.id },
                       data: { status: newStatus, errorMessage: newError }
                     });
                     updatedCount++;
-                    // Remove from allPendingProducts so we don't check it again in fallback
+                    if (newStatus === 'active') activated++;
+                    if (newStatus === 'rejected') rejected++;
                     const idx = allPendingProducts.findIndex(p => p.id === matchingMp.id);
                     if (idx !== -1) allPendingProducts.splice(idx, 1);
                   }
@@ -2166,19 +2170,19 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
             }
           } catch (err) {
             console.error(`[Trendyol Batch Check Error] ${batchId}`, err.response?.data || err.message);
-            errorMessages.push(`Toplu işlem (${batchId}) sorgulanamadı: ${err.message}`);
+            errorMessages.push(`Toplu işlem (${batchId.substring(0,8)}…) sorgulanamadı: ${err.message}`);
           }
         }
       }
 
       // --- 2. Fallback: Check remaining via getProducts (for products without batchId) ---
-      // We only process up to 50 items here to prevent timeouts
       const stillPending = allPendingProducts.filter(p => p.status === 'pending').slice(0, 50);
-      
+      fallbackChecked = stillPending.length;
+
       if (stillPending.length > 0) {
         const barcodesToSearch = [];
         const barcodeMap = new Map();
-        
+
         for (const mp of stillPending) {
           const searchParam = mp.product.barcode || mp.product.sku;
           if (searchParam) {
@@ -2186,10 +2190,9 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
             barcodeMap.set(searchParam, mp);
           }
         }
-        
+
         if (barcodesToSearch.length > 0) {
           try {
-            // Check Approved (Active) Products
             const activeRes = await service.getProducts(0, 50, true, barcodesToSearch);
             if (activeRes && activeRes.content && Array.isArray(activeRes.content)) {
               for (const tp of activeRes.content) {
@@ -2200,13 +2203,13 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
                     data: { status: 'active', errorMessage: null }
                   });
                   updatedCount++;
+                  activated++;
                   barcodeMap.delete(tp.barcode);
                   barcodeMap.delete(tp.stockCode);
                 }
               }
             }
-            
-            // Check Unapproved (Pending/Rejected) Products
+
             const remainingBarcodes = Array.from(barcodeMap.keys());
             if (remainingBarcodes.length > 0) {
               const inactiveRes = await service.getProducts(0, 50, false, remainingBarcodes);
@@ -2218,12 +2221,13 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
                     if (isRejected) {
                       await prisma.marketplaceProduct.update({
                         where: { id: matchedMp.id },
-                        data: { 
-                          status: 'rejected', 
+                        data: {
+                          status: 'rejected',
                           errorMessage: tp.rejectReason || 'Trendyol tarafından reddedildi'
                         }
                       });
                       updatedCount++;
+                      rejected++;
                     }
                   }
                 }
@@ -2231,6 +2235,7 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
             }
           } catch (err) {
             console.error(`[Trendyol Fallback Sync Error]`, err.message);
+            errorMessages.push(`Barkod eşleştirme sorgulanamadı: ${err.message}`);
           }
         }
       }
@@ -2310,7 +2315,12 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
       return res.json({
         message: `${updatedCount} ürünün durumu güncellendi.${discoverMsg}${warnMsg}`,
         updated: updatedCount,
-        discovered
+        activated,
+        rejected,
+        discovered,
+        batchChecked,
+        fallbackChecked,
+        errors: errorMessages
       });
     } else {
       res.status(400).json({ error: 'Bu pazaryeri için durum sorgulama desteklenmiyor' });

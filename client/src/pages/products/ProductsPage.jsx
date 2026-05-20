@@ -33,6 +33,7 @@ export default function ProductsPage() {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [syncingStatus, setSyncingStatus] = useState(false);
+  const [syncResult, setSyncResult] = useState(null); // log modal data
   const [openGroup, setOpenGroup] = useState(null);
   const [selectAllMode, setSelectAllMode] = useState(false); // true = all products selected (across pages)
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -261,22 +262,27 @@ export default function ProductsPage() {
   const syncMarketplaceStatus = async () => {
     setSyncingStatus(true);
     try {
-      // Get connections to know which ones to check
       const connsRes = await api.get('/marketplace/connections');
       const trendyolConns = connsRes.data.filter(c => c.marketplaceType === 'trendyol');
-      
-      let totalUpdated = 0;
+
+      const aggregate = { updated: 0, activated: 0, rejected: 0, discovered: 0, batchChecked: 0, fallbackChecked: 0, errors: [], connections: [] };
+
       for (const conn of trendyolConns) {
         const res = await api.post(`/marketplace/connections/${conn.id}/sync-status`);
-        totalUpdated += (res.data.updated || 0);
+        const d = res.data;
+        aggregate.updated    += d.updated    || 0;
+        aggregate.activated  += d.activated  || 0;
+        aggregate.rejected   += d.rejected   || 0;
+        aggregate.discovered += d.discovered || 0;
+        aggregate.batchChecked   += d.batchChecked   || 0;
+        aggregate.fallbackChecked += d.fallbackChecked || 0;
+        aggregate.errors.push(...(d.errors || []));
+        aggregate.connections.push({ name: conn.supplierName || conn.marketplaceType, ...d });
       }
-      
-      if (totalUpdated > 0) {
-        toast.success(`${totalUpdated} ürünün pazaryeri durumu güncellendi`);
-        fetchProducts();
-      } else {
-        toast.success('Pazaryeri durumları güncel, değişen ürün yok');
-      }
+
+      aggregate.syncedAt = new Date().toLocaleString('tr-TR');
+      setSyncResult(aggregate);
+      fetchProducts();
     } catch (err) {
       toast.error('Durumlar sorgulanırken hata oluştu');
     } finally {
@@ -742,6 +748,94 @@ export default function ProductsPage() {
           </>
         )}
       </div>
+
+      {/* Sync Status Result Modal */}
+      {syncResult && (
+        <div className="modal-overlay" onClick={() => setSyncResult(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <div className="modal-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <RefreshCw size={18} style={{ color: 'var(--accent-primary)' }} />
+                Durum Sorgulama Sonucu
+              </h3>
+              <button className="modal-close" onClick={() => setSyncResult(null)}>×</button>
+            </div>
+            <div className="modal-body" style={{ padding: '20px 24px' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
+                🕐 {syncResult.syncedAt}
+              </div>
+
+              {/* Ana istatistikler */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 24 }}>
+                {[
+                  { label: 'Güncellenen', value: syncResult.updated, color: 'var(--accent-primary)', icon: '↺' },
+                  { label: 'Aktifleşti', value: syncResult.activated, color: 'var(--success)', icon: '✓' },
+                  { label: 'Reddedildi', value: syncResult.rejected, color: 'var(--danger)', icon: '✕' },
+                  { label: 'Trendyol\'da Bulundu', value: syncResult.discovered, color: 'var(--warning)', icon: '⊕' },
+                ].map(stat => (
+                  <div key={stat.label} style={{
+                    padding: '14px 16px', borderRadius: 10,
+                    background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                    display: 'flex', alignItems: 'center', gap: 12
+                  }}>
+                    <div style={{
+                      width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+                      background: `color-mix(in srgb, ${stat.color} 12%, transparent)`,
+                      border: `1px solid color-mix(in srgb, ${stat.color} 30%, transparent)`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 16, color: stat.color, fontWeight: 700
+                    }}>{stat.icon}</div>
+                    <div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: stat.value > 0 ? stat.color : 'var(--text-muted)', lineHeight: 1 }}>{stat.value}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{stat.label}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Yöntem detayı */}
+              <div style={{ padding: '12px 16px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', marginBottom: syncResult.errors.length > 0 ? 16 : 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>Sorgulama Detayı</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>📦 Batch isteği ile kontrol</span>
+                    <span style={{ fontWeight: 600 }}>{syncResult.batchChecked} ürün</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>🔍 Barkod ile eşleştirme</span>
+                    <span style={{ fontWeight: 600 }}>{syncResult.fallbackChecked} ürün</span>
+                  </div>
+                  {syncResult.connections.length > 1 && syncResult.connections.map((c, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)' }}>
+                      <span>└ {c.name}</span>
+                      <span>{c.updated || 0} güncelleme</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Hatalar */}
+              {syncResult.errors.length > 0 && (
+                <div style={{ padding: '12px 16px', borderRadius: 8, background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', marginTop: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--danger)', marginBottom: 8 }}>⚠ Hatalar ({syncResult.errors.length})</div>
+                  {syncResult.errors.map((e, i) => (
+                    <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>• {e}</div>
+                  ))}
+                </div>
+              )}
+
+              {syncResult.updated === 0 && syncResult.discovered === 0 && (
+                <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 13, color: 'var(--text-muted)' }}>
+                  Tüm durumlar güncel, değişen ürün yok.
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setSyncResult(null)}>Kapat</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Product Modal */}
       {showModal && (
