@@ -2125,47 +2125,64 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
         for (const batchId of batchIds) {
           try {
             const batchResult = await service.getBatchRequestResult(batchId);
-            if (batchResult && batchResult.items && Array.isArray(batchResult.items)) {
-              for (const item of batchResult.items) {
-                let barcode = item.requestItem?.barcode ||
-                              item.requestItem?.product?.barcode ||
-                              item.requestItem?.updateRequest?.barcode;
+            if (!batchResult) continue;
 
-                if (!barcode && item.requestItem?.productMainId) {
-                  barcode = item.requestItem.productMainId;
-                }
+            // If batch is still processing, skip — don't act on incomplete results
+            if (batchResult.status === 'PROCESSING') continue;
 
-                if (!barcode) continue;
+            const batchType = batchResult.batchRequestType || '';
+            // Only product onboarding batches can flip a product to active/rejected.
+            // Inventory/price update batches mean the product was already active.
+            const isOnboarding = /onboarding/i.test(batchType) || /product(?!.*(?:inventory|price|stock|deletion))/i.test(batchType);
 
-                const matchingMp = productsWithBatch.find(p =>
-                  p.batchRequestId === batchId &&
-                  (p.product.barcode === barcode || p.product.sku === barcode)
-                );
+            if (!Array.isArray(batchResult.items)) continue;
 
-                if (matchingMp) {
-                  let newStatus = matchingMp.status;
-                  let newError = matchingMp.errorMessage;
+            for (const item of batchResult.items) {
+              // Extract barcode — structure varies by batchRequestType:
+              // OnBoarding: requestItem.barcode | requestItem.product.barcode | requestItem.productMainId
+              // InventoryUpdate: requestItem.barcode | requestItem.items[0].barcode
+              const ri = item.requestItem || {};
+              const barcode =
+                ri.barcode ||
+                ri.product?.barcode ||
+                ri.updateRequest?.barcode ||
+                ri.productMainId ||
+                ri.stockCode ||
+                (Array.isArray(ri.items) && ri.items[0]?.barcode) ||
+                null;
 
-                  if (item.status === 'SUCCESS') {
-                    newStatus = 'active';
-                    newError = null;
-                  } else if (item.status === 'FAILED') {
-                    newStatus = 'rejected';
-                    newError = (item.failureReasons || []).join(', ') || 'Trendyol tarafından reddedildi';
-                  }
+              if (!barcode) continue;
 
-                  if (newStatus !== matchingMp.status) {
-                    await prisma.marketplaceProduct.update({
-                      where: { id: matchingMp.id },
-                      data: { status: newStatus, errorMessage: newError }
-                    });
-                    updatedCount++;
-                    if (newStatus === 'active') activated++;
-                    if (newStatus === 'rejected') rejected++;
-                    const idx = allPendingProducts.findIndex(p => p.id === matchingMp.id);
-                    if (idx !== -1) allPendingProducts.splice(idx, 1);
-                  }
-                }
+              const matchingMp = productsWithBatch.find(p =>
+                p.batchRequestId === batchId &&
+                (p.product.barcode === barcode || p.product.sku === barcode)
+              );
+
+              if (!matchingMp) continue;
+
+              let newStatus = matchingMp.status;
+              let newError = matchingMp.errorMessage;
+
+              if (item.status === 'SUCCESS' && isOnboarding) {
+                newStatus = 'active';
+                newError = null;
+              } else if (item.status === 'FAILED') {
+                newStatus = 'rejected';
+                newError = (item.failureReasons || []).join(', ') || 'Trendyol tarafından reddedildi';
+              }
+              // For non-onboarding SUCCESS, keep current status — the update was accepted but
+              // it doesn't change whether the product listing is active or not.
+
+              if (newStatus !== matchingMp.status) {
+                await prisma.marketplaceProduct.update({
+                  where: { id: matchingMp.id },
+                  data: { status: newStatus, errorMessage: newError, lastSyncedAt: new Date() }
+                });
+                updatedCount++;
+                if (newStatus === 'active') activated++;
+                if (newStatus === 'rejected') rejected++;
+                const idx = allPendingProducts.findIndex(p => p.id === matchingMp.id);
+                if (idx !== -1) allPendingProducts.splice(idx, 1);
               }
             }
           } catch (err) {
