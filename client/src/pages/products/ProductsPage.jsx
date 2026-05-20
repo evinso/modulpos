@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Plus, Search, Trash2, Edit, Package, CheckSquare, Square,
   TrendingUp, TrendingDown, Layers,
-  X, AlertTriangle, ChevronDown, FileCode2, Eye, RefreshCw
+  X, AlertTriangle, ChevronDown, FileCode2, Eye, RefreshCw,
+  History, Sparkles, ArrowUp, ArrowDown
 } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
@@ -35,6 +36,9 @@ export default function ProductsPage() {
   const [openGroup, setOpenGroup] = useState(null);
   const [selectAllMode, setSelectAllMode] = useState(false); // true = all products selected (across pages)
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [historyProduct, setHistoryProduct] = useState(null);
+  const [productLogs, setProductLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
   
   // Filters
   const [filterXmlSource, setFilterXmlSource] = useState('');
@@ -161,6 +165,17 @@ export default function ProductsPage() {
       toast.success('Ürün silindi');
       fetchProducts();
     } catch { toast.error('Silme hatası'); }
+  };
+
+  const openHistory = async (p) => {
+    setHistoryProduct(p);
+    setProductLogs([]);
+    setLogsLoading(true);
+    try {
+      const res = await api.get(`/products/${p.id}/logs`);
+      setProductLogs(res.data);
+    } catch { toast.error('Geçmiş yüklenemedi'); }
+    finally { setLogsLoading(false); }
   };
 
   const openEdit = (p) => {
@@ -706,7 +721,8 @@ export default function ProductsPage() {
                       </td>
                       <td><span className={`badge ${p.status === 'active' ? 'badge-success' : 'badge-warning'}`}>{p.status === 'active' ? 'Aktif' : 'Pasif'}</span></td>
                       <td>
-                        <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn btn-secondary btn-sm" onClick={() => openHistory(p)} title="Güncelleme Geçmişi"><History size={14} /></button>
                           <button className="btn btn-secondary btn-sm" onClick={() => openEdit(p)}><Edit size={14} /></button>
                           <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(p.id)}><Trash2 size={14} /></button>
                         </div>
@@ -801,6 +817,121 @@ export default function ProductsPage() {
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>İptal</button>
               <button className="btn btn-danger" onClick={handleDelete}>Evet, Sil</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Product History Modal */}
+      {historyProduct && (
+        <div className="modal-overlay" onClick={() => setHistoryProduct(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 620 }}>
+            <div className="modal-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <History size={18} style={{ color: 'var(--accent-primary)' }} />
+                Güncelleme Geçmişi
+              </h3>
+              <button className="modal-close" onClick={() => setHistoryProduct(null)}>×</button>
+            </div>
+            <div className="modal-body" style={{ padding: '16px 24px' }}>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                <strong style={{ color: 'var(--text-primary)' }}>{historyProduct.title}</strong>
+                <span style={{ marginLeft: 8, fontFamily: 'monospace', color: 'var(--text-muted)' }}>#{historyProduct.sku}</span>
+              </div>
+              {logsLoading ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: 32 }}>
+                  <div className="spinner" />
+                </div>
+              ) : productLogs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)' }}>
+                  <History size={32} style={{ marginBottom: 8, opacity: 0.3 }} />
+                  <p style={{ fontSize: 13 }}>Henüz geçmiş kaydı yok.<br />Bir sonraki XML senkronizasyonunda değişiklikler burada görünecek.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                  {productLogs.map((log, i) => {
+                    const isCreate = log.type === 'created';
+                    const priceUp = log.newPrice != null && log.oldPrice != null && log.newPrice > log.oldPrice;
+                    const priceDown = log.newPrice != null && log.oldPrice != null && log.newPrice < log.oldPrice;
+                    const stockUp = log.newStock != null && log.oldStock != null && log.newStock > log.oldStock;
+                    const stockDown = log.newStock != null && log.oldStock != null && log.newStock < log.oldStock;
+                    return (
+                      <div key={log.id} style={{ display: 'flex', gap: 12, paddingBottom: 16, position: 'relative' }}>
+                        {/* Timeline line */}
+                        {i < productLogs.length - 1 && (
+                          <div style={{ position: 'absolute', left: 15, top: 32, bottom: 0, width: 2, background: 'var(--border-color)' }} />
+                        )}
+                        {/* Dot */}
+                        <div style={{
+                          width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                          background: isCreate ? 'rgba(16,185,129,0.12)' : 'rgba(99,102,241,0.1)',
+                          border: `2px solid ${isCreate ? 'var(--success)' : 'var(--accent-primary)'}`,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1
+                        }}>
+                          {isCreate
+                            ? <Sparkles size={14} style={{ color: 'var(--success)' }} />
+                            : <RefreshCw size={13} style={{ color: 'var(--accent-primary)' }} />}
+                        </div>
+                        {/* Content */}
+                        <div style={{ flex: 1, paddingTop: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                            <span style={{
+                              fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+                              background: isCreate ? 'rgba(16,185,129,0.1)' : 'rgba(99,102,241,0.08)',
+                              color: isCreate ? 'var(--success)' : 'var(--accent-primary)'
+                            }}>
+                              {isCreate ? '✨ Ürün Eklendi' : '🔄 Senkronize Edildi'}
+                            </span>
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                              {new Date(log.createdAt).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                            {log.newPrice != null && log.oldPrice == null && (
+                              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                                Fiyat: <strong style={{ color: 'var(--text-primary)' }}>₺{log.newPrice?.toLocaleString('tr-TR')}</strong>
+                              </div>
+                            )}
+                            {log.newPrice != null && log.oldPrice != null && (
+                              <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ color: 'var(--text-muted)' }}>₺{log.oldPrice?.toLocaleString('tr-TR')}</span>
+                                <span style={{ color: 'var(--text-muted)' }}>→</span>
+                                <span style={{ fontWeight: 700, color: priceUp ? 'var(--danger)' : priceDown ? 'var(--success)' : 'var(--text-primary)' }}>
+                                  ₺{log.newPrice?.toLocaleString('tr-TR')}
+                                </span>
+                                {priceUp && <ArrowUp size={12} style={{ color: 'var(--danger)' }} />}
+                                {priceDown && <ArrowDown size={12} style={{ color: 'var(--success)' }} />}
+                              </div>
+                            )}
+                            {log.newStock != null && log.oldStock == null && (
+                              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                                Stok: <strong style={{ color: 'var(--text-primary)' }}>{log.newStock}</strong>
+                              </div>
+                            )}
+                            {log.newStock != null && log.oldStock != null && (
+                              <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ color: 'var(--text-muted)' }}>{log.oldStock}</span>
+                                <span style={{ color: 'var(--text-muted)' }}>→</span>
+                                <span style={{ fontWeight: 700, color: stockUp ? 'var(--success)' : stockDown ? 'var(--danger)' : 'var(--text-primary)' }}>
+                                  {log.newStock}
+                                </span>
+                                {stockUp && <ArrowUp size={12} style={{ color: 'var(--success)' }} />}
+                                {stockDown && <ArrowDown size={12} style={{ color: 'var(--danger)' }} />}
+                              </div>
+                            )}
+                          </div>
+                          {log.notes && (
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{log.notes}</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setHistoryProduct(null)}>Kapat</button>
             </div>
           </div>
         </div>

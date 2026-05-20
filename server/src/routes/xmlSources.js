@@ -257,12 +257,28 @@ router.post('/:id/sync', async (req, res, next) => {
               rawXmlData: rawXmlData,
             }
           });
+          const priceChanged = Math.abs((existing.xmlPrice || 0) - xmlPrice) > 0.001;
+          const stockChanged = (existing.stock ?? 0) !== (p.stock ?? existing.stock);
+          if (priceChanged || stockChanged) {
+            await prisma.productLog.create({
+              data: {
+                productId: existing.id,
+                type: 'synced',
+                oldPrice: priceChanged ? existing.xmlPrice : null,
+                newPrice: priceChanged ? xmlPrice : null,
+                oldStock: stockChanged ? existing.stock : null,
+                newStock: stockChanged ? (p.stock ?? existing.stock) : null,
+                source: 'xml_sync',
+                notes: [priceChanged && 'fiyat güncellendi', stockChanged && 'stok güncellendi'].filter(Boolean).join(', ')
+              }
+            }).catch(() => {});
+          }
           updated++;
         } else {
           if (currentCount + created >= maxProducts) {
             skipped++;
           } else {
-            await prisma.product.create({
+            const created_product = await prisma.product.create({
               data: {
                 storeId: store.id,
                 xmlSourceId: xmlSource.id,
@@ -282,6 +298,16 @@ router.post('/:id/sync', async (req, res, next) => {
                 rawXmlData: rawXmlData,
               }
             });
+            await prisma.productLog.create({
+              data: {
+                productId: created_product.id,
+                type: 'created',
+                newPrice: xmlPrice,
+                newStock: p.stock || 0,
+                source: 'xml_sync',
+                notes: `XML'den eklendi: ${xmlSource.name}`
+              }
+            }).catch(() => {});
             created++;
           }
         }

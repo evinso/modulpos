@@ -497,4 +497,22 @@ router.post('/bulk-action', async (req, res, next) => {
   }
 });
 
+// GET /api/products/:id/logs — product update history
+router.get('/:id/logs', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const product = await prisma.product.findFirst({ where: { id: req.params.id, storeId: store.id } });
+    if (!product) return res.status(404).json({ error: 'Ürün bulunamadı' });
+    const logs = await prisma.productLog.findMany({
+      where: { productId: req.params.id },
+      orderBy: { createdAt: 'desc' },
+      take: 100
+    });
+    res.json(logs);
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

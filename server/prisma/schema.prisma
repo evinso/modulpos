@@ -152,6 +152,7 @@ model Product {
   marketplaceProducts MarketplaceProduct[]
   dropshipOrders      DropshipOrder[]
   buyboxRecords       BuyboxRecord[]
+  logs                ProductLog[]
 
   @@index([storeId])
   @@index([storeId, xmlSourceId])
@@ -159,6 +160,24 @@ model Product {
   @@index([xmlSourceId])
   @@index([barcode])
   @@index([sku])
+}
+
+model ProductLog {
+  id        String   @id @default(uuid())
+  productId String
+  type      String   // 'created', 'synced', 'manual'
+  oldPrice  Float?
+  newPrice  Float?
+  oldStock  Int?
+  newStock  Int?
+  notes     String?
+  source    String   @default("xml_sync")
+  createdAt DateTime @default(now())
+
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([productId, createdAt])
 }
 
 model ProductVariant {
