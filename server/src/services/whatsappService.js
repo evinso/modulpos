@@ -1,15 +1,22 @@
 const prisma = require('../config/database');
-const GreenApiService = require('./whatsapp/greenApiService');
+const EvolutionApiService = require('./whatsapp/evolutionApiService');
 
-// Cache settings 5 min to avoid DB hit on every notification
+// Cache settings 5 min
 let cachedSettings = null;
 let cacheExpiry = 0;
 
+const SETTINGS_KEYS = [
+  'whatsapp_enabled',
+  'whatsapp_evolution_url',
+  'whatsapp_evolution_key',
+  'whatsapp_evolution_instance',
+  'whatsapp_phone',
+  'whatsapp_events',
+];
+
 async function getSettings() {
   if (cachedSettings && Date.now() < cacheExpiry) return cachedSettings;
-  const rows = await prisma.systemSettings.findMany({
-    where: { key: { in: ['whatsapp_enabled', 'whatsapp_instance_id', 'whatsapp_api_token', 'whatsapp_phone', 'whatsapp_events'] } }
-  });
+  const rows = await prisma.systemSettings.findMany({ where: { key: { in: SETTINGS_KEYS } } });
   cachedSettings = Object.fromEntries(rows.map(r => [r.key, r.value]));
   cacheExpiry = Date.now() + 5 * 60 * 1000;
   return cachedSettings;
@@ -23,9 +30,10 @@ function invalidateCache() {
 async function sendWhatsApp(message) {
   try {
     const s = await getSettings();
-    if (s.whatsapp_enabled !== 'true' || !s.whatsapp_instance_id || !s.whatsapp_api_token || !s.whatsapp_phone) return;
-    const svc = new GreenApiService(s.whatsapp_instance_id, s.whatsapp_api_token);
-    await svc.sendMessage(s.whatsapp_phone, message);
+    if (s.whatsapp_enabled !== 'true') return;
+    if (!s.whatsapp_evolution_url || !s.whatsapp_evolution_key || !s.whatsapp_evolution_instance || !s.whatsapp_phone) return;
+    const svc = new EvolutionApiService(s.whatsapp_evolution_url, s.whatsapp_evolution_key);
+    await svc.sendText(s.whatsapp_evolution_instance, s.whatsapp_phone, message);
   } catch (err) {
     console.error('[WhatsApp] Send failed:', err.response?.data || err.message);
   }
@@ -35,9 +43,7 @@ async function isEventEnabled(eventKey) {
   const s = await getSettings();
   if (s.whatsapp_enabled !== 'true') return false;
   if (!s.whatsapp_events) return true;
-  try {
-    return JSON.parse(s.whatsapp_events).includes(eventKey);
-  } catch { return true; }
+  try { return JSON.parse(s.whatsapp_events).includes(eventKey); } catch { return true; }
 }
 
 async function notifyNewUser(user) {

@@ -53,11 +53,18 @@ export default function SuperAdminPage() {
   const [generalSettings, setGeneralSettings] = useState({ trial_days: '3', anthropic_api_key: '', credit_category_ai: '0.5' });
   const [whatsappSettings, setWhatsappSettings] = useState({
     whatsapp_enabled: 'false',
-    whatsapp_instance_id: '',
-    whatsapp_api_token: '',
+    whatsapp_evolution_url: '',
+    whatsapp_evolution_key: '',
+    whatsapp_evolution_instance: '',
     whatsapp_phone: '',
     whatsapp_events: '["new_user","subscription","subscription_expired","credit_topup","new_support_ticket","new_order"]',
   });
+  const [waInstances, setWaInstances] = useState([]);
+  const [waInstancesLoading, setWaInstancesLoading] = useState(false);
+  const [waNewName, setWaNewName] = useState('');
+  const [waCreating, setWaCreating] = useState(false);
+  const [waQr, setWaQr] = useState({}); // instanceName → base64
+  const [waQrLoading, setWaQrLoading] = useState({});
   const [whatsappTesting, setWhatsappTesting] = useState(false);
 
   const [dropshipOrders, setDropshipOrders] = useState([]);
@@ -166,7 +173,7 @@ export default function SuperAdminPage() {
         const res = await api.get(`/admin/support-tickets${params}`);
         setSupportTickets(res.data);
       } else if (activeTab === 'settings') {
-        const settingsRes = await api.get('/admin/system-settings?keys=trial_days,anthropic_api_key,credit_category_ai,whatsapp_enabled,whatsapp_instance_id,whatsapp_api_token,whatsapp_phone,whatsapp_events');
+        const settingsRes = await api.get('/admin/system-settings?keys=trial_days,anthropic_api_key,credit_category_ai,whatsapp_enabled,whatsapp_evolution_url,whatsapp_evolution_key,whatsapp_evolution_instance,whatsapp_phone,whatsapp_events');
         setGeneralSettings({
           trial_days: settingsRes.data.trial_days || '3',
           anthropic_api_key: settingsRes.data.anthropic_api_key || '',
@@ -174,8 +181,9 @@ export default function SuperAdminPage() {
         });
         setWhatsappSettings({
           whatsapp_enabled: settingsRes.data.whatsapp_enabled || 'false',
-          whatsapp_instance_id: settingsRes.data.whatsapp_instance_id || '',
-          whatsapp_api_token: settingsRes.data.whatsapp_api_token || '',
+          whatsapp_evolution_url: settingsRes.data.whatsapp_evolution_url || '',
+          whatsapp_evolution_key: settingsRes.data.whatsapp_evolution_key || '',
+          whatsapp_evolution_instance: settingsRes.data.whatsapp_evolution_instance || '',
           whatsapp_phone: settingsRes.data.whatsapp_phone || '',
           whatsapp_events: settingsRes.data.whatsapp_events || '["new_user","subscription","subscription_expired","credit_topup","new_support_ticket","new_order"]',
         });
@@ -239,6 +247,52 @@ export default function SuperAdminPage() {
       toast.error(err.response?.data?.error || 'Gönderilemedi');
     } finally {
       setWhatsappTesting(false);
+    }
+  };
+
+  const loadWaInstances = async () => {
+    setWaInstancesLoading(true);
+    try {
+      const res = await api.get('/admin/whatsapp-instances');
+      setWaInstances(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Instance listesi alınamadı');
+    } finally { setWaInstancesLoading(false); }
+  };
+
+  const createWaInstance = async () => {
+    if (!waNewName.trim()) return;
+    setWaCreating(true);
+    try {
+      await api.post('/admin/whatsapp-instances', { instanceName: waNewName.trim() });
+      toast.success('Instance oluşturuldu');
+      setWaNewName('');
+      loadWaInstances();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Oluşturulamadı');
+    } finally { setWaCreating(false); }
+  };
+
+  const fetchWaQr = async (name) => {
+    setWaQrLoading(p => ({ ...p, [name]: true }));
+    setWaQr(p => ({ ...p, [name]: null }));
+    try {
+      const res = await api.get(`/admin/whatsapp-instances/${name}/qr`);
+      // Evolution API returns { base64, code } or { qrcode: { base64 } }
+      const b64 = res.data?.base64 || res.data?.qrcode?.base64 || null;
+      setWaQr(p => ({ ...p, [name]: b64 }));
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'QR alınamadı');
+    } finally { setWaQrLoading(p => ({ ...p, [name]: false })); }
+  };
+
+  const deleteWaInstance = async (name) => {
+    try {
+      await api.delete(`/admin/whatsapp-instances/${name}`);
+      toast.success('Instance silindi');
+      loadWaInstances();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Silinemedi');
     }
   };
 
@@ -1503,67 +1557,60 @@ export default function SuperAdminPage() {
                 </form>
               </div>
 
-              {/* WhatsApp Bildirimleri (Green API) */}
-              <div className="card" style={{ padding: 24, maxWidth: 560 }}>
-                <h4 style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+              {/* WhatsApp Bildirimleri (Evolution API) */}
+              <div className="card" style={{ padding: 24, maxWidth: 620 }}>
+                <h4 style={{ marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Smartphone size={18} /> WhatsApp Bildirimleri
                 </h4>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 20 }}>Evolution API (self-hosted, ücretsiz)</p>
+
                 <form onSubmit={handleSaveWhatsappSettings} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* Toggle */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <label style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>Bildirimleri Etkinleştir</label>
-                    <button
-                      type="button"
+                    <button type="button"
                       onClick={() => setWhatsappSettings(s => ({ ...s, whatsapp_enabled: s.whatsapp_enabled === 'true' ? 'false' : 'true' }))}
-                      style={{
-                        width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', position: 'relative',
-                        background: whatsappSettings.whatsapp_enabled === 'true' ? 'var(--primary)' : 'var(--border)',
-                        transition: 'background 0.2s'
-                      }}
+                      style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', position: 'relative', background: whatsappSettings.whatsapp_enabled === 'true' ? 'var(--primary)' : 'var(--border)', transition: 'background 0.2s' }}
                     >
-                      <span style={{
-                        position: 'absolute', top: 3, left: whatsappSettings.whatsapp_enabled === 'true' ? 23 : 3,
-                        width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s'
-                      }} />
+                      <span style={{ position: 'absolute', top: 3, left: whatsappSettings.whatsapp_enabled === 'true' ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
                     </button>
                   </div>
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Green API — Instance ID</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="1101XXXXXXXX"
-                      value={whatsappSettings.whatsapp_instance_id}
-                      onChange={e => setWhatsappSettings(s => ({ ...s, whatsapp_instance_id: e.target.value }))}
+                    <label className="form-label">Evolution API — Sunucu URL</label>
+                    <input type="text" className="form-input" placeholder="https://evolution.sirketim.com"
+                      value={whatsappSettings.whatsapp_evolution_url}
+                      onChange={e => setWhatsappSettings(s => ({ ...s, whatsapp_evolution_url: e.target.value }))}
                     />
-                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
-                      green-api.com dashboard'unuzdan alın
-                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>Evolution API'nin çalıştığı adres</span>
                   </div>
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Green API — API Token</label>
-                    <input
-                      type="password"
-                      className="form-input"
-                      placeholder="d75b3a66374942c5b3c6..."
-                      value={whatsappSettings.whatsapp_api_token}
-                      onChange={e => setWhatsappSettings(s => ({ ...s, whatsapp_api_token: e.target.value }))}
+                    <label className="form-label">Evolution API — Global API Key</label>
+                    <input type="password" className="form-input" placeholder="••••••••••••"
+                      value={whatsappSettings.whatsapp_evolution_key}
+                      onChange={e => setWhatsappSettings(s => ({ ...s, whatsapp_evolution_key: e.target.value }))}
                     />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Aktif Instance Adı</label>
+                    <input type="text" className="form-input" placeholder="modulpos-notify"
+                      value={whatsappSettings.whatsapp_evolution_instance}
+                      onChange={e => setWhatsappSettings(s => ({ ...s, whatsapp_evolution_instance: e.target.value }))}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
+                      Aşağıdan oluşturup bağladığınız instance adını yazın
+                    </span>
                   </div>
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label className="form-label">Hedef Telefon Numarası</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="905XXXXXXXXX"
+                    <input type="text" className="form-input" placeholder="905XXXXXXXXX"
                       value={whatsappSettings.whatsapp_phone}
                       onChange={e => setWhatsappSettings(s => ({ ...s, whatsapp_phone: e.target.value }))}
                     />
-                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
-                      Bildirimlerin gönderileceği numara (ülke kodu dahil, başında + olmadan)
-                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>Ülke kodu dahil, başında + olmadan</span>
                   </div>
 
                   <div>
@@ -1578,15 +1625,9 @@ export default function SuperAdminPage() {
                     ].map(ev => {
                       let events = [];
                       try { events = JSON.parse(whatsappSettings.whatsapp_events || '[]'); } catch { events = []; }
-                      const checked = events.includes(ev.key);
                       return (
                         <label key={ev.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer', fontSize: 14 }}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleWhatsappEvent(ev.key)}
-                            style={{ width: 16, height: 16, cursor: 'pointer' }}
-                          />
+                          <input type="checkbox" checked={events.includes(ev.key)} onChange={() => toggleWhatsappEvent(ev.key)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
                           {ev.label}
                         </label>
                       );
@@ -1594,17 +1635,73 @@ export default function SuperAdminPage() {
                   </div>
 
                   <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={handleWhatsappTest}
-                      disabled={whatsappTesting || whatsappSettings.whatsapp_enabled !== 'true'}
-                    >
+                    <button type="button" className="btn btn-secondary" onClick={handleWhatsappTest} disabled={whatsappTesting || whatsappSettings.whatsapp_enabled !== 'true'}>
                       {whatsappTesting ? 'Gönderiliyor...' : 'Test Gönder'}
                     </button>
                     <button type="submit" className="btn btn-primary">Kaydet</button>
                   </div>
                 </form>
+              </div>
+
+              {/* Instance Yönetimi */}
+              <div className="card" style={{ padding: 24, maxWidth: 620 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <h4 style={{ margin: 0 }}>WhatsApp Instance Yönetimi</h4>
+                  <button className="btn btn-secondary btn-sm" onClick={loadWaInstances} disabled={waInstancesLoading}>
+                    <RefreshCcw size={13} className={waInstancesLoading ? 'spinning' : ''} /> Listele
+                  </button>
+                </div>
+
+                {/* Create */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                  <input className="form-input" placeholder="Instance adı (ör. modulpos-notify)" value={waNewName} onChange={e => setWaNewName(e.target.value)} style={{ flex: 1 }} />
+                  <button className="btn btn-primary btn-sm" onClick={createWaInstance} disabled={waCreating || !waNewName.trim()}>
+                    <Plus size={13} /> {waCreating ? 'Oluşturuluyor...' : 'Oluştur'}
+                  </button>
+                </div>
+
+                {/* Instance list */}
+                {waInstances.length === 0 ? (
+                  <p style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '12px 0' }}>
+                    Henüz instance yok — "Listele"ye basın veya yeni oluşturun
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {waInstances.map(inst => {
+                      const name = inst.instance?.instanceName || inst.instanceName || inst.name || '?';
+                      const state = inst.instance?.state || inst.state || '—';
+                      const isOpen = state === 'open';
+                      return (
+                        <div key={name} style={{ padding: '12px 14px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: waQr[name] ? 12 : 0 }}>
+                            <div style={{ flex: 1 }}>
+                              <span style={{ fontWeight: 600, fontSize: 14 }}>{name}</span>
+                              <span style={{ marginLeft: 10, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 5, background: isOpen ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)', color: isOpen ? 'var(--success)' : 'var(--danger)' }}>
+                                {isOpen ? 'Bağlı' : state}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              {!isOpen && (
+                                <button className="btn btn-secondary btn-sm" onClick={() => fetchWaQr(name)} disabled={waQrLoading[name]}>
+                                  {waQrLoading[name] ? '...' : 'QR'}
+                                </button>
+                              )}
+                              <button className="btn btn-danger btn-sm" onClick={() => deleteWaInstance(name)}>
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                          {waQr[name] && (
+                            <div style={{ textAlign: 'center' }}>
+                              <img src={`data:image/png;base64,${waQr[name]}`} alt="QR" style={{ width: 180, height: 180, borderRadius: 8, border: '1px solid var(--border-color)' }} />
+                              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>WhatsApp ile tarayın</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
             </div>
