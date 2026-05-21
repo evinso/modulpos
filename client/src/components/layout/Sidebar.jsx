@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, FolderTree, Send, ArrowLeftRight, Shield, Globe, Wallet, CreditCard, Activity, Truck, TrendingUp, ChevronDown, RefreshCw, BookOpen, MessageCircle } from 'lucide-react';
+import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, FolderTree, Send, ArrowLeftRight, Shield, Globe, Wallet, CreditCard, Activity, Truck, TrendingUp, ChevronDown, RefreshCw, BookOpen } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import api from '../../services/api';
 
@@ -206,9 +206,6 @@ export default function Sidebar({ isOpen }) {
             <Store size={18} className="icon" />
             <span>Hazır XML Market</span>
             <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, background: 'var(--accent-primary)', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>Yeni</span>
-          </NavLink>
-          <NavLink to="/whatsapp" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <MessageCircle size={18} className="icon" /><span>WhatsApp</span>
           </NavLink>
         </div>
 

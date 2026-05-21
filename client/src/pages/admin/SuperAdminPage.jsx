@@ -53,7 +53,8 @@ export default function SuperAdminPage() {
   const [generalSettings, setGeneralSettings] = useState({ trial_days: '3', anthropic_api_key: '', credit_category_ai: '0.5' });
   const [whatsappSettings, setWhatsappSettings] = useState({
     whatsapp_enabled: 'false',
-    whatsapp_token: '',
+    whatsapp_instance_id: '',
+    whatsapp_api_token: '',
     whatsapp_phone: '',
     whatsapp_events: '["new_user","subscription","subscription_expired","credit_topup","new_support_ticket","new_order"]',
   });
@@ -165,7 +166,7 @@ export default function SuperAdminPage() {
         const res = await api.get(`/admin/support-tickets${params}`);
         setSupportTickets(res.data);
       } else if (activeTab === 'settings') {
-        const settingsRes = await api.get('/admin/system-settings?keys=trial_days,anthropic_api_key,credit_category_ai,whatsapp_enabled,whatsapp_token,whatsapp_phone,whatsapp_events');
+        const settingsRes = await api.get('/admin/system-settings?keys=trial_days,anthropic_api_key,credit_category_ai,whatsapp_enabled,whatsapp_instance_id,whatsapp_api_token,whatsapp_phone,whatsapp_events');
         setGeneralSettings({
           trial_days: settingsRes.data.trial_days || '3',
           anthropic_api_key: settingsRes.data.anthropic_api_key || '',
@@ -173,7 +174,8 @@ export default function SuperAdminPage() {
         });
         setWhatsappSettings({
           whatsapp_enabled: settingsRes.data.whatsapp_enabled || 'false',
-          whatsapp_token: settingsRes.data.whatsapp_token || '',
+          whatsapp_instance_id: settingsRes.data.whatsapp_instance_id || '',
+          whatsapp_api_token: settingsRes.data.whatsapp_api_token || '',
           whatsapp_phone: settingsRes.data.whatsapp_phone || '',
           whatsapp_events: settingsRes.data.whatsapp_events || '["new_user","subscription","subscription_expired","credit_topup","new_support_ticket","new_order"]',
         });
@@ -1501,7 +1503,7 @@ export default function SuperAdminPage() {
                 </form>
               </div>
 
-              {/* WhatsApp Bildirimleri */}
+              {/* WhatsApp Bildirimleri (Green API) */}
               <div className="card" style={{ padding: 24, maxWidth: 560 }}>
                 <h4 style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Smartphone size={18} /> WhatsApp Bildirimleri
@@ -1526,17 +1528,28 @@ export default function SuperAdminPage() {
                   </div>
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Fonnte API Token</label>
+                    <label className="form-label">Green API — Instance ID</label>
                     <input
                       type="text"
                       className="form-input"
-                      placeholder="Fonnte hesabınızdan kopyalayın"
-                      value={whatsappSettings.whatsapp_token}
-                      onChange={e => setWhatsappSettings(s => ({ ...s, whatsapp_token: e.target.value }))}
+                      placeholder="1101XXXXXXXX"
+                      value={whatsappSettings.whatsapp_instance_id}
+                      onChange={e => setWhatsappSettings(s => ({ ...s, whatsapp_instance_id: e.target.value }))}
                     />
                     <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
-                      fonnte.com üzerinden alınan API token'ı
+                      green-api.com dashboard'unuzdan alın
                     </span>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Green API — API Token</label>
+                    <input
+                      type="password"
+                      className="form-input"
+                      placeholder="d75b3a66374942c5b3c6..."
+                      value={whatsappSettings.whatsapp_api_token}
+                      onChange={e => setWhatsappSettings(s => ({ ...s, whatsapp_api_token: e.target.value }))}
+                    />
                   </div>
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
@@ -1544,12 +1557,12 @@ export default function SuperAdminPage() {
                     <input
                       type="text"
                       className="form-input"
-                      placeholder="5XXXXXXXXX"
+                      placeholder="905XXXXXXXXX"
                       value={whatsappSettings.whatsapp_phone}
                       onChange={e => setWhatsappSettings(s => ({ ...s, whatsapp_phone: e.target.value }))}
                     />
                     <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
-                      Bildirimlerin gönderileceği WhatsApp numarası (başında 0 olmadan)
+                      Bildirimlerin gönderileceği numara (ülke kodu dahil, başında + olmadan)
                     </span>
                   </div>
 

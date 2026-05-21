@@ -654,7 +654,7 @@ router.post('/system-settings', auth, isAdmin, async (req, res) => {
     }
     
     // Invalidate WhatsApp settings cache if WhatsApp keys were changed
-    const whatsappKeys = ['whatsapp_enabled', 'whatsapp_token', 'whatsapp_phone', 'whatsapp_events'];
+    const whatsappKeys = ['whatsapp_enabled', 'whatsapp_instance_id', 'whatsapp_api_token', 'whatsapp_phone', 'whatsapp_events'];
     if (Object.keys(settings).some(k => whatsappKeys.includes(k))) {
       whatsappService.invalidateCache();
     }
