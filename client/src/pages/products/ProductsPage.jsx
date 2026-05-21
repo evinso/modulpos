@@ -876,7 +876,7 @@ export default function ProductsPage() {
                                 title={mp.errorMessage || 'Durum: ' + mp.status}
                                 style={mp.status === 'passive' ? { background: 'rgba(249,115,22,0.12)', color: '#f97316', borderColor: 'rgba(249,115,22,0.3)' } : undefined}
                               >
-                                {mp.connection.marketplaceType === 'trendyol' ? 'Trendyol' : mp.connection.marketplaceType}:{' '}
+                                {mp.connection?.marketplaceType === 'trendyol' ? 'Trendyol' : (mp.connection?.marketplaceType || 'Bilinmiyor')}:{' '}
                                 {mp.status === 'pending' ? 'Bekliyor' : mp.status === 'active' ? 'Aktif' : mp.status === 'rejected' ? 'Reddedildi' : mp.status === 'passive' ? 'Kaldırıldı' : mp.status}
                               </span>
                             ))}

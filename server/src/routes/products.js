@@ -462,9 +462,10 @@ router.post('/bulk-action', async (req, res, next) => {
           return res.status(400).json({ error: 'Seçilen ürünlerin hiçbiri bir pazaryerine gönderilmemiş' });
         }
         
-        // Bağlantılara göre grupla
+        // Bağlantılara göre grupla (null connectionId olan kayıtları atla)
         const grouped = {};
         for (const mp of marketplaceProducts) {
+          if (!mp.connectionId || !mp.connection) continue;
           if (!grouped[mp.connectionId]) grouped[mp.connectionId] = { connection: mp.connection, mps: [] };
           grouped[mp.connectionId].mps.push(mp);
         }
