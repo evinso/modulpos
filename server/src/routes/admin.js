@@ -654,7 +654,7 @@ router.post('/system-settings', auth, isAdmin, async (req, res) => {
     }
     
     // Invalidate WhatsApp settings cache if WhatsApp keys were changed
-    const whatsappKeys = ['whatsapp_enabled', 'whatsapp_evolution_url', 'whatsapp_evolution_key', 'whatsapp_evolution_instance', 'whatsapp_phone', 'whatsapp_events'];
+    const whatsappKeys = ['whatsapp_enabled', 'whatsapp_instance_id', 'whatsapp_api_token', 'whatsapp_phone', 'whatsapp_events'];
     if (Object.keys(settings).some(k => whatsappKeys.includes(k))) {
       whatsappService.invalidateCache();
     }
@@ -677,65 +677,6 @@ router.post('/whatsapp-test', auth, isAdmin, async (_req, res) => {
   }
 });
 
-// === Evolution API instance management ===
-const EvolutionApiService = require('../services/whatsapp/evolutionApiService');
-
-async function getEvolutionService() {
-  const rows = await prisma.systemSettings.findMany({
-    where: { key: { in: ['whatsapp_evolution_url', 'whatsapp_evolution_key'] } }
-  });
-  const s = Object.fromEntries(rows.map(r => [r.key, r.value]));
-  if (!s.whatsapp_evolution_url || !s.whatsapp_evolution_key) throw new Error('Evolution API URL ve Key ayarlanmamış');
-  return new EvolutionApiService(s.whatsapp_evolution_url, s.whatsapp_evolution_key);
-}
-
-router.get('/whatsapp-instances', auth, isAdmin, async (_req, res) => {
-  try {
-    const svc = await getEvolutionService();
-    const data = await svc.fetchInstances();
-    res.json(data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.post('/whatsapp-instances', auth, isAdmin, async (req, res) => {
-  try {
-    const svc = await getEvolutionService();
-    const data = await svc.createInstance(req.body.instanceName);
-    res.json(data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.get('/whatsapp-instances/:name/qr', auth, isAdmin, async (req, res) => {
-  try {
-    const svc = await getEvolutionService();
-    const data = await svc.getQR(req.params.name);
-    res.json(data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.get('/whatsapp-instances/:name/state', auth, isAdmin, async (req, res) => {
-  try {
-    const svc = await getEvolutionService();
-    const data = await svc.getState(req.params.name);
-    res.json(data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.delete('/whatsapp-instances/:name', auth, isAdmin, async (req, res) => {
-  try {
-    const svc = await getEvolutionService();
-    const data = await svc.deleteInstance(req.params.name);
-    res.json(data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.post('/whatsapp-instances/:name/logout', auth, isAdmin, async (req, res) => {
-  try {
-    const svc = await getEvolutionService();
-    const data = await svc.logoutInstance(req.params.name);
-    res.json(data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
 
 /**
  * GET /api/admin/invoices
