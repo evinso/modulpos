@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, ShoppingCart, Eye, Truck } from 'lucide-react';
+import { RefreshCw, ShoppingCart } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 

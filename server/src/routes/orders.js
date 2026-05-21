@@ -50,39 +50,45 @@ router.post('/sync', async (req, res, next) => {
         for (const pkg of packages) {
           const existing = await prisma.order.findFirst({ where: { marketplaceOrderId: String(pkg.orderNumber), storeId: store.id } });
           if (!existing) {
+            const customerName = pkg.customerFirstName
+              ? `${pkg.customerFirstName} ${pkg.customerLastName || ''}`.trim()
+              : `${pkg.shipmentAddress?.firstName || ''} ${pkg.shipmentAddress?.lastName || ''}`.trim();
+            const totalAmount = pkg.packageTotalPrice || 0;
+            const status = mapTrendyolStatus(pkg.shipmentPackageStatus || pkg.status);
+
             await prisma.order.create({
               data: {
                 storeId: store.id, connectionId: conn.id, marketplaceOrderId: String(pkg.orderNumber),
-                orderNumber: `TY-${pkg.orderNumber}`, status: mapTrendyolStatus(pkg.status),
-                totalAmount: pkg.totalPrice || 0, customerName: `${pkg.shipmentAddress?.firstName || ''} ${pkg.shipmentAddress?.lastName || ''}`.trim(),
+                orderNumber: `TY-${pkg.orderNumber}`, status,
+                totalAmount, customerName,
                 shippingAddress: JSON.stringify(pkg.shipmentAddress), items: JSON.stringify(pkg.lines),
-                cargoCompany: pkg.cargoProviderName, trackingNumber: pkg.cargoTrackingNumber,
+                cargoCompany: pkg.cargoProviderName,
+                trackingNumber: pkg.cargoTrackingNumber ? String(pkg.cargoTrackingNumber) : null,
                 orderDate: new Date(pkg.orderDate)
               }
             });
 
-            const customerName = `${pkg.shipmentAddress?.firstName || ''} ${pkg.shipmentAddress?.lastName || ''}`.trim();
             await notificationService.create({
               storeId: store.id,
               title: 'Yeni Sipariş',
-              message: `${pkg.orderNumber} nolu sipariş alındı. Tutar: ${(pkg.totalPrice || 0).toFixed(2)}₺`,
+              message: `${pkg.orderNumber} nolu sipariş alındı. Tutar: ${totalAmount.toFixed(2)}₺`,
               type: 'info',
               link: '/orders',
               data: {
                 notifType: 'new_order',
                 orderNumber: `TY-${pkg.orderNumber}`,
-                totalAmount: pkg.totalPrice || 0,
+                totalAmount,
                 customerName,
-                status: mapTrendyolStatus(pkg.status),
+                status,
                 items: (pkg.lines || []).slice(0, 20).map(l => ({
                   name: l.productName || l.productColor || '',
                   quantity: l.quantity,
-                  price: l.price || l.amount || 0
+                  price: l.lineUnitPrice || l.lineGrossAmount || 0
                 }))
               }
             });
 
-            whatsappService.notifyNewOrder(store.name, `TY-${pkg.orderNumber}`, pkg.totalPrice, customerName).catch(() => {});
+            whatsappService.notifyNewOrder(store.name, `TY-${pkg.orderNumber}`, totalAmount, customerName).catch(() => {});
             totalSynced++;
           }
         }
@@ -101,7 +107,17 @@ router.put('/:id/status', async (req, res, next) => {
 });
 
 function mapTrendyolStatus(status) {
-  const map = { 'Created': 'new', 'Picking': 'processing', 'Shipped': 'shipped', 'Delivered': 'delivered', 'Cancelled': 'cancelled', 'Returned': 'returned' };
+  const map = {
+    'Created': 'new',
+    'Picking': 'processing',
+    'Invoiced': 'processing',
+    'Shipped': 'shipped',
+    'Delivered': 'delivered',
+    'Cancelled': 'cancelled',
+    'Returned': 'returned',
+    'UnDelivered': 'returned',
+    'Repack': 'processing',
+  };
   return map[status] || 'new';
 }
 
