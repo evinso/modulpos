@@ -978,4 +978,115 @@ router.post('/notify', auth, isAdmin, async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+/**
+ * POST /api/admin/rebuild-marketplace-products
+ * One-time script: reconcile MarketplaceProduct DB state with Trendyol's actual product state.
+ * Use this when products were sent twice and all statuses reset to 'pending'.
+ */
+router.post('/rebuild-marketplace-products', auth, isAdmin, async (_req, res) => {
+  const TrendyolService = require('../services/trendyol/trendyolService');
+
+  try {
+    const connections = await prisma.marketplaceConnection.findMany({
+      where: { marketplaceType: 'trendyol', status: 'active' },
+      include: { store: { select: { id: true, name: true } } }
+    });
+
+    if (connections.length === 0) {
+      return res.json({ message: 'Aktif Trendyol bağlantısı bulunamadı', updated: 0, notFound: 0 });
+    }
+
+    let totalUpdated = 0;
+    let totalNotFound = 0;
+    const details = [];
+
+    for (const conn of connections) {
+      const service = new TrendyolService(conn);
+
+      // Fetch all pending MarketplaceProduct records for this connection
+      const pendingMPs = await prisma.marketplaceProduct.findMany({
+        where: { connectionId: conn.id, status: 'pending' },
+        include: { product: { select: { id: true, barcode: true, title: true } } }
+      });
+
+      if (pendingMPs.length === 0) {
+        details.push({ connectionId: conn.id, storeName: conn.store.name, updated: 0, notFound: 0 });
+        continue;
+      }
+
+      // Collect all barcodes to look up
+      const barcodes = pendingMPs.map(mp => mp.product.barcode).filter(Boolean);
+      const barcodeToMP = {};
+      for (const mp of pendingMPs) {
+        if (mp.product.barcode) barcodeToMP[mp.product.barcode] = mp;
+      }
+
+      // Fetch from Trendyol in batches of 100 barcodes
+      const BATCH = 100;
+      const trendyolProductMap = {}; // barcode -> trendyol product
+
+      for (let i = 0; i < barcodes.length; i += BATCH) {
+        const batch = barcodes.slice(i, i + BATCH);
+        try {
+          const data = await service.getProducts(0, BATCH, undefined, batch);
+          const items = (data.content || []);
+          for (const item of items) {
+            if (item.barcode) trendyolProductMap[item.barcode] = item;
+          }
+        } catch (e) {
+          // partial failure — continue with other batches
+        }
+      }
+
+      let updated = 0;
+      let notFound = 0;
+
+      for (const mp of pendingMPs) {
+        const barcode = mp.product.barcode;
+        const tyProduct = barcode ? trendyolProductMap[barcode] : null;
+
+        if (!tyProduct) {
+          notFound++;
+          continue;
+        }
+
+        // Map Trendyol product status to our status
+        let newStatus = 'pending';
+        if (tyProduct.approved === true && tyProduct.onSale === true) {
+          newStatus = 'active';
+        } else if (tyProduct.approved === true && tyProduct.onSale === false) {
+          newStatus = 'active'; // approved but not on sale — treat as active
+        } else if (tyProduct.approved === false && tyProduct.rejected === true) {
+          newStatus = 'rejected';
+        } else if (tyProduct.approved === false) {
+          newStatus = 'pending'; // still under review
+        }
+
+        await prisma.marketplaceProduct.update({
+          where: { id: mp.id },
+          data: {
+            status: newStatus,
+            trendyolProductId: tyProduct.id ? String(tyProduct.id) : mp.trendyolProductId,
+            lastSyncAt: new Date()
+          }
+        });
+        updated++;
+      }
+
+      totalUpdated += updated;
+      totalNotFound += notFound;
+      details.push({ connectionId: conn.id, storeName: conn.store.name, updated, notFound });
+    }
+
+    res.json({
+      message: `${totalUpdated} ürün güncellendi, ${totalNotFound} ürün Trendyol'da bulunamadı`,
+      totalUpdated,
+      totalNotFound,
+      details
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
