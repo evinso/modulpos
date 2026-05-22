@@ -527,24 +527,26 @@ router.post('/bulk-action', async (req, res, next) => {
                 };
               });
               
-              const syncRes = await service.updatePriceAndInventory(items);
-              
-              // Veritabanını güncelle
-              for (const item of items) {
-                // items array has final salePrice and barcode
-                const mp = mps.find(m => (m.product.barcode || m.product.sku) === item.barcode);
-                if (!mp) continue;
-                
-                await prisma.marketplaceProduct.update({
-                  where: { id: mp.id },
-                  data: {
-                    marketplacePrice: item.salePrice,
-                    marketplaceStock: item.quantity,
-                    batchRequestId: syncRes?.batchRequestId || mp.batchRequestId,
-                    lastSyncedAt: new Date()
-                  }
-                });
-                syncedCount++;
+              // Trendyol max 1000 items per request
+              const BATCH_SIZE = 1000;
+              for (let i = 0; i < items.length; i += BATCH_SIZE) {
+                const batch = items.slice(i, i + BATCH_SIZE);
+                const syncRes = await service.updatePriceAndInventory(batch);
+
+                for (const item of batch) {
+                  const mp = mps.find(m => (m.product.barcode || m.product.sku) === item.barcode);
+                  if (!mp) continue;
+                  await prisma.marketplaceProduct.update({
+                    where: { id: mp.id },
+                    data: {
+                      marketplacePrice: item.salePrice,
+                      marketplaceStock: item.quantity,
+                      batchRequestId: syncRes?.batchRequestId || mp.batchRequestId,
+                      lastSyncedAt: new Date()
+                    }
+                  });
+                  syncedCount++;
+                }
               }
             } catch (e) {
               errorMessages.push(`${connection.supplierName || connection.marketplaceType}: ${e.response?.data?.message || e.message}`);
