@@ -1089,4 +1089,81 @@ router.post('/rebuild-marketplace-products', auth, isAdmin, async (_req, res) =>
   }
 });
 
+/**
+ * GET /api/admin/export-data
+ * One-time: export all critical data as JSON for migration.
+ */
+router.get('/export-data', auth, isAdmin, async (_req, res) => {
+  try {
+    const [users, stores, connections, xmlSources, pricingRules, settings, subscriptions] = await Promise.all([
+      prisma.user.findMany({ include: { stores: false } }),
+      prisma.store.findMany(),
+      prisma.marketplaceConnection.findMany(),
+      prisma.xmlSource.findMany(),
+      prisma.pricingRule.findMany(),
+      prisma.setting.findMany(),
+      prisma.subscription.findMany(),
+    ]);
+    res.json({ users, stores, connections, xmlSources, pricingRules, settings, subscriptions });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/import-data
+ * One-time: import migrated JSON data into this server's DB.
+ */
+router.post('/import-data', auth, isAdmin, async (req, res) => {
+  const { users, stores, connections, xmlSources, pricingRules, settings, subscriptions } = req.body;
+  const results = {};
+  try {
+    if (users?.length) {
+      for (const u of users) {
+        await prisma.user.upsert({ where: { id: u.id }, create: u, update: u }).catch(() => {});
+      }
+      results.users = users.length;
+    }
+    if (stores?.length) {
+      for (const s of stores) {
+        await prisma.store.upsert({ where: { id: s.id }, create: s, update: s }).catch(() => {});
+      }
+      results.stores = stores.length;
+    }
+    if (connections?.length) {
+      for (const c of connections) {
+        await prisma.marketplaceConnection.upsert({ where: { id: c.id }, create: c, update: c }).catch(() => {});
+      }
+      results.connections = connections.length;
+    }
+    if (xmlSources?.length) {
+      for (const x of xmlSources) {
+        await prisma.xmlSource.upsert({ where: { id: x.id }, create: x, update: x }).catch(() => {});
+      }
+      results.xmlSources = xmlSources.length;
+    }
+    if (pricingRules?.length) {
+      for (const p of pricingRules) {
+        await prisma.pricingRule.upsert({ where: { id: p.id }, create: p, update: p }).catch(() => {});
+      }
+      results.pricingRules = pricingRules.length;
+    }
+    if (settings?.length) {
+      for (const s of settings) {
+        await prisma.setting.upsert({ where: { id: s.id }, create: s, update: s }).catch(() => {});
+      }
+      results.settings = settings.length;
+    }
+    if (subscriptions?.length) {
+      for (const s of subscriptions) {
+        await prisma.subscription.upsert({ where: { id: s.id }, create: s, update: s }).catch(() => {});
+      }
+      results.subscriptions = subscriptions.length;
+    }
+    res.json({ message: 'Import tamamlandı', results });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
