@@ -20,8 +20,9 @@ function MpBadge({ status }) {
   );
 }
 
-const TRENDYOL_ROUTES = ['/category-mapping', '/trendyol-send', '/buybox', '/questions'];
+const TRENDYOL_ROUTES    = ['/category-mapping', '/trendyol-send', '/buybox', '/questions'];
 const HEPSIBURADA_ROUTES = ['/hepsiburada-send', '/hepsiburada-mapping', '/hepsiburada-create', '/hepsiburada-buybox', '/hepsiburada-questions', '/hepsiburada-update'];
+const PAZARAMA_ROUTES    = ['/pazarama-send'];
 
 const trendyolItems = [
   { to: '/category-mapping', icon: FolderTree, label: 'Kategori Eşleştirme' },
@@ -39,15 +40,21 @@ const hepsiburadaItems = [
   { to: '/hepsiburada-update', icon: RefreshCw, label: 'Ürün Güncelle' },
 ];
 
+const pazaramaItems = [
+  { to: '/pazarama-send', icon: Send, label: 'Ürün Gönder / Güncelle' },
+];
+
 export default function Sidebar({ isOpen }) {
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
   const location = useLocation();
 
-  const isTrendyolActive = TRENDYOL_ROUTES.some(r => location.pathname.startsWith(r));
+  const isTrendyolActive    = TRENDYOL_ROUTES.some(r => location.pathname.startsWith(r));
   const isHepsiburadaActive = HEPSIBURADA_ROUTES.some(r => location.pathname.startsWith(r));
-  const [trendyolOpen, setTrendyolOpen] = useState(isTrendyolActive);
+  const isPazaramaActive    = PAZARAMA_ROUTES.some(r => location.pathname.startsWith(r));
+  const [trendyolOpen, setTrendyolOpen]       = useState(isTrendyolActive);
   const [hepsiburadaOpen, setHepsiburadaOpen] = useState(isHepsiburadaActive);
+  const [pazaramaOpen, setPazaramaOpen]       = useState(isPazaramaActive);
 
   const [mpStatuses, setMpStatuses] = useState({});
   useEffect(() => {
@@ -167,9 +174,43 @@ export default function Sidebar({ isOpen }) {
             </div>
           )}
 
+          {/* Pazarama collapsible */}
+          <button
+            onClick={() => setPazaramaOpen(o => !o)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+              padding: '8px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+              background: isPazaramaActive ? 'rgba(21,101,192,0.10)' : 'transparent',
+              color: isPazaramaActive ? '#1565c0' : 'var(--text-secondary)',
+              fontSize: 13, fontWeight: isPazaramaActive ? 600 : 400, marginTop: 2,
+            }}
+          >
+            <Store size={18} style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, textAlign: 'left' }}>Pazarama</span>
+            <MpBadge status={mpStatuses.pazarama} />
+            <ChevronDown size={14} style={{ transition: 'transform 0.2s', transform: pazaramaOpen ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }} />
+          </button>
+
+          {pazaramaOpen && (
+            <div style={{ marginLeft: 12, borderLeft: '2px solid var(--border-color)', paddingLeft: 8, marginBottom: 2 }}>
+              {pazaramaItems.map(item => {
+                const disabled = mpStatuses.pazarama === 'maintenance';
+                if (disabled) return (
+                  <div key={item.to} className="nav-item" style={{ fontSize: 13, opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' }}>
+                    <item.icon size={16} className="icon" /><span>{item.label}</span>
+                  </div>
+                );
+                return (
+                  <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} style={{ fontSize: 13 }}>
+                    <item.icon size={16} className="icon" /><span>{item.label}</span>
+                  </NavLink>
+                );
+              })}
+            </div>
+          )}
+
           {/* Diğer pazaryerleri */}
           {[
-            { label: 'Pazarama',    key: 'pazarama' },
             { label: 'Amazon',      key: 'amazon' },
             { label: 'N11',         key: 'n11' },
             { label: 'Çiçeksepeti', key: 'ciceksepeti' },

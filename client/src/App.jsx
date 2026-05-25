@@ -28,6 +28,7 @@ const HepsiburadaCreatePage  = lazy(() => import('./pages/marketplaces/Hepsibura
 const HepsiburadaBuyboxPage      = lazy(() => import('./pages/marketplaces/HepsiburadaBuyboxPage'));
 const HepsiburadaQuestionsPage   = lazy(() => import('./pages/marketplaces/HepsiburadaQuestionsPage'));
 const HepsiburadaUpdatePage      = lazy(() => import('./pages/marketplaces/HepsiburadaUpdatePage'));
+const PazaramaSendPage           = lazy(() => import('./pages/marketplaces/PazaramaSendPage'));
 const BuyboxPage          = lazy(() => import('./pages/marketplaces/BuyboxPage'));
 const QuestionsPage       = lazy(() => import('./pages/questions/QuestionsPage'));
 const QuestionsAdminPage  = lazy(() => import('./pages/questions/QuestionsAdminPage'));
@@ -92,6 +93,7 @@ function App() {
             <Route path="/hepsiburada-buybox"      element={<HepsiburadaBuyboxPage />} />
             <Route path="/hepsiburada-questions"  element={<HepsiburadaQuestionsPage />} />
             <Route path="/hepsiburada-update"     element={<HepsiburadaUpdatePage />} />
+            <Route path="/pazarama-send"          element={<PazaramaSendPage />} />
             <Route path="/buybox"           element={<BuyboxPage />} />
             <Route path="/questions"        element={<QuestionsPage />} />
             <Route path="/orders"           element={<OrdersPage />} />

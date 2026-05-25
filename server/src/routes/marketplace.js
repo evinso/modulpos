@@ -3,6 +3,7 @@ const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const TrendyolService = require('../services/trendyol/trendyolService');
 const HepsiburadaService = require('../services/hepsiburada/hepsiburadaService');
+const PazaramaService = require('../services/pazarama/pazaramaService');
 const notificationService = require('../services/notificationService');
 const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
 const { deductCredits, getSetting } = require('./credits');
@@ -139,6 +140,15 @@ router.post('/connections/:id/test', async (req, res, next) => {
       return res.json(result);
     }
 
+    if (connection.marketplaceType === 'pazarama') {
+      const service = new PazaramaService(connection);
+      const result = await service.testConnection();
+      if (result.success) {
+        await prisma.marketplaceConnection.update({ where: { id: connection.id }, data: { status: 'active', errorMessage: null } });
+      }
+      return res.json(result);
+    }
+
     res.json({ success: false, message: 'Bu pazaryeri henüz desteklenmiyor' });
   } catch (error) { next(error); }
 });
@@ -169,6 +179,11 @@ router.get('/connections/:id/categories', async (req, res, next) => {
       });
       const cats = data?.data || data?.categories || (Array.isArray(data) ? data : []);
       return res.json({ categories: cats, total: data?.totalCount || cats.length });
+    }
+    if (connection.marketplaceType === 'pazarama') {
+      const service = new PazaramaService(connection);
+      const data = await service.getCategoryTree();
+      return res.json(data);
     }
     res.json([]);
   } catch (error) {
@@ -2489,6 +2504,219 @@ router.get('/trendyol-api-logs', async (req, res, next) => {
     ]);
 
     res.json({ logs, total, page: parseInt(page), totalPages: Math.ceil(total / parseInt(limit)) });
+  } catch (error) { next(error); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAZARAMA ROUTES
+// ═══════════════════════════════════════════════════════════════════════════
+
+// GET /connections/:id/pazarama-products — list products on Pazarama
+router.get('/connections/:id/pazarama-products', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'pazarama') return res.status(400).json({ error: 'Pazarama bağlantısı bulunamadı' });
+    const { page = 1, size = 50, approved = 'true' } = req.query;
+    const service = new PazaramaService(connection);
+    const data = await service.getProducts({ page: parseInt(page), size: parseInt(size), approved: approved === 'true' });
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+// GET /connections/:id/pazarama-categories — category tree with attributes
+router.get('/connections/:id/pazarama-categories', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'pazarama') return res.status(400).json({ error: 'Pazarama bağlantısı bulunamadı' });
+    const service = new PazaramaService(connection);
+    const data = await service.getCategoryTree();
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+// GET /connections/:id/pazarama-category-attributes/:categoryId
+router.get('/connections/:id/pazarama-category-attributes/:categoryId', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'pazarama') return res.status(400).json({ error: 'Pazarama bağlantısı bulunamadı' });
+    const service = new PazaramaService(connection);
+    const data = await service.getCategoryAttributes(req.params.categoryId);
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+// GET /connections/:id/pazarama-batch/:batchId — poll batch result
+router.get('/connections/:id/pazarama-batch/:batchId', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'pazarama') return res.status(400).json({ error: 'Pazarama bağlantısı bulunamadı' });
+    const service = new PazaramaService(connection);
+    const data = await service.getBatchResult(req.params.batchId);
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+// POST /connections/:id/pazarama-send — send (create) products on Pazarama
+router.post('/connections/:id/pazarama-send', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'pazarama') return res.status(400).json({ error: 'Pazarama bağlantısı bulunamadı' });
+
+    const { productIds, minStock = 0, pricingRuleId } = req.body;
+    if (!productIds?.length) return res.status(400).json({ error: 'Ürün seçilmedi' });
+
+    // Load products with variants
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      include: { variants: true },
+    });
+
+    // Load pricing rule
+    let rule = null;
+    if (pricingRuleId) {
+      rule = await prisma.pricingRule.findUnique({ where: { id: pricingRuleId } });
+    }
+
+    const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
+
+    const pazaramaProducts = [];
+    for (const p of products) {
+      if (p.stock !== null && p.stock < minStock) continue;
+
+      const rawPrice = parseFloat(p.price || 0);
+      let salePrice = rawPrice;
+      if (rule) {
+        const matched = matchPriceRangeRule(rule, rawPrice);
+        if (matched) salePrice = calcPriceRangePrice(rawPrice, matched);
+      }
+      const listPrice = parseFloat((salePrice * 1.2).toFixed(2));
+
+      pazaramaProducts.push({
+        Name: p.name || p.title,
+        DisplayName: p.name || p.title,
+        Description: p.description || p.name || '',
+        Code: p.barcode || p.sku || p.id,
+        GroupCode: p.barcode || p.sku || p.id,
+        StockCount: p.stock ?? 0,
+        VatRate: 18,
+        ListPrice: listPrice,
+        SalePrice: salePrice,
+        images: p.imageUrl ? [{ imageurl: p.imageUrl }] : [],
+        attributes: [],
+      });
+    }
+
+    if (!pazaramaProducts.length) return res.status(400).json({ error: 'Gönderilecek ürün bulunamadı (stok filtresi uygulandı)' });
+
+    const service = new PazaramaService(connection);
+    const result = await service.createProducts(pazaramaProducts);
+    const batchId = result?.batchRequestId || result?.BatchRequestId || null;
+
+    // Save marketplace products
+    for (const pz of pazaramaProducts) {
+      const prod = products.find(p => (p.barcode || p.sku || p.id) === pz.Code);
+      if (!prod) continue;
+      await prisma.marketplaceProduct.upsert({
+        where: { productId_connectionId: { productId: prod.id, connectionId: connection.id } },
+        create: {
+          productId: prod.id,
+          connectionId: connection.id,
+          marketplacePrice: pz.SalePrice,
+          marketplaceStock: pz.StockCount,
+          batchRequestId: batchId,
+          status: 'pending',
+          lastSyncedAt: new Date(),
+        },
+        update: {
+          marketplacePrice: pz.SalePrice,
+          marketplaceStock: pz.StockCount,
+          batchRequestId: batchId,
+          status: 'pending',
+          lastSyncedAt: new Date(),
+        },
+      });
+    }
+
+    await prisma.marketplaceConnection.update({ where: { id: connection.id }, data: { lastSyncedAt: new Date() } });
+
+    res.json({ success: true, sent: pazaramaProducts.length, batchRequestId: batchId, result });
+  } catch (error) { next(error); }
+});
+
+// POST /connections/:id/pazarama-sync — update price & stock for existing MP products
+router.post('/connections/:id/pazarama-sync', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'pazarama') return res.status(400).json({ error: 'Pazarama bağlantısı bulunamadı' });
+
+    const { productIds, pricingRuleId } = req.body;
+
+    const where = { connectionId: connection.id };
+    if (productIds?.length) where.productId = { in: productIds };
+
+    const mps = await prisma.marketplaceProduct.findMany({
+      where,
+      include: { product: true },
+    });
+
+    if (!mps.length) return res.status(400).json({ error: 'Güncellenecek ürün bulunamadı' });
+
+    let rule = null;
+    if (pricingRuleId) rule = await prisma.pricingRule.findUnique({ where: { id: pricingRuleId } });
+
+    const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
+
+    const priceItems = [];
+    const stockItems = [];
+
+    for (const mp of mps) {
+      const p = mp.product;
+      const code = p.barcode || p.sku || p.id;
+      const rawPrice = parseFloat(p.price || 0);
+      let salePrice = rawPrice;
+      if (rule) {
+        const matched = matchPriceRangeRule(rule, rawPrice);
+        if (matched) salePrice = calcPriceRangePrice(rawPrice, matched);
+      }
+      priceItems.push({ code, listPrice: parseFloat((salePrice * 1.2).toFixed(2)), salePrice });
+      stockItems.push({ code, stockCount: p.stock ?? 0 });
+    }
+
+    const service = new PazaramaService(connection);
+    const [priceRes, stockRes] = await Promise.all([
+      service.updatePrice(priceItems),
+      service.updateStock(stockItems),
+    ]);
+
+    for (const mp of mps) {
+      const p = mp.product;
+      const rawPrice = parseFloat(p.price || 0);
+      let salePrice = rawPrice;
+      if (rule) {
+        const matched = matchPriceRangeRule(rule, rawPrice);
+        if (matched) salePrice = calcPriceRangePrice(rawPrice, matched);
+      }
+      await prisma.marketplaceProduct.update({
+        where: { id: mp.id },
+        data: { marketplacePrice: salePrice, marketplaceStock: p.stock ?? 0, lastSyncedAt: new Date() },
+      });
+    }
+
+    await prisma.marketplaceConnection.update({ where: { id: connection.id }, data: { lastSyncedAt: new Date() } });
+
+    res.json({ success: true, updated: mps.length, priceResult: priceRes, stockResult: stockRes });
+  } catch (error) { next(error); }
+});
+
+// GET /connections/:id/pazarama-orders — fetch orders
+router.get('/connections/:id/pazarama-orders', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'pazarama') return res.status(400).json({ error: 'Pazarama bağlantısı bulunamadı' });
+    const { startDate, endDate, page = 1, size = 50 } = req.query;
+    const service = new PazaramaService(connection);
+    const data = await service.getOrders({ startDate, endDate, page: parseInt(page), size: parseInt(size) });
+    res.json(data);
   } catch (error) { next(error); }
 });
 

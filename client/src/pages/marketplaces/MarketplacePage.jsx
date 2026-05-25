@@ -265,16 +265,18 @@ export default function MarketplacePage() {
                     {marketplaceOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
                 </div>
+                {form.marketplaceType !== 'pazarama' && (
+                  <div className="form-group">
+                    <label className="form-label">{form.marketplaceType === 'hepsiburada' ? 'Merchant ID *' : 'Satıcı ID (Seller ID) *'}</label>
+                    <input className="form-input" value={form.sellerId} onChange={e => setForm({...form, sellerId: e.target.value})} required />
+                  </div>
+                )}
                 <div className="form-group">
-                  <label className="form-label">{form.marketplaceType === 'hepsiburada' ? 'Merchant ID *' : 'Satıcı ID (Seller ID) *'}</label>
-                  <input className="form-input" value={form.sellerId} onChange={e => setForm({...form, sellerId: e.target.value})} required />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">{form.marketplaceType === 'hepsiburada' ? 'Kullanıcı Adı *' : 'API Key *'}</label>
+                  <label className="form-label">{form.marketplaceType === 'hepsiburada' ? 'Kullanıcı Adı *' : form.marketplaceType === 'pazarama' ? 'Client ID *' : 'API Key *'}</label>
                   <input className="form-input" value={form.apiKey} onChange={e => setForm({...form, apiKey: e.target.value})} required />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">{form.marketplaceType === 'hepsiburada' ? 'Şifre *' : 'API Secret *'}</label>
+                  <label className="form-label">{form.marketplaceType === 'hepsiburada' ? 'Şifre *' : form.marketplaceType === 'pazarama' ? 'Client Secret *' : 'API Secret *'}</label>
                   <input type="password" className="form-input" value={form.apiSecret} onChange={e => setForm({...form, apiSecret: e.target.value})} required />
                 </div>
                 <div className="form-group"><label className="form-label">Tedarikçi Adı</label><input className="form-input" value={form.supplierName} onChange={e => setForm({...form, supplierName: e.target.value})} /></div>
