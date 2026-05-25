@@ -38,6 +38,7 @@ model UserSession {
   userId      String
   ip          String?
   userAgent   String?
+  deviceId    String?
   loginAt     DateTime  @default(now())
   lastSeenAt  DateTime  @default(now())
   isActive    Boolean   @default(true)

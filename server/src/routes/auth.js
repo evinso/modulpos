@@ -7,6 +7,20 @@ const whatsappService = require('../services/whatsappService');
 
 const router = express.Router();
 
+// OTP store: tempToken → { otp, userId, deviceId, expiresAt }
+const otpStore = new Map();
+
+function generateOtp() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function cleanExpiredOtps() {
+  const now = Date.now();
+  for (const [key, val] of otpStore) {
+    if (val.expiresAt < now) otpStore.delete(key);
+  }
+}
+
 // Register
 router.post('/register', async (req, res, next) => {
   try {
@@ -74,7 +88,7 @@ router.post('/register', async (req, res, next) => {
 // Login
 router.post('/login', async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, deviceId } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email ve şifre zorunludur' });
@@ -108,11 +122,9 @@ router.post('/login', async (req, res, next) => {
         isExpired = true;
       }
     } else {
-      // Hiç aboneliği yoksa süresi bitmiş say
       isExpired = true;
     }
 
-    // Sadece normal müşterileri (owner, operator vb.) devre dışı bırak (adminler hariç)
     if (isExpired && user.role !== 'admin' && user.role !== 'superadmin') {
       if (user.isActive) {
         await prisma.user.update({ where: { id: user.id }, data: { isActive: false } });
@@ -125,11 +137,30 @@ router.post('/login', async (req, res, next) => {
       return res.status(403).json({ error: 'Abonelik süreniz dolduğu için hesabınız devre dışı bırakılmıştır. Lütfen yönetici ile iletişime geçin.' });
     }
 
-    // Create session record
+    // OTP check: if user has phone and deviceId is not recognized → send OTP
+    const knownDevice = deviceId
+      ? await prisma.userSession.findFirst({ where: { userId: user.id, deviceId, isActive: true } })
+      : null;
+
+    if (user.phone && !knownDevice) {
+      cleanExpiredOtps();
+      const otp = generateOtp();
+      const tempToken = jwt.sign({ otpUserId: user.id, deviceId }, process.env.JWT_SECRET, { expiresIn: '10m' });
+      otpStore.set(tempToken, { otp, userId: user.id, deviceId, expiresAt: Date.now() + 10 * 60 * 1000 });
+
+      await whatsappService.sendWhatsAppTo(
+        user.phone,
+        `🔐 *ModulPOS Giriş Doğrulaması*\n\nDoğrulama kodunuz: *${otp}*\n\nBu kod 10 dakika geçerlidir.\nEğer giriş yapmaya çalışmıyorsanız bu mesajı dikkate almayın.`
+      ).catch(() => {});
+
+      return res.json({ requires_otp: true, tempToken, phone: user.phone.replace(/\d(?=\d{2})/g, '*') });
+    }
+
+    // Complete login
     const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.ip || req.socket?.remoteAddress || 'unknown').trim();
     const userAgent = req.headers['user-agent'] || 'unknown';
     const session = await prisma.userSession.create({
-      data: { userId: user.id, ip, userAgent }
+      data: { userId: user.id, ip, userAgent, deviceId: deviceId || null }
     }).catch(() => null);
 
     const token = jwt.sign(
@@ -140,7 +171,6 @@ router.post('/login', async (req, res, next) => {
 
     const { passwordHash: _, ...userWithoutPassword } = user;
 
-    // Log the login with IP
     await prisma.auditLog.create({
       data: {
         userId: user.id,
@@ -150,11 +180,62 @@ router.post('/login', async (req, res, next) => {
       }
     }).catch(() => {});
 
-    res.json({
-      message: 'Giriş başarılı',
-      user: userWithoutPassword,
-      token
+    res.json({ message: 'Giriş başarılı', user: userWithoutPassword, token });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Verify OTP
+router.post('/verify-otp', async (req, res, next) => {
+  try {
+    const { tempToken, otp } = req.body;
+    if (!tempToken || !otp) return res.status(400).json({ error: 'Eksik bilgi' });
+
+    let payload;
+    try {
+      payload = jwt.verify(tempToken, process.env.JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'Doğrulama süresi doldu, tekrar giriş yapın' });
+    }
+
+    if (!payload.otpUserId) return res.status(401).json({ error: 'Geçersiz token' });
+
+    const stored = otpStore.get(tempToken);
+    if (!stored || stored.expiresAt < Date.now()) {
+      otpStore.delete(tempToken);
+      return res.status(401).json({ error: 'Kod süresi doldu, tekrar giriş yapın' });
+    }
+
+    if (stored.otp !== otp.trim()) {
+      return res.status(401).json({ error: 'Doğrulama kodu hatalı' });
+    }
+
+    otpStore.delete(tempToken);
+
+    const user = await prisma.user.findUnique({
+      where: { id: stored.userId },
+      include: {
+        stores: true,
+        subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 }
+      }
     });
+    if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+
+    const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.ip || req.socket?.remoteAddress || 'unknown').trim();
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const session = await prisma.userSession.create({
+      data: { userId: user.id, ip, userAgent, deviceId: stored.deviceId || null }
+    }).catch(() => null);
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role, sessionId: session?.id },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    );
+
+    const { passwordHash: _, ...userWithoutPassword } = user;
+    res.json({ message: 'Giriş başarılı', user: userWithoutPassword, token });
   } catch (error) {
     next(error);
   }
