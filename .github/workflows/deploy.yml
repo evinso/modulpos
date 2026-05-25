@@ -1,0 +1,25 @@
+name: Deploy to Oracle Server
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /home/ubuntu/modulpos
+            git pull origin main
+            npm install --prefix server
+            npm install --prefix client
+            npm run build --prefix client
+            pm2 restart all
