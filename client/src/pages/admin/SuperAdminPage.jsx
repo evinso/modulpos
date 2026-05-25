@@ -64,6 +64,10 @@ export default function SuperAdminPage() {
   const [broadcastRecipients, setBroadcastRecipients] = useState(null);
   const [broadcastConfirm, setBroadcastConfirm] = useState(false);
 
+  const [serverStats, setServerStats] = useState(null);
+  const [serverStatsLoading, setServerStatsLoading] = useState(false);
+  const [serverStatsError, setServerStatsError] = useState(null);
+
   const [dropshipOrders, setDropshipOrders] = useState([]);
   const [dropshipStatusFilter, setDropshipStatusFilter] = useState('');
   const [dropshipEditModal, setDropshipEditModal] = useState(null);
@@ -188,12 +192,27 @@ export default function SuperAdminPage() {
       } else if (activeTab === 'marketplace') {
         const res = await api.get('/marketplace/statuses');
         setMpStatuses(res.data);
+      } else if (activeTab === 'server') {
+        fetchServerStats();
       }
     } catch (error) {
       console.error('Admin verileri yüklenemedi:', error);
       toast.error('Veriler yüklenirken hata oluştu');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchServerStats = async () => {
+    setServerStatsLoading(true);
+    setServerStatsError(null);
+    try {
+      const res = await api.get('/admin/server-stats');
+      setServerStats(res.data);
+    } catch (err) {
+      setServerStatsError(err.response?.data?.error || 'Yüklenemedi');
+    } finally {
+      setServerStatsLoading(false);
     }
   };
 
@@ -851,6 +870,9 @@ export default function SuperAdminPage() {
         <button className={`admin-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
           <Sliders size={16} /> Genel Ayarlar
         </button>
+        <button className={`admin-tab ${activeTab === 'server' ? 'active' : ''}`} onClick={() => setActiveTab('server')}>
+          <Monitor size={16} /> Sunucu
+        </button>
       </div>
 
       <div className="admin-content" style={{ overflowX: 'auto' }}>
@@ -864,7 +886,8 @@ export default function SuperAdminPage() {
                activeTab === 'footer' ? 'Footer Yönetimi' :
                activeTab === 'dropship' ? 'Tedarikçi Siparişleri' :
                activeTab === 'support' ? 'Destek Biletleri' :
-               activeTab === 'marketplace' ? 'Pazaryeri Durum Yönetimi' : 'Genel Ayarlar'}
+               activeTab === 'marketplace' ? 'Pazaryeri Durum Yönetimi' :
+               activeTab === 'server' ? 'Sunucu İstatistikleri' : 'Genel Ayarlar'}
             </h3>
             {activeTab === 'users' && (
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -1822,6 +1845,136 @@ export default function SuperAdminPage() {
                   )}
                 </tbody>
               </table>
+            );
+          })() : activeTab === 'server' ? (() => {
+            const fmt = (bytes) => {
+              if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GB';
+              if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+              return (bytes / 1024).toFixed(1) + ' KB';
+            };
+            const fmtUptime = (secs) => {
+              const d = Math.floor(secs / 86400);
+              const h = Math.floor((secs % 86400) / 3600);
+              const m = Math.floor((secs % 3600) / 60);
+              return d > 0 ? `${d}g ${h}s ${m}d` : h > 0 ? `${h}s ${m}d` : `${m}d`;
+            };
+            const pct = (used, total) => total > 0 ? Math.round((used / total) * 100) : 0;
+            const barColor = (p) => p > 85 ? 'var(--danger)' : p > 65 ? 'var(--warning)' : 'var(--success)';
+            const Bar = ({ used, total }) => {
+              const p = pct(used, total);
+              return (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                    <span>{fmt(used)} kullanılıyor</span><span>%{p}</span>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 3, background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${p}%`, borderRadius: 3, background: barColor(p), transition: 'width 0.5s' }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Toplam: {fmt(total)}</div>
+                </div>
+              );
+            };
+
+            if (serverStatsLoading) return <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)' }}>Yükleniyor...</div>;
+            if (serverStatsError) return <div style={{ padding: 48, textAlign: 'center', color: 'var(--danger)' }}>{serverStatsError}</div>;
+            if (!serverStats) return null;
+
+            const { system, process: proc, database, app } = serverStats;
+            const ramPct = pct(system.usedMem, system.totalMem);
+            const diskPct = system.disk ? pct(system.disk.used, system.disk.total) : 0;
+            const heapPct = pct(proc.memory.heapUsed, proc.memory.heapTotal);
+
+            return (
+              <div style={{ padding: '8px 0' }}>
+
+                {/* Refresh */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+                  <button className="btn btn-secondary" onClick={fetchServerStats} disabled={serverStatsLoading} style={{ fontSize: 13 }}>
+                    <RefreshCcw size={14} /> Yenile
+                  </button>
+                </div>
+
+                {/* App Stats */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12, marginBottom: 20 }}>
+                  {[
+                    { label: 'Toplam Üye', value: app.users, sub: `${app.activeUsers} aktif` },
+                    { label: 'Mağaza', value: app.stores },
+                    { label: 'Ürün', value: app.products.toLocaleString() },
+                    { label: 'Pazar Ürünü', value: app.mpProducts.toLocaleString() },
+                    { label: 'Sipariş', value: app.orders.toLocaleString() },
+                    { label: 'XML Kaynak', value: app.xmlSources },
+                    { label: 'API İstek (bugün)', value: app.auditToday.toLocaleString() },
+                  ].map(({ label, value, sub }) => (
+                    <div key={label} className="card" style={{ padding: '14px 16px' }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>{label}</div>
+                      <div style={{ fontSize: 22, fontWeight: 700 }}>{value}</div>
+                      {sub && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{sub}</div>}
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16, marginBottom: 16 }}>
+
+                  {/* Sistem */}
+                  <div className="card" style={{ padding: 20 }}>
+                    <h4 style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><Monitor size={16} /> Sistem</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Platform</span><span>{system.platform} / {system.arch}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Hostname</span><span style={{ fontFamily: 'monospace', fontSize: 12 }}>{system.hostname}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Uptime</span><span>{fmtUptime(system.uptime)}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>CPU</span><span>{system.cpuCount} çekirdek</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Load Avg</span><span>{system.loadAvg.map(l => l.toFixed(2)).join(' / ')}</span></div>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>RAM</span><span style={{ color: barColor(ramPct) }}>%{ramPct}</span></div>
+                        <Bar used={system.usedMem} total={system.totalMem} />
+                      </div>
+                      {system.disk && (
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Disk</span><span style={{ color: barColor(diskPct) }}>%{diskPct}</span></div>
+                          <Bar used={system.disk.used} total={system.disk.total} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Node.js Process */}
+                  <div className="card" style={{ padding: 20 }}>
+                    <h4 style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><Activity size={16} /> Node.js Süreci</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Versiyon</span><span>{proc.nodeVersion}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>PID</span><span>{proc.pid}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Uptime</span><span>{fmtUptime(proc.uptime)}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>RSS</span><span>{fmt(proc.memory.rss)}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>External</span><span>{fmt(proc.memory.external)}</span></div>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Heap</span><span style={{ color: barColor(heapPct) }}>%{heapPct}</span></div>
+                        <Bar used={proc.memory.heapUsed} total={proc.memory.heapTotal} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Veritabanı */}
+                  <div className="card" style={{ padding: 20 }}>
+                    <h4 style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><Globe size={16} /> Veritabanı (PostgreSQL)</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>DB Boyutu</span><span style={{ fontWeight: 600 }}>{fmt(database.sizeBytes)}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Aktif Bağlantı</span><span>{database.connections}</span></div>
+                    </div>
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Tablo Boyutları</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto' }}>
+                        {database.tables.map(t => (
+                          <div key={t.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0', borderBottom: '1px solid var(--border-color)' }}>
+                            <span style={{ fontFamily: 'monospace', color: 'var(--text-secondary)' }}>{t.name}</span>
+                            <span style={{ color: 'var(--text-muted)' }}>{t.size}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
             );
           })() : null}
         </div>

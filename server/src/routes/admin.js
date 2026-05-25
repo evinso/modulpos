@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const os = require('os');
+const { exec } = require('child_process');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const notificationService = require('../services/notificationService');
@@ -672,6 +674,90 @@ router.post('/whatsapp-test', auth, isAdmin, async (_req, res) => {
   try {
     await whatsappService.sendWhatsApp('✅ *ModulPOS Test Mesajı*\n\nWhatsApp bildirimleri başarıyla çalışıyor!');
     res.json({ message: 'Test mesajı gönderildi' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/server-stats
+ */
+router.get('/server-stats', auth, isAdmin, async (_req, res) => {
+  try {
+    const cpus = os.cpus();
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+
+    // Disk usage via df
+    const diskInfo = await new Promise((resolve) => {
+      exec("df -k / | tail -1 | awk '{print $2,$3,$4}'", (err, stdout) => {
+        if (err) return resolve(null);
+        const [total, used, free] = stdout.trim().split(' ').map(Number);
+        resolve({ total: total * 1024, used: used * 1024, free: free * 1024 });
+      });
+    });
+
+    // DB stats
+    const [dbSizeRes, tableSizes, connectionsRes] = await Promise.all([
+      prisma.$queryRaw`SELECT pg_database_size(current_database()) as bytes`,
+      prisma.$queryRaw`
+        SELECT tablename,
+          pg_total_relation_size(schemaname||'.'||tablename) as bytes,
+          pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
+        FROM pg_tables WHERE schemaname = 'public'
+        ORDER BY bytes DESC LIMIT 12`,
+      prisma.$queryRaw`SELECT count(*)::int as count FROM pg_stat_activity WHERE datname = current_database()`,
+    ]);
+
+    // App stats
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const [userCount, activeUserCount, storeCount, productCount, mpProductCount, orderCount, auditToday, xmlCount] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { isActive: true } }),
+      prisma.store.count(),
+      prisma.product.count(),
+      prisma.marketplaceProduct.count(),
+      prisma.order.count(),
+      prisma.auditLog.count({ where: { createdAt: { gte: today } } }),
+      prisma.xmlSource.count(),
+    ]);
+
+    res.json({
+      system: {
+        platform: os.platform(),
+        arch: os.arch(),
+        hostname: os.hostname(),
+        uptime: os.uptime(),
+        loadAvg: os.loadavg(),
+        cpuCount: cpus.length,
+        cpuModel: cpus[0]?.model?.trim(),
+        totalMem,
+        freeMem,
+        usedMem: totalMem - freeMem,
+        disk: diskInfo,
+      },
+      process: {
+        nodeVersion: process.version,
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        pid: process.pid,
+      },
+      database: {
+        sizeBytes: Number(dbSizeRes[0]?.bytes || 0),
+        tables: tableSizes.map(t => ({ name: t.tablename, size: t.size, bytes: Number(t.bytes) })),
+        connections: connectionsRes[0]?.count || 0,
+      },
+      app: {
+        users: userCount,
+        activeUsers: activeUserCount,
+        stores: storeCount,
+        products: productCount,
+        mpProducts: mpProductCount,
+        orders: orderCount,
+        xmlSources: xmlCount,
+        auditToday,
+      },
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
