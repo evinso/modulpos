@@ -1,5 +1,5 @@
+const axios = require('axios');
 const prisma = require('../config/database');
-const GreenApiService = require('./whatsapp/greenApiService');
 
 // Cache settings 5 min
 let cachedSettings = null;
@@ -7,8 +7,7 @@ let cacheExpiry = 0;
 
 const SETTINGS_KEYS = [
   'whatsapp_enabled',
-  'whatsapp_instance_id',
-  'whatsapp_api_token',
+  'whatsapp_token',
   'whatsapp_phone',
   'whatsapp_events',
 ];
@@ -29,9 +28,14 @@ function invalidateCache() {
 async function sendWhatsApp(message) {
   try {
     const s = await getSettings();
-    if (s.whatsapp_enabled !== 'true' || !s.whatsapp_instance_id || !s.whatsapp_api_token || !s.whatsapp_phone) return;
-    const svc = new GreenApiService(s.whatsapp_instance_id, s.whatsapp_api_token);
-    await svc.sendMessage(s.whatsapp_phone, message);
+    if (s.whatsapp_enabled !== 'true' || !s.whatsapp_token || !s.whatsapp_phone) return;
+    await axios.post('https://api.fonnte.com/send', {
+      target: s.whatsapp_phone,
+      message,
+      countryCode: '62',
+    }, {
+      headers: { Authorization: s.whatsapp_token },
+    });
   } catch (err) {
     console.error('[WhatsApp] Send failed:', err.response?.data || err.message);
   }
