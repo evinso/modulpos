@@ -702,8 +702,8 @@ router.get('/server-stats', auth, isAdmin, async (_req, res) => {
       prisma.$queryRaw`SELECT pg_database_size(current_database()) as bytes`,
       prisma.$queryRaw`
         SELECT tablename,
-          pg_total_relation_size(schemaname||'.'||tablename) as bytes,
-          pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
+          pg_total_relation_size(schemaname||'."'||tablename||'"') as bytes,
+          pg_size_pretty(pg_total_relation_size(schemaname||'."'||tablename||'"')) as size
         FROM pg_tables WHERE schemaname = 'public'
         ORDER BY bytes DESC LIMIT 12`,
       prisma.$queryRaw`SELECT count(*)::int as count FROM pg_stat_activity WHERE datname = current_database()`,
