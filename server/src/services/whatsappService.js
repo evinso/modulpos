@@ -32,7 +32,7 @@ async function sendWhatsApp(message) {
     await axios.post('https://api.fonnte.com/send', {
       target: s.whatsapp_phone,
       message,
-      countryCode: '62',
+      countryCode: '90',
     }, {
       headers: { Authorization: s.whatsapp_token },
     });
