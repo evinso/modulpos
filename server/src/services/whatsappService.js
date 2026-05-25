@@ -41,6 +41,18 @@ async function sendWhatsApp(message) {
   }
 }
 
+async function sendWhatsAppTo(phone, message) {
+  const s = await getSettings();
+  if (!s.whatsapp_token) throw new Error('Fonnte token yapılandırılmamış');
+  await axios.post('https://api.fonnte.com/send', {
+    target: phone,
+    message,
+    countryCode: '90',
+  }, {
+    headers: { Authorization: s.whatsapp_token },
+  });
+}
+
 async function isEventEnabled(eventKey) {
   const s = await getSettings();
   if (s.whatsapp_enabled !== 'true') return false;
@@ -79,4 +91,4 @@ async function notifyNewOrder(storeName, orderNumber, totalAmount, customerName)
   await sendWhatsApp(`🛒 *Yeni Sipariş*\n\n🏪 Mağaza: ${storeName}\n📦 Sipariş No: ${orderNumber}\n👤 Müşteri: ${customerName}\n💵 Tutar: ${parseFloat(totalAmount || 0).toFixed(2)}₺\n📅 ${new Date().toLocaleString('tr-TR')}`);
 }
 
-module.exports = { sendWhatsApp, notifyNewUser, notifySubscriptionUpdated, notifyCreditTopup, notifyNewSupportTicket, notifySubscriptionExpired, notifyNewOrder, invalidateCache };
+module.exports = { sendWhatsApp, sendWhatsAppTo, notifyNewUser, notifySubscriptionUpdated, notifyCreditTopup, notifyNewSupportTicket, notifySubscriptionExpired, notifyNewOrder, invalidateCache };

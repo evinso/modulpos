@@ -677,6 +677,45 @@ router.post('/whatsapp-test', auth, isAdmin, async (_req, res) => {
   }
 });
 
+/**
+ * GET /api/admin/whatsapp-broadcast-recipients
+ * Returns count of users with phone numbers
+ */
+router.get('/whatsapp-broadcast-recipients', auth, isAdmin, async (_req, res) => {
+  try {
+    const count = await prisma.user.count({ where: { phone: { not: null }, isActive: true } });
+    res.json({ count });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/whatsapp-broadcast
+ * Send a WhatsApp message to all users with phone numbers
+ */
+router.post('/whatsapp-broadcast', auth, isAdmin, async (req, res) => {
+  const { message } = req.body;
+  if (!message?.trim()) return res.status(400).json({ error: 'Mesaj boş olamaz' });
+
+  const users = await prisma.user.findMany({
+    where: { phone: { not: null }, isActive: true },
+    select: { phone: true },
+  });
+
+  let sent = 0, failed = 0;
+  for (const user of users) {
+    try {
+      await whatsappService.sendWhatsAppTo(user.phone, message);
+      sent++;
+    } catch {
+      failed++;
+    }
+  }
+
+  res.json({ total: users.length, sent, failed });
+});
+
 
 /**
  * GET /api/admin/invoices

@@ -58,6 +58,11 @@ export default function SuperAdminPage() {
     whatsapp_events: '["new_user","subscription","subscription_expired","credit_topup","new_support_ticket","new_order"]',
   });
   const [whatsappTesting, setWhatsappTesting] = useState(false);
+  const [broadcastMsg, setBroadcastMsg] = useState('');
+  const [broadcastSending, setBroadcastSending] = useState(false);
+  const [broadcastResult, setBroadcastResult] = useState(null);
+  const [broadcastRecipients, setBroadcastRecipients] = useState(null);
+  const [broadcastConfirm, setBroadcastConfirm] = useState(false);
 
   const [dropshipOrders, setDropshipOrders] = useState([]);
   const [dropshipStatusFilter, setDropshipStatusFilter] = useState('');
@@ -215,6 +220,31 @@ export default function SuperAdminPage() {
       toast.success('Genel ayarlar kaydedildi');
     } catch {
       toast.error('Ayarlar kaydedilemedi');
+    }
+  };
+
+  const handleBroadcastPreview = async () => {
+    try {
+      const res = await api.get('/admin/whatsapp-broadcast-recipients');
+      setBroadcastRecipients(res.data.count);
+      setBroadcastConfirm(true);
+    } catch {
+      toast.error('Alıcı sayısı alınamadı');
+    }
+  };
+
+  const handleBroadcast = async () => {
+    setBroadcastSending(true);
+    setBroadcastConfirm(false);
+    try {
+      const res = await api.post('/admin/whatsapp-broadcast', { message: broadcastMsg });
+      setBroadcastResult(res.data);
+      setBroadcastMsg('');
+      toast.success(`${res.data.sent} kullanıcıya gönderildi`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Gönderilemedi');
+    } finally {
+      setBroadcastSending(false);
     }
   };
 
@@ -1610,6 +1640,67 @@ export default function SuperAdminPage() {
                   </div>
                 </form>
               </div>
+
+              {/* Toplu Duyuru */}
+              <div className="card" style={{ padding: 24, maxWidth: 560 }}>
+                <h4 style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Send size={18} /> Toplu Duyuru
+                </h4>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
+                  Telefon numarası kayıtlı tüm aktif üyelere WhatsApp mesajı gönder.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <textarea
+                    className="form-input"
+                    rows={5}
+                    placeholder="Duyuru mesajınızı yazın..."
+                    value={broadcastMsg}
+                    onChange={e => { setBroadcastMsg(e.target.value); setBroadcastResult(null); }}
+                    style={{ resize: 'vertical' }}
+                  />
+                  {broadcastResult && (
+                    <div style={{ fontSize: 13, padding: '10px 14px', borderRadius: 8, background: 'rgba(16,185,129,0.1)', color: 'var(--success)', fontWeight: 600 }}>
+                      ✓ Gönderildi: {broadcastResult.sent} / {broadcastResult.total} kullanıcı
+                      {broadcastResult.failed > 0 && <span style={{ color: 'var(--danger)', marginLeft: 8 }}>({broadcastResult.failed} başarısız)</span>}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleBroadcastPreview}
+                      disabled={!broadcastMsg.trim() || broadcastSending || whatsappSettings.whatsapp_enabled !== 'true'}
+                    >
+                      <Send size={14} /> {broadcastSending ? 'Gönderiliyor...' : 'Gönder'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Broadcast Confirm Modal */}
+              {broadcastConfirm && (
+                <div className="modal-overlay" onClick={() => setBroadcastConfirm(false)}>
+                  <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+                    <div className="modal-header">
+                      <h3>Duyuru Gönder</h3>
+                      <button onClick={() => setBroadcastConfirm(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={20} /></button>
+                    </div>
+                    <div style={{ padding: 24 }}>
+                      <p style={{ marginBottom: 12, fontSize: 14 }}>
+                        <strong>{broadcastRecipients}</strong> kullanıcıya WhatsApp mesajı gönderilecek.
+                      </p>
+                      <div style={{ padding: '10px 14px', background: 'var(--bg-tertiary)', borderRadius: 8, fontSize: 13, whiteSpace: 'pre-wrap', marginBottom: 20, maxHeight: 160, overflowY: 'auto' }}>
+                        {broadcastMsg}
+                      </div>
+                      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                        <button className="btn btn-secondary" onClick={() => setBroadcastConfirm(false)}>İptal</button>
+                        <button className="btn btn-primary" onClick={handleBroadcast}>
+                          <Send size={14} /> Gönder
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
             </div>
           ) : activeTab === 'marketplace' ? (
