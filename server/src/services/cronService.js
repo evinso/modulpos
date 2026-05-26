@@ -5,6 +5,7 @@ const notificationService = require('./notificationService');
 const TrendyolService = require('./trendyol/trendyolService');
 const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
 const { processAutoAnswerForCron } = require('../routes/questions');
+const { syncAllOrders } = require('./orderSyncService');
 
 function resolveUserPlan(rawPlan) {
   const p = (rawPlan || '').toLowerCase();
@@ -24,6 +25,12 @@ function getPerPlanMarkup(byPlanJson, userPlan) {
 
 class CronService {
   start() {
+    // Run every 5 minutes to pull new orders from all marketplaces
+    cron.schedule('*/5 * * * *', async () => {
+      const count = await syncAllOrders();
+      if (count > 0) console.log(`[CRON/Orders] ${count} yeni sipariş çekildi`);
+    });
+
     // Run every 10 minutes to check if any XML needs syncing
     cron.schedule('*/10 * * * *', async () => {
       console.log('[CRON] Checking for XML sources that need synchronization...');
