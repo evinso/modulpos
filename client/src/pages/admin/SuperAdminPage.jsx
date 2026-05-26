@@ -834,45 +834,28 @@ export default function SuperAdminPage() {
 
       {/* Tabs */}
       <div className="admin-tabs">
-        <button
-          className={`admin-tab ${activeTab === 'users' ? 'active' : ''}`}
-          onClick={() => setActiveTab('users')}
-        >
-          <Users size={16} /> Kullanıcılar
-        </button>
-        <button
-          className={`admin-tab ${activeTab === 'stores' ? 'active' : ''}`}
-          onClick={() => setActiveTab('stores')}
-        >
-          <Store size={16} /> Mağazalar
-        </button>
-        <button className={`admin-tab ${activeTab === 'auditLogs' ? 'active' : ''}`} onClick={() => setActiveTab('auditLogs')}>
-          <Settings size={16} /> Sistem Logları
-        </button>
-        <button className={`admin-tab ${activeTab === 'pricing' ? 'active' : ''}`} onClick={() => setActiveTab('pricing')}>
-          <Tags size={16} /> Fiyat Planları
-        </button>
-        <button className={`admin-tab ${activeTab === 'footer' ? 'active' : ''}`} onClick={() => setActiveTab('footer')}>
-          <List size={16} /> Footer Yönetimi
-        </button>
-        <button className={`admin-tab ${activeTab === 'dropship' ? 'active' : ''}`} onClick={() => setActiveTab('dropship')}>
-          <Truck size={16} /> Tedarikçi Siparişleri
-        </button>
-        <button className={`admin-tab ${activeTab === 'support' ? 'active' : ''}`} onClick={() => setActiveTab('support')}>
-          <MessageSquare size={16} /> Destek Biletleri
-        </button>
-        <button className={`admin-tab ${activeTab === 'policies' ? 'active' : ''}`} onClick={() => setActiveTab('policies')}>
-          <FileText size={16} /> Yasal Sayfalar
-        </button>
-        <button className={`admin-tab ${activeTab === 'marketplace' ? 'active' : ''}`} onClick={() => setActiveTab('marketplace')}>
-          <Store size={16} /> Pazaryerleri
-        </button>
-        <button className={`admin-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
-          <Sliders size={16} /> Genel Ayarlar
-        </button>
-        <button className={`admin-tab ${activeTab === 'server' ? 'active' : ''}`} onClick={() => setActiveTab('server')}>
-          <Monitor size={16} /> Sunucu
-        </button>
+        {[
+          { key: 'users',       icon: Users,        label: 'Kullanıcılar' },
+          { key: 'stores',      icon: Store,        label: 'Mağazalar' },
+          { key: 'auditLogs',   icon: Settings,     label: 'Sistem Logları' },
+          { key: 'pricing',     icon: Tags,         label: 'Fiyat Planları' },
+          { key: 'footer',      icon: List,         label: 'Footer' },
+          { key: 'dropship',    icon: Truck,        label: 'Tedarikçi' },
+          { key: 'support',     icon: MessageSquare,label: 'Destek Biletleri' },
+          { key: 'policies',    icon: FileText,     label: 'Yasal Sayfalar' },
+          { key: 'marketplace', icon: Store,        label: 'Pazaryerleri' },
+          { key: 'settings',    icon: Sliders,      label: 'Genel Ayarlar' },
+          { key: 'server',      icon: Monitor,      label: 'Sunucu' },
+        ].map(({ key, icon: Icon, label }) => (
+          <button
+            key={key}
+            className={`admin-tab ${activeTab === key ? 'active' : ''}`}
+            onClick={() => setActiveTab(key)}
+          >
+            <Icon size={22} />
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="admin-content" style={{ overflowX: 'auto' }}>
