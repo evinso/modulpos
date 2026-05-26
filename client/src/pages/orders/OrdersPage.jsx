@@ -73,18 +73,39 @@ function OrderDetailModal({ order, onClose }) {
           </div>
 
           {/* Shipping Address */}
-          {order.shippingAddress && (
-            <div style={{ background: 'var(--bg-tertiary)', borderRadius: 8, padding: '12px 14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontWeight: 600, fontSize: 13 }}>
-                <MapPin size={15} style={{ color: 'var(--accent-primary)' }} /> Teslimat Adresi
+          {order.shippingAddress && (() => {
+            let addr = order.shippingAddress;
+            try { if (typeof addr === 'string') addr = JSON.parse(addr); } catch { addr = null; }
+            if (!addr) return null;
+            if (typeof addr === 'string') return (
+              <div style={{ background: 'var(--bg-tertiary)', borderRadius: 8, padding: '12px 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontWeight: 600, fontSize: 13 }}>
+                  <MapPin size={15} style={{ color: 'var(--accent-primary)' }} /> Teslimat Adresi
+                </div>
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{addr}</p>
               </div>
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                {typeof order.shippingAddress === 'string'
-                  ? order.shippingAddress
-                  : JSON.stringify(order.shippingAddress)}
-              </p>
-            </div>
-          )}
+            );
+            const name = addr.fullName || [addr.firstName, addr.lastName].filter(Boolean).join(' ');
+            const phone = addr.phone || order.customerPhone;
+            const street = addr.fullAddress || addr.address1 || '';
+            const district = [addr.neighborhood, addr.district].filter(Boolean).join(', ');
+            const city = [addr.city, addr.postalCode].filter(Boolean).join(' ');
+            return (
+              <div style={{ background: 'var(--bg-tertiary)', borderRadius: 8, padding: '12px 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, fontWeight: 600, fontSize: 13 }}>
+                  <MapPin size={15} style={{ color: 'var(--accent-primary)' }} /> Teslimat Adresi
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  {name && <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{name}</span>}
+                  {phone && <span>{phone}</span>}
+                  {street && <span>{street}</span>}
+                  {district && <span>{district}</span>}
+                  {city && <span>{city}</span>}
+                  {addr.countryCode && <span>{addr.countryCode}</span>}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Order Items */}
           {items.length > 0 && (
