@@ -21,7 +21,7 @@ export default function MarketplacePage() {
 
   // Edit state
   const [editConn, setEditConn] = useState(null); // connection being edited
-  const [editForm, setEditForm] = useState({ supplierName: '', defaultBrandId: '', defaultBrandName: '', brandStrategy: 'xml' });
+  const [editForm, setEditForm] = useState({ supplierName: '', defaultBrandId: '', defaultBrandName: '', brandStrategy: 'xml', webhookUsername: '', webhookPassword: '' });
   const [editBrandSearch, setEditBrandSearch] = useState('');
   const [editBrandResults, setEditBrandResults] = useState([]);
   const [editBrandLoading, setEditBrandLoading] = useState(false);
@@ -134,6 +134,8 @@ export default function MarketplacePage() {
       defaultBrandId: config.defaultBrandId?.toString() || '',
       defaultBrandName: config.defaultBrandName || '',
       brandStrategy: config.brandStrategy || 'xml',
+      webhookUsername: config.webhookUsername || '',
+      webhookPassword: config.webhookPassword || '',
     });
     setEditBrandSearch(config.defaultBrandName || '');
     setEditBrandResults([]);
@@ -455,6 +457,39 @@ export default function MarketplacePage() {
                     </div>
                   )}
                 </div>
+              </div>
+                {editConn?.marketplaceType === 'hepsiburada' && (
+                  <div className="form-group" style={{ marginTop: 20 }}>
+                    <label className="form-label" style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent-primary)' }}>
+                      Webhook Ayarları
+                    </label>
+                    <div style={{ padding: '12px 14px', borderRadius: 8, background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.2)', marginBottom: 12, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                      Hepsiburada'ya bildirilecek Webhook URL:<br />
+                      <strong style={{ color: 'var(--text-primary)', userSelect: 'all' }}>
+                        https://modulpos.com/api/webhooks/hepsiburada
+                      </strong>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Webhook Kullanıcı Adı</label>
+                      <input
+                        className="form-input"
+                        placeholder="ör: hbwebhook"
+                        value={editForm.webhookUsername}
+                        onChange={e => setEditForm({ ...editForm, webhookUsername: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Webhook Şifresi</label>
+                      <input
+                        type="password"
+                        className="form-input"
+                        placeholder="Güçlü bir şifre belirleyin"
+                        value={editForm.webhookPassword}
+                        onChange={e => setEditForm({ ...editForm, webhookPassword: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setEditConn(null)}>İptal</button>

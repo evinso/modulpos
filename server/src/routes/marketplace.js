@@ -98,12 +98,15 @@ router.put('/connections/:id', async (req, res, next) => {
     const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
     if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
 
-    const { supplierName, defaultBrandId, defaultBrandName, brandStrategy } = req.body;
+    const { supplierName, defaultBrandId, defaultBrandName, brandStrategy, webhookUsername, webhookPassword } = req.body;
     const config = connection.config ? JSON.parse(connection.config) : {};
 
     if (defaultBrandId) config.defaultBrandId = parseInt(defaultBrandId);
     if (defaultBrandName) config.defaultBrandName = defaultBrandName;
     config.brandStrategy = brandStrategy === 'override' ? 'override' : 'xml';
+
+    if (webhookUsername !== undefined) config.webhookUsername = webhookUsername || null;
+    if (webhookPassword !== undefined) config.webhookPassword = webhookPassword || null;
 
     const updated = await prisma.marketplaceConnection.update({
       where: { id: req.params.id },
@@ -901,6 +904,21 @@ router.get('/connections/:id/hepsiburada-attribute-values/:catId/:attrId', async
     const size = Math.min(parseInt(req.query.size) || 1000, 1000);
     const modifiedAtSince = req.query.modifiedAtSince || undefined;
     const data = await service.getAttributeValues(req.params.catId, req.params.attrId, page, size, modifiedAtSince);
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+// HepsiBurada: fetch orders by status
+// status: Created | Shipped | Cancelled | Delivered | UnDelivered (default: Created)
+router.get('/connections/:id/hepsiburada-orders', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'hepsiburada') {
+      return res.status(400).json({ error: 'HepsiBurada bağlantısı bulunamadı' });
+    }
+    const { status = 'Created', offset = 0, limit = 50 } = req.query;
+    const service = new HepsiburadaService(connection);
+    const data = await service.getOrders(status, { offset: parseInt(offset), limit: Math.min(parseInt(limit), 200) });
     res.json(data);
   } catch (error) { next(error); }
 });
