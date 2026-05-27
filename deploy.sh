@@ -3,7 +3,7 @@ set -e
 
 echo "🚀 Deploy başlıyor..."
 
-ssh -i ~/.ssh/oracle_key ubuntu@141.147.7.226 "
+ssh -i ~/.ssh/oracle_key ubuntu@77.42.122.8 "
   set -e
   cd /home/ubuntu/modulpos
   git pull origin main
