@@ -457,7 +457,7 @@ export default function MarketplacePage() {
                     </div>
                   )}
                 </div>
-              </div>
+
                 {editConn?.marketplaceType === 'hepsiburada' && (
                   <div className="form-group" style={{ marginTop: 20 }}>
                     <label className="form-label" style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent-primary)' }}>
