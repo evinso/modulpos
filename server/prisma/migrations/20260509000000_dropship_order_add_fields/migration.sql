@@ -7,5 +7,5 @@ ALTER TABLE "DropshipOrder" ADD COLUMN IF NOT EXISTS "creditAmount" DOUBLE PRECI
 CREATE INDEX IF NOT EXISTS "DropshipOrder_productId_idx" ON "DropshipOrder"("productId");
 
 -- AddForeignKey
-ALTER TABLE "DropshipOrder" ADD CONSTRAINT IF NOT EXISTS "DropshipOrder_productId_fkey"
+ALTER TABLE "DropshipOrder" ADD CONSTRAINT "DropshipOrder_productId_fkey"
   FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE SET NULL ON UPDATE CASCADE;
