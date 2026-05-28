@@ -369,8 +369,8 @@ export default function WhatsappPage() {
               </div>
               <div>
                 <label className="form-label">Oturum Adı</label>
-                <input className="form-input" placeholder="ör. default" value={form.instanceId} onChange={e => setForm(p => ({ ...p, instanceId: e.target.value }))} required />
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Birden fazla numara kullanacaksanız farklı isimler verin (ör. musteri-hatti, bildirim)</div>
+                <input className="form-input" placeholder="default" value={form.instanceId} onChange={e => setForm(p => ({ ...p, instanceId: e.target.value }))} required />
+                <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 4 }}>⚠️ WAHA ücretsiz sürümde oturum adı mutlaka <strong>default</strong> olmalıdır.</div>
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>İptal</button>
