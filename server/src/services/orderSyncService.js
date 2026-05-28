@@ -71,7 +71,7 @@ async function syncOrdersForStore(store, connections) {
             },
           });
 
-          whatsappService.notifyNewOrder(store.name, `TY-${pkg.orderNumber}`, totalAmount, customerName).catch(() => {});
+          whatsappService.notifyNewOrder(store.name, `TY-${pkg.orderNumber}`, totalAmount, customerName, store.userPhone).catch(() => {});
           totalSynced++;
         }
       } catch (err) {
@@ -85,7 +85,10 @@ async function syncOrdersForStore(store, connections) {
 
 // Syncs all stores with active connections — called by cron
 async function syncAllOrders() {
-  const stores = await prisma.store.findMany({ select: { id: true, name: true } });
+  const stores = await prisma.store.findMany({
+    select: { id: true, name: true, user: { select: { phone: true } } },
+  });
+  stores.forEach(s => { s.userPhone = s.user?.phone || null; });
   let grand = 0;
 
   for (const store of stores) {

@@ -262,9 +262,11 @@ export default function Sidebar({ isOpen }) {
           <NavLink to="/logs" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <Activity size={18} className="icon" /><span>İşlem Logları</span>
           </NavLink>
-          <NavLink to="/whatsapp" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <MessageSquare size={18} className="icon" /><span>WhatsApp</span>
-          </NavLink>
+          {isAdmin && (
+            <NavLink to="/whatsapp" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+              <MessageSquare size={18} className="icon" /><span>WhatsApp</span>
+            </NavLink>
+          )}
         </div>
 
         {/* Sistem Yönetimi (admin only) */}

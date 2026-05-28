@@ -51,6 +51,12 @@ export default function SuperAdminPage() {
   });
 
   const [generalSettings, setGeneralSettings] = useState({ trial_days: '3', anthropic_api_key: '', credit_category_ai: '0.5' });
+  const [wahaSettings, setWahaSettings] = useState({
+    waha_enabled: 'false',
+    waha_session: 'default',
+    waha_admin_phone: '',
+    waha_events: '["new_user","subscription","subscription_expired","credit_topup","new_support_ticket","new_order"]',
+  });
   const [whatsappSettings, setWhatsappSettings] = useState({
     whatsapp_enabled: 'false',
     whatsapp_token: '',
@@ -174,17 +180,17 @@ export default function SuperAdminPage() {
         const res = await api.get(`/admin/support-tickets${params}`);
         setSupportTickets(res.data);
       } else if (activeTab === 'settings') {
-        const settingsRes = await api.get('/admin/system-settings?keys=trial_days,anthropic_api_key,credit_category_ai,whatsapp_enabled,whatsapp_token,whatsapp_phone,whatsapp_events');
+        const settingsRes = await api.get('/admin/system-settings?keys=trial_days,anthropic_api_key,credit_category_ai,waha_enabled,waha_session,waha_admin_phone,waha_events');
         setGeneralSettings({
           trial_days: settingsRes.data.trial_days || '3',
           anthropic_api_key: settingsRes.data.anthropic_api_key || '',
           credit_category_ai: settingsRes.data.credit_category_ai || '0.5',
         });
-        setWhatsappSettings({
-          whatsapp_enabled: settingsRes.data.whatsapp_enabled || 'false',
-          whatsapp_token: settingsRes.data.whatsapp_token || '',
-          whatsapp_phone: settingsRes.data.whatsapp_phone || '',
-          whatsapp_events: settingsRes.data.whatsapp_events || '["new_user","subscription","subscription_expired","credit_topup","new_support_ticket","new_order"]',
+        setWahaSettings({
+          waha_enabled: settingsRes.data.waha_enabled || 'false',
+          waha_session: settingsRes.data.waha_session || 'default',
+          waha_admin_phone: settingsRes.data.waha_admin_phone || '',
+          waha_events: settingsRes.data.waha_events || '["new_user","subscription","subscription_expired","credit_topup","new_support_ticket","new_order"]',
         });
       } else if (activeTab === 'policies') {
         const res = await api.get('/admin/policy-pages');
@@ -287,6 +293,23 @@ export default function SuperAdminPage() {
     } finally {
       setWhatsappTesting(false);
     }
+  };
+
+  const handleSaveWahaSettings = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post('/admin/system-settings', wahaSettings);
+      toast.success('WhatsApp ayarları kaydedildi');
+    } catch {
+      toast.error('Ayarlar kaydedilemedi');
+    }
+  };
+
+  const toggleWahaEvent = (eventKey) => {
+    let current;
+    try { current = JSON.parse(wahaSettings.waha_events || '[]'); } catch { current = []; }
+    const next = current.includes(eventKey) ? current.filter(k => k !== eventKey) : [...current, eventKey];
+    setWahaSettings(s => ({ ...s, waha_events: JSON.stringify(next) }));
   };
 
   const loadWaInstances = async () => {
@@ -1583,6 +1606,68 @@ export default function SuperAdminPage() {
                 </form>
               </div>
 
+              {/* WhatsApp Bildirimleri (WAHA) */}
+              <div className="card" style={{ padding: 24, maxWidth: 560 }}>
+                <h4 style={{ marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Smartphone size={18} /> WhatsApp Bildirimleri
+                </h4>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
+                  QR kod bağlantısı için <a href="/whatsapp" style={{ color: 'var(--accent-primary)' }}>WhatsApp sayfasına</a> gidin. Mesajlar hem yöneticiye hem ilgili kullanıcıya gönderilir.
+                </p>
+                <form onSubmit={handleSaveWahaSettings} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <label style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>Bildirimleri Etkinleştir</label>
+                    <button type="button"
+                      onClick={() => setWahaSettings(s => ({ ...s, waha_enabled: s.waha_enabled === 'true' ? 'false' : 'true' }))}
+                      style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', position: 'relative', background: wahaSettings.waha_enabled === 'true' ? 'var(--primary)' : 'var(--border)', transition: 'background 0.2s' }}
+                    >
+                      <span style={{ position: 'absolute', top: 3, left: wahaSettings.waha_enabled === 'true' ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+                    </button>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">WAHA Oturum Adı</label>
+                    <input type="text" className="form-input" placeholder="default"
+                      value={wahaSettings.waha_session}
+                      onChange={e => setWahaSettings(s => ({ ...s, waha_session: e.target.value }))}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>WhatsApp sayfasında oluşturduğunuz oturumun adı</span>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Yönetici Telefon Numarası</label>
+                    <input type="text" className="form-input" placeholder="905XXXXXXXXX"
+                      value={wahaSettings.waha_admin_phone}
+                      onChange={e => setWahaSettings(s => ({ ...s, waha_admin_phone: e.target.value }))}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>Tüm sistem bildirimleri bu numaraya gönderilir. Ülke kodu dahil, + olmadan.</span>
+                  </div>
+                  <div>
+                    <label className="form-label" style={{ marginBottom: 10 }}>Bildirim Olayları</label>
+                    {[
+                      { key: 'new_user', label: 'Yeni üye kaydı' },
+                      { key: 'subscription', label: 'Abonelik güncellemesi' },
+                      { key: 'subscription_expired', label: 'Abonelik süresi doldu' },
+                      { key: 'credit_topup', label: 'Kredi yükleme' },
+                      { key: 'new_support_ticket', label: 'Yeni destek talebi' },
+                      { key: 'new_order', label: 'Yeni sipariş' },
+                    ].map(ev => {
+                      let events = [];
+                      try { events = JSON.parse(wahaSettings.waha_events || '[]'); } catch { events = []; }
+                      return (
+                        <label key={ev.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer', fontSize: 14 }}>
+                          <input type="checkbox" checked={events.includes(ev.key)} onChange={() => toggleWahaEvent(ev.key)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                          {ev.label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+                    <button type="button" className="btn btn-secondary" onClick={handleWhatsappTest} disabled={whatsappTesting || wahaSettings.waha_enabled !== 'true'}>
+                      {whatsappTesting ? 'Gönderiliyor...' : 'Test Gönder'}
+                    </button>
+                    <button type="submit" className="btn btn-primary">Kaydet</button>
+                  </div>
+                </form>
+              </div>
 
             </div>
           ) : activeTab === 'marketplace' ? (

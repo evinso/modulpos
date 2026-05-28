@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, Trash2, MessageSquare, Wifi, WifiOff, QrCode, RefreshCw, Send, LogOut, RotateCcw, X, Pencil } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+import { useAuthStore } from '../../store/authStore';
 
 const STATE_MAP = {
   authorized:    { label: 'Bağlı',      color: 'var(--success)',  bg: 'rgba(16,185,129,0.12)',  icon: <Wifi size={13} /> },
@@ -11,6 +12,9 @@ const STATE_MAP = {
 };
 
 export default function WhatsappPage() {
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
+
   const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -127,6 +131,10 @@ export default function WhatsappPage() {
   };
 
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
+
+  if (!isAdmin) {
+    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Bu sayfaya erişim yetkiniz yok.</div>;
+  }
 
   return (
     <div>

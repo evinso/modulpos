@@ -5,6 +5,12 @@ const WahaService = require('../services/whatsapp/wahaService');
 
 const router = express.Router();
 router.use(auth);
+router.use((req, res, next) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Bu işlem için yetkiniz yok' });
+  }
+  next();
+});
 
 async function getUserStore(userId) {
   return prisma.store.findFirst({ where: { userId } });

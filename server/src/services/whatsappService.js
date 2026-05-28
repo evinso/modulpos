@@ -1,16 +1,10 @@
-const axios = require('axios');
 const prisma = require('../config/database');
+const WahaService = require('./whatsapp/wahaService');
 
-// Cache settings 5 min
 let cachedSettings = null;
 let cacheExpiry = 0;
 
-const SETTINGS_KEYS = [
-  'whatsapp_enabled',
-  'whatsapp_token',
-  'whatsapp_phone',
-  'whatsapp_events',
-];
+const SETTINGS_KEYS = ['waha_enabled', 'waha_session', 'waha_admin_phone', 'waha_events'];
 
 async function getSettings() {
   if (cachedSettings && Date.now() < cacheExpiry) return cachedSettings;
@@ -25,39 +19,43 @@ function invalidateCache() {
   cacheExpiry = 0;
 }
 
+async function isEventEnabled(eventKey) {
+  const s = await getSettings();
+  if (s.waha_enabled !== 'true') return false;
+  if (!s.waha_events) return true;
+  try { return JSON.parse(s.waha_events).includes(eventKey); } catch { return true; }
+}
+
+// Send to a specific phone number
+async function sendWhatsAppTo(phone, message) {
+  const s = await getSettings();
+  const waha = new WahaService(s.waha_session || 'default');
+  await waha.sendMessage(phone, message);
+}
+
+// Send to admin phone only
 async function sendWhatsApp(message) {
   try {
     const s = await getSettings();
-    if (s.whatsapp_enabled !== 'true' || !s.whatsapp_token || !s.whatsapp_phone) return;
-    await axios.post('https://api.fonnte.com/send', {
-      target: s.whatsapp_phone,
-      message,
-      countryCode: '90',
-    }, {
-      headers: { Authorization: s.whatsapp_token },
-    });
+    if (s.waha_enabled !== 'true' || !s.waha_admin_phone) return;
+    const waha = new WahaService(s.waha_session || 'default');
+    await waha.sendMessage(s.waha_admin_phone, message);
   } catch (err) {
-    console.error('[WhatsApp] Send failed:', err.response?.data || err.message);
+    console.error('[WhatsApp] Admin send failed:', err.message);
   }
 }
 
-async function sendWhatsAppTo(phone, message) {
+// Send to admin + user (if different)
+async function sendToAdminAndUser(message, userPhone = null) {
   const s = await getSettings();
-  if (!s.whatsapp_token) throw new Error('Fonnte token yapılandırılmamış');
-  await axios.post('https://api.fonnte.com/send', {
-    target: phone,
-    message,
-    countryCode: '90',
-  }, {
-    headers: { Authorization: s.whatsapp_token },
-  });
-}
-
-async function isEventEnabled(eventKey) {
-  const s = await getSettings();
-  if (s.whatsapp_enabled !== 'true') return false;
-  if (!s.whatsapp_events) return true;
-  try { return JSON.parse(s.whatsapp_events).includes(eventKey); } catch { return true; }
+  if (s.waha_enabled !== 'true') return;
+  const waha = new WahaService(s.waha_session || 'default');
+  const targets = [];
+  if (s.waha_admin_phone) targets.push(s.waha_admin_phone);
+  if (userPhone && userPhone !== s.waha_admin_phone) targets.push(userPhone);
+  await Promise.all(targets.map(phone =>
+    waha.sendMessage(phone, message).catch(e => console.error(`[WhatsApp] Send to ${phone} failed:`, e.message))
+  ));
 }
 
 async function notifyNewUser(user) {
@@ -67,28 +65,31 @@ async function notifyNewUser(user) {
 
 async function notifySubscriptionUpdated(user, plan, endDate) {
   if (!await isEventEnabled('subscription')) return;
-  await sendWhatsApp(`💳 *Abonelik Güncellendi*\n\n👤 ${user.name || user.email}\n📦 Plan: ${plan}\n📅 Bitiş: ${new Date(endDate).toLocaleDateString('tr-TR')}`);
+  await sendToAdminAndUser(`💳 *Abonelik Güncellendi*\n\n👤 ${user.name || user.email}\n📦 Plan: ${plan}\n📅 Bitiş: ${new Date(endDate).toLocaleDateString('tr-TR')}`, user.phone);
 }
 
 async function notifyCreditTopup(user, amount) {
   if (!await isEventEnabled('credit_topup')) return;
-  await sendWhatsApp(`💰 *Kredi Yüklendi*\n\n👤 ${user.name || user.email}\n💵 Miktar: ${amount} kredi\n📅 ${new Date().toLocaleString('tr-TR')}`);
+  await sendToAdminAndUser(`💰 *Kredi Yüklendi*\n\n👤 ${user.name || user.email}\n💵 Miktar: ${amount} kredi\n📅 ${new Date().toLocaleString('tr-TR')}`, user.phone);
 }
 
 async function notifyNewSupportTicket(user, subject, priority) {
   if (!await isEventEnabled('new_support_ticket')) return;
   const priorityLabel = { low: 'Düşük', normal: 'Normal', high: 'Yüksek', urgent: 'Acil' }[priority] || priority;
-  await sendWhatsApp(`🎫 *Yeni Destek Talebi*\n\n👤 ${user.name || user.email}\n📋 Konu: ${subject}\n⚡ Öncelik: ${priorityLabel}\n📅 ${new Date().toLocaleString('tr-TR')}`);
+  await sendToAdminAndUser(`🎫 *Yeni Destek Talebi*\n\n👤 ${user.name || user.email}\n📋 Konu: ${subject}\n⚡ Öncelik: ${priorityLabel}\n📅 ${new Date().toLocaleString('tr-TR')}`, user.phone);
 }
 
 async function notifySubscriptionExpired(user) {
   if (!await isEventEnabled('subscription_expired')) return;
-  await sendWhatsApp(`⏰ *Abonelik Süresi Doldu*\n\n👤 ${user.name || user.email}\n📧 ${user.email}\n📅 ${new Date().toLocaleString('tr-TR')}`);
+  await sendToAdminAndUser(`⏰ *Abonelik Süresi Doldu*\n\n👤 ${user.name || user.email}\n📧 ${user.email}\n📅 ${new Date().toLocaleString('tr-TR')}`, user.phone);
 }
 
-async function notifyNewOrder(storeName, orderNumber, totalAmount, customerName) {
+async function notifyNewOrder(storeName, orderNumber, totalAmount, customerName, userPhone = null) {
   if (!await isEventEnabled('new_order')) return;
-  await sendWhatsApp(`🛒 *Yeni Sipariş*\n\n🏪 Mağaza: ${storeName}\n📦 Sipariş No: ${orderNumber}\n👤 Müşteri: ${customerName}\n💵 Tutar: ${parseFloat(totalAmount || 0).toFixed(2)}₺\n📅 ${new Date().toLocaleString('tr-TR')}`);
+  await sendToAdminAndUser(
+    `🛒 *Yeni Sipariş*\n\n🏪 Mağaza: ${storeName}\n📦 Sipariş No: ${orderNumber}\n👤 Müşteri: ${customerName}\n💵 Tutar: ${parseFloat(totalAmount || 0).toFixed(2)}₺\n📅 ${new Date().toLocaleString('tr-TR')}`,
+    userPhone
+  );
 }
 
 module.exports = { sendWhatsApp, sendWhatsAppTo, notifyNewUser, notifySubscriptionUpdated, notifyCreditTopup, notifyNewSupportTicket, notifySubscriptionExpired, notifyNewOrder, invalidateCache };
