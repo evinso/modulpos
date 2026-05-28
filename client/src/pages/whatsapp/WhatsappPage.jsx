@@ -326,12 +326,16 @@ export default function WhatsappPage() {
           <div>
             <label className="form-label" style={{ marginBottom: 10 }}>Bildirim Olayları</label>
             {[
-              { key: 'new_user', label: 'Yeni üye kaydı' },
-              { key: 'subscription', label: 'Abonelik güncellemesi' },
-              { key: 'subscription_expired', label: 'Abonelik süresi doldu' },
-              { key: 'credit_topup', label: 'Kredi yükleme' },
-              { key: 'new_support_ticket', label: 'Yeni destek talebi' },
-              { key: 'new_order', label: 'Yeni sipariş' },
+              { key: 'new_order',          label: '🛒 Yeni sipariş (admin + kullanıcı)' },
+              { key: 'order_status',       label: '📦 Sipariş durumu değişti (admin + kullanıcı)' },
+              { key: 'new_user',           label: '🆕 Yeni üye kaydı (admin)' },
+              { key: 'subscription',       label: '💳 Abonelik güncellemesi (admin + kullanıcı)' },
+              { key: 'subscription_expired', label: '⏰ Abonelik süresi doldu (admin + kullanıcı)' },
+              { key: 'credit_topup',       label: '💰 Kredi yükleme (admin + kullanıcı)' },
+              { key: 'payment_failed',     label: '❌ Ödeme başarısız (admin + kullanıcı)' },
+              { key: 'new_support_ticket', label: '🎫 Yeni destek talebi (admin)' },
+              { key: 'support_reply',      label: '💬 Destek yanıtlandı (kullanıcı)' },
+              { key: 'xml_error',          label: '⚠️ XML senkron hatası (admin)' },
             ].map(ev => {
               let events = [];
               try { events = JSON.parse(wahaSettings.waha_events || '[]'); } catch { events = []; }

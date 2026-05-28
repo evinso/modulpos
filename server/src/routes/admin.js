@@ -1015,6 +1015,9 @@ router.post('/support-tickets/:id/reply', auth, isAdmin, async (req, res) => {
     ]);
 
     notificationService.createForUser(ticket.userId, { title: 'Destek Talebinize Yanıt Geldi', message: `"${ticket.subject}" konulu talebiniz yanıtlandı.`, type: 'success', link: '/support' });
+    prisma.user.findUnique({ where: { id: ticket.userId }, select: { name: true, email: true, phone: true } })
+      .then(u => whatsappService.notifySupportReply(u, ticket.subject).catch(() => {}))
+      .catch(() => {});
     res.status(201).json(msg);
   } catch (error) {
     res.status(500).json({ error: error.message });

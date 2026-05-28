@@ -26,7 +26,13 @@ async function syncOrdersForStore(store, connections) {
           const existing = await prisma.order.findFirst({
             where: { marketplaceOrderId: String(pkg.orderNumber), storeId: store.id }
           });
-          if (existing) continue;
+          if (existing) {
+            if (existing.status !== status) {
+              await prisma.order.update({ where: { id: existing.id }, data: { status } });
+              whatsappService.notifyOrderStatusChange(store.name, existing.orderNumber, status, store.userPhone).catch(() => {});
+            }
+            continue;
+          }
 
           const customerName = pkg.customerFirstName
             ? `${pkg.customerFirstName} ${pkg.customerLastName || ''}`.trim()

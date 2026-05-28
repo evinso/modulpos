@@ -92,4 +92,36 @@ async function notifyNewOrder(storeName, orderNumber, totalAmount, customerName,
   );
 }
 
-module.exports = { sendWhatsApp, sendWhatsAppTo, notifyNewUser, notifySubscriptionUpdated, notifyCreditTopup, notifyNewSupportTicket, notifySubscriptionExpired, notifyNewOrder, invalidateCache };
+async function notifyOrderStatusChange(storeName, orderNumber, status, userPhone = null) {
+  if (!await isEventEnabled('order_status')) return;
+  const labels = { shipped: '🚚 Kargoya Verildi', delivered: '✅ Teslim Edildi', cancelled: '❌ İptal Edildi', returned: '↩️ İade Edildi' };
+  const label = labels[status];
+  if (!label) return;
+  await sendToAdminAndUser(
+    `📦 *Sipariş Durumu Değişti*\n\n🏪 Mağaza: ${storeName}\n📦 Sipariş: ${orderNumber}\n🔄 Durum: ${label}\n📅 ${new Date().toLocaleString('tr-TR')}`,
+    userPhone
+  );
+}
+
+async function notifySupportReply(user, subject) {
+  if (!await isEventEnabled('support_reply')) return;
+  await sendToAdminAndUser(
+    `💬 *Destek Talebiniz Yanıtlandı*\n\n👤 ${user?.name || user?.email || 'Kullanıcı'}\n📋 Konu: ${subject}\n📅 ${new Date().toLocaleString('tr-TR')}\n\nYanıtı görmek için destek sayfasını açın.`,
+    user?.phone
+  );
+}
+
+async function notifyXmlError(sourceName, errorMsg) {
+  if (!await isEventEnabled('xml_error')) return;
+  await sendWhatsApp(`⚠️ *XML Senkron Hatası*\n\n📡 Kaynak: ${sourceName}\n❗ Hata: ${String(errorMsg).slice(0, 200)}\n📅 ${new Date().toLocaleString('tr-TR')}`);
+}
+
+async function notifyPaymentFailed(user, amount, reason) {
+  if (!await isEventEnabled('payment_failed')) return;
+  await sendToAdminAndUser(
+    `❌ *Ödeme Başarısız*\n\n👤 ${user?.name || user?.email || 'Kullanıcı'}\n💵 Tutar: ₺${parseFloat(amount || 0).toFixed(2)}\n📋 ${reason || 'Ödeme tamamlanamadı'}\n📅 ${new Date().toLocaleString('tr-TR')}`,
+    user?.phone
+  );
+}
+
+module.exports = { sendWhatsApp, sendWhatsAppTo, notifyNewUser, notifySubscriptionUpdated, notifyCreditTopup, notifyNewSupportTicket, notifySubscriptionExpired, notifyNewOrder, notifyOrderStatusChange, notifySupportReply, notifyXmlError, notifyPaymentFailed, invalidateCache };

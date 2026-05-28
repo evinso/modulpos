@@ -297,7 +297,12 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
     } else {
       const failReason = [failed_reason_code, failed_reason_msg].filter(Boolean).join(' - ');
       console.log('[PayTR] Ödeme başarısız:', failReason);
-      if (logUserId) notificationService.createForUser(logUserId, { title: 'Ödeme Başarısız', message: failReason || 'Ödeme işlemi tamamlanamadı.', type: 'error', link: '/credits' });
+      if (logUserId) {
+        notificationService.createForUser(logUserId, { title: 'Ödeme Başarısız', message: failReason || 'Ödeme işlemi tamamlanamadı.', type: 'error', link: '/credits' });
+        prisma.user.findUnique({ where: { id: logUserId }, select: { name: true, email: true, phone: true } })
+          .then(u => whatsappService.notifyPaymentFailed(u || { email: logUserEmail }, amountTL, failReason).catch(() => {}))
+          .catch(() => {});
+      }
       try { await prisma.paytrLog.create({ data: { merchantOid: merchant_oid, status: 'failed', totalAmount: amountTL, userId: logUserId, userEmail: logUserEmail, type: logType, failReason: failReason || null, rawBody: JSON.stringify(req.body) } }); } catch {}
     }
   } catch (error) {

@@ -6,6 +6,7 @@ const TrendyolService = require('./trendyol/trendyolService');
 const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
 const { processAutoAnswerForCron } = require('../routes/questions');
 const { syncAllOrders } = require('./orderSyncService');
+const whatsappService = require('./whatsappService');
 
 function resolveUserPlan(rawPlan) {
   const p = (rawPlan || '').toLowerCase();
@@ -210,6 +211,7 @@ class CronService {
 
     } catch (error) {
       console.error(`[CRON] XML Sync failed for ${xmlSource.name}:`, error.message);
+      whatsappService.notifyXmlError(xmlSource.name, error.message).catch(() => {});
       if (syncLog) {
         await prisma.syncLog.update({
           where: { id: syncLog.id },
