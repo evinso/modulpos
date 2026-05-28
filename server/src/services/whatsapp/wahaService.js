@@ -82,7 +82,12 @@ class WahaService {
     try {
       const res = await axios.get(`${WAHA_BASE}/api/sessions/${this.session}`, { timeout: 5000, headers: headers() });
       const status = res.data?.status;
-      if (status === 'STOPPED' || status === 'FAILED') {
+      if (status === 'FAILED') {
+        // Must stop before restarting
+        await axios.post(`${WAHA_BASE}/api/sessions/${this.session}/stop`, {}, { timeout: 10000, headers: headers() }).catch(() => {});
+        await new Promise(r => setTimeout(r, 1000));
+        await axios.post(`${WAHA_BASE}/api/sessions/${this.session}/start`, {}, { timeout: 10000, headers: headers() });
+      } else if (status === 'STOPPED') {
         await axios.post(`${WAHA_BASE}/api/sessions/${this.session}/start`, {}, { timeout: 10000, headers: headers() });
       }
     } catch (err) {
