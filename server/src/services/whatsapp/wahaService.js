@@ -1,18 +1,19 @@
 const axios = require('axios');
 
 const WAHA_BASE = process.env.WAHA_BASE_URL || 'http://localhost:3002';
+const WAHA_API_KEY = process.env.WAHA_API_KEY || 'modulpos2024';
+
+const headers = () => ({ 'X-Api-Key': WAHA_API_KEY });
 
 class WahaService {
   constructor(sessionName) {
     this.session = sessionName || 'default';
-    this.base = WAHA_BASE;
   }
 
   async getStatus() {
     try {
-      const res = await axios.get(`${this.base}/api/sessions/${this.session}`, { timeout: 10000 });
+      const res = await axios.get(`${WAHA_BASE}/api/sessions/${this.session}`, { timeout: 10000, headers: headers() });
       const status = res.data?.status;
-      // Map WAHA statuses to Green API compatible format
       const map = { WORKING: 'authorized', FAILED: 'notAuthorized', STOPPED: 'notAuthorized', STARTING: 'starting', SCAN_QR_CODE: 'notAuthorized' };
       return { stateInstance: map[status] || 'notAuthorized', wahaStatus: status };
     } catch {
@@ -22,51 +23,46 @@ class WahaService {
 
   async getQR() {
     try {
-      // Start session if not exists
       await this._ensureSession();
-      const res = await axios.get(`${this.base}/api/${this.session}/auth/qr`, {
+      const res = await axios.get(`${WAHA_BASE}/api/${this.session}/auth/qr`, {
         params: { format: 'image' },
         responseType: 'arraybuffer',
         timeout: 15000,
+        headers: headers(),
       });
       const base64 = Buffer.from(res.data).toString('base64');
       return { type: 'qrCode', message: base64 };
-    } catch (err) {
+    } catch {
       return { type: 'loading', message: '' };
     }
   }
 
   async sendMessage(phone, message) {
     const chatId = this._normalizeChatId(phone);
-    const res = await axios.post(`${this.base}/api/sendText`, {
-      chatId,
-      text: message,
-      session: this.session,
-    }, { timeout: 15000 });
+    const res = await axios.post(`${WAHA_BASE}/api/sendText`, {
+      chatId, text: message, session: this.session,
+    }, { timeout: 15000, headers: headers() });
     return { idMessage: res.data?.id || 'sent' };
   }
 
   async sendFileByUrl(phone, url, caption = '') {
     const chatId = this._normalizeChatId(phone);
-    const res = await axios.post(`${this.base}/api/sendImage`, {
-      chatId,
-      url,
-      caption,
-      session: this.session,
-    }, { timeout: 20000 });
+    const res = await axios.post(`${WAHA_BASE}/api/sendImage`, {
+      chatId, url, caption, session: this.session,
+    }, { timeout: 20000, headers: headers() });
     return res.data;
   }
 
   async logout() {
     try {
-      await axios.post(`${this.base}/api/sessions/${this.session}/logout`, {}, { timeout: 10000 });
+      await axios.post(`${WAHA_BASE}/api/sessions/${this.session}/logout`, {}, { timeout: 10000, headers: headers() });
     } catch {}
     return { success: true };
   }
 
   async reboot() {
     try {
-      await axios.post(`${this.base}/api/sessions/${this.session}/stop`, {}, { timeout: 10000 });
+      await axios.post(`${WAHA_BASE}/api/sessions/${this.session}/stop`, {}, { timeout: 10000, headers: headers() });
       await new Promise(r => setTimeout(r, 1000));
       await this._ensureSession();
     } catch {}
@@ -75,21 +71,19 @@ class WahaService {
 
   async _ensureSession() {
     try {
-      await axios.get(`${this.base}/api/sessions/${this.session}`, { timeout: 5000 });
+      await axios.get(`${WAHA_BASE}/api/sessions/${this.session}`, { timeout: 5000, headers: headers() });
     } catch (err) {
       if (err.response?.status === 404) {
-        await axios.post(`${this.base}/api/sessions`, {
-          name: this.session,
-          config: { proxy: null },
-        }, { timeout: 10000 });
+        await axios.post(`${WAHA_BASE}/api/sessions`, {
+          name: this.session, config: { proxy: null },
+        }, { timeout: 10000, headers: headers() });
       }
     }
   }
 
   _normalizeChatId(phone) {
     if (phone.includes('@')) return phone;
-    const digits = phone.replace(/\D/g, '');
-    return `${digits}@c.us`;
+    return `${phone.replace(/\D/g, '')}@c.us`;
   }
 }
 
