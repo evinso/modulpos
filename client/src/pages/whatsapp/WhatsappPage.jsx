@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, MessageSquare, Wifi, WifiOff, QrCode, RefreshCw, Send, LogOut, RotateCcw, X, Eye, EyeOff, Pencil } from 'lucide-react';
+import { Plus, Trash2, MessageSquare, Wifi, WifiOff, QrCode, RefreshCw, Send, LogOut, RotateCcw, X, Pencil } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -15,7 +15,7 @@ export default function WhatsappPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editConn, setEditConn] = useState(null);
-  const [form, setForm] = useState({ name: '', instanceId: '', apiToken: '' });
+  const [form, setForm] = useState({ name: '', instanceId: '' });
   const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState({});
   const [statuses, setStatuses] = useState({});
@@ -74,7 +74,7 @@ export default function WhatsappPage() {
       }
       setShowModal(false);
       setEditConn(null);
-      setForm({ name: '', instanceId: '', apiToken: '' });
+      setForm({ name: '', instanceId: '' });
       fetchConnections();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Kayıt hatası');
@@ -122,7 +122,7 @@ export default function WhatsappPage() {
 
   const openEdit = (c) => {
     setEditConn(c);
-    setForm({ name: c.name, instanceId: c.instanceId, apiToken: c.apiToken });
+    setForm({ name: c.name, instanceId: c.instanceId });
     setShowModal(true);
   };
 
@@ -133,9 +133,9 @@ export default function WhatsappPage() {
       <div className="page-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1>WhatsApp Entegrasyonu</h1>
-          <p>Green API üzerinden WhatsApp hesaplarınızı yönetin</p>
+          <p>WAHA üzerinden WhatsApp hesaplarınızı yönetin</p>
         </div>
-        <button className="btn btn-primary" onClick={() => { setEditConn(null); setForm({ name: '', instanceId: '', apiToken: '' }); setShowModal(true); }}>
+        <button className="btn btn-primary" onClick={() => { setEditConn(null); setForm({ name: '', instanceId: '' }); setShowModal(true); }}>
           <Plus size={16} /> Bağlantı Ekle
         </button>
       </div>
@@ -145,10 +145,7 @@ export default function WhatsappPage() {
           <div className="empty-state">
             <MessageSquare size={48} className="empty-icon" />
             <h3>Henüz WhatsApp bağlantısı yok</h3>
-            <p>
-              <a href="https://green-api.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-primary)' }}>green-api.com</a>'dan
-              bir instance oluşturun, Instance ID ve API Token'ı buraya ekleyin.
-            </p>
+            <p>Yeni bağlantı ekleyip QR kodu tarayarak WhatsApp hesabınızı bağlayın.</p>
             <button className="btn btn-primary" onClick={() => setShowModal(true)}>
               <Plus size={16} /> Bağlantı Ekle
             </button>
@@ -191,15 +188,9 @@ export default function WhatsappPage() {
                   </button>
                 </div>
 
-                {/* API Token (masked) */}
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span>Token:</span>
-                  <code style={{ fontSize: 11, background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: 4 }}>
-                    {showToken[c.id] ? c.apiToken : `${c.apiToken.slice(0, 8)}${'•'.repeat(12)}`}
-                  </code>
-                  <button onClick={() => setShowToken(p => ({ ...p, [c.id]: !p[c.id] }))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
-                    {showToken[c.id] ? <EyeOff size={12} /> : <Eye size={12} />}
-                  </button>
+                {/* Session info */}
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
+                  Oturum: <code style={{ fontSize: 11, background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: 4 }}>{c.instanceId}</code>
                 </div>
 
                 {/* QR Code Section */}
@@ -259,13 +250,9 @@ export default function WhatsappPage() {
                 <input className="form-input" placeholder="ör. Müşteri Hattı" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} required />
               </div>
               <div>
-                <label className="form-label">Instance ID</label>
-                <input className="form-input" placeholder="1101XXXXXXXX" value={form.instanceId} onChange={e => setForm(p => ({ ...p, instanceId: e.target.value }))} required />
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Green API dashboard'unuzdan alın</div>
-              </div>
-              <div>
-                <label className="form-label">API Token</label>
-                <input className="form-input" placeholder="d75b3a66374942c5b3c6b086XXXXXXXX" value={form.apiToken} onChange={e => setForm(p => ({ ...p, apiToken: e.target.value }))} required />
+                <label className="form-label">Oturum Adı</label>
+                <input className="form-input" placeholder="ör. default" value={form.instanceId} onChange={e => setForm(p => ({ ...p, instanceId: e.target.value }))} required />
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Birden fazla numara kullanacaksanız farklı isimler verin (ör. musteri-hatti, bildirim)</div>
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>İptal</button>

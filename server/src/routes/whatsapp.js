@@ -1,7 +1,7 @@
 const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
-const GreenApiService = require('../services/whatsapp/greenApiService');
+const WahaService = require('../services/whatsapp/wahaService');
 
 const router = express.Router();
 router.use(auth);
@@ -34,11 +34,10 @@ router.post('/connections', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
-    const { name, instanceId, apiToken } = req.body;
-    if (!name || !instanceId || !apiToken) return res.status(400).json({ error: 'Ad, Instance ID ve API Token zorunludur' });
-
+    const { name, instanceId } = req.body;
+    if (!name || !instanceId) return res.status(400).json({ error: 'Ad ve Oturum Adı zorunludur' });
     const conn = await prisma.whatsappConnection.create({
-      data: { storeId: store.id, name, instanceId: instanceId.trim(), apiToken: apiToken.trim() },
+      data: { storeId: store.id, name, instanceId: instanceId.trim(), apiToken: 'waha' },
     });
     res.json(conn);
   } catch (err) { next(err); }
@@ -50,10 +49,10 @@ router.put('/connections/:id', async (req, res, next) => {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
     await getConn(req.params.id, store.id);
-    const { name, instanceId, apiToken } = req.body;
+    const { name, instanceId } = req.body;
     const conn = await prisma.whatsappConnection.update({
       where: { id: req.params.id },
-      data: { name, instanceId: instanceId?.trim(), apiToken: apiToken?.trim() },
+      data: { name, instanceId: instanceId?.trim() },
     });
     res.json(conn);
   } catch (err) { next(err); }
@@ -70,13 +69,13 @@ router.delete('/connections/:id', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// Get instance status from Green API
+// Get status
 router.get('/connections/:id/status', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
     const conn = await getConn(req.params.id, store.id);
-    const svc = new GreenApiService(conn.instanceId, conn.apiToken);
+    const svc = new WahaService(conn.instanceId);
     const data = await svc.getStatus();
     res.json(data);
   } catch (err) { next(err); }
@@ -88,7 +87,7 @@ router.get('/connections/:id/qr', async (req, res, next) => {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
     const conn = await getConn(req.params.id, store.id);
-    const svc = new GreenApiService(conn.instanceId, conn.apiToken);
+    const svc = new WahaService(conn.instanceId);
     const data = await svc.getQR();
     res.json(data);
   } catch (err) { next(err); }
@@ -102,31 +101,31 @@ router.post('/connections/:id/send', async (req, res, next) => {
     const conn = await getConn(req.params.id, store.id);
     const { phone, message } = req.body;
     if (!phone || !message) return res.status(400).json({ error: 'Telefon ve mesaj zorunludur' });
-    const svc = new GreenApiService(conn.instanceId, conn.apiToken);
+    const svc = new WahaService(conn.instanceId);
     const data = await svc.sendMessage(phone, message);
     res.json(data);
   } catch (err) { next(err); }
 });
 
-// Logout instance
+// Logout
 router.post('/connections/:id/logout', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
     const conn = await getConn(req.params.id, store.id);
-    const svc = new GreenApiService(conn.instanceId, conn.apiToken);
+    const svc = new WahaService(conn.instanceId);
     const data = await svc.logout();
     res.json(data);
   } catch (err) { next(err); }
 });
 
-// Reboot instance
+// Reboot
 router.post('/connections/:id/reboot', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
     const conn = await getConn(req.params.id, store.id);
-    const svc = new GreenApiService(conn.instanceId, conn.apiToken);
+    const svc = new WahaService(conn.instanceId);
     const data = await svc.reboot();
     res.json(data);
   } catch (err) { next(err); }
