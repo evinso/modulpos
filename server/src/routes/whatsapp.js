@@ -95,6 +95,8 @@ router.get('/connections/:id/qr', async (req, res, next) => {
     const conn = await getConn(req.params.id, store.id);
     const svc = new WahaService(conn.instanceId);
     const data = await svc.getQR();
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
     res.json(data);
   } catch (err) { next(err); }
 });

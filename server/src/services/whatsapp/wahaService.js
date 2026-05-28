@@ -24,6 +24,15 @@ class WahaService {
   async getQR() {
     try {
       await this._ensureSession();
+      // Wait for session to reach SCAN_QR_CODE state (up to 8 seconds)
+      for (let i = 0; i < 8; i++) {
+        const statusRes = await axios.get(`${WAHA_BASE}/api/sessions/${this.session}`, { timeout: 5000, headers: headers() });
+        const s = statusRes.data?.status;
+        if (s === 'SCAN_QR_CODE') break;
+        if (s === 'WORKING') return { type: 'alreadyLogged', message: '' };
+        if (s === 'FAILED') return { type: 'loading', message: '' };
+        await new Promise(r => setTimeout(r, 1000));
+      }
       const res = await axios.get(`${WAHA_BASE}/api/${this.session}/auth/qr`, {
         params: { format: 'image' },
         responseType: 'arraybuffer',
@@ -71,7 +80,11 @@ class WahaService {
 
   async _ensureSession() {
     try {
-      await axios.get(`${WAHA_BASE}/api/sessions/${this.session}`, { timeout: 5000, headers: headers() });
+      const res = await axios.get(`${WAHA_BASE}/api/sessions/${this.session}`, { timeout: 5000, headers: headers() });
+      const status = res.data?.status;
+      if (status === 'STOPPED' || status === 'FAILED') {
+        await axios.post(`${WAHA_BASE}/api/sessions/${this.session}/start`, {}, { timeout: 10000, headers: headers() });
+      }
     } catch (err) {
       if (err.response?.status === 404) {
         await axios.post(`${WAHA_BASE}/api/sessions`, {
