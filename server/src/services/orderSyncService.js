@@ -63,6 +63,7 @@ async function syncOrdersForStore(store, connections) {
             message: `${pkg.orderNumber} nolu sipariş alındı. Tutar: ${totalAmount.toFixed(2)}₺`,
             type: 'info',
             link: '/orders',
+            noWhatsapp: true,
             data: {
               notifType: 'new_order',
               orderNumber: `TY-${pkg.orderNumber}`,

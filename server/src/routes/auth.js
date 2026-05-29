@@ -65,6 +65,25 @@ router.post('/register', async (req, res, next) => {
       }
     });
 
+    whatsappService.notifyNewUser(user).catch(() => {});
+
+    // Phone verification via WhatsApp if WAHA is enabled and phone is provided
+    if (phone) {
+      const s = await prisma.systemSettings.findMany({ where: { key: { in: ['waha_enabled', 'waha_session'] } } });
+      const settings = Object.fromEntries(s.map(r => [r.key, r.value]));
+      if (settings.waha_enabled === 'true') {
+        cleanExpiredOtps();
+        const otp = generateOtp();
+        const tempToken = jwt.sign({ otpUserId: user.id, deviceId: null }, process.env.JWT_SECRET, { expiresIn: '10m' });
+        otpStore.set(tempToken, { otp, userId: user.id, deviceId: null, expiresAt: Date.now() + 10 * 60 * 1000 });
+        await whatsappService.sendWhatsAppTo(
+          phone,
+          `📱 *ModulPOS Telefon Doğrulaması*\n\nHoş geldiniz, ${user.name}!\n\nTelefon numaranızı doğrulamak için kodunuz: *${otp}*\n\nBu kod 10 dakika geçerlidir.`
+        ).catch(() => {});
+        return res.status(201).json({ requires_otp: true, tempToken, phone: phone.replace(/\d(?=\d{2})/g, '*') });
+      }
+    }
+
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
       process.env.JWT_SECRET,
@@ -72,8 +91,6 @@ router.post('/register', async (req, res, next) => {
     );
 
     const { passwordHash: _, ...userWithoutPassword } = user;
-
-    whatsappService.notifyNewUser(user).catch(() => {});
 
     res.status(201).json({
       message: `Kayıt başarılı! ${trialDays} günlük deneme süreniz başladı.`,
@@ -137,12 +154,13 @@ router.post('/login', async (req, res, next) => {
       return res.status(403).json({ error: 'Abonelik süreniz dolduğu için hesabınız devre dışı bırakılmıştır. Lütfen yönetici ile iletişime geçin.' });
     }
 
-    // OTP check: if user has phone and deviceId is not recognized → send OTP
+    // OTP check: if OTP is enabled globally, user has phone, and device is not recognized → send OTP
+    const otpEnabled = await whatsappService.isOtpEnabled().catch(() => false);
     const knownDevice = deviceId
       ? await prisma.userSession.findFirst({ where: { userId: user.id, deviceId, isActive: true } })
       : null;
 
-    if (user.phone && !knownDevice) {
+    if (otpEnabled && user.phone && !knownDevice) {
       cleanExpiredOtps();
       const otp = generateOtp();
       const tempToken = jwt.sign({ otpUserId: user.id, deviceId }, process.env.JWT_SECRET, { expiresIn: '10m' });
@@ -179,6 +197,8 @@ router.post('/login', async (req, res, next) => {
         level: 'INFO'
       }
     }).catch(() => {});
+
+    whatsappService.notifyUserLogin(user, ip).catch(() => {});
 
     res.json({ message: 'Giriş başarılı', user: userWithoutPassword, token });
   } catch (error) {
@@ -235,6 +255,8 @@ router.post('/verify-otp', async (req, res, next) => {
     );
 
     const { passwordHash: _, ...userWithoutPassword } = user;
+    whatsappService.notifyUserLogin(user, ip).catch(() => {});
+
     res.json({ message: 'Giriş başarılı', user: userWithoutPassword, token });
   } catch (error) {
     next(error);

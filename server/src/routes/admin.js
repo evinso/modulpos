@@ -656,7 +656,7 @@ router.post('/system-settings', auth, isAdmin, async (req, res) => {
     }
     
     // Invalidate WhatsApp settings cache if WhatsApp keys were changed
-    const whatsappKeys = ['waha_enabled', 'waha_session', 'waha_admin_phone', 'waha_events'];
+    const whatsappKeys = ['waha_enabled', 'waha_session', 'waha_admin_phone', 'waha_events', 'waha_otp_enabled'];
     if (Object.keys(settings).some(k => whatsappKeys.includes(k))) {
       whatsappService.invalidateCache();
     }
@@ -1014,7 +1014,7 @@ router.post('/support-tickets/:id/reply', auth, isAdmin, async (req, res) => {
       })
     ]);
 
-    notificationService.createForUser(ticket.userId, { title: 'Destek Talebinize Yanıt Geldi', message: `"${ticket.subject}" konulu talebiniz yanıtlandı.`, type: 'success', link: '/support' });
+    notificationService.createForUser(ticket.userId, { title: 'Destek Talebinize Yanıt Geldi', message: `"${ticket.subject}" konulu talebiniz yanıtlandı.`, type: 'success', link: '/support', noWhatsapp: true });
     prisma.user.findUnique({ where: { id: ticket.userId }, select: { name: true, email: true, phone: true } })
       .then(u => whatsappService.notifySupportReply(u, ticket.subject).catch(() => {}))
       .catch(() => {});

@@ -32,7 +32,7 @@ export default function WhatsappPage() {
   const [sending, setSending] = useState(false);
 
   const [wahaSettings, setWahaSettings] = useState({
-    waha_enabled: 'false', waha_session: 'default', waha_admin_phone: '', waha_events: '["new_user","subscription","subscription_expired","credit_topup","new_support_ticket","new_order"]',
+    waha_enabled: 'false', waha_session: 'default', waha_admin_phone: '', waha_events: '["new_user","subscription","subscription_expired","credit_topup","new_support_ticket","new_order"]', waha_otp_enabled: 'false',
   });
   const [wahaLoading, setWahaLoading] = useState(false);
   const [wahaTesting, setWahaTesting] = useState(false);
@@ -132,13 +132,14 @@ export default function WhatsappPage() {
 
   const loadWahaSettings = async () => {
     try {
-      const res = await api.get('/admin/system-settings?keys=waha_enabled,waha_session,waha_admin_phone,waha_events');
+      const res = await api.get('/admin/system-settings?keys=waha_enabled,waha_session,waha_admin_phone,waha_events,waha_otp_enabled');
       setWahaSettings(s => ({
         ...s,
         waha_enabled: res.data.waha_enabled || 'false',
         waha_session: res.data.waha_session || 'default',
         waha_admin_phone: res.data.waha_admin_phone || '',
         waha_events: res.data.waha_events || s.waha_events,
+        waha_otp_enabled: res.data.waha_otp_enabled || 'false',
       }));
     } catch {}
   };
@@ -323,6 +324,20 @@ export default function WhatsappPage() {
             />
             <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>Tüm sistem bildirimleri bu numaraya gönderilir. Ülke kodu dahil, + olmadan.</span>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <label style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>
+              WhatsApp OTP Doğrulaması
+              <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                Telefon numarası kayıtlı kullanıcılar yeni cihazdan girişte WhatsApp kodu alır
+              </span>
+            </label>
+            <button type="button"
+              onClick={() => setWahaSettings(s => ({ ...s, waha_otp_enabled: s.waha_otp_enabled === 'true' ? 'false' : 'true' }))}
+              style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', position: 'relative', background: wahaSettings.waha_otp_enabled === 'true' ? '#25d366' : 'var(--border)', transition: 'background 0.2s', flexShrink: 0 }}
+            >
+              <span style={{ position: 'absolute', top: 3, left: wahaSettings.waha_otp_enabled === 'true' ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+            </button>
+          </div>
           <div>
             <label className="form-label" style={{ marginBottom: 10 }}>Bildirim Olayları</label>
             {[
@@ -336,6 +351,11 @@ export default function WhatsappPage() {
               { key: 'new_support_ticket', label: '🎫 Yeni destek talebi (admin)' },
               { key: 'support_reply',      label: '💬 Destek yanıtlandı (kullanıcı)' },
               { key: 'xml_error',          label: '⚠️ XML senkron hatası (admin)' },
+              { key: 'user_login',         label: '🔑 Yeni cihazdan giriş (admin)' },
+              { key: 'product_sync',       label: '✅ XML senkronizasyon tamamlandı (admin)' },
+              { key: 'trendyol_update',    label: '🟠 Trendyol stok/fiyat güncellendi (admin + kullanıcı)' },
+              { key: 'new_marketplace',    label: '🔗 Yeni pazaryeri bağlandı (admin + kullanıcı)' },
+              { key: 'low_credit',         label: '⚠️ Düşük kredi uyarısı (admin + kullanıcı)' },
             ].map(ev => {
               let events = [];
               try { events = JSON.parse(wahaSettings.waha_events || '[]'); } catch { events = []; }

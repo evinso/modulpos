@@ -5,6 +5,7 @@ const TrendyolService = require('../services/trendyol/trendyolService');
 const HepsiburadaService = require('../services/hepsiburada/hepsiburadaService');
 const PazaramaService = require('../services/pazarama/pazaramaService');
 const notificationService = require('../services/notificationService');
+const whatsappService = require('../services/whatsappService');
 const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
 const { deductCredits, getSetting } = require('./credits');
 
@@ -85,8 +86,11 @@ router.post('/connections', async (req, res, next) => {
       title: 'Pazaryeri Bağlandı',
       message: `${marketplaceType.charAt(0).toUpperCase() + marketplaceType.slice(1)} bağlantısı oluşturuldu.`,
       type: 'success',
-      link: '/marketplace'
+      link: '/marketplace',
+      noWhatsapp: true,
     });
+
+    whatsappService.notifyNewMarketplace(store.name, marketplaceType, req.user.phone || null).catch(() => {});
 
     res.status(201).json(connection);
   } catch (error) { next(error); }

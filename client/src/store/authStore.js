@@ -56,6 +56,10 @@ export const useAuthStore = create(
         set({ loading: true, error: null });
         try {
           const res = await api.post('/auth/register', data);
+          if (res.data.requires_otp) {
+            set({ loading: false });
+            return res.data; // { requires_otp: true, tempToken, phone }
+          }
           set({ user: res.data.user, token: res.data.token, loading: false });
           return res.data;
         } catch (err) {

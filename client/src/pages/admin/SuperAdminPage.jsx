@@ -50,7 +50,7 @@ export default function SuperAdminPage() {
     footer_copyright: `© ${new Date().getFullYear()} ModulPOS. Tüm hakları saklıdır.`
   });
 
-  const [generalSettings, setGeneralSettings] = useState({ trial_days: '3', anthropic_api_key: '', credit_category_ai: '0.5' });
+  const [generalSettings, setGeneralSettings] = useState({ trial_days: '3', anthropic_api_key: '', credit_category_ai: '0.5', hb_webhook_username: '', hb_webhook_password: '' });
   const [wahaSettings, setWahaSettings] = useState({
     waha_enabled: 'false',
     waha_session: 'default',
@@ -180,11 +180,13 @@ export default function SuperAdminPage() {
         const res = await api.get(`/admin/support-tickets${params}`);
         setSupportTickets(res.data);
       } else if (activeTab === 'settings') {
-        const settingsRes = await api.get('/admin/system-settings?keys=trial_days,anthropic_api_key,credit_category_ai,waha_enabled,waha_session,waha_admin_phone,waha_events');
+        const settingsRes = await api.get('/admin/system-settings?keys=trial_days,anthropic_api_key,credit_category_ai,hb_webhook_username,hb_webhook_password,waha_enabled,waha_session,waha_admin_phone,waha_events');
         setGeneralSettings({
           trial_days: settingsRes.data.trial_days || '3',
           anthropic_api_key: settingsRes.data.anthropic_api_key || '',
           credit_category_ai: settingsRes.data.credit_category_ai || '0.5',
+          hb_webhook_username: settingsRes.data.hb_webhook_username || '',
+          hb_webhook_password: settingsRes.data.hb_webhook_password || '',
         });
         setWahaSettings({
           waha_enabled: settingsRes.data.waha_enabled || 'false',
@@ -241,6 +243,8 @@ export default function SuperAdminPage() {
         trial_days: generalSettings.trial_days,
         anthropic_api_key: generalSettings.anthropic_api_key,
         credit_category_ai: generalSettings.credit_category_ai,
+        hb_webhook_username: generalSettings.hb_webhook_username,
+        hb_webhook_password: generalSettings.hb_webhook_password,
       });
       toast.success('Genel ayarlar kaydedildi');
     } catch {
@@ -1598,6 +1602,38 @@ export default function SuperAdminPage() {
                     />
                     <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 6 }}>
                       Kategori Eşleştirme sayfasındaki "AI ile Otomatik Eşleştir" başına kategori sayısıyla çarpılarak ücretlendirilir. 0 = ücretsiz.
+                    </span>
+                  </div>
+                  <div className="form-group" style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
+                    <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ color: '#ff6000' }}>●</span> Hepsiburada Webhook Kimlik Bilgileri
+                    </label>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10, padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 6, fontFamily: 'monospace' }}>
+                      Webhook URL: https://modulpos.com/api/webhooks/hepsiburada
+                    </div>
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <div style={{ flex: 1 }}>
+                        <label className="form-label" style={{ fontSize: 12 }}>Kullanıcı Adı</label>
+                        <input
+                          className="form-input"
+                          placeholder="ör: hbwebhook"
+                          value={generalSettings.hb_webhook_username}
+                          onChange={e => setGeneralSettings({ ...generalSettings, hb_webhook_username: e.target.value })}
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label className="form-label" style={{ fontSize: 12 }}>Şifre</label>
+                        <input
+                          type="password"
+                          className="form-input"
+                          placeholder="••••••••"
+                          value={generalSettings.hb_webhook_password}
+                          onChange={e => setGeneralSettings({ ...generalSettings, hb_webhook_password: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 6 }}>
+                      Bu bilgileri Hepsiburada'ya webhook kaydı sırasında iletirsiniz. Tüm mağazalar için geçerlidir.
                     </span>
                   </div>
                   <div style={{ textAlign: 'right', marginTop: 8 }}>

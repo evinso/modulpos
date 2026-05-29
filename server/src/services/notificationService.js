@@ -1,13 +1,21 @@
 const prisma = require('../config/database');
 const sseService = require('./sseService');
+const whatsappService = require('./whatsappService');
 
 class NotificationService {
-  async create({ storeId, title, message, type = 'info', link = null, data = null }) {
+  async create({ storeId, title, message, type = 'info', link = null, data = null, noWhatsapp = false }) {
     try {
       const notification = await prisma.notification.create({
         data: { storeId, title, message, type, link, data },
       });
       sseService.pushToStore(storeId, notification);
+
+      if (!noWhatsapp) {
+        prisma.store.findUnique({ where: { id: storeId }, select: { user: { select: { phone: true } } } })
+          .then(store => whatsappService.forwardInAppNotification(store?.user?.phone, title, message))
+          .catch(() => {});
+      }
+
       return notification;
     } catch (error) {
       console.error('Notification creation failed:', error);
@@ -15,18 +23,10 @@ class NotificationService {
     }
   }
 
-  /**
-   * Get notifications for a store
-   * @param {string} storeId 
-   * @param {Object} options { limit, unreadOnly }
-   */
   async getForStore(storeId, { limit = 20, unreadOnly = false } = {}) {
     try {
       const where = { storeId };
-      if (unreadOnly) {
-        where.isRead = false;
-      }
-
+      if (unreadOnly) where.isRead = false;
       return await prisma.notification.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -38,42 +38,26 @@ class NotificationService {
     }
   }
 
-  /**
-   * Mark a notification as read
-   * @param {string} id 
-   */
   async markAsRead(id) {
     try {
-      return await prisma.notification.update({
-        where: { id },
-        data: { isRead: true },
-      });
+      return await prisma.notification.update({ where: { id }, data: { isRead: true } });
     } catch (error) {
       console.error('Failed to mark notification as read:', error);
       return null;
     }
   }
 
-  /**
-   * Create a notification by userId (looks up storeId automatically)
-   * @param {string} userId
-   * @param {Object} data { title, message, type, link }
-   */
-  async createForUser(userId, { title, message, type = 'info', link = null, data = null }) {
+  async createForUser(userId, { title, message, type = 'info', link = null, data = null, noWhatsapp = false }) {
     try {
       const store = await prisma.store.findFirst({ where: { userId } });
       if (!store) return null;
-      return await this.create({ storeId: store.id, title, message, type, link, data });
+      return await this.create({ storeId: store.id, title, message, type, link, data, noWhatsapp });
     } catch (error) {
       console.error('Notification createForUser failed:', error);
       return null;
     }
   }
 
-  /**
-   * Mark all notifications as read for a store
-   * @param {string} storeId
-   */
   async markAllAsRead(storeId) {
     try {
       return await prisma.notification.updateMany({

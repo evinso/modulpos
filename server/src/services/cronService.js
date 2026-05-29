@@ -206,6 +206,8 @@ class CronService {
         link: '/products'
       });
 
+      whatsappService.notifyProductSync(xmlSource.store?.name || xmlSource.storeId, xmlSource.name, created, updated).catch(() => {});
+
       console.log(`[CRON] Finished XML Sync for ${xmlSource.name}. Triggering auto-send to Trendyol...`);
       await this.autoSendToMarketplaces(xmlSource.storeId, xmlSource.id);
 
@@ -308,8 +310,11 @@ class CronService {
               title: 'Otomatik Trendyol Güncelleme',
               message: `${items.length} ürünün fiyat ve stoğu Trendyol'da otomatik güncellendi.`,
               type: 'success',
-              link: '/products'
+              link: '/products',
+              noWhatsapp: true,
             });
+            const storeObj = await prisma.store.findUnique({ where: { id: storeId }, select: { name: true, user: { select: { phone: true } } } }).catch(() => null);
+            whatsappService.notifyTrendyolUpdate(storeObj?.name || storeId, items.length, storeObj?.user?.phone || null).catch(() => {});
           }
         } catch (connErr) {
           console.error(`[CRON] Trendyol sync failed for connection ${conn.id}:`, connErr.message);

@@ -4,7 +4,7 @@ const WahaService = require('./whatsapp/wahaService');
 let cachedSettings = null;
 let cacheExpiry = 0;
 
-const SETTINGS_KEYS = ['waha_enabled', 'waha_session', 'waha_admin_phone', 'waha_events'];
+const SETTINGS_KEYS = ['waha_enabled', 'waha_session', 'waha_admin_phone', 'waha_events', 'waha_otp_enabled'];
 
 async function getSettings() {
   if (cachedSettings && Date.now() < cacheExpiry) return cachedSettings;
@@ -124,4 +124,55 @@ async function notifyPaymentFailed(user, amount, reason) {
   );
 }
 
-module.exports = { sendWhatsApp, sendWhatsAppTo, notifyNewUser, notifySubscriptionUpdated, notifyCreditTopup, notifyNewSupportTicket, notifySubscriptionExpired, notifyNewOrder, notifyOrderStatusChange, notifySupportReply, notifyXmlError, notifyPaymentFailed, invalidateCache };
+async function notifyUserLogin(user, ip) {
+  if (!await isEventEnabled('user_login')) return;
+  await sendWhatsApp(`🔑 *Yeni Giriş*\n\n👤 ${user.name || user.email}\n📧 ${user.email}\n🌐 IP: ${ip}\n📅 ${new Date().toLocaleString('tr-TR')}`);
+}
+
+async function notifyProductSync(storeName, sourceName, created, updated) {
+  if (!await isEventEnabled('product_sync')) return;
+  await sendWhatsApp(`✅ *XML Senkronizasyon Tamamlandı*\n\n🏪 Mağaza: ${storeName}\n📡 Kaynak: ${sourceName}\n➕ Yeni: ${created} ürün\n🔄 Güncellenen: ${updated} ürün\n📅 ${new Date().toLocaleString('tr-TR')}`);
+}
+
+async function notifyTrendyolUpdate(storeName, count, userPhone = null) {
+  if (!await isEventEnabled('trendyol_update')) return;
+  await sendToAdminAndUser(
+    `🟠 *Trendyol Güncelleme Tamamlandı*\n\n🏪 Mağaza: ${storeName}\n📦 ${count} ürünün fiyat/stok güncellendi\n📅 ${new Date().toLocaleString('tr-TR')}`,
+    userPhone
+  );
+}
+
+async function notifyNewMarketplace(storeName, marketplaceType, userPhone = null) {
+  if (!await isEventEnabled('new_marketplace')) return;
+  const labels = { trendyol: 'Trendyol', hepsiburada: 'Hepsiburada', amazon: 'Amazon', n11: 'N11', ciceksepeti: 'Çiçeksepeti', pttavm: 'PttAVM', pazarama: 'Pazarama' };
+  const label = labels[marketplaceType] || marketplaceType;
+  await sendToAdminAndUser(
+    `🔗 *Yeni Pazaryeri Bağlandı*\n\n🏪 Mağaza: ${storeName}\n🛍 Pazaryeri: ${label}\n📅 ${new Date().toLocaleString('tr-TR')}`,
+    userPhone
+  );
+}
+
+async function notifyLowCredit(user, balance) {
+  if (!await isEventEnabled('low_credit')) return;
+  await sendToAdminAndUser(
+    `⚠️ *Düşük Kredi Uyarısı*\n\n👤 ${user.name || user.email}\n💰 Kalan Kredi: ${balance}\n📅 ${new Date().toLocaleString('tr-TR')}\n\nKredi yüklemek için panele giriş yapın.`,
+    user.phone
+  );
+}
+
+async function isOtpEnabled() {
+  const s = await getSettings();
+  return s.waha_otp_enabled === 'true';
+}
+
+// Generic in-app notification forwarder — checks waha_enabled, sends to user's phone
+async function forwardInAppNotification(userPhone, title, message) {
+  if (!userPhone) return;
+  const s = await getSettings();
+  if (s.waha_enabled !== 'true') return;
+  const waha = new WahaService(s.waha_session || 'default');
+  const text = `🔔 *${title}*\n\n${message}\n\n📅 ${new Date().toLocaleString('tr-TR')}`;
+  await waha.sendMessage(userPhone, text).catch(e => console.error('[WhatsApp] forwardInApp failed:', e.message));
+}
+
+module.exports = { sendWhatsApp, sendWhatsAppTo, forwardInAppNotification, isOtpEnabled, notifyNewUser, notifySubscriptionUpdated, notifyCreditTopup, notifyNewSupportTicket, notifySubscriptionExpired, notifyNewOrder, notifyOrderStatusChange, notifySupportReply, notifyXmlError, notifyPaymentFailed, notifyUserLogin, notifyProductSync, notifyTrendyolUpdate, notifyNewMarketplace, notifyLowCredit, invalidateCache };

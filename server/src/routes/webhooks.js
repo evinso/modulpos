@@ -118,32 +118,36 @@ function mapOrderStatus(status) {
 }
 
 // POST /api/webhooks/hepsiburada
-// Hepsiburada calls this with Basic Auth (username:password defined during webhook registration)
+// Single platform-wide endpoint — Hepsiburada sends all merchants' events here.
+// Basic Auth credentials are stored in system settings (hb_webhook_username / hb_webhook_password).
 router.post('/hepsiburada', async (req, res) => {
   try {
     const body = req.body;
     const merchantId = String(body.merchantId || body.MerchantId || '');
 
-    // Find matching connection by sellerId (merchantId)
+    // Validate platform-wide Basic Auth
+    const [userSetting, passSetting] = await Promise.all([
+      prisma.systemSettings.findUnique({ where: { key: 'hb_webhook_username' } }),
+      prisma.systemSettings.findUnique({ where: { key: 'hb_webhook_password' } }),
+    ]);
+    const hbUser = userSetting?.value;
+    const hbPass = passSetting?.value;
+    if (hbUser && hbPass) {
+      const authHeader = req.headers['authorization'] || '';
+      const expected = 'Basic ' + Buffer.from(`${hbUser}:${hbPass}`).toString('base64');
+      if (authHeader !== expected) {
+        console.warn(`[webhook/hepsiburada] Geçersiz Basic Auth`);
+        return res.status(200).json({ received: true });
+      }
+    }
+
+    // Find matching connection by merchantId
     let connection = null;
     if (merchantId) {
       connection = await prisma.marketplaceConnection.findFirst({
         where: { sellerId: merchantId, marketplaceType: 'hepsiburada', status: 'active' },
-        select: { id: true, storeId: true, config: true }
+        select: { id: true, storeId: true }
       });
-    }
-
-    // Validate Basic Auth if credentials are configured on the connection
-    if (connection?.config) {
-      const cfg = JSON.parse(connection.config);
-      if (cfg.webhookUsername && cfg.webhookPassword) {
-        const authHeader = req.headers['authorization'] || '';
-        const expected = 'Basic ' + Buffer.from(`${cfg.webhookUsername}:${cfg.webhookPassword}`).toString('base64');
-        if (authHeader !== expected) {
-          console.warn(`[webhook] Hepsiburada: invalid Basic Auth for merchantId=${merchantId}`);
-          return res.status(200).json({ received: true }); // 200 to prevent retries
-        }
-      }
     }
 
     const eventType = body.status || body.Status || body.eventType || 'UNKNOWN';

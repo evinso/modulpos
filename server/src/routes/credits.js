@@ -167,6 +167,7 @@ router.post('/admin/topup', auth, requireAdmin, async (req, res, next) => {
       message: `${parseFloat(amount)} kredi hesabınıza yüklendi. Güncel bakiye: ${newBalance} kredi.`,
       type: 'success',
       link: '/credits',
+      noWhatsapp: true,
       data: { notifType: 'credit_topup', amount: parseFloat(amount), newBalance }
     }).catch(() => {});
 
@@ -249,8 +250,12 @@ async function deductCredits(userId, amount, type, description, referenceId = nu
       message: `Bakiyeniz ${newBalance.toFixed(1)} krediye düştü. İşlemlerinizin kesintisiz sürmesi için kredi yükleyin.`,
       type: 'warning',
       link: '/credits',
+      noWhatsapp: true,
       data: { notifType: 'credit_low', newBalance }
     }).catch(() => {});
+    prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, phone: true } })
+      .then(u => whatsappService.notifyLowCredit(u || { email: String(userId) }, newBalance).catch(() => {}))
+      .catch(() => {});
   }
 
   return newBalance;
