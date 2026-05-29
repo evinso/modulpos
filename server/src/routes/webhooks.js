@@ -207,15 +207,14 @@ async function processHepsiburadaEvent(eventType, body, connection) {
       }
     });
   } else {
-    await prisma.order.update({
-      where: { orderNumber },
-      data: {
-        status: mapHepsiburadaStatus(eventType),
-        cargoCompany: body.cargoCompany || body.CargoCompany || existing.cargoCompany,
-        trackingNumber: body.cargoTrackingNumber || body.CargoTrackingNumber || existing.trackingNumber,
-        updatedAt: new Date(),
-      }
-    });
+    const newStatus = mapHepsiburadaStatus(eventType);
+    const updateData = {
+      cargoCompany: body.cargoCompany || body.CargoCompany || existing.cargoCompany,
+      trackingNumber: body.cargoTrackingNumber || body.CargoTrackingNumber || existing.trackingNumber,
+      updatedAt: new Date(),
+    };
+    if (newStatus !== null) updateData.status = newStatus;
+    await prisma.order.update({ where: { orderNumber }, data: updateData });
   }
 
   await prisma.webhookEvent.updateMany({
@@ -226,6 +225,20 @@ async function processHepsiburadaEvent(eventType, body, connection) {
 
 function mapHepsiburadaStatus(status) {
   const map = {
+    // Actual Hepsiburada webhook event types
+    CreateOrder: 'new',
+    CreatePackage: 'processing',
+    Intransit: 'shipped',
+    Unpack: 'processing',
+    Deliver: 'delivered',
+    Undeliver: 'returned',
+    Cancel: 'cancelled',
+    ClaimsPackages: 'returned',
+    ClaimsAwaitingAction: 'returned',
+    ClaimsAccept: 'returned',
+    ClaimsReject: 'processing',
+    ChangeShippingAddress: null, // adres değişikliği — statü değiştirme
+    // Legacy / fallback variants
     Created: 'new',
     WaitingforSupplierApproval: 'new',
     Approved: 'processing',
@@ -235,16 +248,8 @@ function mapHepsiburadaStatus(status) {
     Cancelled: 'cancelled',
     UnDelivered: 'returned',
     Returned: 'returned',
-    // uppercase variants
-    CREATED: 'new',
-    APPROVED: 'processing',
-    SHIPPED: 'shipped',
-    DELIVERED: 'delivered',
-    CANCELLED: 'cancelled',
-    UNDELIVERED: 'returned',
-    RETURNED: 'returned',
   };
-  return map[status] || 'new';
+  return map[status] ?? 'new';
 }
 
 module.exports = router;
