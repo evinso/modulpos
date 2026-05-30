@@ -20,9 +20,10 @@ function MpBadge({ status }) {
   );
 }
 
-const TRENDYOL_ROUTES    = ['/category-mapping', '/trendyol-send', '/buybox', '/questions'];
-const HEPSIBURADA_ROUTES = ['/hepsiburada-send', '/hepsiburada-mapping', '/hepsiburada-create', '/hepsiburada-buybox', '/hepsiburada-questions', '/hepsiburada-update'];
-const PAZARAMA_ROUTES    = ['/pazarama-send'];
+const TRENDYOL_ROUTES      = ['/category-mapping', '/trendyol-send', '/buybox', '/questions'];
+const HEPSIBURADA_ROUTES   = ['/hepsiburada-send', '/hepsiburada-mapping', '/hepsiburada-create', '/hepsiburada-buybox', '/hepsiburada-questions', '/hepsiburada-update'];
+const PAZARAMA_ROUTES      = ['/pazarama-send'];
+const CICEKSEPETI_ROUTES   = ['/ciceksepeti-send'];
 
 const trendyolItems = [
   { to: '/category-mapping', icon: FolderTree, label: 'Kategori Eşleştirme' },
@@ -44,6 +45,10 @@ const pazaramaItems = [
   { to: '/pazarama-send', icon: Send, label: 'Ürün Gönder / Güncelle' },
 ];
 
+const ciceksepetiItems = [
+  { to: '/ciceksepeti-send', icon: ArrowLeftRight, label: 'Ürünler & Siparişler' },
+];
+
 export default function Sidebar({ isOpen }) {
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
@@ -52,9 +57,11 @@ export default function Sidebar({ isOpen }) {
   const isTrendyolActive    = TRENDYOL_ROUTES.some(r => location.pathname.startsWith(r));
   const isHepsiburadaActive = HEPSIBURADA_ROUTES.some(r => location.pathname.startsWith(r));
   const isPazaramaActive    = PAZARAMA_ROUTES.some(r => location.pathname.startsWith(r));
-  const [trendyolOpen, setTrendyolOpen]       = useState(isTrendyolActive);
-  const [hepsiburadaOpen, setHepsiburadaOpen] = useState(isHepsiburadaActive);
-  const [pazaramaOpen, setPazaramaOpen]       = useState(isPazaramaActive);
+  const isCiceksepetiActive = CICEKSEPETI_ROUTES.some(r => location.pathname.startsWith(r));
+  const [trendyolOpen, setTrendyolOpen]           = useState(isTrendyolActive);
+  const [hepsiburadaOpen, setHepsiburadaOpen]     = useState(isHepsiburadaActive);
+  const [pazaramaOpen, setPazaramaOpen]           = useState(isPazaramaActive);
+  const [ciceksepetiOpen, setCiceksepetiOpen]     = useState(isCiceksepetiActive);
 
   const [mpStatuses, setMpStatuses] = useState({});
   useEffect(() => {
@@ -209,12 +216,46 @@ export default function Sidebar({ isOpen }) {
             </div>
           )}
 
+          {/* Çiçeksepeti collapsible */}
+          <button
+            onClick={() => setCiceksepetiOpen(o => !o)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+              padding: '8px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+              background: isCiceksepetiActive ? 'rgba(105,178,42,0.10)' : 'transparent',
+              color: isCiceksepetiActive ? '#69b22a' : 'var(--text-secondary)',
+              fontSize: 13, fontWeight: isCiceksepetiActive ? 600 : 400, marginTop: 2,
+            }}
+          >
+            <Store size={18} style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, textAlign: 'left' }}>Çiçeksepeti</span>
+            <MpBadge status={mpStatuses.ciceksepeti} />
+            <ChevronDown size={14} style={{ transition: 'transform 0.2s', transform: ciceksepetiOpen ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }} />
+          </button>
+
+          {ciceksepetiOpen && (
+            <div style={{ marginLeft: 12, borderLeft: '2px solid var(--border-color)', paddingLeft: 8, marginBottom: 2 }}>
+              {ciceksepetiItems.map(item => {
+                const disabled = mpStatuses.ciceksepeti === 'maintenance';
+                if (disabled) return (
+                  <div key={item.to} className="nav-item" style={{ fontSize: 13, opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' }}>
+                    <item.icon size={16} className="icon" /><span>{item.label}</span>
+                  </div>
+                );
+                return (
+                  <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} style={{ fontSize: 13 }}>
+                    <item.icon size={16} className="icon" /><span>{item.label}</span>
+                  </NavLink>
+                );
+              })}
+            </div>
+          )}
+
           {/* Diğer pazaryerleri */}
           {[
-            { label: 'Amazon',      key: 'amazon' },
-            { label: 'N11',         key: 'n11' },
-            { label: 'Çiçeksepeti', key: 'ciceksepeti' },
-            { label: 'Pttavm',      key: 'pttavm' },
+            { label: 'Amazon', key: 'amazon' },
+            { label: 'N11',    key: 'n11' },
+            { label: 'Pttavm', key: 'pttavm' },
           ].map(mp => (
             <div
               key={mp.label}
