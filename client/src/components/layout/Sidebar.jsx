@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, FolderTree, Send, ArrowLeftRight, Shield, Globe, Wallet, CreditCard, Activity, Truck, TrendingUp, ChevronDown, RefreshCw, BookOpen } from 'lucide-react';
+import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, FolderTree, Send, ArrowLeftRight, Shield, Globe, Wallet, CreditCard, Activity, Truck, TrendingUp, ChevronDown, RefreshCw, BookOpen, Flower } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import api from '../../services/api';
 
@@ -22,7 +22,7 @@ function MpBadge({ status }) {
 
 const TRENDYOL_ROUTES      = ['/category-mapping', '/trendyol-send', '/buybox', '/questions'];
 const HEPSIBURADA_ROUTES   = ['/hepsiburada-send', '/hepsiburada-mapping', '/hepsiburada-create', '/hepsiburada-buybox', '/hepsiburada-questions', '/hepsiburada-update'];
-const PAZARAMA_ROUTES      = ['/pazarama-send'];
+const PAZARAMA_ROUTES      = ['/pazarama-send', '/pazarama-mapping', '/pazarama-orders'];
 const CICEKSEPETI_ROUTES   = ['/ciceksepeti-send'];
 
 const trendyolItems = [
@@ -42,7 +42,9 @@ const hepsiburadaItems = [
 ];
 
 const pazaramaItems = [
-  { to: '/pazarama-send', icon: Send, label: 'Ürün Gönder / Güncelle' },
+  { to: '/pazarama-mapping', icon: FolderTree, label: 'Kategori Eşleştirme' },
+  { to: '/pazarama-send',    icon: Send,        label: 'Ürün Gönder / Güncelle' },
+  { to: '/pazarama-orders',  icon: ShoppingCart, label: 'Siparişler' },
 ];
 
 const ciceksepetiItems = [

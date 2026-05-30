@@ -29,6 +29,8 @@ const HepsiburadaBuyboxPage      = lazy(() => import('./pages/marketplaces/Hepsi
 const HepsiburadaQuestionsPage   = lazy(() => import('./pages/marketplaces/HepsiburadaQuestionsPage'));
 const HepsiburadaUpdatePage      = lazy(() => import('./pages/marketplaces/HepsiburadaUpdatePage'));
 const PazaramaSendPage           = lazy(() => import('./pages/marketplaces/PazaramaSendPage'));
+const PazaramaMappingPage        = lazy(() => import('./pages/marketplaces/PazaramaMappingPage'));
+const PazaramaOrdersPage         = lazy(() => import('./pages/marketplaces/PazaramaOrdersPage'));
 const CiceksepetiSendPage        = lazy(() => import('./pages/marketplaces/CiceksepetiSendPage'));
 const BuyboxPage          = lazy(() => import('./pages/marketplaces/BuyboxPage'));
 const QuestionsPage       = lazy(() => import('./pages/questions/QuestionsPage'));
@@ -95,6 +97,8 @@ function App() {
             <Route path="/hepsiburada-questions"  element={<HepsiburadaQuestionsPage />} />
             <Route path="/hepsiburada-update"     element={<HepsiburadaUpdatePage />} />
             <Route path="/pazarama-send"          element={<PazaramaSendPage />} />
+            <Route path="/pazarama-mapping"       element={<PazaramaMappingPage />} />
+            <Route path="/pazarama-orders"        element={<PazaramaOrdersPage />} />
             <Route path="/ciceksepeti-send"       element={<CiceksepetiSendPage />} />
             <Route path="/buybox"           element={<BuyboxPage />} />
             <Route path="/questions"        element={<QuestionsPage />} />
