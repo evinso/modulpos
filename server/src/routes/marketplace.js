@@ -4,6 +4,7 @@ const { auth } = require('../middleware/auth');
 const TrendyolService = require('../services/trendyol/trendyolService');
 const HepsiburadaService = require('../services/hepsiburada/hepsiburadaService');
 const PazaramaService = require('../services/pazarama/pazaramaService');
+const CiceksepetiService = require('../services/ciceksepeti/ciceksepetiService');
 const notificationService = require('../services/notificationService');
 const whatsappService = require('../services/whatsappService');
 const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
@@ -17,7 +18,7 @@ async function getUserStore(userId) {
 }
 
 const MP_STATUS_KEYS = ['trendyol', 'hepsiburada', 'amazon', 'n11', 'ciceksepeti', 'pttavm', 'pazarama'];
-const MP_STATUS_DEFAULTS = { trendyol: 'active', hepsiburada: 'active', amazon: 'development', n11: 'development', ciceksepeti: 'development', pttavm: 'development', pazarama: 'development' };
+const MP_STATUS_DEFAULTS = { trendyol: 'active', hepsiburada: 'active', amazon: 'development', n11: 'development', ciceksepeti: 'active', pttavm: 'development', pazarama: 'development' };
 
 // GET marketplace status labels (used by sidebar)
 router.get('/statuses', async (_req, res, next) => {
@@ -156,6 +157,15 @@ router.post('/connections/:id/test', async (req, res, next) => {
       return res.json(result);
     }
 
+    if (connection.marketplaceType === 'ciceksepeti') {
+      const service = new CiceksepetiService(connection);
+      const result = await service.testConnection();
+      if (result.success) {
+        await prisma.marketplaceConnection.update({ where: { id: connection.id }, data: { status: 'active', errorMessage: null } });
+      }
+      return res.json(result);
+    }
+
     res.json({ success: false, message: 'Bu pazaryeri henüz desteklenmiyor' });
   } catch (error) { next(error); }
 });
@@ -190,6 +200,12 @@ router.get('/connections/:id/categories', async (req, res, next) => {
     if (connection.marketplaceType === 'pazarama') {
       const service = new PazaramaService(connection);
       const data = await service.getCategoryTree();
+      return res.json(data);
+    }
+    if (connection.marketplaceType === 'ciceksepeti') {
+      const service = new CiceksepetiService(connection);
+      const { page = 0, pageSize = 500 } = req.query;
+      const data = await service.getCategories({ page: parseInt(page), pageSize: parseInt(pageSize) });
       return res.json(data);
     }
     res.json([]);
@@ -2738,6 +2754,58 @@ router.get('/connections/:id/pazarama-orders', async (req, res, next) => {
     const { startDate, endDate, page = 1, size = 50 } = req.query;
     const service = new PazaramaService(connection);
     const data = await service.getOrders({ startDate, endDate, page: parseInt(page), size: parseInt(size) });
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+// ─── Çiçeksepeti Routes ──────────────────────────────────────────────────────
+
+router.get('/connections/:id/ciceksepeti-products', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'ciceksepeti') return res.status(400).json({ error: 'Çiçeksepeti bağlantısı bulunamadı' });
+    const { status = 'Active', page = 0, pageSize = 100 } = req.query;
+    const service = new CiceksepetiService(connection);
+    const data = await service.getProducts({ status, page: parseInt(page), pageSize: parseInt(pageSize) });
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+router.post('/connections/:id/ciceksepeti-price-stock', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'ciceksepeti') return res.status(400).json({ error: 'Çiçeksepeti bağlantısı bulunamadı' });
+    const { items } = req.body;
+    if (!items || !items.length) return res.status(400).json({ error: 'Ürün listesi boş' });
+    const service = new CiceksepetiService(connection);
+    const data = await service.updatePriceAndStock(items);
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+router.get('/connections/:id/ciceksepeti-orders', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'ciceksepeti') return res.status(400).json({ error: 'Çiçeksepeti bağlantısı bulunamadı' });
+    const { startDate, endDate, statusId, page = 0, pageSize = 100 } = req.query;
+    const service = new CiceksepetiService(connection);
+    const data = await service.getOrders({
+      startDate,
+      endDate,
+      statusId: statusId !== undefined ? parseInt(statusId) : undefined,
+      page: parseInt(page),
+      pageSize: parseInt(pageSize),
+    });
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
+router.get('/connections/:id/ciceksepeti-category-attributes/:categoryId', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection || connection.marketplaceType !== 'ciceksepeti') return res.status(400).json({ error: 'Çiçeksepeti bağlantısı bulunamadı' });
+    const service = new CiceksepetiService(connection);
+    const data = await service.getCategoryAttributes(req.params.categoryId);
     res.json(data);
   } catch (error) { next(error); }
 });
