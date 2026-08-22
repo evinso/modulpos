@@ -1,0 +1,631 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  name          String
+  phone         String?
+  role          String   @default("owner") // owner, admin, operator
+  avatarUrl     String?
+  isActive      Boolean  @default(true)
+  maxProducts   Int      @default(5000)
+  maxXmlSources Int      @default(3)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  stores          Store[]
+  subscriptions   Subscription[]
+  auditLogs       AuditLog[]
+  invoices        Invoice[]
+  dropshipOrders  DropshipOrder[]
+  supportTickets  SupportTicket[]
+  sessions        UserSession[]
+}
+
+model UserSession {
+  id          String    @id @default(uuid())
+  userId      String
+  ip          String?
+  userAgent   String?
+  deviceId    String?
+  loginAt     DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  isActive    Boolean   @default(true)
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  details   String?  // JSON string
+  level     String   @default("INFO") // INFO, WARNING, ERROR
+  createdAt DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model Store {
+  id           String   @id @default(uuid())
+  userId       String
+  name         String
+  taxId        String?
+  address      String?
+  phone        String?
+  logo         String?
+  isActive     Boolean  @default(true)
+  // Fatura bilgileri
+  invoiceType  String   @default("bireysel") // bireysel | kurumsal
+  companyTitle String?  // Şirket / Unvan
+  taxOffice    String?  // Vergi Dairesi
+  city         String?  // İl
+  district     String?  // İlçe
+  postalCode   String?  // Posta Kodu
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user                  User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products              Product[]
+  xmlSources            XmlSource[]
+  marketplaceConnections MarketplaceConnection[]
+  orders                Order[]
+  pricingRules          PricingRule[]
+  customerQuestions     CustomerQuestion[]
+  syncLogs              SyncLog[]
+  notifications         Notification[]
+  dropshipOrders        DropshipOrder[]
+  autoReplyRules        AutoReplyRule[]
+  whatsappConnections   WhatsappConnection[]
+}
+
+model XmlSource {
+  id              String   @id @default(uuid())
+  storeId         String
+  name            String
+  url             String
+  format          String   @default("xml") // xml, json, csv
+  syncIntervalMin Int      @default(60)
+  lastSyncedAt    DateTime?
+  totalProducts   Int      @default(0)
+  status          String   @default("active") // active, paused, error
+  errorMessage    String?
+  mappingConfig   String?  // JSON string for field mappings
+  barcodePrefix   String?  // Prefix to add to barcodes
+  defaultCategoryId String? // Default Trendyol category ID
+  defaultBrandId  String?  // Default Trendyol brand ID
+  priceMarkup     Float    @default(0) // Fixed amount to add to XML price
+  priceMarkupPct  Float    @default(0) // Percentage to add to XML price
+  defaultVatRate  Int      @default(10) // KDV oranı: 0, 1, 10, 20 (Trendyol ürün vergi oranı)
+  purchaseVatRate Int      @default(0)  // Alış fiyatına eklenecek KDV: 0, 1, 10, 20
+  globalPriceMarkup    Float    @default(0) // Hidden global markup
+  globalPriceMarkupPct Float    @default(0) // Hidden global markup percentage
+  globalPriceMarkupPctByPlan String? // JSON: per-plan markup {"Başlangıç": 20, "Profesyonel": 15, "Kurumsal": 10}
+  globalBarcodePrefix  String?  // Hidden global barcode prefix
+  globalProviderId     String?  // ID of the global provider this was imported from
+  excludeGlobalMarkup  Boolean  @default(false) // If true, global markup propagation is skipped for this source
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  store    Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  products Product[]
+  syncLogs SyncLog[]
+}
+
+model Product {
+  id            String   @id @default(uuid())
+  storeId       String
+  xmlSourceId   String?
+  sku           String
+  barcode       String?
+  title         String
+  description   String?
+  price         Float    @default(0)
+  xmlPrice      Float    @default(0) // Original price from XML source
+  cost          Float    @default(0)
+  listPrice     Float    @default(0)
+  stock         Int      @default(0)
+  brand         String?
+  category      String?
+  images        String?  // JSON array of image URLs
+  attributes    String?  // JSON object of product attributes
+  rawXmlData    String?  // JSON - original XML data, never modified
+  weight        Float?
+  desi          Float?
+  vatRate       Int      @default(10)
+  currencyType  String   @default("TRY")
+  status        String   @default("active") // active, passive, draft
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  store               Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  xmlSource           XmlSource?           @relation(fields: [xmlSourceId], references: [id], onDelete: SetNull)
+  variants            ProductVariant[]
+  marketplaceProducts MarketplaceProduct[]
+  dropshipOrders      DropshipOrder[]
+  buyboxRecords       BuyboxRecord[]
+  logs                ProductLog[]
+
+  @@index([storeId])
+  @@index([storeId, xmlSourceId])
+  @@index([storeId, category])
+  @@index([xmlSourceId])
+  @@index([barcode])
+  @@index([sku])
+}
+
+model ProductLog {
+  id        String   @id @default(uuid())
+  productId String
+  type      String   // 'created', 'synced', 'manual'
+  oldPrice  Float?
+  newPrice  Float?
+  oldStock  Int?
+  newStock  Int?
+  notes     String?
+  source    String   @default("xml_sync")
+  createdAt DateTime @default(now())
+
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([productId, createdAt])
+}
+
+model ProductVariant {
+  id         String  @id @default(uuid())
+  productId  String
+  sku        String
+  barcode    String?
+  title      String
+  price      Float   @default(0)
+  listPrice  Float   @default(0)
+  stock      Int     @default(0)
+  attributes String? // JSON: {color: "Red", size: "XL"}
+  images     String? // JSON array
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model MarketplaceConnection {
+  id              String   @id @default(uuid())
+  storeId         String
+  marketplaceType String   // trendyol, hepsiburada, n11, ciceksepeti
+  sellerId        String?
+  apiKey          String?
+  apiSecret       String?
+  supplierName    String?
+  baseUrl         String?
+  status          String   @default("active") // active, disconnected, error
+  lastSyncedAt    DateTime?
+  errorMessage    String?
+  config          String?  // JSON for additional config
+  connectedAt     DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  store               Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  marketplaceProducts MarketplaceProduct[]
+  orders              Order[]
+  customerQuestions   CustomerQuestion[]
+  categoryMappings    CategoryMapping[]
+  buyboxRecords       BuyboxRecord[]
+}
+
+model MarketplaceProduct {
+  id                    String   @id @default(uuid())
+  productId             String
+  connectionId          String
+  marketplaceProductId  String?
+  marketplaceCategoryId String?
+  marketplacePrice      Float    @default(0)
+  marketplaceStock      Int      @default(0)
+  status                String   @default("pending") // pending, active, rejected, passive
+  errorMessage          String?
+  batchRequestId        String?
+  lastSyncedAt          DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  product    Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, connectionId])
+}
+
+model CategoryMapping {
+  id                    String @id @default(uuid())
+  connectionId          String
+  localCategory         String
+  marketplaceCategoryId String
+  marketplaceCategoryName String?
+  attributes            String? // JSON: required attributes for this category
+  createdAt             DateTime @default(now())
+
+  connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+}
+
+model Order {
+  id                 String   @id @default(uuid())
+  storeId            String
+  connectionId       String?
+  marketplaceOrderId String?
+  orderNumber        String   @unique
+  status             String   @default("new") // new, processing, shipped, delivered, cancelled, returned
+  totalAmount        Float    @default(0)
+  customerName       String?
+  customerEmail      String?
+  customerPhone      String?
+  shippingAddress    String?  // JSON
+  billingAddress     String?  // JSON
+  items              String?  // JSON array of order items
+  cargoCompany       String?
+  trackingNumber     String?
+  cargoPrice         Float    @default(0)
+  notes              String?
+  orderDate          DateTime @default(now())
+  shippedAt          DateTime?
+  deliveredAt        DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  store      Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  connection MarketplaceConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
+  @@index([storeId, status])
+}
+
+model PricingRule {
+  id         String  @id @default(uuid())
+  storeId    String
+  name       String
+  type       String  // percentage, fixed, formula
+  value      Float   @default(0)
+  applyTo    String  @default("all") // all, category, brand, xml_source
+  applyValue String? // specific category/brand name
+  conditions String? // JSON conditions
+  priority   Int     @default(0)
+  isActive   Boolean @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+model CustomerQuestion {
+  id                    String   @id @default(uuid())
+  storeId               String
+  connectionId          String?
+  marketplaceQuestionId String?
+  productTitle          String?
+  questionText          String
+  answerText            String?
+  autoAnswered          Boolean  @default(false)
+  status                String   @default("pending") // pending, answered, skipped
+  askedAt               DateTime @default(now())
+  answeredAt            DateTime?
+  createdAt             DateTime @default(now())
+
+  store      Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  connection MarketplaceConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, status])
+}
+
+model Subscription {
+  id        String   @id @default(uuid())
+  userId    String
+  plan      String   // starter, growth, enterprise
+  status    String   @default("trial") // trial, active, expired, cancelled
+  startDate DateTime @default(now())
+  endDate   DateTime?
+  amount    Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SyncLog {
+  id          String   @id @default(uuid())
+  storeId     String
+  xmlSourceId String?
+  type        String   // xml_sync, stock_sync, price_sync, order_sync, product_send
+  status      String   // started, completed, failed
+  details     String?  // JSON details
+  itemCount   Int      @default(0)
+  errorCount  Int      @default(0)
+  created     Int      @default(0)
+  updated     Int      @default(0)
+  skipped     Int      @default(0)
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  xmlSource XmlSource? @relation(fields: [xmlSourceId], references: [id], onDelete: SetNull)
+
+  @@index([xmlSourceId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  storeId   String
+  title     String
+  message   String
+  type      String   @default("info") // info, success, warning, error
+  isRead    Boolean  @default(false)
+  link      String?
+  data      Json?    // Rich context payload for detail modal
+  createdAt DateTime @default(now())
+
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+model GlobalXmlProvider {
+  id              String   @id @default(uuid())
+  name            String
+  url             String
+  format          String   @default("xml")
+  mappingConfig   String?  // pre-mapped tags JSON
+  categoryMappingConfig String? // JSON of global category mappings
+  description     String?
+  logo            String?
+  priceMarkup     Float    @default(0)
+  priceMarkupPct  Float    @default(0)
+  barcodePrefix   String?
+  creditCost      Float    @default(0) // Kredi maliyeti (admin belirler)
+  orderFee        Float    @default(0) // Sipariş başına tedarikçi ücreti
+  purchaseVatRate Int      @default(0)  // Alış fiyatına eklenecek KDV: 0, 1, 10, 20
+  productCount    Int      @default(0) // Önizlemede güncellenir
+  cargoCompanies  String?  // JSON array of cargo company names
+  priceMarkupPctByPlan String? // JSON: {"Başlangıç": 20, "Profesyonel": 15, "Kurumsal": 10}
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model CreditBalance {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  balance   Float    @default(0)
+  updatedAt DateTime @updatedAt
+
+  transactions CreditTransaction[]
+}
+
+model CreditTransaction {
+  id          String   @id @default(uuid())
+  balanceId   String
+  amount      Float    // pozitif = yükleme, negatif = harcama
+  type        String   // topup, xml_import, xml_convert, admin_adjust
+  description String?
+  referenceId String?  // ilgili provider/source ID
+  createdAt   DateTime @default(now())
+
+  balance CreditBalance @relation(fields: [balanceId], references: [id], onDelete: Cascade)
+}
+
+model SystemSettings {
+  id    String @id @default(uuid())
+  key   String @unique
+  value String
+}
+
+model LandingPricingPlan {
+  id            String   @id @default(uuid())
+  name          String
+  price         String
+  yearlyPrice   String?
+  period        String
+  features      String   // JSON array of strings
+  ctaText       String   @default("Hemen Başla")
+  isHighlighted Boolean  @default(false)
+  order         Int      @default(0)
+  isActive      Boolean  @default(true)
+  maxProducts   Int      @default(1000)
+  maxXmlSources Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model LandingFooterSection {
+  id        String   @id @default(uuid())
+  title     String
+  links     String   // JSON array of { label, url, isExternal }
+  order     Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DropshipOrder {
+  id              String    @id @default(uuid())
+  userId          String
+  storeId         String
+  productId       String?   // Bağlı ürün (products tablosundan)
+  orderRef        String?   // Pazaryeri sipariş numarası (referans)
+  campaignCode    String?   // Trendyol kampanya / kargo kodu
+  creditAmount    Float     @default(0) // Kredi olarak ödenen tutar
+  productName     String
+  productCode     String?
+  supplierName    String?
+  quantity        Int       @default(1)
+  unitPrice       Float     @default(0)
+  customerName    String?
+  customerPhone   String?
+  shippingAddress String?
+  status          String    @default("pending") // pending, ordered, shipped, delivered, cancelled
+  supplierOrderId String?
+  trackingNumber  String?
+  cargoCompany    String?
+  notes           String?
+  orderedAt       DateTime?
+  shippedAt       DateTime?
+  deliveredAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store   Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([storeId])
+  @@index([status])
+}
+
+model Invoice {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  amount    Float
+  period    String?
+  notes     String?
+  fileUrl   String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PaytrLog {
+  id          String   @id @default(uuid())
+  merchantOid String
+  status      String   // 'success' | 'failed'
+  totalAmount Float
+  userId      String?
+  userEmail   String?
+  type        String?  // 'topup' | 'subscription'
+  failReason  String?
+  rawBody     String?
+  createdAt   DateTime @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model SupportTicket {
+  id        String           @id @default(uuid())
+  userId    String
+  subject   String
+  category  String           @default("general") // general, technical, billing, other
+  priority  String           @default("normal")  // low, normal, high, urgent
+  status    String           @default("open")    // open, in_progress, resolved, closed
+  messages  SupportMessage[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+model SupportMessage {
+  id        String        @id @default(uuid())
+  ticketId  String
+  isAdmin   Boolean       @default(false)
+  senderName String
+  message   String
+  createdAt DateTime      @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+}
+
+model AutoReplyRule {
+  id            String   @id @default(uuid())
+  storeId       String?  // null = global rule (applies to all stores)
+  name          String
+  keywords      String   // JSON array of keywords (OR match, case-insensitive)
+  replyTemplate String
+  isActive      Boolean  @default(true)
+  priority      Int      @default(0)
+  matchCount    Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  store Store? @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([isActive])
+}
+
+model BuyboxRecord {
+  id                String   @id @default(uuid())
+  connectionId      String
+  productId         String?
+  barcode           String
+  buyboxOrder       Int?
+  buyboxPrice       Float?
+  hasMultipleSeller Boolean  @default(false)
+  checkedAt         DateTime @default(now())
+
+  connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  product    Product?              @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([connectionId])
+  @@index([connectionId, barcode])
+  @@index([connectionId, checkedAt])
+  @@index([barcode])
+}
+
+model TrendyolApiLog {
+  id             String   @id @default(uuid())
+  connectionId   String?
+  method         String
+  endpoint       String
+  requestBody    String?
+  responseStatus Int?
+  responseBody   String?
+  durationMs     Int?
+  error          String?
+  createdAt      DateTime @default(now())
+
+  @@index([connectionId])
+  @@index([createdAt])
+}
+
+model WhatsappConnection {
+  id         String   @id @default(uuid())
+  storeId    String
+  name       String
+  instanceId String
+  apiToken   String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+}
+
+model WebhookEvent {
+  id           String   @id @default(uuid())
+  storeId      String?
+  connectionId String?
+  sellerId     String?
+  eventType    String
+  payload      String   @db.Text
+  processed    Boolean  @default(false)
+  error        String?
+  createdAt    DateTime @default(now())
+
+  @@index([storeId])
+  @@index([eventType])
+  @@index([createdAt])
+}

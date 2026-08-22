@@ -1,0 +1,1 @@
+ALTER TABLE "UserSession" ADD COLUMN IF NOT EXISTS "deviceId" TEXT;
