@@ -1,10 +1,3 @@
-databases:
-  - name: entegrasyon-db
-    region: ohio
-    plan: free
-    databaseName: entegrasyon
-    user: entegrasyon_user
-
 services:
   # ── Backend API ──
   - type: web
@@ -14,17 +7,17 @@ services:
     rootDir: server
     plan: free
     buildCommand: npm install && npx prisma generate
-    startCommand: npx prisma db push --accept-data-loss && npm start
+    startCommand: npx prisma db push && npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3001
-      - key: DATABASE_URL
-        fromDatabase:
-          name: entegrasyon-db
-          property: connectionString
+      - key: DATABASE_URL   # Supabase pooler (6543) + ?pgbouncer=true
+        sync: false
+      - key: DIRECT_URL     # Supabase direct/session (5432), migrasyon için
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN
