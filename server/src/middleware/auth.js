@@ -7,16 +7,16 @@ const sessionThrottle = new Map();
 // Short-lived cache of "is this user/session still allowed?" so revoked sessions
 // and deactivated users are rejected within STATUS_TTL_MS without a DB hit per request.
 const STATUS_TTL_MS = 30 * 1000;
-const statusCache = new Map(); // `${userId}|${sessionId}` -> { ok, at }
+const statusCache = new Map(); // `${userId}|${sessionId}` -> { ok, role, at }
 
 async function isStillAllowed(decoded) {
   const key = `${decoded.id}|${decoded.sessionId || ''}`;
   const hit = statusCache.get(key);
   const now = Date.now();
-  if (hit && now - hit.at < STATUS_TTL_MS) return hit.ok;
+  if (hit && now - hit.at < STATUS_TTL_MS) return hit;
 
   const [user, session] = await Promise.all([
-    prisma.user.findUnique({ where: { id: decoded.id }, select: { isActive: true } }),
+    prisma.user.findUnique({ where: { id: decoded.id }, select: { isActive: true, role: true } }),
     decoded.sessionId
       ? prisma.userSession.findUnique({ where: { id: decoded.sessionId }, select: { isActive: true } })
       : Promise.resolve(null),
@@ -26,8 +26,9 @@ async function isStillAllowed(decoded) {
   const ok = !!user && user.isActive && !(decoded.sessionId && session && session.isActive === false);
 
   if (statusCache.size > 5000) statusCache.clear();
-  statusCache.set(key, { ok, at: now });
-  return ok;
+  const entry = { ok, role: user?.role, at: now };
+  statusCache.set(key, entry);
+  return entry;
 }
 
 const auth = async (req, res, next) => {
@@ -40,10 +41,12 @@ const auth = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
 
-    if (!(await isStillAllowed(decoded))) {
+    const status = await isStillAllowed(decoded);
+    if (!status.ok) {
       return res.status(401).json({ error: 'Oturumunuz sonlandırılmış veya hesabınız devre dışı' });
     }
-    req.user = decoded;
+    // Role comes from the database, not the token, so promotions/demotions apply immediately
+    req.user = { ...decoded, role: status.role || decoded.role };
 
     // Update lastSeenAt throttled (fire-and-forget)
     if (decoded.sessionId) {
