@@ -4,7 +4,33 @@ const prisma = require('../config/database');
 // In-memory throttle: only update lastSeenAt once per 5 minutes per session
 const sessionThrottle = new Map();
 
-const auth = (req, res, next) => {
+// Short-lived cache of "is this user/session still allowed?" so revoked sessions
+// and deactivated users are rejected within STATUS_TTL_MS without a DB hit per request.
+const STATUS_TTL_MS = 30 * 1000;
+const statusCache = new Map(); // `${userId}|${sessionId}` -> { ok, at }
+
+async function isStillAllowed(decoded) {
+  const key = `${decoded.id}|${decoded.sessionId || ''}`;
+  const hit = statusCache.get(key);
+  const now = Date.now();
+  if (hit && now - hit.at < STATUS_TTL_MS) return hit.ok;
+
+  const [user, session] = await Promise.all([
+    prisma.user.findUnique({ where: { id: decoded.id }, select: { isActive: true } }),
+    decoded.sessionId
+      ? prisma.userSession.findUnique({ where: { id: decoded.sessionId }, select: { isActive: true } })
+      : Promise.resolve(null),
+  ]);
+  // A session row that no longer exists is tolerated (session creation is best-effort at login);
+  // an explicitly deactivated one is not.
+  const ok = !!user && user.isActive && !(decoded.sessionId && session && session.isActive === false);
+
+  if (statusCache.size > 5000) statusCache.clear();
+  statusCache.set(key, { ok, at: now });
+  return ok;
+}
+
+const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
 
@@ -12,7 +38,11 @@ const auth = (req, res, next) => {
       return res.status(401).json({ error: 'Yetkilendirme tokeni bulunamadı' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+
+    if (!(await isStillAllowed(decoded))) {
+      return res.status(401).json({ error: 'Oturumunuz sonlandırılmış veya hesabınız devre dışı' });
+    }
     req.user = decoded;
 
     // Update lastSeenAt throttled (fire-and-forget)

@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/database');
@@ -11,7 +12,7 @@ const router = express.Router();
 const otpStore = new Map();
 
 function generateOtp() {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(crypto.randomInt(100000, 1000000));
 }
 
 function cleanExpiredOtps() {
@@ -24,13 +25,17 @@ function cleanExpiredOtps() {
 // Register
 router.post('/register', async (req, res, next) => {
   try {
-    const { email, password, name, phone } = req.body;
+    const { password, name, phone } = req.body;
+    const email = String(req.body.email || '').trim().toLowerCase();
 
     if (!email || !password || !name) {
       return res.status(400).json({ error: 'Email, şifre ve isim zorunludur' });
     }
+    if (typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ error: 'Şifre en az 8 karakter olmalıdır' });
+    }
 
-    const existingUser = await prisma.user.findUnique({ where: { email } });
+    const existingUser = await prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
     if (existingUser) {
       return res.status(409).json({ error: 'Bu e-posta adresi zaten kullanılıyor' });
     }
@@ -105,14 +110,15 @@ router.post('/register', async (req, res, next) => {
 // Login
 router.post('/login', async (req, res, next) => {
   try {
-    const { email, password, deviceId } = req.body;
+    const { password, deviceId } = req.body;
+    const email = String(req.body.email || '').trim();
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email ve şifre zorunludur' });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email },
+    const user = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
       include: {
         stores: true,
         subscriptions: {
@@ -175,7 +181,7 @@ router.post('/login', async (req, res, next) => {
     }
 
     // Complete login
-    const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.ip || req.socket?.remoteAddress || 'unknown').trim();
+    const ip = String(req.ip || req.socket?.remoteAddress || 'unknown');
     const userAgent = req.headers['user-agent'] || 'unknown';
     const session = await prisma.userSession.create({
       data: { userId: user.id, ip, userAgent, deviceId: deviceId || null }
@@ -227,7 +233,14 @@ router.post('/verify-otp', async (req, res, next) => {
       return res.status(401).json({ error: 'Kod süresi doldu, tekrar giriş yapın' });
     }
 
-    if (stored.otp !== otp.trim()) {
+    const given = Buffer.from(String(otp).trim());
+    const wanted = Buffer.from(stored.otp);
+    if (given.length !== wanted.length || !crypto.timingSafeEqual(given, wanted)) {
+      stored.attempts = (stored.attempts || 0) + 1;
+      if (stored.attempts >= 5) {
+        otpStore.delete(tempToken);
+        return res.status(429).json({ error: 'Çok fazla hatalı deneme. Lütfen tekrar giriş yapın.' });
+      }
       return res.status(401).json({ error: 'Doğrulama kodu hatalı' });
     }
 
@@ -241,8 +254,9 @@ router.post('/verify-otp', async (req, res, next) => {
       }
     });
     if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+    if (!user.isActive) return res.status(403).json({ error: 'Hesabınız devre dışı bırakılmıştır.' });
 
-    const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.ip || req.socket?.remoteAddress || 'unknown').trim();
+    const ip = String(req.ip || req.socket?.remoteAddress || 'unknown');
     const userAgent = req.headers['user-agent'] || 'unknown';
     const session = await prisma.userSession.create({
       data: { userId: user.id, ip, userAgent, deviceId: stored.deviceId || null }
@@ -316,13 +330,18 @@ router.put('/password', auth, async (req, res, next) => {
     const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!isMatch) return res.status(400).json({ error: 'Mevcut şifreniz hatalı' });
 
-    if (newPassword.length < 6) return res.status(400).json({ error: 'Yeni şifre en az 6 karakter olmalıdır' });
+    if (typeof newPassword !== 'string' || newPassword.length < 8) return res.status(400).json({ error: 'Yeni şifre en az 8 karakter olmalıdır' });
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({
       where: { id: req.user.id },
       data: { passwordHash }
     });
+    // Sign out every other device after a password change
+    await prisma.userSession.updateMany({
+      where: { userId: req.user.id, isActive: true, ...(req.user.sessionId ? { id: { not: req.user.sessionId } } : {}) },
+      data: { isActive: false }
+    }).catch(() => {});
 
     res.json({ message: 'Şifreniz başarıyla güncellendi' });
   } catch (error) {

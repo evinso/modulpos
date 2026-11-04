@@ -1,3 +1,4 @@
+const { safeAxiosOptions } = require('../../utils/safeHttp');
 const { parsePrice } = require('../../utils/parsePrice');
 const axios = require('axios');
 const { XMLParser } = require('fast-xml-parser');
@@ -30,6 +31,7 @@ async function fetchPartialStream(url) {
   let res;
   try {
     res = await axios.get(url, {
+    ...safeAxiosOptions(url),
       responseType: 'stream',
       timeout: 300000,
       maxContentLength: Infinity,
@@ -91,6 +93,7 @@ async function streamProductObjects(url, { maxProducts = 0, responseStream, onPr
     let res;
     try {
       res = await axios.get(url, {
+    ...safeAxiosOptions(url),
         responseType: 'stream',
         timeout: 300000,
         maxContentLength: Infinity,
@@ -358,6 +361,7 @@ async function parseXml(url, mappingConfigStr, options = {}) {
  */
 async function parseXmlBuffered(url, options = {}) {
   const res = await axios.get(url, {
+    ...safeAxiosOptions(url),
     timeout: 300000,
     maxContentLength: 200 * 1024 * 1024,
     maxBodyLength: 200 * 1024 * 1024,

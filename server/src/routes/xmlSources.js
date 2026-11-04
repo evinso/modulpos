@@ -4,9 +4,11 @@ const { auth } = require('../middleware/auth');
 const { parseXml, analyzeXml } = require('../services/xml/xmlParser');
 const notificationService = require('../services/notificationService');
 const { checkXmlSourceLimit, getUserQuota } = require('../utils/quotaHelper');
+const { ownedParam, userStoreIds } = require('../middleware/ownership');
 
 const router = express.Router();
 router.use(auth);
+router.param('id', ownedParam('xmlSource'));
 
 function resolveUserPlan(rawPlan) {
   const p = (rawPlan || '').toLowerCase();

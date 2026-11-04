@@ -9,9 +9,12 @@ const notificationService = require('../services/notificationService');
 const whatsappService = require('../services/whatsappService');
 const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
 const { deductCredits, getSetting } = require('./credits');
+const { ownedParam, userStoreIds } = require('../middleware/ownership');
+const { publicConnection } = require('../utils/sanitize');
 
 const router = express.Router();
 router.use(auth);
+router.param('id', ownedParam('marketplaceConnection', { skip: (req) => req.path.startsWith('/category-mappings/') }));
 
 async function getUserStore(userId) {
   return prisma.store.findFirst({ where: { userId } });
@@ -61,7 +64,7 @@ router.get('/connections', async (req, res, next) => {
       where: { storeId: store.id },
       include: { _count: { select: { marketplaceProducts: true, orders: true } } }
     });
-    res.json(connections);
+    res.json(connections.map(publicConnection));
   } catch (error) { next(error); }
 });
 
@@ -93,7 +96,7 @@ router.post('/connections', async (req, res, next) => {
 
     whatsappService.notifyNewMarketplace(store.name, marketplaceType, req.user.phone || null).catch(() => {});
 
-    res.status(201).json(connection);
+    res.status(201).json(publicConnection(connection));
   } catch (error) { next(error); }
 });
 
@@ -120,7 +123,7 @@ router.put('/connections/:id', async (req, res, next) => {
         config: JSON.stringify(config)
       }
     });
-    res.json(updated);
+    res.json(publicConnection(updated));
   } catch (error) { next(error); }
 });
 
@@ -1057,7 +1060,9 @@ router.post('/connections/:id/category-mappings', async (req, res, next) => {
 // Category mappings - delete
 router.delete('/category-mappings/:id', async (req, res, next) => {
   try {
-    await prisma.categoryMapping.delete({ where: { id: req.params.id } });
+    const storeIds = await userStoreIds(req.user.id);
+    const del = await prisma.categoryMapping.deleteMany({ where: { id: req.params.id, connection: { storeId: { in: storeIds } } } });
+    if (!del.count) return res.status(404).json({ error: 'Eşleştirme bulunamadı' });
     res.json({ message: 'Eşleştirme silindi' });
   } catch (error) { next(error); }
 });
@@ -1098,7 +1103,7 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
 
     // Fetch products
-    let products = await prisma.product.findMany({ where: { id: { in: productIds } } });
+    let products = await prisma.product.findMany({ where: { id: { in: productIds }, storeId: connection.storeId } });
     if (minStock > 0) products = products.filter(p => (p.stock ?? 0) >= minStock);
     if (products.length === 0) return res.status(400).json({ error: 'Ürün bulunamadı' });
 
@@ -2605,7 +2610,7 @@ router.post('/connections/:id/pazarama-send', async (req, res, next) => {
 
     // Load products with variants
     const products = await prisma.product.findMany({
-      where: { id: { in: productIds } },
+      where: { id: { in: productIds }, storeId: connection.storeId },
       include: { variants: true },
     });
 

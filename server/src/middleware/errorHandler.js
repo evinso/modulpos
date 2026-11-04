@@ -33,8 +33,11 @@ const errorHandler = (err, req, res, next) => {
   }
 
   // Default
-  res.status(err.status || 500).json({
-    error: err.message || 'Sunucu hatası'
+  const status = err.status || err.statusCode || 500;
+  const isProd = process.env.NODE_ENV === 'production';
+  res.status(status).json({
+    // Never leak internal error text on 5xx in production
+    error: status >= 500 && isProd ? 'Sunucu hatası' : (err.message || 'Sunucu hatası')
   });
 };
 

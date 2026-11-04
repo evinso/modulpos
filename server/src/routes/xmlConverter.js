@@ -1,3 +1,4 @@
+const { safeAxiosOptions } = require('../utils/safeHttp');
 const { parsePrice } = require('../utils/parsePrice');
 const express = require('express');
 const axios = require('axios');
@@ -15,6 +16,7 @@ const FETCH_HEADERS = {
 /** Fallback: download first 5 MB, parse with fast-xml-parser, return raw products array. */
 async function bufferedPreviewProducts(url) {
   const res = await axios.get(url, {
+    ...safeAxiosOptions(url),
     timeout: 60000,
     maxContentLength: 5 * 1024 * 1024,
     maxBodyLength: 5 * 1024 * 1024,

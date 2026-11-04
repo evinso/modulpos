@@ -3,10 +3,12 @@ const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const { checkProductLimit } = require('../utils/quotaHelper');
 const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
+const { ownedParam, userStoreIds } = require('../middleware/ownership');
 
 const router = express.Router();
 
 router.use(auth);
+router.param('id', ownedParam('product'));
 
 // Get user's store helper
 async function getUserStore(userId) {
@@ -129,6 +131,10 @@ router.get('/stats', async (req, res, next) => {
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
 
     const { xmlSourceId, connectionId } = req.query;
+    if (connectionId) {
+      const ownConn = await prisma.marketplaceConnection.findFirst({ where: { id: connectionId, storeId: store.id }, select: { id: true } });
+      if (!ownConn) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+    }
 
     const where = { storeId: store.id };
     if (xmlSourceId) where.xmlSourceId = xmlSourceId;
@@ -229,7 +235,7 @@ router.get('/:id', async (req, res, next) => {
       include: {
         variants: true,
         marketplaceProducts: {
-          include: { connection: true }
+          include: { connection: { select: { id: true, marketplaceType: true, supplierName: true, sellerId: true, storeId: true, status: true } } }
         },
         xmlSource: true
       }
@@ -345,29 +351,30 @@ router.post('/bulk-action', async (req, res, next) => {
       return res.status(400).json({ error: 'İşlem ve ürün seçimi zorunludur' });
     }
 
+    const storeIds = await userStoreIds(req.user.id);
     let result;
     switch (action) {
       case 'activate':
         result = await prisma.product.updateMany({
-          where: { id: { in: productIds } },
+          where: { id: { in: productIds }, storeId: { in: storeIds } },
           data: { status: 'active' }
         });
         break;
       case 'deactivate':
         result = await prisma.product.updateMany({
-          where: { id: { in: productIds } },
+          where: { id: { in: productIds }, storeId: { in: storeIds } },
           data: { status: 'passive' }
         });
         break;
       case 'delete':
         result = await prisma.product.deleteMany({
-          where: { id: { in: productIds } }
+          where: { id: { in: productIds }, storeId: { in: storeIds } }
         });
         break;
       case 'price_increase_percent': {
         const pct = parseFloat(value);
         if (isNaN(pct)) return res.status(400).json({ error: 'Geçerli bir yüzde değeri girin' });
-        const products = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, price: true } });
+        const products = await prisma.product.findMany({ where: { id: { in: productIds }, storeId: { in: storeIds } }, select: { id: true, price: true } });
         const updates = products.map(p => prisma.product.update({ where: { id: p.id }, data: { price: Math.round(p.price * (1 + pct / 100) * 100) / 100 } }));
         await prisma.$transaction(updates);
         result = { count: products.length };
@@ -376,7 +383,7 @@ router.post('/bulk-action', async (req, res, next) => {
       case 'price_decrease_percent': {
         const pct = parseFloat(value);
         if (isNaN(pct)) return res.status(400).json({ error: 'Geçerli bir yüzde değeri girin' });
-        const products = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, price: true } });
+        const products = await prisma.product.findMany({ where: { id: { in: productIds }, storeId: { in: storeIds } }, select: { id: true, price: true } });
         const updates = products.map(p => prisma.product.update({ where: { id: p.id }, data: { price: Math.max(0, Math.round(p.price * (1 - pct / 100) * 100) / 100) } }));
         await prisma.$transaction(updates);
         result = { count: products.length };
@@ -385,7 +392,7 @@ router.post('/bulk-action', async (req, res, next) => {
       case 'price_increase_fixed': {
         const amount = parseFloat(value);
         if (isNaN(amount)) return res.status(400).json({ error: 'Geçerli bir tutar girin' });
-        const products = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, price: true } });
+        const products = await prisma.product.findMany({ where: { id: { in: productIds }, storeId: { in: storeIds } }, select: { id: true, price: true } });
         const updates = products.map(p => prisma.product.update({ where: { id: p.id }, data: { price: Math.round((p.price + amount) * 100) / 100 } }));
         await prisma.$transaction(updates);
         result = { count: products.length };
@@ -394,7 +401,7 @@ router.post('/bulk-action', async (req, res, next) => {
       case 'price_decrease_fixed': {
         const amount = parseFloat(value);
         if (isNaN(amount)) return res.status(400).json({ error: 'Geçerli bir tutar girin' });
-        const products = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, price: true } });
+        const products = await prisma.product.findMany({ where: { id: { in: productIds }, storeId: { in: storeIds } }, select: { id: true, price: true } });
         const updates = products.map(p => prisma.product.update({ where: { id: p.id }, data: { price: Math.max(0, Math.round((p.price - amount) * 100) / 100) } }));
         await prisma.$transaction(updates);
         result = { count: products.length };
@@ -404,7 +411,7 @@ router.post('/bulk-action', async (req, res, next) => {
         const stock = parseInt(value);
         if (isNaN(stock)) return res.status(400).json({ error: 'Geçerli bir stok değeri girin' });
         result = await prisma.product.updateMany({
-          where: { id: { in: productIds } },
+          where: { id: { in: productIds }, storeId: { in: storeIds } },
           data: { stock }
         });
         break;
@@ -412,7 +419,7 @@ router.post('/bulk-action', async (req, res, next) => {
       case 'stock_increase': {
         const amount = parseInt(value);
         if (isNaN(amount)) return res.status(400).json({ error: 'Geçerli bir değer girin' });
-        const products = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, stock: true } });
+        const products = await prisma.product.findMany({ where: { id: { in: productIds }, storeId: { in: storeIds } }, select: { id: true, stock: true } });
         const updates = products.map(p => prisma.product.update({ where: { id: p.id }, data: { stock: p.stock + amount } }));
         await prisma.$transaction(updates);
         result = { count: products.length };
@@ -421,7 +428,7 @@ router.post('/bulk-action', async (req, res, next) => {
       case 'stock_decrease': {
         const amount = parseInt(value);
         if (isNaN(amount)) return res.status(400).json({ error: 'Geçerli bir değer girin' });
-        const products = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, stock: true } });
+        const products = await prisma.product.findMany({ where: { id: { in: productIds }, storeId: { in: storeIds } }, select: { id: true, stock: true } });
         const updates = products.map(p => prisma.product.update({ where: { id: p.id }, data: { stock: Math.max(0, p.stock - amount) } }));
         await prisma.$transaction(updates);
         result = { count: products.length };
@@ -430,7 +437,7 @@ router.post('/bulk-action', async (req, res, next) => {
       case 'set_category': {
         if (!value) return res.status(400).json({ error: 'Kategori adı girin' });
         result = await prisma.product.updateMany({
-          where: { id: { in: productIds } },
+          where: { id: { in: productIds }, storeId: { in: storeIds } },
           data: { category: value }
         });
         break;
@@ -438,7 +445,7 @@ router.post('/bulk-action', async (req, res, next) => {
       case 'set_brand': {
         if (!value) return res.status(400).json({ error: 'Marka adı girin' });
         result = await prisma.product.updateMany({
-          where: { id: { in: productIds } },
+          where: { id: { in: productIds }, storeId: { in: storeIds } },
           data: { brand: value }
         });
         break;
@@ -447,7 +454,7 @@ router.post('/bulk-action', async (req, res, next) => {
         const rate = parseInt(value);
         if (isNaN(rate)) return res.status(400).json({ error: 'Geçerli bir KDV oranı girin' });
         result = await prisma.product.updateMany({
-          where: { id: { in: productIds } },
+          where: { id: { in: productIds }, storeId: { in: storeIds } },
           data: { vatRate: rate }
         });
         break;
@@ -455,7 +462,7 @@ router.post('/bulk-action', async (req, res, next) => {
       case 'sync_marketplaces': {
         // Bulunan ürünleri ve marketplace ürünlerini çek
         const marketplaceProducts = await prisma.marketplaceProduct.findMany({
-          where: { productId: { in: productIds } },
+          where: { productId: { in: productIds }, product: { storeId: { in: storeIds } } },
           include: { product: true, connection: true }
         });
         if (marketplaceProducts.length === 0) {

@@ -370,7 +370,8 @@ router.post('/category-match', async (req, res, next) => {
 
     // ── Step 3 + 4: Fetch attributes & AI-fill them ──────────────────────────
     if (connectionId) {
-      const connection = await prisma.marketplaceConnection.findUnique({ where: { id: connectionId } });
+      const userStores = await prisma.store.findMany({ where: { userId: req.user.id }, select: { id: true } });
+      const connection = await prisma.marketplaceConnection.findFirst({ where: { id: connectionId, storeId: { in: userStores.map((x) => x.id) } } });
 
       if (connection && connection.marketplaceType === 'trendyol') {
         const service = new TrendyolService(connection);

@@ -2,9 +2,12 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const { syncOrdersForStore } = require('../services/orderSyncService');
+const { ownedParam, userStoreIds } = require('../middleware/ownership');
+const { publicConnection } = require('../utils/sanitize');
 
 const router = express.Router();
 router.use(auth);
+router.param('id', ownedParam('order'));
 
 async function getUserStore(userId) {
   return prisma.store.findFirst({ where: { userId } });
@@ -29,7 +32,7 @@ router.get('/:id', async (req, res, next) => {
   try {
     const order = await prisma.order.findUnique({ where: { id: req.params.id }, include: { connection: true } });
     if (!order) return res.status(404).json({ error: 'Sipariş bulunamadı' });
-    res.json(order);
+    res.json({ ...order, connection: publicConnection(order.connection) });
   } catch (error) { next(error); }
 });
 

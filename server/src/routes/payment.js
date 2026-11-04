@@ -9,6 +9,27 @@ const whatsappService = require('../services/whatsappService');
 
 const router = express.Router();
 
+/**
+ * PayTR credentials. Returns null unless merchant id, key and salt are all
+ * configured (DB settings or env). There are no placeholder fallbacks: an
+ * unconfigured gateway must never accept callbacks or issue tokens.
+ */
+async function getPaytrConfig() {
+  const { getSetting } = require('./credits');
+  const MERCHANT_ID = await getSetting('paytr_merchant_id', process.env.PAYTR_MERCHANT_ID || '');
+  const MERCHANT_KEY = await getSetting('paytr_merchant_key', process.env.PAYTR_MERCHANT_KEY || '');
+  const MERCHANT_SALT = await getSetting('paytr_merchant_salt', process.env.PAYTR_MERCHANT_SALT || '');
+  const bad = (v) => !v || /^X+$/i.test(v);
+  if (bad(MERCHANT_ID) || bad(MERCHANT_KEY) || bad(MERCHANT_SALT)) return null;
+  return { MERCHANT_ID, MERCHANT_KEY, MERCHANT_SALT };
+}
+
+function safeEqual(a, b) {
+  const ba = Buffer.from(String(a || ''));
+  const bb = Buffer.from(String(b || ''));
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+
 // Simple test endpoint — verifies the callback URL is reachable and returns OK
 router.all('/paytr-ping', (_req, res) => {
   res.set('Content-Type', 'text/plain').send('OK');
@@ -25,14 +46,9 @@ router.post('/paytr-token', auth, async (req, res, next) => {
       return res.status(400).json({ error: 'Minimum yükleme tutarı 10 TL/Kredi olmalıdır.' });
     }
 
-    const { getSetting } = require('./credits');
-    const MERCHANT_ID = await getSetting('paytr_merchant_id', process.env.PAYTR_MERCHANT_ID || 'XXXXXX');
-    const MERCHANT_KEY = await getSetting('paytr_merchant_key', process.env.PAYTR_MERCHANT_KEY || 'XXXXXXXXXXXXXXXX');
-    const MERCHANT_SALT = await getSetting('paytr_merchant_salt', process.env.PAYTR_MERCHANT_SALT || 'XXXXXXXXXXXXXXXX');
-
-    if (MERCHANT_ID === 'XXXXXX') {
-      return res.status(500).json({ error: 'PayTR entegrasyonu yapılandırılmamış (Sistem Yönetimi üzerinden API ayarlarını yapınız).' });
-    }
+    const paytrCfg = await getPaytrConfig();
+    if (!paytrCfg) return res.status(503).json({ error: 'Ödeme sistemi henüz etkin değil.' });
+    const { MERCHANT_ID, MERCHANT_KEY, MERCHANT_SALT } = paytrCfg;
 
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı.' });
@@ -128,14 +144,9 @@ router.post('/subscription-token', auth, async (req, res, next) => {
       return res.status(400).json({ error: 'Geçersiz tutar.' });
     }
 
-    const { getSetting } = require('./credits');
-    const MERCHANT_ID = await getSetting('paytr_merchant_id', process.env.PAYTR_MERCHANT_ID || 'XXXXXX');
-    const MERCHANT_KEY = await getSetting('paytr_merchant_key', process.env.PAYTR_MERCHANT_KEY || 'XXXXXXXXXXXXXXXX');
-    const MERCHANT_SALT = await getSetting('paytr_merchant_salt', process.env.PAYTR_MERCHANT_SALT || 'XXXXXXXXXXXXXXXX');
-
-    if (MERCHANT_ID === 'XXXXXX') {
-      return res.status(500).json({ error: 'PayTR entegrasyonu yapılandırılmamış.' });
-    }
+    const paytrCfg = await getPaytrConfig();
+    if (!paytrCfg) return res.status(503).json({ error: 'Ödeme sistemi henüz etkin değil.' });
+    const { MERCHANT_ID, MERCHANT_KEY, MERCHANT_SALT } = paytrCfg;
 
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı.' });
@@ -195,34 +206,29 @@ router.post('/subscription-token', auth, async (req, res, next) => {
 
 /**
  * PayTR Callback / Webhook Endpoint
- * Must be public, no auth. PayTR sends POST here.
+ * Public (PayTR posts here). The signature is verified with the merchant key;
+ * processing is idempotent and atomic per merchant_oid.
  */
 router.post('/paytr-callback', express.urlencoded({ extended: true }), async (req, res) => {
-  // Always respond OK first — PayTR retries indefinitely on non-OK responses
-  res.send('OK');
-
   try {
-    const { merchant_oid, status, total_amount, hash, failed_reason_code, failed_reason_msg, test_mode } = req.body;
-    console.log('[PayTR] Callback alındı — merchant_oid:', merchant_oid, '| status:', status, '| amount:', total_amount, '| test_mode:', test_mode);
-
-    const { getSetting } = require('./credits');
-    let MERCHANT_KEY, MERCHANT_SALT;
-    try {
-      MERCHANT_KEY = await getSetting('paytr_merchant_key', process.env.PAYTR_MERCHANT_KEY || 'XXXXXXXXXXXXXXXX');
-      MERCHANT_SALT = await getSetting('paytr_merchant_salt', process.env.PAYTR_MERCHANT_SALT || 'XXXXXXXXXXXXXXXX');
-    } catch (dbErr) {
-      console.error('[PayTR] getSetting DB hatası, env fallback kullanılıyor:', dbErr.message);
-      MERCHANT_KEY = process.env.PAYTR_MERCHANT_KEY || 'XXXXXXXXXXXXXXXX';
-      MERCHANT_SALT = process.env.PAYTR_MERCHANT_SALT || 'XXXXXXXXXXXXXXXX';
+    const cfg = await getPaytrConfig();
+    if (!cfg) {
+      console.error('[PayTR] Callback reddedildi: PayTR yapılandırılmamış.');
+      return res.status(503).send('PayTR not configured');
     }
+    const { MERCHANT_KEY, MERCHANT_SALT } = cfg;
+
+    const { merchant_oid, status, total_amount, hash, failed_reason_code, failed_reason_msg, test_mode } = req.body;
+    if (!merchant_oid || !status || !total_amount || !hash) return res.status(400).send('Bad request');
+    console.log('[PayTR] Callback alındı — merchant_oid:', merchant_oid, '| status:', status, '| amount:', total_amount, '| test_mode:', test_mode);
 
     const hash_str = merchant_oid + MERCHANT_SALT + status + total_amount;
     const computed_hash = crypto.createHmac('sha256', MERCHANT_KEY).update(hash_str).digest('base64');
 
-    if (hash !== computed_hash) {
-      console.error('[PayTR] HASH HATASI — gelen:', hash, '| hesaplanan:', computed_hash, '| key uzunluk:', MERCHANT_KEY.length, '| salt uzunluk:', MERCHANT_SALT.length);
-      try { await prisma.paytrLog.create({ data: { merchantOid: merchant_oid, status: 'hash_error', totalAmount: parseFloat(total_amount) / 100, rawBody: JSON.stringify(req.body) } }); } catch {}
-      return;
+    if (!safeEqual(hash, computed_hash)) {
+      console.error('[PayTR] HASH HATASI — merchant_oid:', merchant_oid);
+      try { await prisma.paytrLog.create({ data: { merchantOid: String(merchant_oid), status: 'hash_error', totalAmount: (parseFloat(total_amount) || 0) / 100, rawBody: JSON.stringify(req.body) } }); } catch {}
+      return res.status(400).send('Invalid hash');
     }
 
     // Parse merchant_oid
@@ -251,49 +257,60 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
     } catch {}
 
     if (status === 'success') {
-      // Duplicate check — PayTR may send same callback multiple times
-      let alreadyProcessed = false;
-      try {
-        const existing = await prisma.paytrLog.findFirst({ where: { merchantOid: merchant_oid, status: 'success' } });
-        if (existing) { console.log('[PayTR] Duplikat callback yoksayıldı:', merchant_oid); alreadyProcessed = true; }
-      } catch {}
+      // Atomic + idempotent: an advisory lock per merchant_oid serialises concurrent
+      // callbacks; the money movement and the success log commit together.
+      let outcome = { duplicate: false };
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${String(merchant_oid)}))`;
+        const existing = await tx.paytrLog.findFirst({ where: { merchantOid: merchant_oid, status: 'success' } });
+        if (existing) { outcome = { duplicate: true }; return; }
 
-      if (!alreadyProcessed && prefix === 'MP' && logUserId) {
-        const balance = await getOrCreateBalance(logUserId);
-        await prisma.creditBalance.update({ where: { id: balance.id }, data: { balance: balance.balance + amountTL } });
-        await prisma.creditTransaction.create({ data: { balanceId: balance.id, amount: amountTL, type: 'topup', description: `PayTR Kredi Kartı ile Yükleme (${merchant_oid})` } });
+        if (prefix === 'MP' && logUserId) {
+          const balance = await tx.creditBalance.upsert({ where: { userId: logUserId }, update: {}, create: { userId: logUserId, balance: 0 } });
+          await tx.creditBalance.update({ where: { id: balance.id }, data: { balance: { increment: amountTL } } });
+          await tx.creditTransaction.create({ data: { balanceId: balance.id, amount: amountTL, type: 'topup', description: `PayTR Kredi Kartı ile Yükleme (${merchant_oid})` } });
+          outcome = { topup: true };
+        } else if (prefix === 'SUB' && logUserId) {
+          const user = await tx.user.findUnique({ where: { id: logUserId }, include: { subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 } } });
+          if (user) {
+            let currentEndDate = new Date();
+            if (user.subscriptions[0]?.endDate && new Date(user.subscriptions[0].endDate) > new Date()) currentEndDate = new Date(user.subscriptions[0].endDate);
+            const newEndDate = new Date(currentEndDate.getTime() + parsedDays * 24 * 60 * 60 * 1000);
+            await tx.subscription.create({ data: { userId: logUserId, plan: 'premium', status: 'active', endDate: newEndDate, amount: amountTL } });
+            if (!user.isActive) await tx.user.update({ where: { id: logUserId }, data: { isActive: true } });
+            outcome = { subscription: true, user, newEndDate };
+          }
+        }
+
+        await tx.paytrLog.create({ data: { merchantOid: merchant_oid, status: 'success', totalAmount: amountTL, userId: logUserId, userEmail: logUserEmail, type: logType, rawBody: JSON.stringify(req.body) } });
+      }, { timeout: 15000 });
+
+      if (outcome.duplicate) {
+        console.log('[PayTR] Duplikat callback yoksayıldı:', merchant_oid);
+      } else if (outcome.topup) {
         console.log('[PayTR] Kredi yüklendi — userId:', logUserId, '| tutar:', amountTL);
         notificationService.createForUser(logUserId, { title: 'Kredi Yüklendi', message: `₺${amountTL.toFixed(2)} kredi hesabınıza eklendi.`, type: 'success', link: '/credits', noWhatsapp: true });
         const topupUser = await prisma.user.findUnique({ where: { id: logUserId }, select: { name: true, email: true } }).catch(() => null);
         whatsappService.notifyCreditTopup(topupUser || { email: logUserEmail }, amountTL).catch(() => {});
-      } else if (!alreadyProcessed && prefix === 'SUB' && logUserId) {
-        const user = await prisma.user.findUnique({ where: { id: logUserId }, include: { subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 } } });
-        if (user) {
-          let currentEndDate = new Date();
-          if (user.subscriptions[0]?.endDate && new Date(user.subscriptions[0].endDate) > new Date()) currentEndDate = new Date(user.subscriptions[0].endDate);
-          const newEndDate = new Date(currentEndDate.getTime() + parsedDays * 24 * 60 * 60 * 1000);
-          await prisma.subscription.create({ data: { userId: logUserId, plan: 'premium', status: 'active', endDate: newEndDate, amount: amountTL } });
-          if (!user.isActive) await prisma.user.update({ where: { id: logUserId }, data: { isActive: true } });
-
-          // Apply plan quota if planId was stored at token creation
-          try {
-            const planSetting = await prisma.systemSettings.findUnique({ where: { key: `pending_plan_${merchant_oid}` } });
-            if (planSetting?.value) {
-              const plan = await prisma.landingPricingPlan.findUnique({ where: { id: planSetting.value }, select: { maxProducts: true, maxXmlSources: true } });
-              if (plan) {
-                await applyPlanQuota(logUserId, plan.maxProducts, plan.maxXmlSources);
-                console.log('[PayTR] Plan kotası uygulandı — userId:', logUserId, '| maxProducts:', plan.maxProducts, '| maxXmlSources:', plan.maxXmlSources);
-              }
-              await prisma.systemSettings.delete({ where: { key: `pending_plan_${merchant_oid}` } }).catch(() => {});
+      } else if (outcome.subscription) {
+        const { user, newEndDate } = outcome;
+        // Apply plan quota if planId was stored at token creation
+        try {
+          const planSetting = await prisma.systemSettings.findUnique({ where: { key: `pending_plan_${merchant_oid}` } });
+          if (planSetting?.value) {
+            const plan = await prisma.landingPricingPlan.findUnique({ where: { id: planSetting.value }, select: { maxProducts: true, maxXmlSources: true } });
+            if (plan) {
+              await applyPlanQuota(logUserId, plan.maxProducts, plan.maxXmlSources);
+              console.log('[PayTR] Plan kotası uygulandı — userId:', logUserId, '| maxProducts:', plan.maxProducts, '| maxXmlSources:', plan.maxXmlSources);
             }
-          } catch (qErr) { console.error('[PayTR] Plan kota hatası:', qErr.message); }
+            await prisma.systemSettings.delete({ where: { key: `pending_plan_${merchant_oid}` } }).catch(() => {});
+          }
+        } catch (qErr) { console.error('[PayTR] Plan kota hatası:', qErr.message); }
 
-          console.log('[PayTR] Abonelik aktive edildi — userId:', logUserId, '| bitiş:', newEndDate);
-          notificationService.createForUser(logUserId, { title: 'Abonelik Aktifleştirildi', message: `Aboneliğiniz ${newEndDate.toLocaleDateString('tr-TR')} tarihine kadar uzatıldı.`, type: 'success', link: '/credits', noWhatsapp: true });
-          whatsappService.notifySubscriptionUpdated(user, 'premium', newEndDate).catch(() => {});
-        }
+        console.log('[PayTR] Abonelik aktive edildi — userId:', logUserId, '| bitiş:', newEndDate);
+        notificationService.createForUser(logUserId, { title: 'Abonelik Aktifleştirildi', message: `Aboneliğiniz ${newEndDate.toLocaleDateString('tr-TR')} tarihine kadar uzatıldı.`, type: 'success', link: '/credits', noWhatsapp: true });
+        whatsappService.notifySubscriptionUpdated(user, 'premium', newEndDate).catch(() => {});
       }
-      try { await prisma.paytrLog.create({ data: { merchantOid: merchant_oid, status: 'success', totalAmount: amountTL, userId: logUserId, userEmail: logUserEmail, type: logType, rawBody: JSON.stringify(req.body) } }); } catch (e) { console.error('[PayTR] Log kaydedilemedi:', e.message); }
     } else {
       const failReason = [failed_reason_code, failed_reason_msg].filter(Boolean).join(' - ');
       console.log('[PayTR] Ödeme başarısız:', failReason);
@@ -305,8 +322,12 @@ router.post('/paytr-callback', express.urlencoded({ extended: true }), async (re
       }
       try { await prisma.paytrLog.create({ data: { merchantOid: merchant_oid, status: 'failed', totalAmount: amountTL, userId: logUserId, userEmail: logUserEmail, type: logType, failReason: failReason || null, rawBody: JSON.stringify(req.body) } }); } catch {}
     }
+
+    // Reply OK only after processing succeeded; on error PayTR will retry.
+    res.send('OK');
   } catch (error) {
     console.error('[PayTR] Callback işleme hatası:', error);
+    res.status(500).send('ERROR');
   }
 });
 

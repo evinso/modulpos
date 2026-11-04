@@ -1,7 +1,19 @@
 const express = require('express');
+const crypto = require('crypto');
 const prisma = require('../config/database');
 
 const router = express.Router();
+
+function safeEqual(a, b) {
+  const ba = Buffer.from(String(a ?? ''));
+  const bb = Buffer.from(String(b ?? ''));
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+
+function basicAuthOk(header, user, pass) {
+  if (!user || !pass) return false;
+  return safeEqual(header || '', 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64'));
+}
 
 // POST /api/webhooks/trendyol
 // Public endpoint — Trendyol calls this directly (no JWT auth)
@@ -20,16 +32,18 @@ router.post('/trendyol', async (req, res) => {
       });
     }
 
-    // Verify x-api-key if this connection has one configured
+    // Authentication is mandatory: either the x-api-key or the Basic Auth credentials
+    // configured on the connection must match. Unauthenticated events are dropped.
+    let authorized = false;
     if (connection?.config) {
-      const cfg = JSON.parse(connection.config);
-      if (cfg.webhookApiKey) {
-        const sentKey = req.headers['x-api-key'];
-        if (sentKey !== cfg.webhookApiKey) {
-          console.warn(`[webhook] Invalid API key for sellerId=${sellerId}`);
-          return res.status(200).json({ received: true }); // 200 to prevent Trendyol retries
-        }
-      }
+      let cfg = {};
+      try { cfg = JSON.parse(connection.config); } catch {}
+      if (cfg.webhookApiKey && safeEqual(req.headers['x-api-key'], cfg.webhookApiKey)) authorized = true;
+      if (!authorized && basicAuthOk(req.headers['authorization'], cfg.webhookUsername, cfg.webhookPassword)) authorized = true;
+    }
+    if (!authorized) {
+      console.warn(`[webhook] Yetkisiz Trendyol webhook (sellerId=${sellerId || '-'})`);
+      return res.status(200).json({ received: true }); // 200 so the sender does not retry
     }
 
     await prisma.webhookEvent.create({
@@ -58,14 +72,14 @@ async function processEvent(eventType, body, connection) {
   const orderNumber = body.orderNumber || body.id;
   if (!orderNumber) return;
 
-  const existing = await prisma.order.findUnique({ where: { orderNumber: String(orderNumber) } });
+  const existing = await prisma.order.findFirst({ where: { marketplaceOrderId: String(orderNumber), storeId: connection.storeId } });
 
   if (!existing) {
     await prisma.order.create({
       data: {
         storeId: connection.storeId,
         connectionId: connection.id,
-        orderNumber: String(orderNumber),
+        orderNumber: `TY-${orderNumber}`,
         marketplaceOrderId: String(orderNumber),
         status: mapOrderStatus(eventType),
         totalAmount: body.packageGrossAmount || 0,
@@ -82,7 +96,7 @@ async function processEvent(eventType, body, connection) {
     });
   } else {
     await prisma.order.update({
-      where: { orderNumber: String(orderNumber) },
+      where: { id: existing.id },
       data: {
         status: mapOrderStatus(eventType),
         cargoCompany: body.cargoProviderName || existing.cargoCompany,
@@ -132,13 +146,9 @@ router.post('/hepsiburada', async (req, res) => {
     ]);
     const hbUser = userSetting?.value;
     const hbPass = passSetting?.value;
-    if (hbUser && hbPass) {
-      const authHeader = req.headers['authorization'] || '';
-      const expected = 'Basic ' + Buffer.from(`${hbUser}:${hbPass}`).toString('base64');
-      if (authHeader !== expected) {
-        console.warn(`[webhook/hepsiburada] Geçersiz Basic Auth`);
-        return res.status(200).json({ received: true });
-      }
+    if (!basicAuthOk(req.headers['authorization'], hbUser, hbPass)) {
+      console.warn('[webhook/hepsiburada] Geçersiz veya yapılandırılmamış Basic Auth');
+      return res.status(200).json({ received: true });
     }
 
     // Find matching connection by merchantId
@@ -186,14 +196,14 @@ async function processHepsiburadaEvent(eventType, body, connection) {
     ? `${customer.firstName || customer.FirstName || ''} ${customer.lastName || customer.LastName || ''}`.trim()
     : null;
 
-  const existing = await prisma.order.findUnique({ where: { orderNumber } });
+  const existing = await prisma.order.findFirst({ where: { marketplaceOrderId: orderNumber, storeId: connection.storeId } });
 
   if (!existing) {
     await prisma.order.create({
       data: {
         storeId: connection.storeId,
         connectionId: connection.id,
-        orderNumber,
+        orderNumber: `HB-${orderNumber}`,
         marketplaceOrderId: orderNumber,
         status: mapHepsiburadaStatus(eventType),
         totalAmount: body.totalPrice || body.TotalPrice || body.packageGrossAmount || 0,
@@ -214,7 +224,7 @@ async function processHepsiburadaEvent(eventType, body, connection) {
       updatedAt: new Date(),
     };
     if (newStatus !== null) updateData.status = newStatus;
-    await prisma.order.update({ where: { orderNumber }, data: updateData });
+    await prisma.order.update({ where: { id: existing.id }, data: updateData });
   }
 
   await prisma.webhookEvent.updateMany({

@@ -33,7 +33,19 @@ const webhookRoutes = require('./routes/webhooks');
 
 const { errorHandler } = require('./middleware/errorHandler');
 
+// Fail fast on a missing/placeholder signing secret in production
+if (process.env.NODE_ENV === 'production') {
+  const secret = process.env.JWT_SECRET || '';
+  if (secret.length < 32 || secret === 'change-me-in-production') {
+    console.error('FATAL: JWT_SECRET is missing, too short (<32) or still the placeholder.');
+    process.exit(1);
+  }
+}
+
 const app = express();
+
+// Behind Render's load balancer: use the real client IP (rate limiting, logs)
+app.set('trust proxy', 1);
 
 const defaultDevOrigins = [
   'http://localhost:5173',
@@ -59,7 +71,9 @@ const corsOptions = {
     // Allow requests with no origin (curl, server-to-server)
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error(`CORS: origin not allowed — ${origin}`));
+    const corsErr = new Error('CORS: origin not allowed');
+    corsErr.status = 403;
+    callback(corsErr);
   },
   credentials: true,
   optionsSuccessStatus: 200,
@@ -77,13 +91,24 @@ const limiter = rateLimit({
   max: process.env.NODE_ENV === 'production' ? 300 : 100,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.originalUrl.includes('/payment/paytr-callback'),
+  // req.path (not the URL with query string) so the exemption cannot be spoofed
+  skip: (req) => req.path === '/payment/paytr-callback',
 });
 app.use('/api/', limiter);
 
+// Stricter limit for credential endpoints (brute force / OTP guessing)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Çok fazla deneme. Lütfen 15 dakika sonra tekrar deneyin.' },
+});
+app.use(['/api/auth/login', '/api/auth/register', '/api/auth/verify-otp'], authLimiter);
+
 // Body parsing
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Logging
 if (process.env.NODE_ENV === 'production') {
@@ -126,7 +151,8 @@ app.use(errorHandler);
 const bootstrapAdmin = async () => {
   try {
     const prisma = require('./config/database');
-    const adminEmail = 'ozgurklc111@gmail.com';
+    const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+    if (!adminEmail) return;
     const user = await prisma.user.findUnique({ where: { email: adminEmail } });
     if (user && user.role !== 'superadmin') {
       await prisma.user.update({
@@ -143,55 +169,6 @@ const bootstrapAdmin = async () => {
   }
 };
 bootstrapAdmin();
-
-// Auto-create PaytrLog table if migration hasn't been run on production DB
-const ensurePaytrLogTable = async () => {
-  try {
-    const prisma = require('./config/database');
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "PaytrLog" (
-        "id" TEXT NOT NULL,
-        "merchantOid" TEXT NOT NULL,
-        "status" TEXT NOT NULL,
-        "totalAmount" DOUBLE PRECISION NOT NULL,
-        "userId" TEXT,
-        "userEmail" TEXT,
-        "type" TEXT,
-        "failReason" TEXT,
-        "rawBody" TEXT,
-        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT "PaytrLog_pkey" PRIMARY KEY ("id")
-      )
-    `);
-    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PaytrLog_status_idx" ON "PaytrLog"("status")`);
-    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PaytrLog_createdAt_idx" ON "PaytrLog"("createdAt")`);
-    console.log('✅ PaytrLog table ensured.');
-  } catch (err) {
-    console.error('⚠️  PaytrLog table ensure error:', err.message);
-  }
-};
-ensurePaytrLogTable();
-
-// One-time fix: ensure Kurumsal plan has correct ctaText
-(async () => {
-  try {
-    const prisma = require('./config/database');
-    await prisma.$executeRawUnsafe(`UPDATE "LandingPricingPlan" SET "ctaText" = 'Hemen Başla' WHERE name = 'Kurumsal' AND "ctaText" = 'Bize Ulaşın'`);
-  } catch (e) {
-    console.error('LandingPricingPlan ctaText fix error:', e.message);
-  }
-})();
-
-// Ensure per-plan markup columns exist
-(async () => {
-  try {
-    const prisma = require('./config/database');
-    await prisma.$executeRawUnsafe(`ALTER TABLE "GlobalXmlProvider" ADD COLUMN IF NOT EXISTS "priceMarkupPctByPlan" TEXT`);
-    await prisma.$executeRawUnsafe(`ALTER TABLE "XmlSource" ADD COLUMN IF NOT EXISTS "globalPriceMarkupPctByPlan" TEXT`);
-  } catch (e) {
-    console.error('Per-plan markup column ensure error:', e.message);
-  }
-})();
 
 const cronService = require('./services/cronService');
 cronService.start();

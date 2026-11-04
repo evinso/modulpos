@@ -23,6 +23,7 @@ async function syncOrdersForStore(store, connections) {
         const packages = data.content || [];
 
         for (const pkg of packages) {
+          const status = mapTrendyolStatus(pkg.shipmentPackageStatus || pkg.status);
           const existing = await prisma.order.findFirst({
             where: { marketplaceOrderId: String(pkg.orderNumber), storeId: store.id }
           });
@@ -38,7 +39,6 @@ async function syncOrdersForStore(store, connections) {
             ? `${pkg.customerFirstName} ${pkg.customerLastName || ''}`.trim()
             : `${pkg.shipmentAddress?.firstName || ''} ${pkg.shipmentAddress?.lastName || ''}`.trim();
           const totalAmount = pkg.packageTotalPrice || 0;
-          const status = mapTrendyolStatus(pkg.shipmentPackageStatus || pkg.status);
 
           await prisma.order.create({
             data: {

@@ -196,7 +196,8 @@ router.post('/:id/answer', async (req, res, next) => {
   try {
     const { answerText } = req.body;
     if (!answerText || answerText.length < 10) return res.status(400).json({ error: 'Yanıt en az 10 karakter olmalıdır' });
-    const question = await prisma.customerQuestion.findUnique({ where: { id: req.params.id }, include: { connection: true } });
+    const ownStores = await prisma.store.findMany({ where: { userId: req.user.id }, select: { id: true } });
+    const question = await prisma.customerQuestion.findFirst({ where: { id: req.params.id, storeId: { in: ownStores.map((x) => x.id) } }, include: { connection: true } });
     if (!question) return res.status(404).json({ error: 'Soru bulunamadı' });
     if (question.connection && question.marketplaceQuestionId) {
       const service = new TrendyolService(question.connection);

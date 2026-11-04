@@ -147,9 +147,9 @@ router.post('/admin/topup', auth, requireAdmin, async (req, res, next) => {
 
     const balance = await getOrCreateBalance(userId);
 
-    await prisma.creditBalance.update({
+    const topped = await prisma.creditBalance.update({
       where: { id: balance.id },
-      data: { balance: balance.balance + parseFloat(amount) }
+      data: { balance: { increment: parseFloat(amount) } }
     });
 
     await prisma.creditTransaction.create({
@@ -161,7 +161,7 @@ router.post('/admin/topup', auth, requireAdmin, async (req, res, next) => {
       }
     });
 
-    const newBalance = balance.balance + parseFloat(amount);
+    const newBalance = topped.balance;
     notificationService.createForUser(userId, {
       title: 'Kredi Yüklendi',
       message: `${parseFloat(amount)} kredi hesabınıza yüklendi. Güncel bakiye: ${newBalance} kredi.`,
@@ -188,17 +188,19 @@ router.post('/admin/adjust', auth, requireAdmin, async (req, res, next) => {
       return res.status(400).json({ error: 'Kullanıcı ve tutar gerekli' });
     }
 
+    const delta = parseFloat(amount);
+    if (!Number.isFinite(delta)) return res.status(400).json({ error: 'Geçersiz tutar' });
     const balance = await getOrCreateBalance(userId);
-    const newBalance = balance.balance + parseFloat(amount);
 
-    if (newBalance < 0) {
+    // Atomic: a negative adjustment only applies if the balance stays >= 0
+    const adj = await prisma.creditBalance.updateMany({
+      where: delta < 0 ? { id: balance.id, balance: { gte: -delta } } : { id: balance.id },
+      data: { balance: { increment: delta } }
+    });
+    if (adj.count === 0) {
       return res.status(400).json({ error: 'Bakiye negatife düşemez' });
     }
-
-    await prisma.creditBalance.update({
-      where: { id: balance.id },
-      data: { balance: newBalance }
-    });
+    const newBalance = (await prisma.creditBalance.findUnique({ where: { id: balance.id } })).balance;
 
     await prisma.creditTransaction.create({
       data: {
@@ -220,16 +222,18 @@ router.post('/admin/adjust', auth, requireAdmin, async (req, res, next) => {
 async function deductCredits(userId, amount, type, description, referenceId = null) {
   const balance = await getOrCreateBalance(userId);
 
-  if (balance.balance < amount) {
-    const err = new Error(`Yetersiz kredi. Gerekli: ${amount}, Mevcut: ${balance.balance}`);
+  // Atomic check-and-decrement: concurrent requests cannot overspend the balance
+  const res = await prisma.creditBalance.updateMany({
+    where: { id: balance.id, balance: { gte: amount } },
+    data: { balance: { decrement: amount } }
+  });
+  if (res.count === 0) {
+    const current = await prisma.creditBalance.findUnique({ where: { id: balance.id } });
+    const err = new Error(`Yetersiz kredi. Gerekli: ${amount}, Mevcut: ${current?.balance ?? 0}`);
     err.statusCode = 402;
     throw err;
   }
-
-  await prisma.creditBalance.update({
-    where: { id: balance.id },
-    data: { balance: balance.balance - amount }
-  });
+  const after = await prisma.creditBalance.findUnique({ where: { id: balance.id } });
 
   await prisma.creditTransaction.create({
     data: {
@@ -241,10 +245,10 @@ async function deductCredits(userId, amount, type, description, referenceId = nu
     }
   });
 
-  const newBalance = balance.balance - amount;
+  const newBalance = after.balance;
 
   // Low balance warning: first time crossing below 10
-  if (newBalance < 10 && balance.balance >= 10) {
+  if (newBalance < 10 && newBalance + amount >= 10) {
     notificationService.createForUser(userId, {
       title: 'Kredi Bakiyeniz Azaldı',
       message: `Bakiyeniz ${newBalance.toFixed(1)} krediye düştü. İşlemlerinizin kesintisiz sürmesi için kredi yükleyin.`,
