@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:g="http://base.google.com/ns/1.0" version="2.0"><channel><title>Magaza</title>
+<item><g:id>GM-001</g:id><g:title>Pamuklu Kadın Elbise Yazlık</g:title><g:description><![CDATA[<p>Rahat <b>pamuklu</b> elbise.</p>]]></g:description><g:price>1.874,70 TRY</g:price><g:availability>in stock</g:availability><g:quantity>12</g:quantity><g:brand>ModaX</g:brand><g:gtin>8690000000011</g:gtin><g:google_product_category>Giyim &gt; Kadın &gt; Elbise</g:google_product_category><g:image_link>https://img.example.com/a1.jpg</g:image_link><g:additional_image_link>https://img.example.com/a2.jpg</g:additional_image_link></item>
+<item><g:id>GM-002</g:id><g:title>Deri Cüzdan Erkek</g:title><g:description>Hakiki deri cüzdan</g:description><g:price>349.90 TRY</g:price><g:quantity>0</g:quantity><g:brand>DeriCo</g:brand><g:gtin>8690000000028</g:gtin><g:google_product_category>Aksesuar &gt; Cüzdan</g:google_product_category><g:image_link>https://img.example.com/b1.jpg</g:image_link></item>
+<item><g:id>GM-003</g:id><g:title>Spor Ayakkabı Unisex</g:title><g:description>Hafif taban</g:description><g:price>1,299.00 TRY</g:price><g:quantity>7</g:quantity><g:google_product_category>Ayakkabı &gt; Spor</g:google_product_category><g:image_link>https://img.example.com/c1.jpg</g:image_link></item>
+</channel></rss>

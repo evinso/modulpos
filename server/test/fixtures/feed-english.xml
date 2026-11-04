@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<catalog>
+<product><sku>EN-1</sku><ean>5901234123457</ean><name>Wireless Mouse</name><desc>Ergonomic 2.4GHz mouse</desc><price>1,874.70</price><qty>40</qty><manufacturer>Clickr</manufacturer><categories><category>Computers</category><category>Accessories</category><category>Mice</category></categories><images><image>https://img.example.com/m1.jpg</image><image>https://img.example.com/m2.jpg</image></images></product>
+<product><sku>EN-2</sku><ean>5901234123464</ean><name>USB-C Cable 2m</name><desc>Braided cable</desc><price>12.5</price><qty>500</qty><manufacturer>Clickr</manufacturer><categories><category>Computers</category><category>Cables</category></categories><images><image>https://img.example.com/c1.jpg</image></images></product>
+</catalog>

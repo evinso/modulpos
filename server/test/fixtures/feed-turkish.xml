@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Urunler>
+<Urun><UrunKodu>TR-100</UrunKodu><Barkod>8691111000011</Barkod><UrunAdi>Seramik Kupa Set 6'lı</UrunAdi><Aciklama>Bulaşık makinesinde yıkanabilir.</Aciklama><SatisFiyati>1874.7</SatisFiyati><Stok>25</Stok><Marka>EvDekor</Marka><Kategori>Ev &amp; Yaşam / Mutfak / Kupa</Kategori><Resimler><Resim>https://img.example.com/k1.jpg</Resim><Resim>https://img.example.com/k2.jpg</Resim></Resimler></Urun>
+<Urun><UrunKodu>TR-101</UrunKodu><Barkod></Barkod><UrunAdi>Bambu Kesme Tahtası</UrunAdi><Aciklama></Aciklama><SatisFiyati>1.874,7</SatisFiyati><Stok>3</Stok><Marka></Marka><Kategori>Ev &amp; Yaşam / Mutfak / Tahta</Kategori><Resimler><Resim>https://img.example.com/t1.jpg</Resim></Resimler></Urun>
+<Urun><UrunKodu>TR-102</UrunKodu><Barkod>8691111000035</Barkod><UrunAdi>LED Masa Lambası</UrunAdi><Aciklama>USB şarjlı.</Aciklama><SatisFiyati>₺ 89,90</SatisFiyati><Stok>x</Stok><Marka>Lumi</Marka><Kategori>Elektronik</Kategori><Resimler></Resimler></Urun>
+</Urunler>
