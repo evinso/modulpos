@@ -21,6 +21,15 @@ const productListCache = require('../productListCache');
 
 const running = new Map(); // xmlSourceId -> { syncLogId, startedAt }
 
+// A running sync stamps a heartbeat into SyncLog.details; one that has been silent this long is considered dead.
+const STALE_AFTER_MS = 20 * 60 * 1000;
+const heartbeat = () => JSON.stringify({ heartbeat: new Date().toISOString() });
+function lastBeat(log) {
+  let t = new Date(log.startedAt).getTime();
+  try { const b = log.details ? JSON.parse(log.details).heartbeat : null; if (b) t = Math.max(t, new Date(b).getTime()); } catch { /* ignore */ }
+  return t;
+}
+
 const CREATE_CHUNK = 500;
 const UPDATE_CHUNK = 50;
 
@@ -191,6 +200,7 @@ async function execute(source, syncLog, trigger, ruleHooks) {
 
   const feed = await parseXml(source.url, source.mappingConfig);
   const opts = normalizeOptions(source.options);
+  await prisma.syncLog.update({ where: { id: syncLog.id }, data: { details: heartbeat() } }).catch(() => {});
   const { maxProducts } = await getUserQuota(owner);
   const currentCount = await prisma.product.count({ where: { storeId } });
 
@@ -289,7 +299,8 @@ async function execute(source, syncLog, trigger, ruleHooks) {
   let created = 0, updated = 0;
   const progress = async () => {
     await prisma.syncLog.update({
-      where: { id: syncLog.id }, data: { itemCount: created + updated, created, updated, errorCount: errors, skipped },
+      where: { id: syncLog.id },
+      data: { itemCount: created + updated, created, updated, errorCount: errors, skipped, details: heartbeat() },
     }).catch(() => {});
   };
 
@@ -389,10 +400,10 @@ async function startXmlSync(xmlSourceId, { trigger = 'manual', userId = null } =
   if (!source) { const e = new Error('XML kaynağı bulunamadı'); e.status = 404; throw e; }
 
   // The in-memory lock only knows this process; also honour a sync another instance has started recently
-  const other = await prisma.syncLog.findFirst({
-    where: { xmlSourceId, type: 'xml_sync', status: 'started', startedAt: { gt: new Date(Date.now() - 3 * 60 * 60 * 1000) } },
-    select: { id: true },
+  const candidates = await prisma.syncLog.findMany({
+    where: { xmlSourceId, type: 'xml_sync', status: 'started' }, select: { id: true, startedAt: true, details: true },
   });
+  const other = candidates.find((l) => Date.now() - lastBeat(l) < STALE_AFTER_MS);
   if (other) {
     const e = new Error('Bu kaynak için senkronizasyon zaten çalışıyor'); e.code = 'SYNC_RUNNING'; e.status = 409; e.syncLogId = other.id;
     throw e;
@@ -403,7 +414,7 @@ async function startXmlSync(xmlSourceId, { trigger = 'manual', userId = null } =
   let syncLog;
   try {
     syncLog = await prisma.syncLog.create({
-      data: { storeId: source.storeId, xmlSourceId, type: 'xml_sync', status: 'started' },
+      data: { storeId: source.storeId, xmlSourceId, type: 'xml_sync', status: 'started', details: heartbeat() },
     });
   } catch (err) { running.delete(xmlSourceId); throw err; }
   lock.syncLogId = syncLog.id;
@@ -444,8 +455,22 @@ async function failStaleSyncs() {
   if (r.count) console.log(`[Sync] ${r.count} yarım kalan senkron kaydı kapatıldı`);
 }
 
+/** Closes "started" syncs nobody is working on any more (process died, instance replaced). Safe to call often. */
+async function failAbandonedSyncs() {
+  const started = await prisma.syncLog.findMany({ where: { status: 'started' }, select: { id: true, xmlSourceId: true, startedAt: true, details: true } });
+  const dead = started.filter((l) => !(l.xmlSourceId && running.has(l.xmlSourceId)) && Date.now() - lastBeat(l) > STALE_AFTER_MS);
+  if (dead.length) {
+    await prisma.syncLog.updateMany({
+      where: { id: { in: dead.map((l) => l.id) }, status: 'started' },
+      data: { status: 'failed', completedAt: new Date(), details: JSON.stringify({ error: 'Senkron yanıt vermediği için kapatıldı (süreç yeniden başlamış olabilir)' }) },
+    });
+    console.log(`[Sync] ${dead.length} terk edilmiş senkron kaydı kapatıldı`);
+  }
+  return dead.length;
+}
+
 function isRunning(xmlSourceId) {
   return running.has(xmlSourceId);
 }
 
-module.exports = { startXmlSync, failStaleSyncs, isRunning };
+module.exports = { startXmlSync, failStaleSyncs, failAbandonedSyncs, isRunning };

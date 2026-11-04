@@ -7,7 +7,7 @@ const { loadPricingContext } = require('./pricingEngine');
 const { processAutoAnswerForCron } = require('../routes/questions');
 const { syncAllOrders } = require('./orderSyncService');
 const whatsappService = require('./whatsappService');
-const { startXmlSync, failStaleSyncs, isRunning } = require('./xml/syncService');
+const { startXmlSync, failStaleSyncs, failAbandonedSyncs, isRunning } = require('./xml/syncService');
 const { runRetention } = require('./retentionService');
 
 class CronService {
@@ -55,6 +55,7 @@ class CronService {
 
   async syncXmlSources() {
     try {
+      await failAbandonedSyncs().catch((e) => console.error('[Sync] abandoned cleanup:', e.message));
       const activeSources = await prisma.xmlSource.findMany({ where: { status: 'active' }, include: { store: true } });
 
       for (const source of activeSources) {
