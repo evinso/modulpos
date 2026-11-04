@@ -4,26 +4,16 @@ const prisma = require('../config/database');
 const notificationService = require('../services/notificationService');
 const sseService = require('../services/sseService');
 const { auth } = require('../middleware/auth');
-const jwt = require('jsonwebtoken');
 
 async function getUserStoreId(userId) {
   const store = await prisma.store.findFirst({ where: { userId }, select: { id: true } });
   return store?.id || null;
 }
 
-// SSE stream — EventSource can't send headers so token comes as query param
-router.get('/stream', async (req, res) => {
-  const token = req.query.token;
-  if (!token) return res.status(401).end();
-
-  let decoded;
-  try {
-    decoded = jwt.verify(token, process.env.JWT_SECRET);
-  } catch {
-    return res.status(401).end();
-  }
-
-  const store = await prisma.store.findFirst({ where: { userId: decoded.id }, select: { id: true } });
+// SSE stream — EventSource cannot send headers, so it authenticates with the session cookie (withCredentials).
+// The token used to travel in the query string, which put every JWT into access logs; that is no longer accepted.
+router.get('/stream', auth, async (req, res) => {
+  const store = await prisma.store.findFirst({ where: { userId: req.user.id }, select: { id: true } });
   if (!store) return res.status(404).end();
 
   res.setHeader('Content-Type', 'text/event-stream');

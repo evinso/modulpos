@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/database');
+const { readSessionCookie } = require('../utils/sessionCookie');
 
 // In-memory throttle: only update lastSeenAt once per 5 minutes per session
 const sessionThrottle = new Map();
@@ -31,12 +32,27 @@ async function isStillAllowed(decoded) {
   return entry;
 }
 
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/** Forget the cached "still allowed" verdict (used on logout so the session dies immediately). */
+function forgetSession(userId, sessionId) {
+  statusCache.delete(`${userId}|${sessionId || ''}`);
+}
+
 const auth = async (req, res, next) => {
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
+    const bearer = req.header('Authorization')?.replace('Bearer ', '');
+    const cookieToken = bearer ? null : readSessionCookie(req);
+    const token = bearer || cookieToken;
 
     if (!token) {
       return res.status(401).json({ error: 'Yetkilendirme tokeni bulunamadı' });
+    }
+
+    // Cookie sessions are sent automatically by the browser, so state-changing requests must prove they come from
+    // our own page: a custom header cannot be added by another site without a CORS preflight, which we refuse.
+    if (cookieToken && !SAFE_METHODS.has(req.method) && req.header('X-Requested-With') !== 'XMLHttpRequest') {
+      return res.status(403).json({ error: 'Geçersiz istek kaynağı' });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
@@ -76,4 +92,4 @@ const requireRole = (...roles) => {
   };
 };
 
-module.exports = { auth, requireRole };
+module.exports = { auth, requireRole, forgetSession };

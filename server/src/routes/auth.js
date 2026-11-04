@@ -5,6 +5,8 @@ const jwt = require('jsonwebtoken');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const whatsappService = require('../services/whatsappService');
+const { setSessionCookie, clearSessionCookie, readSessionCookie, returnTokenInBody } = require('../utils/sessionCookie');
+const { forgetSession } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -97,10 +99,11 @@ router.post('/register', async (req, res, next) => {
 
     const { passwordHash: _, ...userWithoutPassword } = user;
 
+    setSessionCookie(res, token);
     res.status(201).json({
       message: `Kayıt başarılı! ${trialDays} günlük deneme süreniz başladı.`,
       user: userWithoutPassword,
-      token
+      ...(returnTokenInBody() ? { token } : {})
     });
   } catch (error) {
     next(error);
@@ -206,7 +209,8 @@ router.post('/login', async (req, res, next) => {
 
     whatsappService.notifyUserLogin(user, ip).catch(() => {});
 
-    res.json({ message: 'Giriş başarılı', user: userWithoutPassword, token });
+    setSessionCookie(res, token);
+    res.json({ message: 'Giriş başarılı', user: userWithoutPassword, ...(returnTokenInBody() ? { token } : {}) });
   } catch (error) {
     next(error);
   }
@@ -271,13 +275,30 @@ router.post('/verify-otp', async (req, res, next) => {
     const { passwordHash: _, ...userWithoutPassword } = user;
     whatsappService.notifyUserLogin(user, ip).catch(() => {});
 
-    res.json({ message: 'Giriş başarılı', user: userWithoutPassword, token });
+    setSessionCookie(res, token);
+    res.json({ message: 'Giriş başarılı', user: userWithoutPassword, ...(returnTokenInBody() ? { token } : {}) });
   } catch (error) {
     next(error);
   }
 });
 
 // Get current user
+// Logout: end the server-side session and clear the cookie. Works for cookie and bearer sessions; never fails.
+router.post('/logout', async (req, res) => {
+  try {
+    const raw = req.header('Authorization')?.replace('Bearer ', '') || readSessionCookie(req);
+    if (raw) {
+      const decoded = jwt.decode(raw);
+      if (decoded && decoded.sessionId && decoded.id) {
+        await prisma.userSession.updateMany({ where: { id: decoded.sessionId, userId: decoded.id }, data: { isActive: false } });
+        forgetSession(decoded.id, decoded.sessionId);
+      }
+    }
+  } catch { /* logging out must always succeed */ }
+  clearSessionCookie(res);
+  res.json({ success: true });
+});
+
 router.get('/me', auth, async (req, res, next) => {
   try {
     const user = await prisma.user.findUnique({

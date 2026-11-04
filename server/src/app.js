@@ -93,6 +93,7 @@ const corsOptions = {
     callback(corsErr);
   },
   credentials: true,
+  maxAge: 7200, // let browsers cache the preflight (Chrome caps this at 2h)
   optionsSuccessStatus: 200,
 };
 
