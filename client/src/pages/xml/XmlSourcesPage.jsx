@@ -17,6 +17,37 @@ const PRODUCT_FIELDS = [
   { key: 'images', label: 'Görsel URL', required: false, icon: '🖼️' },
 ];
 
+const EMPTY_OPTIONS = {
+  minStock: '', maxStock: '', onlyInStock: false,
+  includeCategories: '', excludeCategories: '', includeBrands: '', excludeBrands: '', minPrice: '', maxPrice: '', requireImage: false,
+  titlePrefix: '', titleSuffix: '', titleCase: 'none', maxImages: '', defaultBrand: '',
+  currencyRate: '', priceAlertPct: '',
+  mode: 'full', markMissingPassive: false,
+};
+
+// Converts the wizard fields into the options object stored with the source (empty values are dropped)
+function buildOptions(o) {
+  const num = (v) => (v === '' || v === null || v === undefined || Number.isNaN(Number(v)) ? undefined : Number(v));
+  const list = (v) => { const a = String(v || '').split(',').map((x) => x.trim()).filter(Boolean); return a.length ? a : undefined; };
+  const clean = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== '' && v !== false));
+  const out = {
+    stock: clean({ minStock: num(o.minStock), maxStock: num(o.maxStock), onlyInStock: o.onlyInStock }),
+    filters: clean({
+      includeCategories: list(o.includeCategories), excludeCategories: list(o.excludeCategories),
+      includeBrands: list(o.includeBrands), excludeBrands: list(o.excludeBrands),
+      minPrice: num(o.minPrice), maxPrice: num(o.maxPrice), requireImage: o.requireImage,
+    }),
+    content: clean({
+      titlePrefix: o.titlePrefix, titleSuffix: o.titleSuffix, titleCase: o.titleCase !== 'none' ? o.titleCase : undefined,
+      maxImages: num(o.maxImages), defaultBrand: o.defaultBrand,
+    }),
+    price: clean({ currencyRate: num(o.currencyRate), priceAlertPct: num(o.priceAlertPct) }),
+    run: clean({ mode: o.mode !== 'full' ? o.mode : undefined, markMissingPassive: o.markMissingPassive }),
+  };
+  const nonEmpty = Object.fromEntries(Object.entries(out).filter(([, v]) => Object.keys(v).length));
+  return Object.keys(nonEmpty).length ? nonEmpty : null;
+}
+
 export default function XmlSourcesPage() {
   const [sources, setSources] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,6 +66,7 @@ export default function XmlSourcesPage() {
   const [logsLoading, setLogsLoading] = useState(false);
 
   // Add form
+  const [addOptions, setAddOptions] = useState({ ...EMPTY_OPTIONS });
   const [addForm, setAddForm] = useState({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10', purchaseVatRate: '0' });
 
   // Mapping state
@@ -236,6 +268,7 @@ export default function XmlSourcesPage() {
         defaultBrandId: addForm.defaultBrandId || null,
         defaultVatRate: parseInt(addForm.defaultVatRate) || 10,
         purchaseVatRate: parseInt(addForm.purchaseVatRate) || 0,
+        options: buildOptions(addOptions),
       });
       setSavedSourceId(res.data.id);
       
@@ -298,7 +331,8 @@ export default function XmlSourcesPage() {
   const resetAddWizard = () => {
     setShowAddModal(false);
     setAddStep(1);
-    setAddForm({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10' });
+    setAddForm({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10', purchaseVatRate: '0' });
+    setAddOptions({ ...EMPTY_OPTIONS });
     setAddAnalysis(null);
     setAddMapping({});
     setAddPreview(null);
@@ -767,6 +801,83 @@ export default function XmlSourcesPage() {
                       Trendyol'a gönderilecek ürünlerin vergi oranı. Temmuz 2024 sonrası kabul edilen oranlar: %0, %1, %10, %20
                     </small>
                   </div>
+
+                  <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '20px 0' }} />
+
+                  <details>
+                    <summary style={{ cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>⚙️ Gelişmiş Seçenekler (isteğe bağlı)</summary>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '8px 0 14px' }}>
+                      Boş bıraktığınız alanlar uygulanmaz. Seçenekler her senkronizasyonda işlenir; XML’deki orijinal veri her zaman ayrıca saklanır.
+                    </p>
+
+                    <h5 style={{ fontSize: 13, margin: '0 0 8px' }}>📦 Stok</h5>
+                    <div className="grid grid-2">
+                      <div className="form-group"><label className="form-label">Minimum stok</label>
+                        <input type="number" min="0" className="form-input" placeholder="Bunun altındaki stok 0 sayılır" value={addOptions.minStock} onChange={e => setAddOptions({ ...addOptions, minStock: e.target.value })} /></div>
+                      <div className="form-group"><label className="form-label">Maksimum stok</label>
+                        <input type="number" min="0" className="form-input" placeholder="Stok bu değerle sınırlanır" value={addOptions.maxStock} onChange={e => setAddOptions({ ...addOptions, maxStock: e.target.value })} /></div>
+                    </div>
+                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, marginBottom: 16 }}>
+                      <input type="checkbox" checked={addOptions.onlyInStock} onChange={e => setAddOptions({ ...addOptions, onlyInStock: e.target.checked })} /> Stokta olmayan ürünleri içe aktarma
+                    </label>
+
+                    <h5 style={{ fontSize: 13, margin: '0 0 8px' }}>🔎 Filtreler</h5>
+                    <div className="grid grid-2">
+                      <div className="form-group"><label className="form-label">Yalnızca bu kategoriler</label>
+                        <input className="form-input" placeholder="virgülle: Kolye, Bileklik" value={addOptions.includeCategories} onChange={e => setAddOptions({ ...addOptions, includeCategories: e.target.value })} /></div>
+                      <div className="form-group"><label className="form-label">Bu kategorileri hariç tut</label>
+                        <input className="form-input" placeholder="virgülle" value={addOptions.excludeCategories} onChange={e => setAddOptions({ ...addOptions, excludeCategories: e.target.value })} /></div>
+                      <div className="form-group"><label className="form-label">Yalnızca bu markalar</label>
+                        <input className="form-input" placeholder="virgülle" value={addOptions.includeBrands} onChange={e => setAddOptions({ ...addOptions, includeBrands: e.target.value })} /></div>
+                      <div className="form-group"><label className="form-label">Bu markaları hariç tut</label>
+                        <input className="form-input" placeholder="virgülle" value={addOptions.excludeBrands} onChange={e => setAddOptions({ ...addOptions, excludeBrands: e.target.value })} /></div>
+                      <div className="form-group"><label className="form-label">En düşük XML fiyatı (₺)</label>
+                        <input type="number" min="0" step="0.01" className="form-input" value={addOptions.minPrice} onChange={e => setAddOptions({ ...addOptions, minPrice: e.target.value })} /></div>
+                      <div className="form-group"><label className="form-label">En yüksek XML fiyatı (₺)</label>
+                        <input type="number" min="0" step="0.01" className="form-input" value={addOptions.maxPrice} onChange={e => setAddOptions({ ...addOptions, maxPrice: e.target.value })} /></div>
+                    </div>
+                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, marginBottom: 16 }}>
+                      <input type="checkbox" checked={addOptions.requireImage} onChange={e => setAddOptions({ ...addOptions, requireImage: e.target.checked })} /> Görseli olmayan ürünleri içe aktarma
+                    </label>
+
+                    <h5 style={{ fontSize: 13, margin: '0 0 8px' }}>✍️ İçerik</h5>
+                    <div className="grid grid-2">
+                      <div className="form-group"><label className="form-label">Başlık öneki</label>
+                        <input className="form-input" placeholder="ör: Yeni Sezon " value={addOptions.titlePrefix} onChange={e => setAddOptions({ ...addOptions, titlePrefix: e.target.value })} /></div>
+                      <div className="form-group"><label className="form-label">Başlık soneki</label>
+                        <input className="form-input" placeholder="ör:  - Hızlı Kargo" value={addOptions.titleSuffix} onChange={e => setAddOptions({ ...addOptions, titleSuffix: e.target.value })} /></div>
+                      <div className="form-group"><label className="form-label">Başlık harf düzeni</label>
+                        <select className="form-select" value={addOptions.titleCase} onChange={e => setAddOptions({ ...addOptions, titleCase: e.target.value })}>
+                          <option value="none">Olduğu gibi</option><option value="title">Her Kelime Büyük Harfle</option><option value="upper">TÜMÜ BÜYÜK</option><option value="lower">tümü küçük</option>
+                        </select></div>
+                      <div className="form-group"><label className="form-label">En fazla görsel sayısı</label>
+                        <input type="number" min="1" className="form-input" placeholder="ör: 8" value={addOptions.maxImages} onChange={e => setAddOptions({ ...addOptions, maxImages: e.target.value })} /></div>
+                      <div className="form-group"><label className="form-label">Markası olmayanlar için marka</label>
+                        <input className="form-input" placeholder="ör: Markasız" value={addOptions.defaultBrand} onChange={e => setAddOptions({ ...addOptions, defaultBrand: e.target.value })} /></div>
+                    </div>
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '-6px 0 16px' }}>Yasaklı kelimeler için <a href="/content-rules">Yasaklı Kelimeler</a> sayfasındaki kurallar ayrıca uygulanır.</p>
+
+                    <h5 style={{ fontSize: 13, margin: '0 0 8px' }}>💱 Fiyat</h5>
+                    <div className="grid grid-2">
+                      <div className="form-group"><label className="form-label">Kur çarpanı</label>
+                        <input type="number" min="0" step="0.0001" className="form-input" placeholder="Fiyatlar dövizliyse: örn. 38.5" value={addOptions.currencyRate} onChange={e => setAddOptions({ ...addOptions, currencyRate: e.target.value })} /></div>
+                      <div className="form-group"><label className="form-label">Fiyat değişim uyarısı (%)</label>
+                        <input type="number" min="0" step="0.1" className="form-input" placeholder="ör: 30 → %30’dan fazla değişirse uyar" value={addOptions.priceAlertPct} onChange={e => setAddOptions({ ...addOptions, priceAlertPct: e.target.value })} /></div>
+                    </div>
+
+                    <h5 style={{ fontSize: 13, margin: '0 0 8px' }}>🔄 Senkronizasyon davranışı</h5>
+                    <div className="form-group">
+                      <select className="form-select" value={addOptions.mode} onChange={e => setAddOptions({ ...addOptions, mode: e.target.value })}>
+                        <option value="full">Yeni ürün ekle ve mevcutları güncelle</option>
+                        <option value="update_only">Yalnızca mevcut ürünleri güncelle (yeni ekleme)</option>
+                        <option value="create_only">Yalnızca yeni ürün ekle (mevcutlara dokunma)</option>
+                      </select>
+                    </div>
+                    <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 13 }}>
+                      <input type="checkbox" style={{ marginTop: 3 }} checked={addOptions.markMissingPassive} onChange={e => setAddOptions({ ...addOptions, markMissingPassive: e.target.checked })} />
+                      <span>XML’den kalkan ürünleri pasife al (XML’e geri dönerlerse tekrar aktif olur)</span>
+                    </label>
+                  </details>
                 </div>
               )}
 

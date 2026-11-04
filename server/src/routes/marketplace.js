@@ -7,7 +7,8 @@ const PazaramaService = require('../services/pazarama/pazaramaService');
 const CiceksepetiService = require('../services/ciceksepeti/ciceksepetiService');
 const notificationService = require('../services/notificationService');
 const whatsappService = require('../services/whatsappService');
-const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
+const { loadPricingContext, PricingContext } = require('../services/pricingEngine');
+const { buildReadinessContext } = require('../services/readiness');
 const { deductCredits, getSetting } = require('./credits');
 const { ownedParam, userStoreIds } = require('../middleware/ownership');
 const { publicConnection } = require('../utils/sanitize');
@@ -15,6 +16,13 @@ const { publicConnection } = require('../utils/sanitize');
 const router = express.Router();
 router.use(auth);
 router.param('id', ownedParam('marketplaceConnection', { skip: (req) => req.path.startsWith('/category-mappings/') }));
+
+// Pricing context for marketplaces that only price when a rule is chosen explicitly.
+async function loadRuleContext(pricingRuleId, connection) {
+  if (!pricingRuleId) return new PricingContext([], connection.id);
+  const r = await prisma.pricingRule.findFirst({ where: { id: String(pricingRuleId), storeId: connection.storeId } });
+  return new PricingContext(r ? [r] : [], connection.id);
+}
 
 async function getUserStore(userId) {
   return prisma.store.findFirst({ where: { userId } });
@@ -1107,16 +1115,14 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     if (minStock > 0) products = products.filter(p => (p.stock ?? 0) >= minStock);
     if (products.length === 0) return res.status(400).json({ error: 'Ürün bulunamadı' });
 
+    const readiness = await buildReadinessContext(connection, { xmlSourceIds: [...new Set(products.map((x) => x.xmlSourceId).filter(Boolean))] });
+
     // Fetch category mappings
     const catMappings = await prisma.categoryMapping.findMany({ where: { connectionId: connection.id } });
     const catMap = {};
     for (const m of catMappings) { catMap[m.localCategory] = m; }
 
     // Fetch pricing rules for this connection
-    const pricingRules = await prisma.pricingRule.findMany({
-      where: { storeId: connection.storeId, applyTo: { in: ['marketplace_xml', 'price_range'] }, isActive: true },
-      orderBy: { priority: 'asc' }
-    });
 
     // Fetch Global XML Provider category mappings as fallback
     const globalCatMap = {};
@@ -1142,21 +1148,7 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
       }
     }
 
-    const pricingLookup = {};
-    const priceRangeRules = [];
-    for (const r of pricingRules) {
-      if (!r.conditions) continue;
-      try {
-        const conds = JSON.parse(r.conditions);
-        // Only standard (marketplace_xml) rules go into pricingLookup
-        if (r.applyTo !== 'price_range' && conds.connectionId === connection.id && conds.xmlSourceId) {
-          pricingLookup[conds.xmlSourceId] = r;
-        }
-        if (r.applyTo === 'price_range' && (conds.minPurchasePrice != null || conds.maxPurchasePrice != null)) {
-          priceRangeRules.push(r);
-        }
-      } catch(e) {}
-    }
+    const priceCtx = await loadPricingContext(connection.storeId, connection.id);
 
     // Initialize Trendyol service for brand lookups
     const service = new TrendyolService(connection);
@@ -1218,42 +1210,14 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     const formatted = [];
     const errors = [];
     for (const p of products) {
-      let mapping = resolveCatMapping(p.category, catMap, p.xmlSourceId, globalCatMap);
-      
-      if (!mapping) {
-        errors.push(`${p.sku}: Kategori eşleştirmesi yok (${p.category || 'Kategori boş'})`);
+      // Single validator shared with the product list: never send a product it flags
+      const ev = readiness.evaluate(p);
+      if (!ev.ready) {
+        errors.push(`${p.sku}: ${ev.issues.map((i) => i.message).join('; ')}`);
         continue;
       }
-      if (!p.barcode) {
-        errors.push(`${p.sku}: Barkod eksik`);
-        continue;
-      }
-      if (/[{}]/.test(p.barcode) || p.barcode.trim().length < 3) {
-        errors.push(`${p.sku}: Barkod geçersiz (${p.barcode})`);
-        continue;
-      }
-
-      // Find and apply Pricing Rule
-      const rule = pricingLookup[p.xmlSourceId];
-      const xmlPrice = p.xmlPrice || p.price;
-      const rangeMatch = !rule ? matchPriceRangeRule(xmlPrice, priceRangeRules, connection.id, p.xmlSourceId) : null;
-
-      if (!rule && !rangeMatch) {
-        errors.push(`${p.sku}: Fiyatlandırma kuralı eksik (Fiyatlandırma sayfasından kural tanımlayın)`);
-        continue;
-      }
-
-      let finalPrice = p.price;
-      if (rule) {
-        if (rule.type === 'percentage') {
-          finalPrice = finalPrice * (1 + rule.value / 100);
-        } else if (rule.type === 'fixed') {
-          finalPrice = finalPrice + rule.value;
-        }
-      } else {
-        finalPrice = calcPriceRangePrice(xmlPrice, rangeMatch.rule, rangeMatch.conds);
-      }
-      p.price = Math.round(Math.max(0, finalPrice) * 100) / 100;
+      const mapping = ev.mapping;
+      p.price = ev.salePrice;
 
       // Parse mapped attributes
       const attributes = [];
@@ -1436,10 +1400,6 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
     for (const m of catMappings) catMap[m.localCategory] = m;
 
     // Pricing rules
-    const pricingRules = await prisma.pricingRule.findMany({
-      where: { storeId: connection.storeId, applyTo: { in: ['marketplace_xml', 'price_range'] }, isActive: true },
-      orderBy: { priority: 'asc' }
-    });
 
     // Global XML Provider category mappings as fallback
     const globalCatMap = {};
@@ -1465,20 +1425,7 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
       }
     }
 
-    const pricingLookup = {};
-    const priceRangeRules = [];
-    for (const r of pricingRules) {
-      if (!r.conditions) continue;
-      try {
-        const conds = JSON.parse(r.conditions);
-        if (r.applyTo !== 'price_range' && conds.connectionId === connection.id && conds.xmlSourceId) {
-          pricingLookup[conds.xmlSourceId] = r;
-        }
-        if (r.applyTo === 'price_range' && (conds.minPurchasePrice != null || conds.maxPurchasePrice != null)) {
-          priceRangeRules.push(r);
-        }
-      } catch(e) {}
-    }
+    const readiness = await buildReadinessContext(connection, { xmlSourceIds: distinctXmlSourceIds });
 
     const service = new TrendyolService(connection);
     const connConfigAll = connection.config ? JSON.parse(connection.config) : {};
@@ -1530,24 +1477,18 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
     const formatted = [];
     const toUpsert = [];
     let skipped = 0;
+    const skipReasons = {};
 
     for (const p of products) {
-      const mapping = resolveCatMapping(p.category, catMap, p.xmlSourceId, globalCatMap);
-      if (!mapping || !p.barcode || /[{}]/.test(p.barcode) || p.barcode.trim().length < 3 || (minStock > 0 && (p.stock ?? 0) < minStock)) { skipped++; continue; }
-
-      const rule = pricingLookup[p.xmlSourceId];
-      const xmlPrice = p.xmlPrice || p.price;
-      const rangeMatch = !rule ? matchPriceRangeRule(xmlPrice, priceRangeRules, connection.id, p.xmlSourceId) : null;
-      if (!rule && !rangeMatch) { skipped++; continue; }
-
-      let finalPrice = p.price;
-      if (rule) {
-        if (rule.type === 'percentage') finalPrice = finalPrice * (1 + rule.value / 100);
-        else if (rule.type === 'fixed') finalPrice = finalPrice + rule.value;
-      } else {
-        finalPrice = calcPriceRangePrice(xmlPrice, rangeMatch.rule, rangeMatch.conds);
+      if (minStock > 0 && (p.stock ?? 0) < minStock) { skipped++; skipReasons.low_stock = (skipReasons.low_stock || 0) + 1; continue; }
+      const ev = readiness.evaluate(p);
+      if (!ev.ready) {
+        skipped++;
+        for (const iss of ev.issues) skipReasons[iss.code] = (skipReasons[iss.code] || 0) + 1;
+        continue;
       }
-      finalPrice = Math.round(Math.max(0, finalPrice) * 100) / 100;
+      const mapping = ev.mapping;
+      const finalPrice = ev.salePrice;
 
       const attributes = [];
       if (mapping.attributes) {
@@ -1581,7 +1522,7 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
       }
 
       const brandId = await resolveProductBrandIdAll(p);
-      if (!brandId) { skipped++; continue; }
+      if (!brandId) { skipped++; skipReasons.no_brand = (skipReasons.no_brand || 0) + 1; continue; }
 
       const item = TrendyolService.formatProduct({ ...p, price: finalPrice }, mapping.marketplaceCategoryId, brandId, attributes);
       formatted.push(item);
@@ -1589,7 +1530,7 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
     }
 
     if (formatted.length === 0) {
-      return res.status(400).json({ error: 'Gönderilebilir ürün yok', skipped });
+      return res.status(400).json({ error: 'Gönderilebilir ürün yok', skipped, skipReasons });
     }
 
     // Send in batches of 100 with 100ms delay between batches
@@ -1632,7 +1573,7 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
       }
     });
 
-    res.json({ sent: formatted.length, skipped, batches, batchRequestIds });
+    res.json({ sent: formatted.length, skipped, skipReasons, batches, batchRequestIds });
   } catch (error) {
     console.error('[Trendyol Send-All Error]', error.message);
     const errorMsg = typeof error.response?.data === 'string'
@@ -2072,38 +2013,12 @@ router.post('/connections/:id/sync-price-stock', async (req, res, next) => {
       const service = new TrendyolService(connection);
 
       // Fetch pricing rules to compute correct sale price
-      const pricingRules = await prisma.pricingRule.findMany({
-        where: { storeId: connection.storeId, applyTo: { in: ['marketplace_xml', 'price_range'] }, isActive: true },
-        orderBy: { priority: 'asc' }
-      });
-      const pricingLookup = {};
-      const priceRangeRules = [];
-      for (const r of pricingRules) {
-        if (!r.conditions) continue;
-        try {
-          const conds = JSON.parse(r.conditions);
-          if (r.applyTo !== 'price_range' && conds.connectionId === connection.id && conds.xmlSourceId) {
-            pricingLookup[conds.xmlSourceId] = r;
-          }
-          if (r.applyTo === 'price_range' && (conds.minPurchasePrice != null || conds.maxPurchasePrice != null)) {
-            priceRangeRules.push(r);
-          }
-        } catch(e) {}
-      }
+      const priceCtx = await loadPricingContext(connection.storeId, connection.id);
 
       const items = marketplaceProducts.map(mp => {
         const p = mp.product;
-        const xmlPrice = p.xmlPrice || p.price;
-        let finalPrice = p.price;
-        const rule = pricingLookup[p.xmlSourceId];
-        if (rule) {
-          if (rule.type === 'percentage') finalPrice = finalPrice * (1 + rule.value / 100);
-          else if (rule.type === 'fixed') finalPrice = finalPrice + rule.value;
-          finalPrice = Math.round(Math.max(0, finalPrice) * 100) / 100;
-        } else {
-          const match = matchPriceRangeRule(xmlPrice, priceRangeRules, connection.id, p.xmlSourceId);
-          if (match) finalPrice = calcPriceRangePrice(xmlPrice, match.rule, match.conds);
-        }
+        const priced = priceCtx.priceFor(p);
+        const finalPrice = priced ? priced.price : p.price;
         return {
           barcode: p.barcode || p.sku,
           quantity: p.stock,
@@ -2614,13 +2529,8 @@ router.post('/connections/:id/pazarama-send', async (req, res, next) => {
       include: { variants: true },
     });
 
-    // Load pricing rule
-    let rule = null;
-    if (pricingRuleId) {
-      rule = await prisma.pricingRule.findUnique({ where: { id: pricingRuleId } });
-    }
-
-    const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
+    // Optional explicit pricing rule (must belong to this store); no rule = raw price
+    const priceCtx = await loadRuleContext(pricingRuleId, connection);
 
     const pazaramaProducts = [];
     for (const p of products) {
@@ -2628,10 +2538,7 @@ router.post('/connections/:id/pazarama-send', async (req, res, next) => {
 
       const rawPrice = parseFloat(p.price || 0);
       let salePrice = rawPrice;
-      if (rule) {
-        const matched = matchPriceRangeRule(rule, rawPrice);
-        if (matched) salePrice = calcPriceRangePrice(rawPrice, matched);
-      }
+      { const pr = priceCtx.priceFor(p); if (pr) salePrice = pr.price; }
       const listPrice = parseFloat((salePrice * 1.2).toFixed(2));
 
       pazaramaProducts.push({
@@ -2704,10 +2611,7 @@ router.post('/connections/:id/pazarama-sync', async (req, res, next) => {
 
     if (!mps.length) return res.status(400).json({ error: 'Güncellenecek ürün bulunamadı' });
 
-    let rule = null;
-    if (pricingRuleId) rule = await prisma.pricingRule.findUnique({ where: { id: pricingRuleId } });
-
-    const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
+    const priceCtx = await loadRuleContext(pricingRuleId, connection);
 
     const priceItems = [];
     const stockItems = [];
@@ -2717,10 +2621,7 @@ router.post('/connections/:id/pazarama-sync', async (req, res, next) => {
       const code = p.barcode || p.sku || p.id;
       const rawPrice = parseFloat(p.price || 0);
       let salePrice = rawPrice;
-      if (rule) {
-        const matched = matchPriceRangeRule(rule, rawPrice);
-        if (matched) salePrice = calcPriceRangePrice(rawPrice, matched);
-      }
+      { const pr = priceCtx.priceFor(p); if (pr) salePrice = pr.price; }
       priceItems.push({ code, listPrice: parseFloat((salePrice * 1.2).toFixed(2)), salePrice });
       stockItems.push({ code, stockCount: p.stock ?? 0 });
     }
@@ -2735,10 +2636,7 @@ router.post('/connections/:id/pazarama-sync', async (req, res, next) => {
       const p = mp.product;
       const rawPrice = parseFloat(p.price || 0);
       let salePrice = rawPrice;
-      if (rule) {
-        const matched = matchPriceRangeRule(rule, rawPrice);
-        if (matched) salePrice = calcPriceRangePrice(rawPrice, matched);
-      }
+      { const pr = priceCtx.priceFor(p); if (pr) salePrice = pr.price; }
       await prisma.marketplaceProduct.update({
         where: { id: mp.id },
         data: { marketplacePrice: salePrice, marketplaceStock: p.stock ?? 0, lastSyncedAt: new Date() },

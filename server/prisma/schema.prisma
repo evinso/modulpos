@@ -102,6 +102,7 @@ model XmlSource {
   totalProducts   Int      @default(0)
   status          String   @default("active") // active, paused, error
   errorMessage    String?
+  options        String?  // JSON: stock/filter/content/price options chosen when adding the source
   mappingConfig   String?  // JSON string for field mappings
   barcodePrefix   String?  // Prefix to add to barcodes
   defaultCategoryId String? // Default Trendyol category ID
@@ -629,4 +630,23 @@ model WebhookEvent {
   @@index([storeId])
   @@index([eventType])
   @@index([createdAt])
+}
+
+// Forbidden / replaced words applied to product title & description.
+// storeId = null → global rule managed by admins (applies to every store).
+model ContentRule {
+  id            String   @id @default(uuid())
+  storeId       String?
+  pattern       String
+  replacement   String   @default("")
+  action        String   @default("replace") // replace | remove | block
+  field         String   @default("both")    // title | description | both
+  matchType     String   @default("word")    // word | contains
+  caseSensitive Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  note          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([storeId])
 }

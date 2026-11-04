@@ -40,28 +40,30 @@ router.get('/', async (req, res, next) => {
 
     const where = { storeId: store.id };
 
+    const andClauses = [];
     if (search) {
-      where.OR = [
-        { title: { contains: search } },
-        { sku: { contains: search } },
-        { barcode: { contains: search } }
-      ];
+      andClauses.push({ OR: [
+        { title: { contains: search, mode: 'insensitive' } },
+        { sku: { contains: search, mode: 'insensitive' } },
+        { barcode: { contains: search, mode: 'insensitive' } }
+      ] });
     }
     if (status) where.status = status;
     if (brand) where.brand = brand;
     if (categories) {
       const catList = categories.split(',').map(c => c.trim()).filter(Boolean);
       // Match exact OR pipe-separated format (e.g. localCategory "Elbise" matches p.category "Kadın|Elbise|Günlük")
-      where.OR = catList.flatMap(c => [
+      andClauses.push({ OR: catList.flatMap(c => [
         { category: c },
         { category: { contains: `|${c}|` } },
         { category: { startsWith: `${c}|` } },
         { category: { endsWith: `|${c}` } },
-      ]);
+      ]) });
     } else if (category) {
       where.category = category;
     }
     if (xmlSourceId) where.xmlSourceId = xmlSourceId;
+    if (andClauses.length) where.AND = andClauses;
     if (globalXmlOnly === 'true') where.xmlSource = { globalProviderId: { not: null } };
     if (notSentConnectionId) {
       // Products that have NO MarketplaceProduct record for this connection

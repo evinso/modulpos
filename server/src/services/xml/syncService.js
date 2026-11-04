@@ -56,17 +56,86 @@ function diffProduct(ex, next) {
     if (numChanged(ex[k], next[k])) data[k] = next[k];
   }
   if ((ex.stock ?? 0) !== (next.stock ?? 0)) data.stock = next.stock;
-  for (const k of ['title', 'description', 'brand', 'category', 'barcode', 'images', 'rawXmlData']) {
+  for (const k of ['title', 'description', 'brand', 'category', 'barcode', 'images', 'rawXmlData', 'status']) {
+    if (k === 'status' && next.status === undefined) continue;
     if ((ex[k] ?? null) !== (next[k] ?? null)) data[k] = next[k];
   }
   return data;
 }
 
-function buildProductFields(p, source, userPlan) {
+
+/** Options chosen when adding/editing the source (XmlSource.options JSON). Every key is optional. */
+function normalizeOptions(raw) {
+  let o = {};
+  try { o = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : {}; } catch { o = {}; }
+  const n = (v) => (v === '' || v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v));
+  const list = (v) => (Array.isArray(v) ? v : String(v || '').split(',')).map((x) => String(x).trim().toLowerCase()).filter(Boolean);
+  return {
+    minStock: n(o.stock?.minStock),        // stock below this is imported as 0
+    maxStock: n(o.stock?.maxStock),        // stock is capped to this value
+    onlyInStock: !!o.stock?.onlyInStock,   // skip products without stock
+    includeCategories: list(o.filters?.includeCategories),
+    excludeCategories: list(o.filters?.excludeCategories),
+    includeBrands: list(o.filters?.includeBrands),
+    excludeBrands: list(o.filters?.excludeBrands),
+    minPrice: n(o.filters?.minPrice),
+    maxPrice: n(o.filters?.maxPrice),
+    requireImage: !!o.filters?.requireImage,
+    titlePrefix: String(o.content?.titlePrefix || ''),
+    titleSuffix: String(o.content?.titleSuffix || ''),
+    titleCase: ['upper', 'lower', 'title'].includes(o.content?.titleCase) ? o.content.titleCase : 'none',
+    maxImages: n(o.content?.maxImages),
+    defaultBrand: String(o.content?.defaultBrand || '').trim(),
+    currencyRate: n(o.price?.currencyRate) > 0 ? n(o.price?.currencyRate) : 1,
+    priceAlertPct: n(o.price?.priceAlertPct),
+    mode: ['update_only', 'create_only'].includes(o.run?.mode) ? o.run.mode : 'full',
+    markMissingPassive: !!o.run?.markMissingPassive,
+  };
+}
+
+const trLower = (t) => t.toLocaleLowerCase('tr');
+function titleCase(t) {
+  return trLower(t).replace(/(^|[\s\-\/(])(\p{L})/gu, (_, sep, ch) => sep + ch.toLocaleUpperCase('tr'));
+}
+
+/** true when the feed product must NOT be imported according to the source's filters */
+function filteredOut(p, o) {
+  const cats = String(p.category || '').split('|').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  const brand = String(p.brand || '').trim().toLowerCase();
+  const price = Number(p.price) || 0;
+  if (o.includeCategories.length && !cats.some((c) => o.includeCategories.includes(c))) return true;
+  if (o.excludeCategories.length && cats.some((c) => o.excludeCategories.includes(c))) return true;
+  if (o.includeBrands.length && !o.includeBrands.includes(brand)) return true;
+  if (o.excludeBrands.length && o.excludeBrands.includes(brand)) return true;
+  if (o.minPrice !== null && price < o.minPrice) return true;
+  if (o.maxPrice !== null && price > o.maxPrice) return true;
+  if (o.onlyInStock && !((Number(p.stock) || 0) > 0)) return true;
+  if (o.requireImage && !(p.images && p.images.length)) return true;
+  return false;
+}
+
+function shapeText(title, o) {
+  if (!title) return title;
+  let t = String(title);
+  if (o.titleCase === 'upper') t = t.toLocaleUpperCase('tr');
+  else if (o.titleCase === 'lower') t = trLower(t);
+  else if (o.titleCase === 'title') t = titleCase(t);
+  return `${o.titlePrefix}${t}${o.titleSuffix}`.trim();
+}
+
+function shapeStock(stock, opts) {
+  if (stock === null || stock === undefined || !opts) return stock;
+  let v = Number(stock) || 0;
+  if (opts.minStock !== null && v < opts.minStock) v = 0;
+  if (opts.maxStock !== null && v > opts.maxStock) v = opts.maxStock;
+  return v;
+}
+
+function buildProductFields(p, source, userPlan, opts) {
   const sku = cleanVal(p.sku) || cleanVal(p.barcode)
     || `xml-${crypto.createHash('sha1').update(String(p.title || '')).digest('hex').slice(0, 12)}`;
 
-  let raw = p.price || 0;
+  let raw = (p.price || 0) * (opts ? opts.currencyRate : 1);
   const planMarkupPct = getPerPlanMarkup(source.globalPriceMarkupPctByPlan, userPlan);
   if (planMarkupPct !== null) raw += raw * (planMarkupPct / 100);
   else if (source.globalPriceMarkupPct) raw += raw * (source.globalPriceMarkupPct / 100);
@@ -88,8 +157,8 @@ function buildProductFields(p, source, userPlan) {
   return {
     sku, finalBarcode, hasBarcode: !!rawBarcode || !!p.barcode, xmlPrice, rawXmlData,
     title: p.title, description: p.description, cost: p.cost, listPrice: p.listPrice,
-    stock: p.stock, brand: p.brand, category: p.category,
-    images: p.images?.length ? JSON.stringify(p.images) : null,
+    stock: shapeStock(p.stock, opts), brand: p.brand || (opts && opts.defaultBrand) || p.brand, category: p.category,
+    images: p.images?.length ? JSON.stringify(opts && opts.maxImages ? p.images.slice(0, opts.maxImages) : p.images) : null,
   };
 }
 
@@ -116,6 +185,7 @@ async function execute(source, syncLog, trigger, ruleHooks) {
   const userPlan = resolveUserPlan(userSub?.plan);
 
   const feed = await parseXml(source.url, source.mappingConfig);
+  const opts = normalizeOptions(source.options);
   const { maxProducts } = await getUserQuota(owner);
   const currentCount = await prisma.product.count({ where: { storeId } });
 
@@ -123,7 +193,7 @@ async function execute(source, syncLog, trigger, ruleHooks) {
     where: { storeId, xmlSourceId: source.id },
     select: {
       id: true, sku: true, title: true, description: true, xmlPrice: true, price: true, cost: true,
-      listPrice: true, stock: true, brand: true, category: true, barcode: true, images: true, rawXmlData: true,
+      listPrice: true, stock: true, brand: true, category: true, barcode: true, images: true, rawXmlData: true, status: true,
     },
   });
   const bySku = new Map();
@@ -133,16 +203,18 @@ async function execute(source, syncLog, trigger, ruleHooks) {
   const updates = [];
   const logs = [];
   const seen = new Set();
-  let skipped = 0, unchanged = 0, errors = 0, blocked = 0;
+  let skipped = 0, unchanged = 0, errors = 0, blocked = 0, filtered = 0, passivated = 0, reactivated = 0;
+  const alerts = [];
 
   for (const p of feed) {
     try {
-      const f = buildProductFields(p, source, userPlan);
+      if (filteredOut(p, opts)) { filtered++; continue; }
+      const f = buildProductFields(p, source, userPlan, opts);
       if (seen.has(f.sku)) { skipped++; continue; } // duplicate SKU inside the same feed
       seen.add(f.sku);
 
       // Content rules (forbidden words etc.) apply to the stored copy only
-      let title = f.title, description = f.description;
+      let title = shapeText(f.title, opts), description = f.description;
       if (ruleHooks) {
         const out = ruleHooks.apply({ title, description });
         title = out.title; description = out.description;
@@ -150,6 +222,8 @@ async function execute(source, syncLog, trigger, ruleHooks) {
       }
 
       const ex = bySku.get(f.sku);
+      if (ex && opts.mode === 'create_only') { unchanged++; continue; }
+      if (!ex && opts.mode === 'update_only') { skipped++; continue; }
       if (ex) {
         const next = {
           title: title || ex.title,
@@ -165,11 +239,16 @@ async function execute(source, syncLog, trigger, ruleHooks) {
           images: f.images || ex.images,
           rawXmlData: f.rawXmlData,
         };
+        if (opts.markMissingPassive && ex.status === 'passive') { next.status = 'active'; reactivated++; }
         const data = diffProduct(ex, next);
         if (Object.keys(data).length === 0) { unchanged++; continue; }
         updates.push({ id: ex.id, data });
 
         const priceChanged = Math.abs((ex.xmlPrice || 0) - f.xmlPrice) > 0.001;
+        if (priceChanged && opts.priceAlertPct !== null && (ex.xmlPrice || 0) > 0
+            && Math.abs(f.xmlPrice - ex.xmlPrice) / ex.xmlPrice * 100 >= opts.priceAlertPct) {
+          alerts.push({ sku: f.sku, old: ex.xmlPrice, now: f.xmlPrice });
+        }
         const stockChanged = (ex.stock ?? 0) !== (next.stock ?? 0);
         if (priceChanged || stockChanged) {
           logs.push({
@@ -195,6 +274,12 @@ async function execute(source, syncLog, trigger, ruleHooks) {
     } catch { errors++; }
   }
 
+  if (opts.markMissingPassive && feed.length > 0) {
+    for (const r of existingRows) {
+      if (!seen.has(r.sku) && r.status === 'active') { updates.push({ id: r.id, data: { status: 'passive' } }); passivated++; }
+    }
+  }
+
   let created = 0, updated = 0;
   const progress = async () => {
     await prisma.syncLog.update({
@@ -212,7 +297,30 @@ async function execute(source, syncLog, trigger, ruleHooks) {
     await progress();
   }
 
-  for (const part of chunk(updates, UPDATE_CHUNK)) {
+  // Updates that set the very same value (e.g. status -> passive) collapse into one statement per 1000 ids
+  const uniformGroups = new Map();
+  const individual = [];
+  for (const u of updates) {
+    const keys = Object.keys(u.data);
+    if (keys.length === 1 && keys[0] === 'status') {
+      const g = uniformGroups.get(u.data.status) || [];
+      g.push(u);
+      uniformGroups.set(u.data.status, g);
+    } else individual.push(u);
+  }
+  for (const [status, group] of uniformGroups) {
+    for (const part of chunk(group, 1000)) {
+      const failed = await writeResilient(
+        part,
+        (items) => prisma.product.updateMany({ where: { id: { in: items.map((u) => u.id) } }, data: { status } }),
+        (u) => prisma.product.update({ where: { id: u.id }, data: { status } }),
+      );
+      errors += failed; updated += part.length - failed;
+      await progress();
+    }
+  }
+
+  for (const part of chunk(individual, UPDATE_CHUNK)) {
     const failed = await writeResilient(
       part,
       (items) => prisma.$transaction(items.map((u) => prisma.product.update({ where: { id: u.id }, data: u.data }))),
@@ -231,21 +339,24 @@ async function execute(source, syncLog, trigger, ruleHooks) {
     where: { id: syncLog.id },
     data: {
       status: 'completed', itemCount: created + updated, created, updated, skipped, errorCount: errors,
-      completedAt: new Date(), details: JSON.stringify({ total: feed.length, unchanged, blocked, trigger }),
+      completedAt: new Date(), details: JSON.stringify({ total: feed.length, unchanged, blocked, filtered, passivated, reactivated, priceAlerts: alerts.length, alertSamples: alerts.slice(0, 10), trigger }),
     },
   });
   await prisma.xmlSource.update({
     where: { id: source.id }, data: { lastSyncedAt: new Date(), totalProducts: feed.length, status: 'active' },
   });
 
-  const result = { total: feed.length, created, updated, unchanged, skipped, errors, blocked };
+  const result = { total: feed.length, created, updated, unchanged, skipped, errors, blocked, filtered, passivated, priceAlerts: alerts.length };
 
-  const skippedNote = skipped > 0 ? ` ${skipped} ürün atlandı (limit/tekrar).` : '';
+  const skippedNote = (skipped > 0 ? ` ${skipped} ürün atlandı (limit/tekrar).` : '')
+    + (filtered > 0 ? ` ${filtered} ürün filtrelere takıldı.` : '')
+    + (passivated > 0 ? ` ${passivated} ürün beslemede olmadığı için pasife alındı.` : '')
+    + (alerts.length > 0 ? ` ⚠ ${alerts.length} üründe fiyat eşiği aşıldı.` : '');
   await notificationService.create({
     storeId,
     title: trigger === 'cron' ? 'Otomatik XML Senkronizasyonu' : 'XML Senkronizasyon Tamamlandı',
     message: `"${source.name}": ${created} yeni, ${updated} güncellendi, ${unchanged} değişmedi.${skippedNote}`,
-    type: errors > 0 || skipped > 0 ? 'warning' : 'success',
+    type: errors > 0 || skipped > 0 || alerts.length > 0 ? 'warning' : 'success',
     link: trigger === 'cron' ? '/products' : '/xml-sources',
     data: { notifType: 'xml_sync', sourceName: source.name, ...result },
   }).catch(() => {});

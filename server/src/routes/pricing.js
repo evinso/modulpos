@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
+const { explainTemplatePrice, matchesConds } = require('../services/pricingEngine');
 
 const router = express.Router();
 router.use(auth);
@@ -21,6 +22,33 @@ async function assertConditionsOwned(storeId, conditions) {
     if (!ok) { const e = new Error('Geçersiz XML kaynağı'); e.status = 400; throw e; }
   }
 }
+
+// Calculator preview (same engine that prices real products)
+router.post('/calculate', async (req, res, next) => {
+  try {
+    const { purchasePrice, value, conditions } = req.body;
+    const out = explainTemplatePrice(purchasePrice, value, conditions || {});
+    if (!out) return res.status(400).json({ error: 'Bu değerlerle geçerli bir fiyat hesaplanamıyor (komisyon + kâr çok yüksek olabilir)' });
+    res.json(out);
+  } catch (error) { next(error); }
+});
+
+// How many of my products would this rule's scope + purchase-price range cover?
+router.post('/coverage', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const conds = req.body.conditions || {};
+    await assertConditionsOwned(store.id, conds);
+    const products = await prisma.product.findMany({
+      where: { storeId: store.id },
+      select: { xmlSourceId: true, category: true, brand: true, xmlPrice: true, price: true },
+    });
+    const rule = { applyTo: 'price_template' };
+    const covered = products.filter((p) => matchesConds(rule, conds, p, conds.connectionId || null)).length;
+    res.json({ total: products.length, covered });
+  } catch (error) { next(error); }
+});
 
 router.get('/', async (req, res, next) => {
   try {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Send, Search, CheckSquare, Square, Package, AlertCircle,
   RefreshCw, Filter, X, Check, Clock, Ban, Sparkles
@@ -14,13 +14,37 @@ const MP_STATUS = {
   passive: { label: 'Kaldırıldı', color: '#f97316',          bg: 'rgba(249,115,22,0.1)',  icon: <Ban size={11} /> },
 };
 
+// Reasons the server validator can give for blocking a product
+const ISSUE_LABELS = {
+  no_category_mapping: 'Kategori eşleşmesi yok',
+  bad_barcode: 'Barkod hatalı',
+  duplicate_barcode: 'Tekrarlı barkod',
+  no_price_rule: 'Fiyat şablonu yok',
+  invalid_price: 'Fiyat geçersiz',
+  price_below_cost: 'Fiyat alışın altında',
+  title_empty: 'Başlık boş',
+  title_too_long: 'Başlık çok uzun',
+  no_description: 'Açıklama yok',
+  description_too_long: 'Açıklama çok uzun',
+  no_image: 'Görsel yok',
+  bad_vat: 'KDV hatalı',
+  bad_stock: 'Stok hatalı',
+  blocked_words: 'Yasaklı kelime',
+  rejected_by_marketplace: 'Trendyol reddetti',
+  low_stock: 'Stok eşiğinin altında',
+  no_brand: 'Marka bulunamadı',
+};
+
 export default function TrendyolSendPage() {
   const [connections, setConnections] = useState([]);
   const [selectedConn, setSelectedConn] = useState(null);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [listLoading, setListLoading] = useState(false);
   const [pagination, setPagination] = useState({ total: 0, page: 1, totalPages: 1 });
+  const [stats, setStats] = useState(null);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [sending, setSending] = useState(false);
   const [sendingAll, setSendingAll] = useState(false);
@@ -29,25 +53,33 @@ export default function TrendyolSendPage() {
   const [minStock, setMinStock] = useState(0);
   const [sendResult, setSendResult] = useState(null);
   const [mappings, setMappings] = useState([]);
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterReadiness, setFilterReadiness] = useState('all'); // all | ready | blocked
+  const [filterIssue, setFilterIssue] = useState('');
   const [filterMpStatus, setFilterMpStatus] = useState('all'); // all | not_sent | active | pending | rejected | passive
   const [xmlSources, setXmlSources] = useState([]);
   const [filterXmlSource, setFilterXmlSource] = useState('');
-  const [pricingRules, setPricingRules] = useState([]);
-  const [aggregateStats, setAggregateStats] = useState(null);
   const [filterCategories, setFilterCategories] = useState(new Set());
+  const requestSeq = useRef(0);
 
-  useEffect(() => { fetchConnections(); fetchXmlSources(); fetchPricingRules(); }, []);
-  useEffect(() => {
-    if (selectedConn) { fetchProducts(); fetchMappings(); }
-  }, [selectedConn, pagination.page, search, filterXmlSource, filterCategories]);
-  useEffect(() => {
-    if (selectedConn) fetchStats();
-  }, [selectedConn, filterXmlSource]);
+  useEffect(() => { fetchConnections(); fetchXmlSources(); }, []);
 
-  const fetchPricingRules = async () => {
-    try { const res = await api.get('/pricing'); setPricingRules(res.data); } catch {}
-  };
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // any filter change goes back to page 1
+  useEffect(() => {
+    setPagination(p => (p.page === 1 ? p : { ...p, page: 1 }));
+  }, [debouncedSearch, filterXmlSource, filterCategories, filterReadiness, filterIssue, filterMpStatus, selectedConn]);
+
+  useEffect(() => {
+    if (selectedConn) fetchProducts();
+  }, [selectedConn, pagination.page, debouncedSearch, filterXmlSource, filterCategories, filterReadiness, filterIssue, filterMpStatus]);
+
+  useEffect(() => {
+    if (selectedConn) fetchMappings();
+  }, [selectedConn]);
 
   const fetchConnections = async () => {
     try {
@@ -62,15 +94,27 @@ export default function TrendyolSendPage() {
     try { const res = await api.get('/xml-sources'); setXmlSources(res.data); } catch {}
   };
 
-  const fetchProducts = async () => {
+  // One request returns the page, the filtered total and the stats – the server does filtering,
+  // validation and price calculation, the browser only renders.
+  const fetchProducts = async (fresh = false) => {
+    const my = ++requestSeq.current;
+    setListLoading(true);
     try {
-      const params = { page: pagination.page, limit: 20, search };
+      const params = { page: pagination.page, limit: 20 };
+      if (debouncedSearch) params.search = debouncedSearch;
       if (filterXmlSource) params.xmlSourceId = filterXmlSource;
       if (filterCategories.size > 0) params.categories = [...filterCategories].join(',');
-      const res = await api.get('/products', { params });
+      if (filterReadiness !== 'all') params.readiness = filterReadiness;
+      if (filterIssue) params.issue = filterIssue;
+      if (filterMpStatus !== 'all') params.mpStatus = filterMpStatus;
+      if (fresh) params.fresh = 1;
+      const res = await api.get(`/marketplace/connections/${selectedConn.id}/product-list`, { params });
+      if (my !== requestSeq.current) return; // a newer request superseded this one
       setProducts(res.data.products);
+      setStats(res.data.stats);
       setPagination(p => ({ ...p, total: res.data.pagination.total, totalPages: res.data.pagination.totalPages }));
-    } catch { toast.error('Ürünler yüklenemedi'); }
+    } catch { if (my === requestSeq.current) toast.error('Ürünler yüklenemedi'); }
+    finally { if (my === requestSeq.current) setListLoading(false); }
   };
 
   const fetchMappings = async () => {
@@ -78,16 +122,6 @@ export default function TrendyolSendPage() {
     try {
       const res = await api.get(`/marketplace/connections/${selectedConn.id}/category-mappings`);
       setMappings(res.data);
-    } catch {}
-  };
-
-  const fetchStats = async () => {
-    if (!selectedConn) return;
-    try {
-      const params = { connectionId: selectedConn.id };
-      if (filterXmlSource) params.xmlSourceId = filterXmlSource;
-      const res = await api.get('/products/stats', { params });
-      setAggregateStats(res.data);
     } catch {}
   };
 
@@ -109,93 +143,9 @@ export default function TrendyolSendPage() {
     return null;
   };
 
-  const { pricingLookup, priceRangeRules } = useMemo(() => {
-    if (!selectedConn) return { pricingLookup: {}, priceRangeRules: [] };
-    const lookup = {};
-    const rangeRules = [];
-    for (const r of pricingRules) {
-      if (!r.isActive) continue;
-      if (r.applyTo === 'price_range') { rangeRules.push(r); continue; }
-      if (!r.conditions) continue;
-      try {
-        const conds = JSON.parse(r.conditions);
-        if (conds.connectionId === selectedConn.id && conds.xmlSourceId) lookup[conds.xmlSourceId] = r;
-      } catch {}
-    }
-    return { pricingLookup: lookup, priceRangeRules: rangeRules };
-  }, [pricingRules, selectedConn]);
+  const getMp = (p) => p.marketplaceProducts?.find(m => m.connectionId === selectedConn?.id) || null;
 
-  const matchesPriceRangeRule = (xmlPrice, xmlSourceId) => {
-    if (!xmlPrice || xmlPrice <= 0) return false;
-    for (const r of priceRangeRules) {
-      if (!r.conditions) continue;
-      try {
-        const c = JSON.parse(r.conditions);
-        if (c.connectionId && c.connectionId !== selectedConn?.id) continue;
-        if (c.xmlSourceId && c.xmlSourceId !== xmlSourceId) continue;
-        const min = c.minPurchasePrice ?? null, max = c.maxPurchasePrice ?? null;
-        if (min === null && max === null) continue;
-        if (min !== null && xmlPrice < min) continue;
-        if (max !== null && xmlPrice > max) continue;
-        return true;
-      } catch {}
-    }
-    return false;
-  };
-
-  const getCalculatedPrice = (p) => {
-    const rule = pricingLookup[p.xmlSourceId];
-    if (rule) {
-      let fp = p.price;
-      if (rule.type === 'percentage') fp = fp * (1 + rule.value / 100);
-      if (rule.type === 'fixed') fp = fp + rule.value;
-      return Math.round(Math.max(0, fp) * 100) / 100;
-    }
-    const xmlPrice = p.xmlPrice || p.price;
-    for (const r of priceRangeRules) {
-      if (!r.conditions) continue;
-      try {
-        const c = JSON.parse(r.conditions);
-        if (c.connectionId && c.connectionId !== selectedConn?.id) continue;
-        if (c.xmlSourceId && c.xmlSourceId !== p.xmlSourceId) continue;
-        const min = c.minPurchasePrice ?? null, max = c.maxPurchasePrice ?? null;
-        if (min === null && max === null) continue;
-        if (min !== null && xmlPrice < min) continue;
-        if (max !== null && xmlPrice > max) continue;
-        const shipping = parseFloat(c.shippingCost) || 0;
-        const commission = parseFloat(c.commissionPct) || 0;
-        const vat = parseFloat(c.vatRate) || 0;
-        const totalCost = xmlPrice + shipping;
-        const profitTarget = xmlPrice * (r.value / 100);
-        const factor = commission > 0 ? 1 - commission / 100 : 1;
-        return Math.round(Math.max(0, (totalCost + profitTarget) / factor * (1 + vat / 100)) * 100) / 100;
-      } catch {}
-    }
-    return p.price;
-  };
-
-  const getProductStatus = (p) => {
-    const hasCategoryMapping = !!findCatMapping(p.category);
-    const hasBarcode = !!p.barcode;
-    const hasPricingRule = !!pricingLookup[p.xmlSourceId] || matchesPriceRangeRule(p.xmlPrice || p.price, p.xmlSourceId);
-    return (hasCategoryMapping && hasBarcode && hasPricingRule) ? 'ready' : 'missing';
-  };
-
-  const getMpStatus = (p) => {
-    if (!selectedConn) return null;
-    const mp = p.marketplaceProducts?.find(m => m.connectionId === selectedConn.id);
-    return mp?.status || null;
-  };
-
-  const filteredProducts = useMemo(() => {
-    let list = products;
-    if (filterStatus !== 'all') list = list.filter(p => getProductStatus(p) === filterStatus);
-    if (filterMpStatus !== 'all') {
-      if (filterMpStatus === 'not_sent') list = list.filter(p => !getMpStatus(p));
-      else list = list.filter(p => getMpStatus(p) === filterMpStatus);
-    }
-    return list;
-  }, [products, filterStatus, filterMpStatus, mappedCategories, pricingLookup, priceRangeRules, selectedConn]);
+  const resetFilters = () => { setFilterReadiness('all'); setFilterIssue(''); setFilterMpStatus('all'); };
 
   const toggleSelect = (id) => {
     setSelectedIds(prev => {
@@ -206,7 +156,7 @@ export default function TrendyolSendPage() {
   };
 
   const toggleAll = () => {
-    const readyIds = filteredProducts.filter(p => getProductStatus(p) === 'ready').map(p => p.id);
+    const readyIds = products.filter(p => p.ready).map(p => p.id);
     const allSelected = readyIds.length > 0 && readyIds.every(id => selectedIds.has(id));
     setSelectedIds(allSelected ? new Set() : new Set(readyIds));
   };
@@ -222,8 +172,10 @@ export default function TrendyolSendPage() {
       const res = await api.post(`/marketplace/connections/${selectedConn.id}/send-all-ready`, body);
       setSendResult({ type: 'all', ...res.data, sentAt: new Date().toLocaleString('tr-TR') });
       toast.success(`${res.data.sent} ürün gönderildi`);
+      fetchProducts(true);
     } catch (err) {
       const d = err.response?.data;
+      if (d?.skipReasons) setSendResult({ type: 'all', sent: 0, skipped: d.skipped, skipReasons: d.skipReasons, batches: 0, sentAt: new Date().toLocaleString('tr-TR') });
       toast.error(d?.error || d?.message || 'Toplu gönderme hatası', { duration: 8000 });
     } finally { setSendingAll(false); }
   };
@@ -238,7 +190,7 @@ export default function TrendyolSendPage() {
       setSendResult({ type: 'selected', sent: selectedIds.size, batches: res.data.batches || 1, skipped: 0, sentAt: new Date().toLocaleString('tr-TR'), message: res.data.message });
       toast.success(res.data.message || `${selectedIds.size} ürün gönderildi`);
       setSelectedIds(new Set());
-      fetchProducts();
+      fetchProducts(true);
     } catch (err) {
       const d = err.response?.data;
       toast.error(d?.message || d?.error || 'Gönderme hatası', { duration: 8000 });
@@ -249,8 +201,7 @@ export default function TrendyolSendPage() {
     setSyncingStatus(true);
     try {
       const res = await api.post(`/marketplace/connections/${selectedConn.id}/sync-status`);
-      fetchProducts();
-      fetchStats();
+      fetchProducts(true);
       const d = res.data;
       toast.success(`Güncellendi: ${d.activated || 0} aktif, ${d.rejected || 0} reddedildi, ${d.passived || 0} kaldırıldı`);
     } catch { toast.error('Durum sorgulanamadı'); }
@@ -276,32 +227,22 @@ export default function TrendyolSendPage() {
     return null;
   };
 
+  // Categories on this page that have no marketplace mapping
   const unmappedCategories = useMemo(() => {
     const cats = new Set();
-    for (const p of products) { if (p.category && !findCatMapping(p.category)) cats.add(p.category); }
-    return [...cats].sort();
-  }, [products, mappedCategories]);
-
-  const priceMissingInfo = useMemo(() => {
-    const seen = new Set(); const rows = [];
     for (const p of products) {
-      if (pricingLookup[p.xmlSourceId] || matchesPriceRangeRule(p.xmlPrice || p.price, p.xmlSourceId)) continue;
-      const key = `${p.xmlSourceId}|${p.xmlPrice}|${p.price}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const src = xmlSources.find(s => s.id === p.xmlSourceId);
-      rows.push({ srcName: src?.name || p.xmlSourceId, xmlPrice: p.xmlPrice, price: p.price });
+      if (p.category && p.issues?.some(i => i.code === 'no_category_mapping')) cats.add(p.category);
     }
-    return rows.slice(0, 5);
-  }, [products, pricingLookup, priceRangeRules, selectedConn, xmlSources]);
+    return [...cats].sort();
+  }, [products]);
 
-  // Stats from aggregate API (not page-level)
-  const totalCount   = aggregateStats?.total ?? pagination.total;
-  const readyCount   = aggregateStats?.ready ?? 0;
-  const missingCount = aggregateStats?.missing ?? 0;
-  const activeCount  = aggregateStats?.mpStatus?.active ?? 0;
-  const pendingCount = aggregateStats?.mpStatus?.pending ?? 0;
-  const passiveCount = aggregateStats?.mpStatus?.passive ?? 0;
+  const totalCount   = stats?.total ?? 0;
+  const readyCount   = stats?.ready ?? 0;
+  const blockedCount = stats?.blocked ?? 0;
+  const mpCount = (k) => stats?.mp?.[k] ?? 0;
+  const issueEntries = Object.entries(stats?.byIssue || {}).sort((a, b) => b[1] - a[1]);
+  const hasFilter = filterReadiness !== 'all' || filterMpStatus !== 'all' || !!filterIssue;
+
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
 
   if (connections.length === 0) {
@@ -347,27 +288,29 @@ export default function TrendyolSendPage() {
       </div>
 
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 10, marginBottom: 20 }}>
         {[
-          { label: 'Toplam', value: totalCount, color: 'var(--text-primary)', filter: null },
-          { label: 'Gönderilebilir', value: readyCount, color: 'var(--success)', filter: 'ready', field: 'status' },
-          { label: 'Eksik Bilgi', value: missingCount, color: 'var(--warning)', filter: 'missing', field: 'status' },
-          { label: 'Trendyol Aktif', value: activeCount, color: 'var(--success)', filter: 'active', field: 'mp' },
-          { label: 'Bekliyor', value: pendingCount, color: 'var(--warning)', filter: 'pending', field: 'mp' },
-          { label: 'Kaldırıldı', value: passiveCount, color: '#f97316', filter: 'passive', field: 'mp' },
-        ].map(s => {
-          const isActive = s.field === 'status' ? filterStatus === s.filter : filterMpStatus === s.filter;
+          { label: 'Toplam', value: totalCount, color: 'var(--text-primary)', reset: true },
+          { label: 'Gönderilebilir', value: readyCount, color: 'var(--success)', field: 'readiness', filter: 'ready' },
+          { label: 'Engelli', value: blockedCount, color: 'var(--danger)', field: 'readiness', filter: 'blocked' },
+          { label: 'Trendyol Aktif', value: mpCount('active'), color: 'var(--success)', field: 'mp', filter: 'active' },
+          { label: 'Bekliyor', value: mpCount('pending'), color: 'var(--warning)', field: 'mp', filter: 'pending' },
+          { label: 'Reddedildi', value: mpCount('rejected'), color: 'var(--danger)', field: 'mp', filter: 'rejected' },
+          { label: 'Kaldırıldı', value: mpCount('passive'), color: '#f97316', field: 'mp', filter: 'passive' },
+        ].map(c => {
+          const isActive = c.field === 'readiness' ? filterReadiness === c.filter : c.field === 'mp' ? filterMpStatus === c.filter : false;
           return (
-            <div key={s.label} className="card"
-              style={{ padding: '12px 14px', cursor: s.filter ? 'pointer' : 'default', border: isActive ? `2px solid ${s.color}` : undefined, transition: 'border 0.15s' }}
+            <div key={c.label} className="card"
+              style={{ padding: '12px 14px', cursor: 'pointer', border: isActive ? `2px solid ${c.color}` : undefined, transition: 'border 0.15s' }}
               onClick={() => {
-                if (!s.filter) { setFilterStatus('all'); setFilterMpStatus('all'); return; }
-                if (s.field === 'status') { setFilterStatus(p => p === s.filter ? 'all' : s.filter); }
-                else { setFilterMpStatus(p => p === s.filter ? 'all' : s.filter); }
+                if (c.reset) { resetFilters(); return; }
+                setFilterIssue('');
+                if (c.field === 'readiness') setFilterReadiness(p => p === c.filter ? 'all' : c.filter);
+                else setFilterMpStatus(p => p === c.filter ? 'all' : c.filter);
               }}
             >
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 500 }}>{s.label}</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: s.value > 0 ? s.color : 'var(--text-muted)' }}>{s.value}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 500 }}>{c.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: c.value > 0 ? c.color : 'var(--text-muted)' }}>{c.value}</div>
             </div>
           );
         })}
@@ -426,16 +369,22 @@ export default function TrendyolSendPage() {
         </div>
       )}
 
-      {/* Price missing panel */}
-      {priceMissingInfo.length > 0 && (
+      {/* Why products are blocked (server validator) */}
+      {issueEntries.length > 0 && (
         <div style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, padding: '12px 18px', marginBottom: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 11, color: 'var(--danger)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Fiyat Kuralı Eksik</div>
+          <div style={{ fontWeight: 700, fontSize: 11, color: 'var(--danger)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Gönderimi engelleyen nedenler — tıklayınca ilgili ürünler listelenir
+          </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {priceMissingInfo.map((row, i) => (
-              <span key={i} style={{ background: 'rgba(239,68,68,0.1)', color: 'var(--danger)', borderRadius: 4, padding: '3px 10px', fontSize: 11, fontFamily: 'monospace' }}>
-                {row.srcName}: alış=₺{row.xmlPrice ?? '?'}
-              </span>
-            ))}
+            {issueEntries.map(([code, n]) => {
+              const active = filterIssue === code;
+              return (
+                <button key={code} onClick={() => { setFilterIssue(active ? '' : code); setFilterReadiness(active ? 'all' : 'blocked'); }}
+                  style={{ background: active ? 'rgba(239,68,68,0.2)' : 'rgba(239,68,68,0.08)', color: 'var(--danger)', border: active ? '1px solid var(--danger)' : '1px solid transparent', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  {ISSUE_LABELS[code] || code}: <strong>{n}</strong>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -444,9 +393,9 @@ export default function TrendyolSendPage() {
       <div className="table-container">
         <div className="table-header" style={{ flexWrap: 'wrap', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <h3 style={{ margin: 0 }}>Ürünler ({filteredProducts.length})</h3>
-            {(filterStatus !== 'all' || filterMpStatus !== 'all') && (
-              <button onClick={() => { setFilterStatus('all'); setFilterMpStatus('all'); }}
+            <h3 style={{ margin: 0 }}>Ürünler ({pagination.total}){listLoading && <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>yükleniyor…</span>}</h3>
+            {hasFilter && (
+              <button onClick={resetFilters}
                 style={{ fontSize: 11, color: 'var(--text-muted)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' }}>
                 <Filter size={11} /> Filtreyi Temizle
               </button>
@@ -457,7 +406,7 @@ export default function TrendyolSendPage() {
               <option value="">Tüm Tedarikçiler</option>
               {xmlSources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-            <select className="form-select" style={{ width: 170, fontSize: 13, padding: '6px 10px' }} value={filterMpStatus} onChange={e => setFilterMpStatus(e.target.value)}>
+            <select className="form-select" style={{ width: 170, fontSize: 13, padding: '6px 10px' }} value={filterMpStatus} onChange={e => { setFilterMpStatus(e.target.value); }}>
               <option value="all">Tüm Trendyol Durumlar</option>
               <option value="not_sent">Gönderilmemiş</option>
               <option value="active">Aktif</option>
@@ -470,14 +419,14 @@ export default function TrendyolSendPage() {
               <input type="text" placeholder="Ürün ara..." value={search} onChange={e => setSearch(e.target.value)} />
             </div>
             <button className="btn btn-secondary btn-sm" onClick={toggleAll}>
-              {filteredProducts.filter(p => getProductStatus(p) === 'ready').every(p => selectedIds.has(p.id)) && readyCount > 0
+              {products.filter(p => p.ready).length > 0 && products.filter(p => p.ready).every(p => selectedIds.has(p.id))
                 ? <><CheckSquare size={14} /> Seçimi Kaldır</>
                 : <><Square size={14} /> Hazırları Seç</>}
             </button>
           </div>
         </div>
 
-        {filteredProducts.length === 0 ? (
+        {products.length === 0 ? (
           <div className="empty-state" style={{ padding: '40px 0' }}>
             <Package size={36} className="empty-icon" />
             <p>Bu filtreye uygun ürün yok</p>
@@ -497,15 +446,13 @@ export default function TrendyolSendPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredProducts.map(p => {
-                const status = getProductStatus(p);
+              {products.map(p => {
+                const status = p.ready ? 'ready' : 'missing';
                 const isSelected = selectedIds.has(p.id);
                 const catMapping = findCatMapping(p.category);
                 const thumbImg = getFirstImage(p);
-                const hasPricingRule = !!pricingLookup[p.xmlSourceId] || matchesPriceRangeRule(p.xmlPrice || p.price, p.xmlSourceId);
-                const mpStatus = getMpStatus(p);
-                const mpInfo = mpStatus ? MP_STATUS[mpStatus] : null;
-                const mp = p.marketplaceProducts?.find(m => m.connectionId === selectedConn?.id);
+                const mp = getMp(p);
+                const mpInfo = mp?.status ? MP_STATUS[mp.status] : null;
 
                 return (
                   <tr key={p.id} style={{ background: isSelected ? 'rgba(59,130,246,0.06)' : undefined, opacity: status === 'missing' ? 0.75 : 1 }}>
@@ -535,7 +482,21 @@ export default function TrendyolSendPage() {
                         </div>
                       </div>
                     </td>
-                    <td style={{ fontWeight: 600, fontSize: 13 }}>₺{(getCalculatedPrice(p) || 0).toLocaleString('tr-TR')}</td>
+                    <td style={{ fontSize: 13 }}>
+                      {p.salePrice != null ? (
+                        <>
+                          <div style={{ fontWeight: 700 }}>₺{p.salePrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                          <div style={{ fontSize: 10, color: 'var(--text-muted)' }} title={p.priceRule?.name ? `Şablon: ${p.priceRule.name}` : undefined}>
+                            alış ₺{(p.xmlPrice || 0).toLocaleString('tr-TR')}{p.priceRule?.name ? ` · ${p.priceRule.name}` : ''}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div style={{ fontWeight: 600, color: 'var(--danger)' }}>—</div>
+                          <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>alış ₺{(p.xmlPrice || 0).toLocaleString('tr-TR')}</div>
+                        </>
+                      )}
+                    </td>
                     <td style={{ fontFamily: 'monospace', fontSize: 12, color: p.barcode ? 'var(--text-secondary)' : 'var(--danger)' }}>
                       {p.barcode || '⚠ Eksik'}
                     </td>
@@ -570,9 +531,12 @@ export default function TrendyolSendPage() {
                         <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(16,185,129,0.1)', color: 'var(--success)', fontWeight: 700 }}>✓ Hazır</span>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                          {!findCatMapping(p.category) && <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(239,68,68,0.1)', color: 'var(--danger)', fontWeight: 600 }}>Kategori eksik</span>}
-                          {!p.barcode && <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(239,68,68,0.1)', color: 'var(--danger)', fontWeight: 600 }}>Barkod eksik</span>}
-                          {!hasPricingRule && <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(239,68,68,0.1)', color: 'var(--danger)', fontWeight: 600 }}>Fiyat kuralı yok</span>}
+                          {p.issues.map(i => (
+                            <span key={i.code} title={i.message}
+                              style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(239,68,68,0.1)', color: 'var(--danger)', fontWeight: 600, width: 'fit-content' }}>
+                              {ISSUE_LABELS[i.code] || i.message}
+                            </span>
+                          ))}
                         </div>
                       )}
                     </td>
@@ -616,6 +580,16 @@ export default function TrendyolSendPage() {
                   </div>
                 ))}
               </div>
+              {sendResult.skipReasons && Object.keys(sendResult.skipReasons).length > 0 && (
+                <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '10px 12px', marginBottom: 14, fontSize: 12 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Atlanan ürünlerin nedenleri</div>
+                  {Object.entries(sendResult.skipReasons).sort((a, b) => b[1] - a[1]).map(([code, n]) => (
+                    <div key={code} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>{ISSUE_LABELS[code] || code}</span><strong>{n}</strong>
+                    </div>
+                  ))}
+                </div>
+              )}
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
                 Trendyol ürünleri asenkron işler. Onay durumunu görmek için birkaç dakika bekleyip <strong>Durumları Sorgula</strong> butonunu kullanın.
               </p>
@@ -655,7 +629,7 @@ export default function TrendyolSendPage() {
                 </div>
               </div>
               <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 12 }}>
-                Ürünler 100'lük partiler halinde gönderilir. Kategori, barkod veya fiyat kuralı eksik ürünler atlanır.
+                Ürünler 100'lük partiler halinde gönderilir. Doğrulamadan geçemeyen (kategori, barkod, fiyat şablonu, başlık, açıklama, görsel, yasaklı kelime vb.) ürünler hiçbir zaman gönderilmez ve atlanma nedenleri gösterilir.
               </p>
             </div>
             <div className="modal-footer">

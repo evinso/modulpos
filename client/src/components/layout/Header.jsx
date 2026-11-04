@@ -17,7 +17,8 @@ const pageTitles = {
   '/category-mapping': 'Kategori Eşleştirme',
   '/trendyol-send': 'Pazaryerine Gönder',
   '/orders': 'Sipariş Yönetimi',
-  '/pricing': 'Fiyatlandırma Kuralları',
+  '/pricing': 'Fiyat Şablonları',
+  '/content-rules': 'Yasaklı Kelimeler',
 };
 
 export default function Header({ onMenuClick }) {

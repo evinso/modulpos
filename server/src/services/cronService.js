@@ -3,7 +3,7 @@ const prisma = require('../config/database');
 const { parseXml } = require('./xml/xmlParser');
 const notificationService = require('./notificationService');
 const TrendyolService = require('./trendyol/trendyolService');
-const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
+const { loadPricingContext } = require('./pricingEngine');
 const { processAutoAnswerForCron } = require('../routes/questions');
 const { syncAllOrders } = require('./orderSyncService');
 const whatsappService = require('./whatsappService');
@@ -89,26 +89,6 @@ class CronService {
 
   async autoSendToMarketplaces(storeId, xmlSourceId) {
     try {
-      // Build pricing rule structures for this store
-      const allRules = await prisma.pricingRule.findMany({
-        where: { storeId, isActive: true, applyTo: { in: ['marketplace_xml', 'price_range'] } }
-      });
-
-      const standardLookup = {}; // { connectionId: { xmlSourceId: rule } }
-      const priceRangeRules = [];
-      for (const r of allRules) {
-        if (!r.conditions) continue;
-        try {
-          const conds = JSON.parse(r.conditions);
-          if (r.applyTo === 'price_range' && (conds.minPurchasePrice != null || conds.maxPurchasePrice != null)) {
-            priceRangeRules.push(r);
-          } else if (r.applyTo !== 'price_range' && conds.connectionId && conds.xmlSourceId) {
-            if (!standardLookup[conds.connectionId]) standardLookup[conds.connectionId] = {};
-            standardLookup[conds.connectionId][conds.xmlSourceId] = r;
-          }
-        } catch(e) {}
-      }
-
       // Find active Trendyol connections for this store
       const connections = await prisma.marketplaceConnection.findMany({
         where: { storeId, marketplaceType: 'trendyol', status: 'active' }
@@ -125,42 +105,35 @@ class CronService {
           if (existingMPs.length === 0) continue;
 
           const service = new TrendyolService(conn);
+          const priceCtx = await loadPricingContext(storeId, conn.id);
           const items = [];
+          const dbUpdates = [];
 
           for (const mp of existingMPs) {
             const p = mp.product;
             if (!p || !p.barcode) continue;
 
-            const xmlPrice = p.xmlPrice || p.price;
+            const priced = priceCtx.priceFor(p);
+            if (!priced) continue;
+            const salePrice = priced.price;
 
-            // Determine sale price from pricing rules
-            let salePrice = null;
-            const stdRule = standardLookup[conn.id]?.[xmlSourceId];
-            if (stdRule) {
-              let fp = p.price;
-              if (stdRule.type === 'percentage') fp = fp * (1 + stdRule.value / 100);
-              if (stdRule.type === 'fixed') fp = fp + stdRule.value;
-              salePrice = Math.round(Math.max(0, fp) * 100) / 100;
-            }
-
-            if (salePrice === null && xmlPrice > 0) {
-              const rangeMatch = matchPriceRangeRule(xmlPrice, priceRangeRules, conn.id, xmlSourceId);
-              if (rangeMatch) salePrice = calcPriceRangePrice(xmlPrice, rangeMatch.rule, rangeMatch.conds);
-            }
-
-            if (salePrice === null) continue;
+            // Only push what actually changed on Trendyol
+            const sameStock = (mp.marketplaceStock ?? null) === (p.stock ?? null);
+            const samePrice = mp.marketplacePrice !== null && mp.marketplacePrice !== undefined && Math.abs(mp.marketplacePrice - salePrice) < 0.005;
+            if (sameStock && samePrice) continue;
 
             const listPrice = p.listPrice > salePrice ? p.listPrice : salePrice;
             items.push({ barcode: p.barcode, quantity: p.stock, salePrice, listPrice });
-
-            await prisma.marketplaceProduct.update({
-              where: { id: mp.id },
-              data: { marketplacePrice: salePrice, marketplaceStock: p.stock, lastSyncedAt: new Date() }
-            });
+            dbUpdates.push({ id: mp.id, data: { marketplacePrice: salePrice, marketplaceStock: p.stock, lastSyncedAt: new Date() } });
           }
 
           if (items.length > 0) {
             await service.updatePriceAndInventory(items);
+            // Record the new state only after Trendyol accepted the update
+            for (let i = 0; i < dbUpdates.length; i += 50) {
+              const part = dbUpdates.slice(i, i + 50);
+              await prisma.$transaction(part.map((u) => prisma.marketplaceProduct.update({ where: { id: u.id }, data: u.data })));
+            }
             console.log(`[CRON] Updated ${items.length} products on Trendyol (connection ${conn.id})`);
             await notificationService.create({
               storeId,
