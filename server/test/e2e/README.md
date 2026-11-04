@@ -11,6 +11,7 @@ E2E_DB_URL="postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres" 
 * `tenant-pricing-readiness` – data isolation between stores, XML source options, pricing templates, the server-side
   readiness list, send-time validation, rejected products.
 * `xml-scoped-mapping` – category mappings belong to one XML source and disappear with it; earnings summary of the price template.
+* `products-page` – the products screen API: summary, facets, filters, sorting, paging, per-marketplace pricing, detail panel, editing rules.
 * `session-cookie` – cookie flags, CSRF header, CORS preflight, SSE, logout.
 * `hardening` – VAT 0, manual prices, duplicate barcodes, DB sync guard, signed proxy.
 * `generic-feeds` – three structurally different feeds (`test/fixtures`) imported with no manual mapping.

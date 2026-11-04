@@ -31,3 +31,5 @@ jobs:
         with: { node-version: 22, cache: npm, cache-dependency-path: client/package-lock.json }
       - run: npm ci
       - run: npm run build
+      - name: Render the products screen in jsdom and click through it
+        run: npm run test:smoke

@@ -364,16 +364,23 @@ router.put('/:id', async (req, res, next) => {
   try {
     const {
       title, description, price, cost, listPrice, stock,
-      brand, category, images, attributes, weight, desi, vatRate, status
+      brand, category, images, attributes, weight, desi, vatRate, status, barcode
     } = req.body;
 
+    const bad = (msg) => res.status(400).json({ error: msg });
+    if (price !== undefined && !(Number.isFinite(Number(price)) && Number(price) >= 0)) return bad('Fiyat 0 veya daha büyük bir sayı olmalı');
+    if (stock !== undefined && !(Number.isInteger(Number(stock)) && Number(stock) >= 0)) return bad('Stok 0 veya daha büyük bir tam sayı olmalı');
+    if (title !== undefined && !String(title).trim()) return bad('Ürün adı boş olamaz');
+    if (status !== undefined && !['active', 'passive', 'draft'].includes(status)) return bad('Geçersiz durum');
+
     const data = {};
+    if (barcode !== undefined) data.barcode = String(barcode).trim() || null;
     if (title !== undefined) data.title = title;
     if (description !== undefined) data.description = description;
-    if (price !== undefined) data.price = price;
+    if (price !== undefined) data.price = Number(price);
     if (cost !== undefined) data.cost = cost;
     if (listPrice !== undefined) data.listPrice = listPrice;
-    if (stock !== undefined) data.stock = stock;
+    if (stock !== undefined) data.stock = Number(stock);
     if (brand !== undefined) data.brand = brand;
     if (category !== undefined) data.category = category;
     if (images !== undefined) data.images = JSON.stringify(images);

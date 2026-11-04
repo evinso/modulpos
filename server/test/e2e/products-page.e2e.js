@@ -68,6 +68,17 @@ const base = 'https://raw.githubusercontent.com/evinso/modulpos/main/server/test
     // ---- stats: only marketplace status counts now (the old readiness count used other tenants' rules)
     const st = (await a('GET', `/products/stats?connectionId=${conn}`)).d;
     ok('stats: marketplace status counts for a connection', st.total === 8 && st.mpStatus.not_sent === 8 && st.ready === undefined, JSON.stringify(st.mpStatus));
+    // ---- editing: barcode is really saved, bad input is refused, bulk status change works
+    const edit = await a('PUT', `/products/${mouse.id}`, { barcode: ' 5901234999999 ', price: 1999.5, stock: 7 });
+    ok('edit saves the barcode (it used to be ignored) and trims it', edit.s === 200 && edit.d.barcode === '5901234999999' && edit.d.price === 1999.5 && edit.d.stock === 7, edit.d && edit.d.barcode);
+    ok('negative stock is refused', (await a('PUT', `/products/${mouse.id}`, { stock: -3 })).s === 400);
+    ok('non-numeric price is refused', (await a('PUT', `/products/${mouse.id}`, { price: 'abc' })).s === 400);
+    ok('empty title is refused', (await a('PUT', `/products/${mouse.id}`, { title: '  ' })).s === 400);
+    ok('unknown status is refused', (await a('PUT', `/products/${mouse.id}`, { status: 'weird' })).s === 400);
+    const bulk = await a('POST', '/products/bulk-action', { action: 'deactivate', productIds: [mouse.id] });
+    ok('bulk deactivate works and the summary follows', bulk.s === 200 && (await a('GET', '/products/summary')).d.passive === 1);
+    ok("another store cannot edit my product", (await b('PUT', `/products/${mouse.id}`, { stock: 1 })).s === 404);
+
     const ids = (await a('GET', '/products/ids?stockFilter=out')).d; ok('"select all pages" ids follow the same filters', ids.total === sum.outOfStock);
   } catch (e) { console.log('ERROR', e); fails++; } finally {
     for (const u of [A, B]) { await c.query(`delete from app."SyncLog" where "storeId"=$1`, [u.user.stores[0].id]).catch(() => {}); await c.query(`delete from app."User" where id=$1`, [u.user.id]).catch((e) => console.log('cleanup:', e.message)); }

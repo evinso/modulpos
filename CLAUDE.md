@@ -15,6 +15,7 @@ render.yaml  Render Blueprint      DEPLOY_RENDER.md  deployment & operations
 cd server && npm install && npm test            # unit tests (no database needed)
 cd server && npx prisma generate && npm run dev # needs DATABASE_URL / DIRECT_URL / JWT_SECRET in server/.env
 cd client && npm install && npm run dev         # VITE_API_BASE_URL in client/.env
+cd client && npm run test:smoke                 # renders the products screen in jsdom with a mocked API
 ```
 
 ## Architecture notes (non-obvious)
