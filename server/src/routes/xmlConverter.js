@@ -1,3 +1,4 @@
+const { parsePrice } = require('../utils/parsePrice');
 const express = require('express');
 const axios = require('axios');
 const { XMLParser, XMLBuilder } = require('fast-xml-parser');
@@ -133,7 +134,7 @@ function normalizeProduct(p) {
   const kdv = getVal(p, 'kdv', 'vatRate', 'VatRate', 'vat');
 
   // Clean price: remove currency codes like "150.00 TRY"
-  const cleanPrice = (v) => v ? v.replace(/[^\d.,]/g, '').replace(',', '.') || '0' : '0';
+  const cleanPrice = (v) => String(parsePrice(v));
 
   const images = getImages(p);
   const imageXml = images.length > 0

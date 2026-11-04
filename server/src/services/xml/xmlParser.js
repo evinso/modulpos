@@ -1,3 +1,4 @@
+const { parsePrice } = require('../../utils/parsePrice');
 const axios = require('axios');
 const { XMLParser } = require('fast-xml-parser');
 const sax = require('sax');
@@ -386,39 +387,7 @@ async function parseXmlBuffered(url, options = {}) {
 // ─── Product mapping ─────────────────────────────────────────────────────────
 
 function mapProducts(rawProducts, mc) {
-  const cleanPrice = (val) => {
-    if (!val) return 0;
-    const str = String(val).replace(/[^\d.,]/g, '');
-    if (!str) return 0;
-    const dots   = (str.match(/\./g) || []).length;
-    const commas = (str.match(/,/g)  || []).length;
-
-    if (dots >= 2 && commas === 0) {
-      const parts = str.split('.');
-      return parseFloat(parts.slice(0, -1).join('') + '.' + parts[parts.length - 1]) || 0;
-    }
-    if (commas >= 2 && dots === 0) {
-      const parts = str.split(',');
-      return parseFloat(parts.slice(0, -1).join('') + '.' + parts[parts.length - 1]) || 0;
-    }
-    if (dots >= 1 && commas === 1 && str.lastIndexOf(',') > str.lastIndexOf('.')) {
-      return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
-    }
-    if (commas >= 1 && dots === 1 && str.lastIndexOf('.') > str.lastIndexOf(',')) {
-      return parseFloat(str.replace(/,/g, '')) || 0;
-    }
-    if (dots === 1 && commas === 0) {
-      const [intPart, decPart] = str.split('.');
-      if (decPart.length === 3 && intPart.length <= 3) return parseFloat(str.replace('.', '')) || 0;
-      return parseFloat(str) || 0;
-    }
-    if (commas === 1 && dots === 0) {
-      const [intPart, decPart] = str.split(',');
-      if (decPart.length === 3 && intPart.length <= 3) return parseFloat(str.replace(',', '')) || 0;
-      return parseFloat(str.replace(',', '.')) || 0;
-    }
-    return parseFloat(str) || 0;
-  };
+  const cleanPrice = parsePrice;
 
   return rawProducts.map(p => ({
     sku:         getFieldValue(p, mc.sku,         ['StockCode', 'stockCode', 'sku', 'SKU', 'urunKodu', 'UrunKodu', 'ProductCode', 'productCode', 'Sku', 'id', 'ID', 'model_number', 'mpn', 'g:id', 'g:mpn']),
