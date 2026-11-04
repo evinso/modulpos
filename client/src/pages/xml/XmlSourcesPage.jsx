@@ -23,6 +23,7 @@ export default function XmlSourcesPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMappingModal, setShowMappingModal] = useState(null); // source id
   const [syncing, setSyncing] = useState(null);
+  const [syncProgress, setSyncProgress] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [xmlPreviewSource, setXmlPreviewSource] = useState(null);
   const [xmlPreviewData, setXmlPreviewData] = useState(null);
@@ -256,16 +257,42 @@ export default function XmlSourcesPage() {
     } catch (err) { toast.error(err.response?.data?.error || 'Kayıt hatası'); }
   };
 
+  // Sync runs as a background job on the server: start it, then poll until it finishes.
+  const runSyncAndWait = async (id) => {
+    try {
+      await api.post(`/xml-sources/${id}/sync`);
+    } catch (err) {
+      if (err.response?.status !== 409) throw err; // 409 = already running, just follow it
+    }
+    const deadline = Date.now() + 60 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 2500));
+      const { data } = await api.get(`/xml-sources/${id}/sync-status`);
+      const last = data.last;
+      if (last) setSyncProgress(`${(last.created || 0) + (last.updated || 0)} ürün işlendi`);
+      if (!data.running && last && last.status !== 'started') return last;
+    }
+    throw new Error('Senkronizasyon beklenenden uzun sürdü, işlem arka planda devam ediyor olabilir.');
+  };
+
+  const describeSync = (log) => {
+    let d = {};
+    try { d = log.details ? JSON.parse(log.details) : {}; } catch {}
+    if (log.status === 'failed') return { ok: false, text: d.error || 'Senkronizasyon başarısız oldu' };
+    return { ok: true, text: `${d.total ?? log.itemCount} ürün tarandı: ${log.created} yeni, ${log.updated} güncellendi${d.unchanged ? `, ${d.unchanged} değişmedi` : ''}${log.errorCount ? `, ${log.errorCount} hata` : ''}` };
+  };
+
   const handleSyncAndSend = async () => {
     if (!savedSourceId) return;
     setSending(true);
     try {
-      const res = await api.post(`/xml-sources/${savedSourceId}/sync`);
-      toast.success(`${res.data.results.total} ürün çekildi (${res.data.results.created} yeni, ${res.data.results.updated} güncellendi)`);
+      const log = await runSyncAndWait(savedSourceId);
+      const r = describeSync(log);
+      if (r.ok) toast.success(r.text); else toast.error(r.text);
       resetAddWizard();
       fetchSources();
-    } catch (err) { toast.error(err.response?.data?.error || 'Senkronizasyon hatası'); }
-    finally { setSending(false); }
+    } catch (err) { toast.error(err.response?.data?.error || err.message || 'Senkronizasyon hatası'); }
+    finally { setSending(false); setSyncProgress(''); }
   };
 
   const resetAddWizard = () => {
@@ -335,12 +362,14 @@ export default function XmlSourcesPage() {
   // ===== SYNC & DELETE =====
   const handleSync = async (id) => {
     setSyncing(id);
+    setSyncProgress('');
     try {
-      const res = await api.post(`/xml-sources/${id}/sync`);
-      toast.success(`${res.data.results.total} ürün işlendi (${res.data.results.created} yeni, ${res.data.results.updated} güncellendi)`);
+      const log = await runSyncAndWait(id);
+      const r = describeSync(log);
+      if (r.ok) toast.success(r.text); else toast.error(r.text);
       fetchSources();
-    } catch (err) { toast.error(err.response?.data?.error || 'Senkronizasyon hatası'); }
-    finally { setSyncing(null); }
+    } catch (err) { toast.error(err.response?.data?.error || err.message || 'Senkronizasyon hatası'); }
+    finally { setSyncing(null); setSyncProgress(''); }
   };
 
   const openHistory = async (source) => {
@@ -614,7 +643,7 @@ export default function XmlSourcesPage() {
                     </button>
                     <button className="btn btn-primary btn-sm" onClick={() => handleSync(s.id)} disabled={syncing === s.id}>
                       <RefreshCw size={14} className={syncing === s.id ? 'spinning' : ''} />
-                      {syncing === s.id ? 'Çekiliyor...' : 'Şimdi Çek'}
+                      {syncing === s.id ? `Çekiliyor... ${syncProgress}` : 'Şimdi Çek'}
                     </button>
                     <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(s.id)}><Trash2 size={14} /> Sil</button>
                   </div>

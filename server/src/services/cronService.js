@@ -7,25 +7,12 @@ const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHe
 const { processAutoAnswerForCron } = require('../routes/questions');
 const { syncAllOrders } = require('./orderSyncService');
 const whatsappService = require('./whatsappService');
-
-function resolveUserPlan(rawPlan) {
-  const p = (rawPlan || '').toLowerCase();
-  if (p === 'kurumsal' || p === 'enterprise') return 'Kurumsal';
-  if (p === 'profesyonel' || p === 'premium' || p === 'pro' || p === 'growth') return 'Profesyonel';
-  return 'Başlangıç';
-}
-
-function getPerPlanMarkup(byPlanJson, userPlan) {
-  if (!byPlanJson) return null;
-  try {
-    const map = JSON.parse(byPlanJson);
-    const val = map[userPlan];
-    return (val !== undefined && val !== '' && val !== null) ? parseFloat(val) : null;
-  } catch { return null; }
-}
+const { startXmlSync, failStaleSyncs, isRunning } = require('./xml/syncService');
 
 class CronService {
   start() {
+    failStaleSyncs().catch((e) => console.error('[Sync] stale cleanup:', e.message));
+
     // Run every 5 minutes to pull new orders from all marketplaces
     cron.schedule('*/5 * * * *', async () => {
       const count = await syncAllOrders();
@@ -61,18 +48,22 @@ class CronService {
 
   async syncXmlSources() {
     try {
-      const activeSources = await prisma.xmlSource.findMany({
-        where: { status: 'active' },
-        include: { store: true }
-      });
+      const activeSources = await prisma.xmlSource.findMany({ where: { status: 'active' }, include: { store: true } });
 
       for (const source of activeSources) {
-        const now = new Date();
-        const lastSync = source.lastSyncedAt ? new Date(source.lastSyncedAt) : new Date(0);
-        const diffMinutes = Math.floor((now - lastSync) / (1000 * 60));
+        if (isRunning(source.id)) continue;
 
-        // Wait, the user said "60 dakikada bir" (every 60 mins)
-        // If the diff is greater than or equal to syncIntervalMin (which is 60 by default), sync!
+        // Use the latest *attempt* (not only the last success) so a failing feed is
+        // retried at its normal interval instead of being hammered every 10 minutes.
+        const lastAttempt = await prisma.syncLog.findFirst({
+          where: { xmlSourceId: source.id, type: 'xml_sync' }, orderBy: { startedAt: 'desc' }, select: { startedAt: true },
+        });
+        const lastTs = Math.max(
+          source.lastSyncedAt ? new Date(source.lastSyncedAt).getTime() : 0,
+          lastAttempt ? new Date(lastAttempt.startedAt).getTime() : 0,
+        );
+        const diffMinutes = Math.floor((Date.now() - lastTs) / 60000);
+
         if (diffMinutes >= (source.syncIntervalMin || 60)) {
           console.log(`[CRON] Syncing XML Source: ${source.name} (Store: ${source.storeId})`);
           await this.processXmlSync(source);
@@ -84,149 +75,15 @@ class CronService {
   }
 
   async processXmlSync(xmlSource) {
-    let syncLog = null;
     try {
-      syncLog = await prisma.syncLog.create({
-        data: { storeId: xmlSource.storeId, type: 'xml_sync', status: 'started' }
-      });
-
-      // Mağaza sahibinin aktif planını bul
-      const storeOwner = await prisma.store.findUnique({ where: { id: xmlSource.storeId }, select: { userId: true } });
-      const userSub = storeOwner ? await prisma.subscription.findFirst({
-        where: { userId: storeOwner.userId, status: 'active' },
-        orderBy: { endDate: 'desc' }
-      }) : null;
-      const userPlan = resolveUserPlan(userSub?.plan);
-
-      const products = await parseXml(xmlSource.url, xmlSource.mappingConfig);
-      let created = 0, updated = 0, errors = 0;
-
-      for (const p of products) {
-        try {
-          const cleanVal = (v) => (v && !/^[{}[\]\s]+$/.test(String(v).trim()) && String(v).trim().length >= 2) ? String(v).trim() : null;
-          const sku = cleanVal(p.sku) || cleanVal(p.barcode) || `xml-${Date.now()}-${Math.random()}`;
-          let rawXmlPrice = p.price || 0;
-
-          const planMarkupPct = getPerPlanMarkup(xmlSource.globalPriceMarkupPctByPlan, userPlan);
-          if (planMarkupPct !== null) {
-            rawXmlPrice += rawXmlPrice * (planMarkupPct / 100);
-          } else if (xmlSource.globalPriceMarkupPct) {
-            rawXmlPrice += rawXmlPrice * (xmlSource.globalPriceMarkupPct / 100);
-          }
-          if (xmlSource.globalPriceMarkup) {
-            rawXmlPrice += xmlSource.globalPriceMarkup;
-          }
-          if (xmlSource.purchaseVatRate && xmlSource.purchaseVatRate > 0) {
-            rawXmlPrice = rawXmlPrice * (1 + xmlSource.purchaseVatRate / 100);
-          }
-
-          const xmlPrice = Math.round(rawXmlPrice * 100) / 100;
-
-          const rawXmlData = JSON.stringify({
-            sku: p.sku, barcode: p.barcode, title: p.title, description: p.description,
-            price: p.price, listPrice: p.listPrice, cost: p.cost, stock: p.stock,
-            brand: p.brand, category: p.category, images: p.images
-          });
-
-          let finalPrice = xmlPrice;
-
-          const rawBarcode = cleanVal(p.barcode);
-          const baseBarcode = xmlSource.globalBarcodePrefix
-            ? `${xmlSource.globalBarcodePrefix}${rawBarcode || sku}`
-            : (rawBarcode || sku);
-
-          const finalBarcode = xmlSource.barcodePrefix
-            ? `${xmlSource.barcodePrefix}${baseBarcode}`
-            : baseBarcode;
-
-          const existing = await prisma.product.findFirst({ 
-            where: { storeId: xmlSource.storeId, xmlSourceId: xmlSource.id, sku } 
-          });
-
-          if (existing) {
-            await prisma.product.update({
-              where: { id: existing.id },
-              data: {
-                title: p.title || existing.title,
-                description: p.description || existing.description,
-                xmlPrice: xmlPrice,
-                price: finalPrice,
-                cost: p.cost || existing.cost,
-                listPrice: p.listPrice || existing.listPrice,
-                stock: p.stock ?? existing.stock,
-                brand: p.brand || existing.brand,
-                category: p.category || existing.category,
-                barcode: finalBarcode || existing.barcode,
-                images: p.images?.length ? JSON.stringify(p.images) : existing.images,
-                rawXmlData: rawXmlData,
-              }
-            });
-            updated++;
-          } else {
-            await prisma.product.create({
-              data: {
-                storeId: xmlSource.storeId,
-                xmlSourceId: xmlSource.id,
-                sku,
-                barcode: finalBarcode,
-                title: p.title || 'İsimsiz',
-                description: p.description,
-                xmlPrice: xmlPrice,
-                price: finalPrice,
-                vatRate: xmlSource.defaultVatRate || 10,
-                cost: p.cost || 0,
-                listPrice: p.listPrice || 0,
-                stock: p.stock || 0,
-                brand: p.brand,
-                category: p.category,
-                images: p.images?.length ? JSON.stringify(p.images) : null,
-                rawXmlData: rawXmlData,
-              }
-            });
-            created++;
-          }
-        } catch { errors++; }
+      const job = await startXmlSync(xmlSource.id, { trigger: 'cron' });
+      const result = await job.promise;
+      if (result && !result.error) {
+        console.log(`[CRON] Finished XML Sync for ${xmlSource.name}. Triggering auto-send to Trendyol...`);
+        await this.autoSendToMarketplaces(xmlSource.storeId, xmlSource.id);
       }
-
-      await prisma.syncLog.update({ 
-        where: { id: syncLog.id }, 
-        data: { status: 'completed', itemCount: created + updated, errorCount: errors, completedAt: new Date() } 
-      });
-      
-      await prisma.xmlSource.update({ 
-        where: { id: xmlSource.id }, 
-        data: { lastSyncedAt: new Date(), totalProducts: products.length, status: 'active' } 
-      });
-
-      await notificationService.create({
-        storeId: xmlSource.storeId,
-        title: 'Otomatik XML Senkronizasyonu',
-        message: `"${xmlSource.name}" başarıyla senkronize edildi. ${created} yeni, ${updated} güncellendi.`,
-        type: errors > 0 ? 'warning' : 'success',
-        link: '/products'
-      });
-
-      whatsappService.notifyProductSync(xmlSource.store?.name || xmlSource.storeId, xmlSource.name, created, updated).catch(() => {});
-
-      console.log(`[CRON] Finished XML Sync for ${xmlSource.name}. Triggering auto-send to Trendyol...`);
-      await this.autoSendToMarketplaces(xmlSource.storeId, xmlSource.id);
-
     } catch (error) {
-      console.error(`[CRON] XML Sync failed for ${xmlSource.name}:`, error.message);
-      whatsappService.notifyXmlError(xmlSource.name, error.message).catch(() => {});
-      if (syncLog) {
-        await prisma.syncLog.update({
-          where: { id: syncLog.id },
-          data: { status: 'failed', completedAt: new Date() }
-        });
-      }
-      await prisma.auditLog.create({
-        data: {
-          action: 'CRON_XML_SYNC_ERROR',
-          details: JSON.stringify({ xmlSourceId: xmlSource.id, error: error.message }),
-          level: 'ERROR'
-        }
-      }).catch(() => {});
+      if (error.code !== 'SYNC_RUNNING') console.error(`[CRON] XML Sync failed for ${xmlSource.name}:`, error.message);
     }
   }
 

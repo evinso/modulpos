@@ -5,26 +5,11 @@ const { parseXml, analyzeXml } = require('../services/xml/xmlParser');
 const notificationService = require('../services/notificationService');
 const { checkXmlSourceLimit, getUserQuota } = require('../utils/quotaHelper');
 const { ownedParam, userStoreIds } = require('../middleware/ownership');
+const { startXmlSync, isRunning } = require('../services/xml/syncService');
 
 const router = express.Router();
 router.use(auth);
 router.param('id', ownedParam('xmlSource'));
-
-function resolveUserPlan(rawPlan) {
-  const p = (rawPlan || '').toLowerCase();
-  if (p === 'kurumsal' || p === 'enterprise') return 'Kurumsal';
-  if (p === 'profesyonel' || p === 'premium' || p === 'pro' || p === 'growth') return 'Profesyonel';
-  return 'Başlangıç';
-}
-
-function getPerPlanMarkup(byPlanJson, userPlan) {
-  if (!byPlanJson) return null;
-  try {
-    const map = JSON.parse(byPlanJson);
-    const val = map[userPlan];
-    return (val !== undefined && val !== '' && val !== null) ? parseFloat(val) : null;
-  } catch { return null; }
-}
 
 async function getUserStore(userId) {
   return prisma.store.findFirst({ where: { userId } });
@@ -173,178 +158,28 @@ router.put('/:id', async (req, res, next) => {
 });
 
 
-// Sync
+// Sync — starts a background job and returns immediately (poll /:id/sync-status)
 router.post('/:id/sync', async (req, res, next) => {
   try {
-    const store = await getUserStore(req.user.id);
-    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
-    const xmlSource = await prisma.xmlSource.findUnique({ where: { id: req.params.id } });
-    if (!xmlSource) return res.status(404).json({ error: 'XML kaynağı bulunamadı' });
-
-    const syncLog = await prisma.syncLog.create({ data: { storeId: store.id, xmlSourceId: xmlSource.id, type: 'xml_sync', status: 'started' } });
-
-    // Kullanıcının aktif abonelik planını bul (paket bazlı markup için)
-    const userSub = await prisma.subscription.findFirst({
-      where: { userId: req.user.id, status: 'active' },
-      orderBy: { endDate: 'desc' }
-    });
-    const userPlanRaw = userSub?.plan || 'Başlangıç';
-    const userPlan = resolveUserPlan(userPlanRaw);
-
-    const products = await parseXml(xmlSource.url, xmlSource.mappingConfig);
-    const { maxProducts } = await getUserQuota(req.user.id);
-    const currentCount = await prisma.product.count({ where: { storeId: store.id } });
-    let created = 0, updated = 0, errors = 0, skipped = 0;
-
-    for (const p of products) {
-      try {
-        const sku = p.sku || p.barcode || `xml-${Date.now()}-${Math.random()}`;
-        let rawXmlPrice = p.price || 0;
-
-        // 1. Önce Admin'in Global XML üzerinden belirlediği GİZLİ markupları uygula
-        // Kullanıcı bu fiyatı "orijinal alış fiyatı" (xmlPrice) olarak görecek
-        const planMarkupPct = getPerPlanMarkup(xmlSource.globalPriceMarkupPctByPlan, userPlan);
-        if (planMarkupPct !== null) {
-          rawXmlPrice += rawXmlPrice * (planMarkupPct / 100);
-        } else if (xmlSource.globalPriceMarkupPct) {
-          rawXmlPrice += rawXmlPrice * (xmlSource.globalPriceMarkupPct / 100);
-        }
-        if (xmlSource.globalPriceMarkup) {
-          rawXmlPrice += xmlSource.globalPriceMarkup;
-        }
-
-        // 2. Alış fiyatı KDV'si — tedarikçi fiyatları KDV hariç geliyorsa üstüne ekle
-        if (xmlSource.purchaseVatRate && xmlSource.purchaseVatRate > 0) {
-          rawXmlPrice = rawXmlPrice * (1 + xmlSource.purchaseVatRate / 100);
-        }
-
-        const xmlPrice = Math.round(rawXmlPrice * 100) / 100;
-
-        // Store raw XML data as-is (never modify this)
-        const rawXmlData = JSON.stringify({
-          sku: p.sku, barcode: p.barcode, title: p.title, description: p.description,
-          price: p.price, listPrice: p.listPrice, cost: p.cost, stock: p.stock,
-          brand: p.brand, category: p.category, images: p.images
-        });
-
-        // The base product price is just the XML price.
-        let finalPrice = xmlPrice;
-
-        // Apply global barcode prefix first
-        const baseBarcode = xmlSource.globalBarcodePrefix 
-          ? `${xmlSource.globalBarcodePrefix}${p.barcode || sku}` 
-          : (p.barcode || sku);
-
-        // Apply user's barcode prefix
-        const finalBarcode = xmlSource.barcodePrefix
-          ? `${xmlSource.barcodePrefix}${baseBarcode}`
-          : baseBarcode;
-
-        const existing = await prisma.product.findFirst({ where: { storeId: store.id, xmlSourceId: xmlSource.id, sku } });
-        if (existing) {
-          await prisma.product.update({
-            where: { id: existing.id },
-            data: {
-              title: p.title || existing.title,
-              description: p.description || existing.description,
-              xmlPrice: xmlPrice,
-              price: finalPrice,
-              cost: p.cost || existing.cost,
-              listPrice: p.listPrice || existing.listPrice,
-              stock: p.stock ?? existing.stock,
-              brand: p.brand || existing.brand,
-              category: p.category || existing.category,
-              barcode: p.barcode ? finalBarcode : existing.barcode,
-              images: p.images?.length ? JSON.stringify(p.images) : existing.images,
-              rawXmlData: rawXmlData,
-            }
-          });
-          const priceChanged = Math.abs((existing.xmlPrice || 0) - xmlPrice) > 0.001;
-          const stockChanged = (existing.stock ?? 0) !== (p.stock ?? existing.stock);
-          if (priceChanged || stockChanged) {
-            await prisma.productLog.create({
-              data: {
-                productId: existing.id,
-                type: 'synced',
-                oldPrice: priceChanged ? existing.xmlPrice : null,
-                newPrice: priceChanged ? xmlPrice : null,
-                oldStock: stockChanged ? existing.stock : null,
-                newStock: stockChanged ? (p.stock ?? existing.stock) : null,
-                source: 'xml_sync',
-                notes: [priceChanged && 'fiyat güncellendi', stockChanged && 'stok güncellendi'].filter(Boolean).join(', ')
-              }
-            }).catch(() => {});
-          }
-          updated++;
-        } else {
-          if (currentCount + created >= maxProducts) {
-            skipped++;
-          } else {
-            const created_product = await prisma.product.create({
-              data: {
-                storeId: store.id,
-                xmlSourceId: xmlSource.id,
-                sku,
-                barcode: finalBarcode,
-                title: p.title || 'İsimsiz',
-                description: p.description,
-                xmlPrice: xmlPrice,
-                price: finalPrice,
-                vatRate: xmlSource.defaultVatRate || 10,
-                cost: p.cost || 0,
-                listPrice: p.listPrice || 0,
-                stock: p.stock || 0,
-                brand: p.brand,
-                category: p.category,
-                images: p.images?.length ? JSON.stringify(p.images) : null,
-                rawXmlData: rawXmlData,
-              }
-            });
-            await prisma.productLog.create({
-              data: {
-                productId: created_product.id,
-                type: 'created',
-                newPrice: xmlPrice,
-                newStock: p.stock || 0,
-                source: 'xml_sync',
-                notes: `XML'den eklendi: ${xmlSource.name}`
-              }
-            }).catch(() => {});
-            created++;
-          }
-        }
-      } catch { errors++; }
+    const job = await startXmlSync(req.params.id, { trigger: 'manual', userId: req.user.id });
+    res.status(202).json({ message: 'Senkronizasyon başlatıldı', running: true, syncLogId: job.syncLogId });
+  } catch (error) {
+    if (error.code === 'SYNC_RUNNING') {
+      return res.status(409).json({ error: error.message, running: true, syncLogId: error.syncLogId });
     }
-
-    await prisma.syncLog.update({ where: { id: syncLog.id }, data: { status: 'completed', itemCount: created + updated, errorCount: errors, created, updated, skipped, completedAt: new Date() } });
-    await prisma.xmlSource.update({ where: { id: xmlSource.id }, data: { lastSyncedAt: new Date(), totalProducts: products.length, status: 'active' } });
-
-    const skippedNote = skipped > 0 ? ` ${skipped} ürün limit nedeniyle atlandı.` : '';
-    await notificationService.create({
-      storeId: store.id,
-      title: 'XML Senkronizasyon Tamamlandı',
-      message: `"${xmlSource.name}": ${created} yeni, ${updated} güncellendi.${skippedNote}`,
-      type: skipped > 0 ? 'warning' : errors > 0 ? 'warning' : 'success',
-      link: '/xml-sources',
-      data: { notifType: 'xml_sync', sourceName: xmlSource.name, created, updated, skipped, errors }
-    });
-
-    res.json({ message: 'Senkronizasyon tamamlandı', results: { total: products.length, created, updated, errors, skipped } });
-  } catch (error) { 
-    console.error('[XML Sync Error]', error.message);
-    
-    // Log the error to Audit Logs
-    prisma.auditLog.create({
-      data: {
-        userId: req.user.id,
-        action: 'XML_SYNC_ERROR',
-        details: JSON.stringify({ error: error.message }),
-        level: 'ERROR'
-      }
-    }).catch(err => console.error("Audit log error:", err));
-
-    next(error); 
+    next(error);
   }
+});
+
+// Latest sync state for a source (used by the UI to show progress)
+router.get('/:id/sync-status', async (req, res, next) => {
+  try {
+    const last = await prisma.syncLog.findFirst({
+      where: { xmlSourceId: req.params.id, type: 'xml_sync' },
+      orderBy: { startedAt: 'desc' },
+    });
+    res.json({ running: isRunning(req.params.id), last });
+  } catch (error) { next(error); }
 });
 
 // GET /api/xml-sources/:id/xml-preview — first 20 products + all categories from XML
