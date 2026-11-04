@@ -1,6 +1,35 @@
 const { safeAxiosOptions } = require('../../utils/safeHttp');
 const { parsePrice } = require('../../utils/parsePrice');
 const { suggestMapping } = require('./autoMapping');
+
+const { Transform } = require('stream');
+
+/**
+ * axios' timeout stops applying once the response headers are in, so a supplier that stalls mid-download
+ * could hang a sync forever. This passes the body through a stream that aborts when no data arrives for `ms`.
+ */
+function withIdleTimeout(res, ms = 60000) {
+  const src = res.data;
+  if (!src || typeof src.pipe !== 'function') return res;
+  let timer;
+  const arm = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const err = new Error(`Tedarikçi ${ms / 1000} saniye boyunca veri göndermedi, indirme iptal edildi`);
+      src.destroy(err); tr.destroy(err);
+    }, ms);
+  };
+  const tr = new Transform({
+    transform(chunk, _enc, cb) { arm(); cb(null, chunk); },
+    flush(cb) { clearTimeout(timer); cb(); },
+  });
+  tr.on('close', () => clearTimeout(timer));
+  src.on('error', (e) => tr.destroy(e));
+  src.pipe(tr);
+  arm();
+  res.data = tr;
+  return res;
+}
 const axios = require('axios');
 const { XMLParser } = require('fast-xml-parser');
 const sax = require('sax');
@@ -39,7 +68,7 @@ async function fetchPartialStream(url) {
       maxBodyLength: Infinity,
       headers: HEADERS,
       decompress: true,
-    });
+    }).then((r) => withIdleTimeout(r));
   } catch (err) {
     if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
       throw new Error(`XML URL'sine bağlanılamadı: istek zaman aşımına uğradı (${url})`);
@@ -101,7 +130,7 @@ async function streamProductObjects(url, { maxProducts = 0, responseStream, onPr
         maxBodyLength: Infinity,
         headers: HEADERS,
         decompress: true,
-      });
+      }).then((r) => withIdleTimeout(r));
     } catch (err) {
       if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
         throw new Error(`XML URL'sine bağlanılamadı: istek zaman aşımına uğradı (${url})`);
@@ -698,4 +727,4 @@ function getImagesValue(obj, mappedField, fallbackFields) {
   return collectedImages;
 }
 
-module.exports = { parseXml, analyzeXml, streamProductObjects };
+module.exports = { parseXml, analyzeXml, streamProductObjects, withIdleTimeout };

@@ -189,7 +189,8 @@ async function writeResilient(items, writeChunk, writeOne) {
   return failed;
 }
 
-async function execute(source, syncLog, trigger, ruleHooks) {
+async function execute(source, syncLog, trigger, ruleHooks, ctl = { aborted: false }) {
+  const checkAbort = () => { if (ctl.aborted) throw new Error('Senkron süre sınırı nedeniyle durduruldu'); };
   const storeId = source.storeId;
   const owner = source.store?.userId;
 
@@ -305,6 +306,7 @@ async function execute(source, syncLog, trigger, ruleHooks) {
   };
 
   for (const part of chunk(creates, CREATE_CHUNK)) {
+    checkAbort();
     const failed = await writeResilient(
       part,
       (items) => prisma.product.createMany({ data: items, skipDuplicates: true }),
@@ -327,6 +329,7 @@ async function execute(source, syncLog, trigger, ruleHooks) {
   }
   for (const [status, group] of uniformGroups) {
     for (const part of chunk(group, 1000)) {
+      checkAbort();
       const failed = await writeResilient(
         part,
         (items) => prisma.product.updateMany({ where: { id: { in: items.map((u) => u.id) } }, data: { status } }),
@@ -338,6 +341,7 @@ async function execute(source, syncLog, trigger, ruleHooks) {
   }
 
   for (const part of chunk(individual, UPDATE_CHUNK)) {
+    checkAbort();
     const failed = await writeResilient(
       part,
       (items) => prisma.$transaction(items.map((u) => prisma.product.update({ where: { id: u.id }, data: u.data }))),
@@ -426,7 +430,18 @@ async function startXmlSync(xmlSourceId, { trigger = 'manual', userId = null } =
         const { loadContentRules } = require('../contentRules');
         ruleHooks = await loadContentRules(source.storeId);
       } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') console.error('[XML Sync] content rules:', e.message); }
-      return await execute(source, syncLog, trigger, ruleHooks);
+      // Hard upper bound: a sync that overruns is abandoned and the source is released for the next attempt
+      const limitMs = (parseInt(process.env.SYNC_MAX_MINUTES, 10) || 30) * 60 * 1000;
+      const ctl = { aborted: false };
+      let timer;
+      const deadline = new Promise((_, reject) => {
+        timer = setTimeout(() => { ctl.aborted = true; reject(new Error(`Senkron ${limitMs / 60000} dakikayı aştığı için iptal edildi`)); }, limitMs);
+      });
+      try {
+        return await Promise.race([execute(source, syncLog, trigger, ruleHooks, ctl), deadline]);
+      } finally {
+        clearTimeout(timer);
+      }
     } catch (error) {
       console.error(`[XML Sync] ${source.name} başarısız:`, error.message);
       await prisma.syncLog.update({
