@@ -22,6 +22,8 @@ services:
         generateValue: true
       - key: ADMIN_EMAIL
         sync: false
+      - key: ENCRYPTION_KEY   # 64 hex chars; losing it makes stored marketplace credentials unrecoverable
+        sync: false
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: CORS_ORIGIN

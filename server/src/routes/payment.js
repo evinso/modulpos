@@ -6,6 +6,7 @@ const { getOrCreateBalance } = require('./credits');
 const notificationService = require('../services/notificationService');
 const { applyPlanQuota } = require('../utils/quotaHelper');
 const whatsappService = require('../services/whatsappService');
+const { parsePrice } = require('../utils/parsePrice');
 
 const router = express.Router();
 
@@ -40,10 +41,13 @@ router.all('/paytr-ping', (_req, res) => {
  */
 router.post('/paytr-token', auth, async (req, res, next) => {
   try {
-    const { amount } = req.body; // Amount in TL (e.g. 50 for 50 TL = 50 credits)
-    
-    if (!amount || amount < 10) {
+    const amount = Number(req.body.amount); // Amount in TL (e.g. 50 for 50 TL = 50 credits)
+
+    if (!Number.isFinite(amount) || amount < 10) {
       return res.status(400).json({ error: 'Minimum yükleme tutarı 10 TL/Kredi olmalıdır.' });
+    }
+    if (amount > 50000) {
+      return res.status(400).json({ error: 'Tek seferde en fazla 50.000 TL yüklenebilir.' });
     }
 
     const paytrCfg = await getPaytrConfig();
@@ -137,11 +141,20 @@ router.post('/paytr-token', auth, async (req, res, next) => {
  */
 router.post('/subscription-token', auth, async (req, res, next) => {
   try {
-    const { amount, planName, planId, days } = req.body;
-    const numAmount = parseFloat(amount);
-    if (isNaN(numAmount) || numAmount < 1) {
-      return res.status(400).json({ error: 'Geçersiz tutar.' });
+    // The price is NEVER taken from the client: it is read from the plan in the database.
+    const { planId, days } = req.body;
+    if (!planId) return res.status(400).json({ error: 'Plan seçimi zorunludur.' });
+    const plan = await prisma.landingPricingPlan.findFirst({ where: { id: String(planId), isActive: true } });
+    if (!plan) return res.status(404).json({ error: 'Plan bulunamadı.' });
+
+    const yearly = parseInt(days) >= 365;
+    const priceText = yearly ? plan.yearlyPrice : plan.price;
+    const numAmount = parsePrice(priceText);
+    if (!(numAmount >= 1)) {
+      return res.status(400).json({ error: yearly ? 'Bu plan için yıllık ödeme tanımlı değil.' : 'Bu plan online satın alınamaz.' });
     }
+    const planName = plan.name;
+    const subDaysFixed = yearly ? 365 : 30;
 
     const paytrCfg = await getPaytrConfig();
     if (!paytrCfg) return res.status(503).json({ error: 'Ödeme sistemi henüz etkin değil.' });
@@ -152,7 +165,7 @@ router.post('/subscription-token', auth, async (req, res, next) => {
 
     const rawIp2 = String(req.ip || '127.0.0.1').replace(/^::ffff:/, '');
     const user_ip = rawIp2 === '::1' ? '127.0.0.1' : rawIp2;
-    const subDays = parseInt(days) || 30;
+    const subDays = subDaysFixed;
     // Alphanumeric only: SUB + 32-char userId (no hyphens) + 3-digit days + 13-digit timestamp
     const merchant_oid = `SUB${req.user.id.replace(/-/g, '')}${String(subDays).padStart(3, '0')}${Date.now()}`;
 
