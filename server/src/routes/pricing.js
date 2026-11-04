@@ -9,6 +9,19 @@ async function getUserStore(userId) {
   return prisma.store.findFirst({ where: { userId } });
 }
 
+// A rule may only reference the caller's own connection / XML source.
+async function assertConditionsOwned(storeId, conditions) {
+  const c = conditions || {};
+  if (c.connectionId) {
+    const ok = await prisma.marketplaceConnection.findFirst({ where: { id: c.connectionId, storeId }, select: { id: true } });
+    if (!ok) { const e = new Error('Geçersiz pazaryeri bağlantısı'); e.status = 400; throw e; }
+  }
+  if (c.xmlSourceId) {
+    const ok = await prisma.xmlSource.findFirst({ where: { id: c.xmlSourceId, storeId }, select: { id: true } });
+    if (!ok) { const e = new Error('Geçersiz XML kaynağı'); e.status = 400; throw e; }
+  }
+}
+
 router.get('/', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
@@ -23,6 +36,7 @@ router.post('/', async (req, res, next) => {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
     const { name, type, value, applyTo, applyValue, conditions, priority } = req.body;
+    await assertConditionsOwned(store.id, conditions);
     const rule = await prisma.pricingRule.create({
       data: { storeId: store.id, name, type, value, applyTo, applyValue, conditions: conditions ? JSON.stringify(conditions) : null, priority: priority || 0 }
     });
@@ -32,6 +46,11 @@ router.post('/', async (req, res, next) => {
 
 router.put('/:id', async (req, res, next) => {
   try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const owned = await prisma.pricingRule.findFirst({ where: { id: req.params.id, storeId: store.id }, select: { id: true } });
+    if (!owned) return res.status(404).json({ error: 'Kural bulunamadı' });
+    if (req.body.conditions !== undefined) await assertConditionsOwned(store.id, req.body.conditions);
     const { name, type, value, applyTo, applyValue, conditions, priority, isActive } = req.body;
     const data = {};
     if (name !== undefined) data.name = name;
@@ -49,6 +68,10 @@ router.put('/:id', async (req, res, next) => {
 
 router.delete('/:id', async (req, res, next) => {
   try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const owned = await prisma.pricingRule.findFirst({ where: { id: req.params.id, storeId: store.id }, select: { id: true } });
+    if (!owned) return res.status(404).json({ error: 'Kural bulunamadı' });
     await prisma.pricingRule.delete({ where: { id: req.params.id } });
     res.json({ message: 'Fiyatlandırma kuralı silindi' });
   } catch (error) { next(error); }
