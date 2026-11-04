@@ -15,7 +15,6 @@ export const useAuthStore = create(
   persist(
     (set, get) => ({
       user: null,
-      token: null,
       loading: false,
       error: null,
 
@@ -30,7 +29,7 @@ export const useAuthStore = create(
             return res.data; // { requires_otp: true, tempToken, phone }
           }
 
-          set({ user: res.data.user, token: res.data.token, loading: false });
+          set({ user: res.data.user, loading: false });
           return res.data;
         } catch (err) {
           const msg = err.response?.data?.error || 'Giriş başarısız';
@@ -43,7 +42,7 @@ export const useAuthStore = create(
         set({ loading: true, error: null });
         try {
           const res = await api.post('/auth/verify-otp', { tempToken, otp });
-          set({ user: res.data.user, token: res.data.token, loading: false });
+          set({ user: res.data.user, loading: false });
           return res.data;
         } catch (err) {
           const msg = err.response?.data?.error || 'Doğrulama başarısız';
@@ -60,7 +59,7 @@ export const useAuthStore = create(
             set({ loading: false });
             return res.data; // { requires_otp: true, tempToken, phone }
           }
-          set({ user: res.data.user, token: res.data.token, loading: false });
+          set({ user: res.data.user, loading: false });
           return res.data;
         } catch (err) {
           const msg = err.response?.data?.error || 'Kayıt başarısız';
@@ -69,8 +68,10 @@ export const useAuthStore = create(
         }
       },
 
-      logout: () => {
-        set({ user: null, token: null });
+      logout: async () => {
+        try { await api.post('/auth/logout'); } catch { /* clear locally anyway */ }
+        set({ user: null });
+        window.location.href = '/login';
       },
 
       fetchUser: async () => {
@@ -78,10 +79,17 @@ export const useAuthStore = create(
           const res = await api.get('/auth/me');
           set({ user: res.data });
         } catch {
-          set({ user: null, token: null });
+          set({ user: null });
         }
       }
     }),
-    { name: 'auth-storage', partialize: (state) => ({ token: state.token, user: state.user }) }
+    {
+      // Only the (non-secret) profile is kept for fast first paint; the session itself is the httpOnly cookie.
+      name: 'auth-storage',
+      version: 2,
+      partialize: (state) => ({ user: state.user }),
+      // v1 stored the JWT here – drop it from every browser that still has it
+      migrate: (persisted) => ({ user: persisted?.user ?? null }),
+    }
   )
 );

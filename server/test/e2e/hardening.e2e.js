@@ -1,12 +1,13 @@
 // End-to-end checks for the hardening pass. See test/e2e/README.md for how to run.
 const { Client } = require('pg');
+const { registerFetch } = require('./_register');
 const API = process.env.API_URL || 'https://api.modulpos.com/api';
 const base = 'https://raw.githubusercontent.com/evinso/modulpos/main/server/test/fixtures/';
 
 (async () => {
   const c = new Client({ connectionString: process.env.E2E_DB_URL, ssl: { rejectUnauthorized: false } }); await c.connect();
   let fails = 0; const ok = (n, cnd, x) => { console.log((cnd ? 'PASS' : 'FAIL') + '  ' + n + (x ? '  → ' + x : '')); if (!cnd) fails++; };
-  const reg = await fetch(API + '/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `tmp-hard-${Date.now()}@example.invalid`, password: 'Passw0rd!test', name: 'Hard' }) }).then((r) => r.json());
+  const reg = await registerFetch(API+'/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `tmp-hard-${Date.now()}@example.invalid`, password: 'Passw0rd!test', name: 'Hard' }) }).then((r) => r.json());
   const call = async (m, u, b) => { const r = await fetch(API + u, { method: m, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + reg.token }, body: b ? JSON.stringify(b) : undefined }); let d; try { d = await r.json(); } catch { /* empty */ } return { s: r.status, d }; };
   const storeId = reg.user.stores[0].id;
   const sync = async (id) => { await call('POST', `/xml-sources/${id}/sync`); for (let i = 0; i < 60; i++) { await new Promise((r) => setTimeout(r, 1500)); const s = (await call('GET', `/xml-sources/${id}/sync-status`)).d; if (!s.running && s.last.status !== 'started') return s.last; } };

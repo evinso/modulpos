@@ -2,11 +2,12 @@
 //   E2E_DB_URL=postgresql://...:5432/postgres  [API_URL=https://api.modulpos.com/api]  node test/e2e/<file>
 // Needs the "pg" dev dependency. Do not run against a database whose "app" schema holds data you cannot afford to touch.
 const {Client}=require("pg");
+const { registerFetch } = require('./_register');
 const API=process.env.API_URL||"https://api.modulpos.com/api";
 (async()=>{
  const c=new Client({connectionString:process.env.E2E_DB_URL,ssl:{rejectUnauthorized:false}});await c.connect();
  let fails=0; const ok=(n,cnd,x)=>{console.log((cnd?"PASS":"FAIL")+"  "+n+(x?"  → "+x:""));if(!cnd)fails++};
- const mk=async(tag)=>fetch(API+"/auth/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:`tmp-${tag}-${Date.now()}@example.invalid`,password:"Passw0rd!test",name:tag})}).then(r=>r.json());
+ const mk=async(tag)=>registerFetch(API+"/auth/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:`tmp-${tag}-${Date.now()}@example.invalid`,password:"Passw0rd!test",name:tag})}).then(r=>r.json());
  const A=await mk("e2eA"), B=await mk("e2eB");
  const call=(tok)=>async(m,u,b)=>{const r=await fetch(API+u,{method:m,headers:{"Content-Type":"application/json",Authorization:"Bearer "+tok},body:b?JSON.stringify(b):undefined});let d;try{d=await r.json()}catch{};return {s:r.status,d}};
  const a=call(A.token), b=call(B.token); const store=A.user.stores[0];

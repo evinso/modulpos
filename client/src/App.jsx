@@ -57,13 +57,13 @@ function PageLoader() {
 }
 
 function PrivateRoute({ children }) {
-  const { token } = useAuthStore();
-  return token ? children : <Navigate to="/login" />;
+  const { user } = useAuthStore();
+  return user ? children : <Navigate to="/login" />;
 }
 
 function AdminRoute({ children }) {
-  const { user, token } = useAuthStore();
-  if (!token) return <Navigate to="/login" />;
+  const { user } = useAuthStore();
+  if (!user) return <Navigate to="/login" />;
   if (user?.role !== 'admin' && user?.role !== 'superadmin') return <Navigate to="/dashboard" />;
   return children;
 }

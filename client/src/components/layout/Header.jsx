@@ -49,11 +49,10 @@ export default function Header({ onMenuClick }) {
   useEffect(() => {
     fetchNotifications();
 
-    const stored = localStorage.getItem('auth-storage');
-    const token = stored ? JSON.parse(stored)?.state?.token : null;
-    if (!token) return;
+    if (!user) return;
 
-    const es = new EventSource(`${API_BASE}/notifications/stream?token=${encodeURIComponent(token)}`);
+    // The session cookie authenticates the stream (EventSource cannot send headers); nothing secret goes into the URL
+    const es = new EventSource(`${API_BASE}/notifications/stream`, { withCredentials: true });
 
     es.onmessage = (e) => {
       try {
@@ -73,7 +72,7 @@ export default function Header({ onMenuClick }) {
     };
 
     return () => es.close();
-  }, [fetchNotifications]);
+  }, [fetchNotifications, user]);
 
   useEffect(() => {
     function handleClickOutside(event) {

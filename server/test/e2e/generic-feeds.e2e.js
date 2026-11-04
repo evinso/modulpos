@@ -1,12 +1,13 @@
 // End-to-end test against a RUNNING deployment. It creates temporary users/stores and removes them afterwards.
 //   E2E_DB_URL=postgresql://...:5432/postgres  [API_URL=https://api.modulpos.com/api]  node test/e2e/<file>
 // Needs the "pg" dev dependency. Do not run against a database whose "app" schema holds data you cannot afford to touch.
-const {Client}=require("pg"); const API=process.env.API_URL||"https://api.modulpos.com/api";
+const {Client}=require("pg");
+const { registerFetch } = require('./_register'); const API=process.env.API_URL||"https://api.modulpos.com/api";
 const base="https://raw.githubusercontent.com/evinso/modulpos/main/server/test/fixtures/";
 (async()=>{
  const c=new Client({connectionString:process.env.E2E_DB_URL,ssl:{rejectUnauthorized:false}});await c.connect();
  let fails=0; const ok=(n,cnd,x)=>{console.log((cnd?"PASS":"FAIL")+"  "+n+(x?"  → "+x:""));if(!cnd)fails++};
- const reg=await fetch(API+"/auth/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:`tmp-gen-${Date.now()}@example.invalid`,password:"Passw0rd!test",name:"Gen"})}).then(r=>r.json());
+ const reg=await registerFetch(API+"/auth/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:`tmp-gen-${Date.now()}@example.invalid`,password:"Passw0rd!test",name:"Gen"})}).then(r=>r.json());
  const call=async(m,u,b)=>{const r=await fetch(API+u,{method:m,headers:{"Content-Type":"application/json",Authorization:"Bearer "+reg.token},body:b?JSON.stringify(b):undefined});let d;try{d=await r.json()}catch{};return {s:r.status,d}};
  const storeId=reg.user.stores[0].id;
  try{
