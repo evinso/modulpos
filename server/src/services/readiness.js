@@ -307,4 +307,18 @@ async function buildReadinessContext(connection, { xmlSourceIds = null } = {}) {
   });
 }
 
-module.exports = { buildReadinessContext, ReadinessContext, MappingIndex, ISSUE, LIMITS, parseImages };
+// Short-lived shared context, so paging through the products screen does not rebuild it (mappings, rules, duplicates) per request.
+// productListCache.invalidate(storeId) – called by every mapping / pricing / sync / send change – makes it stale at once.
+const ctxCache = new Map(); // `${connectionId}|${storeVersion}` -> { at, ctx }
+async function getReadinessContext(connection, { ttlMs = 15000 } = {}) {
+  const productListCache = require('./productListCache');
+  const key = `${connection.id}|${productListCache.version(connection.storeId)}`;
+  const hit = ctxCache.get(key);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.ctx;
+  const ctx = await buildReadinessContext(connection);
+  if (ctxCache.size > 20) ctxCache.clear();
+  ctxCache.set(key, { at: Date.now(), ctx });
+  return ctx;
+}
+
+module.exports = { buildReadinessContext, getReadinessContext, ReadinessContext, MappingIndex, ISSUE, LIMITS, parseImages };

@@ -72,3 +72,19 @@ test('gross basis: impossible combinations return null', () => {
 test('legacy formula is unchanged when no basis is given', () => {
   assert.equal(c(100, 30, { shippingCost: 10, commissionPct: 10, vatRate: 20 }), 186.67);
 });
+
+test('explainFor: same price as priceFor, plus a breakdown whose profit is the requested one', () => {
+  const rule = R({ id: 'tpl', name: 'Genel', value: 30, conditions: JSON.stringify({ shippingCost: 10, commissionPct: 10, vatRate: null, commissionBasis: 'gross' }) });
+  const ctx = new PricingContext([rule], 'C');
+  const p = { price: 100, xmlPrice: 100, vatRate: 20 };
+  const ex = ctx.explainFor(p);
+  assert.equal(ex.price, ctx.priceFor(p).price);
+  assert.equal(ex.ruleName, 'Genel'); assert.equal(ex.kind, 'template'); assert.equal(ex.vatRate, 20);
+  assert.equal(ex.breakdown.profit, 30);
+});
+test('explainFor: legacy rule has a price but no breakdown; no matching rule gives null', () => {
+  const legacy = new PricingContext([R({ id: 'l', applyTo: 'marketplace_xml', value: 50, conditions: JSON.stringify({ connectionId: 'C', xmlSourceId: 'S' }) })], 'C');
+  const e = legacy.explainFor({ xmlSourceId: 'S', price: 100, xmlPrice: 100 });
+  assert.equal(e.price, 150); assert.equal(e.kind, 'legacy'); assert.equal(e.breakdown, null);
+  assert.equal(new PricingContext([], 'C').explainFor({ price: 1, xmlPrice: 1 }), null);
+});

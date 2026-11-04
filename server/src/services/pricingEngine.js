@@ -157,6 +157,31 @@ class PricingContext {
         (new Date(a.rule.createdAt) - new Date(b.rule.createdAt)));
   }
 
+  /**
+   * Like priceFor(), but also explains how the price came about (for the product detail screen):
+   * { price, ruleId, ruleName, kind: 'template'|'legacy', vatRate, breakdown|null } or null.
+   */
+  explainFor(product) {
+    for (const { rule, conds } of this.rules) {
+      if (!matches(rule, conds, product, this.connectionId)) continue;
+
+      if (rule.applyTo === 'marketplace_xml') {
+        let fp = num(product.price);
+        if (rule.type === 'percentage') fp = fp * (1 + num(rule.value) / 100);
+        else if (rule.type === 'fixed') fp = fp + num(rule.value);
+        return { price: round2(Math.max(0, fp)), ruleId: rule.id, ruleName: rule.name, kind: 'legacy', vatRate: null, breakdown: null };
+      }
+      const purchase = num(product.xmlPrice) || num(product.price);
+      const hasOwnVat = conds.vatRate !== null && conds.vatRate !== undefined && conds.vatRate !== '';
+      const effective = hasOwnVat ? conds : { ...conds, vatRate: product.vatRate };
+      const breakdown = explainTemplatePrice(purchase, rule.value, effective);
+      if (breakdown) {
+        return { price: breakdown.price, ruleId: rule.id, ruleName: rule.name, kind: 'template', vatRate: num(effective.vatRate), breakdown };
+      }
+    }
+    return null;
+  }
+
   /** Returns { price, ruleId, ruleName } or null when no rule matches / can price the product. */
   priceFor(product) {
     for (const { rule, conds } of this.rules) {

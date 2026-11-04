@@ -2,7 +2,9 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const { checkProductLimit } = require('../utils/quotaHelper');
-const { matchPriceRangeRule, calcPriceRangePrice } = require('../utils/pricingHelper');
+const { getReadinessContext } = require('../services/readiness');
+const { loadPricingContext } = require('../services/pricingEngine');
+const productListCache = require('../services/productListCache');
 const { ownedParam, userStoreIds } = require('../middleware/ownership');
 
 const router = express.Router();
@@ -10,123 +12,184 @@ const router = express.Router();
 router.use(auth);
 router.param('id', ownedParam('product'));
 
+// Any successful change (edit, bulk action, delete…) makes the cached readiness / product lists stale
+router.use((req, res, next) => {
+  if (req.method !== 'GET') {
+    res.on('finish', () => {
+      if (res.statusCode < 400) userStoreIds(req.user.id).then((ids) => ids.forEach((id) => productListCache.invalidate(id))).catch(() => {});
+    });
+  }
+  next();
+});
+
 // Get user's store helper
 async function getUserStore(userId) {
   return prisma.store.findFirst({ where: { userId } });
 }
 
-// List products with filtering and pagination
+// ─── Shared filter builder (list, ids, summary, facets) ───────────────────────────
+const SORTABLE = new Set(['createdAt', 'updatedAt', 'title', 'price', 'xmlPrice', 'stock', 'sku', 'brand', 'category']);
+const LOW_STOCK_MAX = 5;
+
+function categoryClauses(list) {
+  return list.flatMap((c) => [
+    { category: c },
+    { category: { contains: `|${c}|` } },
+    { category: { startsWith: `${c}|` } },
+    { category: { endsWith: `|${c}` } },
+  ]);
+}
+
+function buildWhere(storeId, q = {}) {
+  const where = { storeId };
+  const and = [];
+  const {
+    search, status, brand, category, categories, xmlSourceId, globalXmlOnly,
+    stockFilter, noImage, noBarcode, connectionId, marketplaceStatus, notSentConnectionId,
+  } = q;
+
+  if (search) {
+    and.push({ OR: [
+      { title: { contains: String(search), mode: 'insensitive' } },
+      { sku: { contains: String(search), mode: 'insensitive' } },
+      { barcode: { contains: String(search), mode: 'insensitive' } },
+    ] });
+  }
+  if (categories) {
+    const list = String(categories).split(',').map((c) => c.trim()).filter(Boolean);
+    if (list.length) and.push({ OR: categoryClauses(list) });
+  } else if (category) {
+    and.push({ OR: categoryClauses([String(category)]) });
+  }
+  if (status) where.status = String(status);
+  if (brand) where.brand = String(brand);
+  if (xmlSourceId) where.xmlSourceId = String(xmlSourceId);
+  if (globalXmlOnly === 'true') where.xmlSource = { globalProviderId: { not: null } };
+
+  if (stockFilter === 'out') where.stock = { lte: 0 };
+  else if (stockFilter === 'low') where.stock = { gte: 1, lte: LOW_STOCK_MAX };
+  else if (stockFilter === 'in') where.stock = { gt: LOW_STOCK_MAX };
+
+  if (noImage === 'true') and.push({ OR: [{ images: null }, { images: '' }, { images: '[]' }] });
+  if (noBarcode === 'true') and.push({ OR: [{ barcode: null }, { barcode: '' }] });
+
+  if (notSentConnectionId) {
+    // Products that have NO MarketplaceProduct record for this connection
+    where.marketplaceProducts = { none: { connectionId: String(notSentConnectionId) } };
+  } else if (connectionId || marketplaceStatus) {
+    where.marketplaceProducts = { some: {} };
+    if (connectionId) where.marketplaceProducts.some.connectionId = String(connectionId);
+    if (marketplaceStatus) where.marketplaceProducts.some.status = String(marketplaceStatus);
+  }
+  if (and.length) where.AND = and;
+  return where;
+}
+
+// Everything the list needs, without the heavy raw feed copy
+const LIST_SELECT = {
+  id: true, storeId: true, xmlSourceId: true, sku: true, barcode: true, title: true, description: true,
+  price: true, xmlPrice: true, cost: true, listPrice: true, stock: true, brand: true, category: true, images: true,
+  weight: true, desi: true, vatRate: true, currencyType: true, status: true, createdAt: true, updatedAt: true,
+};
+
+// List products with filtering, sorting and pagination.
+//   priceFor=<connectionId> adds, per product, the sale price / profit rule / readiness issues for that marketplace
 router.get('/', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
 
-    const {
-      page = 1,
-      limit = 20,
-      search,
-      status,
-      brand,
-      category,
-      categories,
-      xmlSourceId,
-      connectionId,
-      marketplaceStatus,
-      notSentConnectionId,
-      globalXmlOnly,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = req.query;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+    const sortBy = SORTABLE.has(req.query.sortBy) ? req.query.sortBy : 'createdAt';
+    const sortOrder = req.query.sortOrder === 'asc' ? 'asc' : 'desc';
+    const where = buildWhere(store.id, req.query);
 
-    const where = { storeId: store.id };
-
-    const andClauses = [];
-    if (search) {
-      andClauses.push({ OR: [
-        { title: { contains: search, mode: 'insensitive' } },
-        { sku: { contains: search, mode: 'insensitive' } },
-        { barcode: { contains: search, mode: 'insensitive' } }
-      ] });
-    }
-    if (status) where.status = status;
-    if (brand) where.brand = brand;
-    if (categories) {
-      const catList = categories.split(',').map(c => c.trim()).filter(Boolean);
-      // Match exact OR pipe-separated format (e.g. localCategory "Elbise" matches p.category "Kadın|Elbise|Günlük")
-      andClauses.push({ OR: catList.flatMap(c => [
-        { category: c },
-        { category: { contains: `|${c}|` } },
-        { category: { startsWith: `${c}|` } },
-        { category: { endsWith: `|${c}` } },
-      ]) });
-    } else if (category) {
-      where.category = category;
-    }
-    if (xmlSourceId) where.xmlSourceId = xmlSourceId;
-    if (andClauses.length) where.AND = andClauses;
-    if (globalXmlOnly === 'true') where.xmlSource = { globalProviderId: { not: null } };
-    if (notSentConnectionId) {
-      // Products that have NO MarketplaceProduct record for this connection
-      where.marketplaceProducts = { none: { connectionId: notSentConnectionId } };
-    } else if (connectionId || marketplaceStatus) {
-      where.marketplaceProducts = { some: {} };
-      if (connectionId) where.marketplaceProducts.some.connectionId = connectionId;
-      if (marketplaceStatus) where.marketplaceProducts.some.status = marketplaceStatus;
-    }
-
-    const [rawProducts, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       prisma.product.findMany({
         where,
-        include: {
-          variants: true,
-          marketplaceProducts: {
-            include: { connection: { select: { marketplaceType: true } } }
-          },
-          xmlSource: { select: { name: true, globalProviderId: true } }
+        select: {
+          ...LIST_SELECT,
+          marketplaceProducts: { select: { id: true, connectionId: true, status: true, errorMessage: true, marketplacePrice: true, marketplaceStock: true, lastSyncedAt: true, connection: { select: { marketplaceType: true, supplierName: true } } } },
+          xmlSource: { select: { name: true, globalProviderId: true } },
         },
-        orderBy: { [sortBy]: sortOrder },
-        skip: (parseInt(page) - 1) * parseInt(limit),
-        take: parseInt(limit)
+        orderBy: [{ [sortBy]: sortOrder }, { id: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit,
       }),
-      prisma.product.count({ where })
+      prisma.product.count({ where }),
     ]);
 
-    // Attach globalProvider.orderFee without a schema relation
-    const globalProviderIds = [...new Set(rawProducts.map(p => p.xmlSource?.globalProviderId).filter(Boolean))];
-    let providerFeeMap = {};
-    if (globalProviderIds.length > 0) {
-      const providers = await prisma.globalXmlProvider.findMany({
-        where: { id: { in: globalProviderIds } },
-        select: { id: true, orderFee: true }
-      });
-      providerFeeMap = Object.fromEntries(providers.map(p => [p.id, p.orderFee]));
+    let ctx = null;
+    if (req.query.priceFor) {
+      const connection = await prisma.marketplaceConnection.findFirst({ where: { id: String(req.query.priceFor), storeId: store.id } });
+      if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+      ctx = await getReadinessContext(connection);
     }
 
-    const products = rawProducts.map(p => ({
-      ...p,
-      xmlSource: p.xmlSource ? {
-        ...p.xmlSource,
-        globalProvider: p.xmlSource.globalProviderId
-          ? { orderFee: providerFeeMap[p.xmlSource.globalProviderId] ?? 0 }
-          : null
-      } : null
-    }));
+    const products = rows.map((p) => {
+      const out = { ...p, hasDescription: !!(p.description && p.description.trim()) };
+      delete out.description; // the list does not need the long text
+      if (ctx) {
+        const ev = ctx.evaluate(p);
+        out.pricing = {
+          salePrice: ev.salePrice,
+          rule: ev.priceRule ? ev.priceRule.name : null,
+          profit: null,
+          ready: ev.ready,
+          issues: ev.issues,
+          mapName: ev.mapping ? (ev.mapping.marketplaceCategoryName || String(ev.mapping.marketplaceCategoryId)) : null,
+        };
+        const ex = ctx.priceCtx.explainFor(p);
+        if (ex && ex.breakdown) out.pricing.profit = ex.breakdown.profit;
+      }
+      return out;
+    });
 
     res.json({
       products,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(total / parseInt(limit))
-      }
+      pagination: { total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) },
     });
   } catch (error) {
     next(error);
   }
 });
 
-// Aggregate stats for TrendyolSendPage (total, marketplace status, ready/missing)
+// Overview numbers for the cards on top of the products screen (whole store, optionally one XML source)
+router.get('/summary', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const base = { storeId: store.id, ...(req.query.xmlSourceId ? { xmlSourceId: String(req.query.xmlSourceId) } : {}) };
+    const [total, active, passive, outOfStock, lowStock, noImage, noBarcode] = await Promise.all([
+      prisma.product.count({ where: base }),
+      prisma.product.count({ where: { ...base, status: 'active' } }),
+      prisma.product.count({ where: { ...base, status: { not: 'active' } } }),
+      prisma.product.count({ where: { ...base, stock: { lte: 0 } } }),
+      prisma.product.count({ where: { ...base, stock: { gte: 1, lte: LOW_STOCK_MAX } } }),
+      prisma.product.count({ where: { ...base, OR: [{ images: null }, { images: '' }, { images: '[]' }] } }),
+      prisma.product.count({ where: { ...base, OR: [{ barcode: null }, { barcode: '' }] } }),
+    ]);
+    res.json({ total, active, passive, outOfStock, lowStock, noImage, noBarcode, lowStockMax: LOW_STOCK_MAX });
+  } catch (error) { next(error); }
+});
+
+// Distinct categories / brands (with counts) for the filter drop-downs
+router.get('/facets', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const base = { storeId: store.id, ...(req.query.xmlSourceId ? { xmlSourceId: String(req.query.xmlSourceId) } : {}) };
+    const group = (field) => prisma.product.groupBy({
+      by: [field], where: { ...base, [field]: { not: null } }, _count: { _all: true }, orderBy: { _count: { [field]: 'desc' } }, take: 300,
+    });
+    const [cats, brands] = await Promise.all([group('category'), group('brand')]);
+    const pack = (rows, field) => rows.filter((r) => r[field] && String(r[field]).trim()).map((r) => ({ name: r[field], count: r._count._all }));
+    res.json({ categories: pack(cats, 'category'), brands: pack(brands, 'brand') });
+  } catch (error) { next(error); }
+});
+
+// Marketplace status counts for one connection (used by the status tabs)
 router.get('/stats', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
@@ -140,90 +203,88 @@ router.get('/stats', async (req, res, next) => {
 
     const where = { storeId: store.id };
     if (xmlSourceId) where.xmlSourceId = xmlSourceId;
-
-    // Total count
     const total = await prisma.product.count({ where });
 
-    // Marketplace status counts
-    let mpStatus = { active: 0, pending: 0, rejected: 0, passive: 0, not_sent: 0 };
+    const mpStatus = { active: 0, pending: 0, rejected: 0, passive: 0, not_sent: 0 };
     if (connectionId) {
       const mpRows = await prisma.marketplaceProduct.groupBy({
         by: ['status'],
-        where: {
-          connectionId,
-          product: { storeId: store.id, ...(xmlSourceId ? { xmlSourceId } : {}) }
-        },
-        _count: { status: true }
+        where: { connectionId, product: { storeId: store.id, ...(xmlSourceId ? { xmlSourceId } : {}) } },
+        _count: { status: true },
       });
       for (const r of mpRows) mpStatus[r.status] = (mpStatus[r.status] || 0) + r._count.status;
       const sent = mpRows.reduce((s, r) => s + r._count.status, 0);
       mpStatus.not_sent = Math.max(0, total - sent);
     }
-
-    // Ready/missing counts
-    let ready = 0;
-    if (connectionId) {
-      const [catMappings, pricingRules, lightProducts] = await Promise.all([
-        prisma.categoryMapping.findMany({ where: { connectionId }, select: { localCategory: true } }),
-        prisma.pricingRule.findMany({ where: { isActive: true }, select: { conditions: true, applyTo: true } }),
-        prisma.product.findMany({ where, select: { barcode: true, category: true, xmlSourceId: true } })
-      ]);
-
-      const mappedCats = new Set(catMappings.map(m => m.localCategory.toLowerCase().trim()));
-      const pricedSources = new Set();
-      let hasRangeRule = false;
-      for (const r of pricingRules) {
-        try {
-          const c = JSON.parse(r.conditions || '{}');
-          if (c.connectionId && c.connectionId !== connectionId) continue;
-          if (r.applyTo === 'price_range') { hasRangeRule = true; continue; }
-          if (c.xmlSourceId) pricedSources.add(c.xmlSourceId);
-        } catch {}
-      }
-
-      ready = lightProducts.filter(p => {
-        if (!p.barcode) return false;
-        const key = (p.category || '').toLowerCase().trim();
-        const hasCat = mappedCats.has(key) ||
-          (key.includes('|') && key.split('|').some(k => mappedCats.has(k.trim())));
-        const hasRule = pricedSources.has(p.xmlSourceId) || hasRangeRule;
-        return hasCat && hasRule;
-      }).length;
-    }
-
-    res.json({ total, mpStatus, ready, missing: total - ready });
+    res.json({ total, mpStatus });
   } catch (error) {
     next(error);
   }
 });
 
-// Get all product IDs (for bulk select all)
+// Get all product IDs matching the current filters (for "select all pages")
 router.get('/ids', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const products = await prisma.product.findMany({ where: buildWhere(store.id, req.query), select: { id: true } });
+    res.json({ ids: products.map((p) => p.id), total: products.length });
+  } catch (error) {
+    next(error);
+  }
+});
 
-    const { search, status, brand, category, xmlSourceId } = req.query;
-    const where = { storeId: store.id };
+const parseJson = (v, fallback = null) => { try { return v ? JSON.parse(v) : fallback; } catch { return fallback; } };
 
-    if (search) {
-      where.OR = [
-        { title: { contains: search } },
-        { sku: { contains: search } },
-        { barcode: { contains: search } }
-      ];
-    }
-    if (status) where.status = status;
-    if (brand) where.brand = brand;
-    if (category) where.category = category;
-    if (xmlSourceId) where.xmlSourceId = xmlSourceId;
+// Everything about ONE product for the detail panel: fields, images, price breakdown and readiness per marketplace,
+// marketplace status, the feed copy and the change history.
+router.get('/:id/detail', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
 
-    const products = await prisma.product.findMany({
-      where,
-      select: { id: true }
+    const product = await prisma.product.findUnique({
+      where: { id: req.params.id },
+      include: {
+        xmlSource: { select: { id: true, name: true, globalProviderId: true, defaultVatRate: true, purchaseVatRate: true, lastSyncedAt: true } },
+        marketplaceProducts: { select: { id: true, connectionId: true, status: true, errorMessage: true, marketplaceProductId: true, marketplacePrice: true, marketplaceStock: true, lastSyncedAt: true } },
+      },
     });
+    const [connections, logs] = await Promise.all([
+      prisma.marketplaceConnection.findMany({ where: { storeId: store.id }, take: 6 }),
+      prisma.productLog.findMany({ where: { productId: product.id }, orderBy: { createdAt: 'desc' }, take: 30 }),
+    ]);
 
-    res.json({ ids: products.map(p => p.id), total: products.length });
+    const hiddenFeed = !!product.xmlSource?.globalProviderId; // pooled supplier feeds never expose their original data
+    const marketplaces = [];
+    for (const conn of connections) {
+      const ctx = await getReadinessContext(conn);
+      const ev = ctx.evaluate(product);
+      const ex = ctx.priceCtx.explainFor(product);
+      const mp = product.marketplaceProducts.find((m) => m.connectionId === conn.id) || null;
+      marketplaces.push({
+        connectionId: conn.id,
+        type: conn.marketplaceType,
+        name: conn.supplierName || conn.marketplaceType,
+        ready: ev.ready,
+        issues: ev.issues,
+        categoryMapping: ev.mapping ? (ev.mapping.marketplaceCategoryName || String(ev.mapping.marketplaceCategoryId)) : null,
+        pricing: ex ? { salePrice: ex.price, rule: ex.ruleName, kind: ex.kind, vatRate: ex.vatRate, breakdown: ex.breakdown } : null,
+        listing: mp,
+      });
+    }
+
+    const { rawXmlData, ...rest } = product;
+    res.json({
+      product: {
+        ...rest,
+        images: (() => { const v = parseJson(product.images, []); return Array.isArray(v) ? v : []; })(),
+      },
+      feed: hiddenFeed ? null : parseJson(rawXmlData, null),
+      feedHidden: hiddenFeed,
+      marketplaces,
+      logs,
+    });
   } catch (error) {
     next(error);
   }
@@ -489,53 +550,23 @@ router.post('/bulk-action', async (req, res, next) => {
               const TrendyolService = require('../services/trendyol/trendyolService');
               const service = new TrendyolService(connection);
               
-              // Fetch pricing rules for this connection
-              const pricingRules = await prisma.pricingRule.findMany({
-                where: { storeId: connection.storeId, applyTo: { in: ['marketplace_xml', 'price_range'] }, isActive: true },
-                orderBy: { priority: 'asc' }
-              });
-
-              const pricingLookup = {};
-              const priceRangeRules = [];
-              for (const r of pricingRules) {
-                if (!r.conditions) continue;
-                try {
-                  const conds = JSON.parse(r.conditions);
-                  if (conds.connectionId === connection.id && conds.xmlSourceId) {
-                    pricingLookup[conds.xmlSourceId] = r;
-                  }
-                  if (conds.minPurchasePrice != null || conds.maxPurchasePrice != null) {
-                    priceRangeRules.push(r);
-                  }
-                } catch(e) {}
-              }
-
-              const items = mps.map(mp => {
-                // Determine final price based on rules
-                let finalPrice = mp.product.price;
-                const rule = pricingLookup[mp.product.xmlSourceId];
-
-                if (rule) {
-                  if (rule.type === 'percentage') {
-                    finalPrice = finalPrice * (1 + rule.value / 100);
-                  } else if (rule.type === 'fixed') {
-                    finalPrice = finalPrice + rule.value;
-                  }
-                  finalPrice = Math.round(Math.max(0, finalPrice) * 100) / 100;
-                } else {
-                  const xmlPrice = mp.product.xmlPrice || mp.product.price;
-                  const match = matchPriceRangeRule(xmlPrice, priceRangeRules, connection.id, mp.product.xmlSourceId);
-                  if (match) finalPrice = calcPriceRangePrice(xmlPrice, match.rule, match.conds);
-                }
-
-                return {
+              // One pricing engine for everything (templates + legacy rules). A product the engine cannot price is
+              // NOT sent: sending its raw purchase price as the sale price would sell it at cost.
+              const priceCtx = await loadPricingContext(connection.storeId, connection.id);
+              const items = [];
+              let unpriced = 0;
+              for (const mp of mps) {
+                const priced = priceCtx.priceFor(mp.product);
+                if (!priced) { unpriced++; continue; }
+                items.push({
                   barcode: mp.product.barcode || mp.product.sku,
                   quantity: mp.product.stock,
-                  salePrice: finalPrice,
-                  listPrice: mp.product.listPrice > finalPrice ? mp.product.listPrice : finalPrice
-                };
-              });
-              
+                  salePrice: priced.price,
+                  listPrice: mp.product.listPrice > priced.price ? mp.product.listPrice : priced.price,
+                });
+              }
+              if (unpriced > 0) errorMessages.push(`${connection.supplierName || connection.marketplaceType}: ${unpriced} ürüne uyan fiyat şablonu yok, gönderilmedi`);
+
               // Trendyol max 1000 items per request
               const BATCH_SIZE = 1000;
               for (let i = 0; i < items.length; i += BATCH_SIZE) {
