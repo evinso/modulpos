@@ -1,9 +1,9 @@
 services:
   # ── Backend API ──
   - type: web
-    name: entegrasyon-server
+    name: modulpos-api
     runtime: node
-    region: ohio
+    region: singapore
     rootDir: server
     plan: free
     buildCommand: npm install && npx prisma generate
