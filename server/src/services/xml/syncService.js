@@ -4,6 +4,7 @@ const { parseXml } = require('./xmlParser');
 const notificationService = require('../notificationService');
 const whatsappService = require('../whatsappService');
 const { getUserQuota } = require('../../utils/quotaHelper');
+const productListCache = require('../productListCache');
 
 /**
  * Single XML -> products sync implementation, used by both the manual
@@ -346,6 +347,7 @@ async function execute(source, syncLog, trigger, ruleHooks) {
     where: { id: source.id }, data: { lastSyncedAt: new Date(), totalProducts: feed.length, status: 'active' },
   });
 
+  productListCache.invalidate(storeId);
   const result = { total: feed.length, created, updated, unchanged, skipped, errors, blocked, filtered, passivated, priceAlerts: alerts.length };
 
   const skippedNote = (skipped > 0 ? ` ${skipped} ürün atlandı (limit/tekrar).` : '')

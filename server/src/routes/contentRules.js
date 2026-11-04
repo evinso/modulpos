@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
+const productListCache = require('../services/productListCache');
 const { ContentRuleSet, buildRegex } = require('../services/contentRules');
 
 const router = express.Router();
@@ -54,6 +55,7 @@ router.post('/', async (req, res, next) => {
     const wantGlobal = !!req.body.isGlobal;
     if (wantGlobal && !isAdmin(req.user)) return res.status(403).json({ error: 'Genel kural eklemek için yönetici olmalısınız' });
     const rule = await prisma.contentRule.create({ data: { ...clean(req.body), storeId: wantGlobal ? null : store.id } });
+    productListCache.invalidate(wantGlobal ? null : store.id);
     res.status(201).json(rule);
   } catch (e) { next(e); }
 });
@@ -72,6 +74,7 @@ router.put('/:id', async (req, res, next) => {
     const rule = await findEditable(req);
     if (!rule) return res.status(404).json({ error: 'Kural bulunamadı' });
     const updated = await prisma.contentRule.update({ where: { id: rule.id }, data: clean({ ...rule, ...req.body }) });
+    productListCache.invalidate(rule.storeId);
     res.json(updated);
   } catch (e) { next(e); }
 });
@@ -81,6 +84,7 @@ router.delete('/:id', async (req, res, next) => {
     const rule = await findEditable(req);
     if (!rule) return res.status(404).json({ error: 'Kural bulunamadı' });
     await prisma.contentRule.delete({ where: { id: rule.id } });
+    productListCache.invalidate(rule.storeId);
     res.json({ message: 'Kural silindi' });
   } catch (e) { next(e); }
 });
@@ -135,6 +139,7 @@ router.post('/apply', async (req, res, next) => {
         await prisma.$transaction(part.map((c) => prisma.product.update({ where: { id: c.id }, data: { title: c.title, description: c.description } })));
       }
     }
+    if (!dryRun) productListCache.invalidate(store.id);
     res.json({
       dryRun,
       scanned: products.length,

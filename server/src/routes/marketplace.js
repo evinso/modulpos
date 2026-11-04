@@ -9,6 +9,7 @@ const notificationService = require('../services/notificationService');
 const whatsappService = require('../services/whatsappService');
 const { loadPricingContext, PricingContext } = require('../services/pricingEngine');
 const { buildReadinessContext } = require('../services/readiness');
+const productListCache = require('../services/productListCache');
 const { deductCredits, getSetting } = require('./credits');
 const { ownedParam, userStoreIds } = require('../middleware/ownership');
 const { publicConnection } = require('../utils/sanitize');
@@ -16,6 +17,21 @@ const { publicConnection } = require('../utils/sanitize');
 const router = express.Router();
 router.use(auth);
 router.param('id', ownedParam('marketplaceConnection', { skip: (req) => req.path.startsWith('/category-mappings/') }));
+
+// Any successful change under /connections/:id (category mapping, send, status sync, ...) can change
+// readiness / marketplace status, so drop the cached product list of that store.
+router.use((req, res, next) => {
+  if (req.method === 'GET') return next();
+  const m = req.path.match(/^\/connections\/([^/]+)/);
+  if (m) {
+    res.on('finish', () => {
+      if (res.statusCode >= 400) return;
+      prisma.marketplaceConnection.findUnique({ where: { id: m[1] }, select: { storeId: true } })
+        .then((c) => c && productListCache.invalidate(c.storeId)).catch(() => {});
+    });
+  }
+  next();
+});
 
 // Pricing context for marketplaces that only price when a rule is chosen explicitly.
 async function loadRuleContext(pricingRuleId, connection) {
@@ -1071,6 +1087,7 @@ router.delete('/category-mappings/:id', async (req, res, next) => {
     const storeIds = await userStoreIds(req.user.id);
     const del = await prisma.categoryMapping.deleteMany({ where: { id: req.params.id, connection: { storeId: { in: storeIds } } } });
     if (!del.count) return res.status(404).json({ error: 'Eşleştirme bulunamadı' });
+    for (const sid of storeIds) productListCache.invalidate(sid);
     res.json({ message: 'Eşleştirme silindi' });
   } catch (error) { next(error); }
 });

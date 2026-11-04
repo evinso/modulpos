@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
+const productListCache = require('../services/productListCache');
 const { explainTemplatePrice, matchesConds } = require('../services/pricingEngine');
 
 const router = express.Router();
@@ -68,6 +69,7 @@ router.post('/', async (req, res, next) => {
     const rule = await prisma.pricingRule.create({
       data: { storeId: store.id, name, type, value, applyTo, applyValue, conditions: conditions ? JSON.stringify(conditions) : null, priority: priority || 0 }
     });
+    productListCache.invalidate(store.id);
     res.status(201).json(rule);
   } catch (error) { next(error); }
 });
@@ -90,6 +92,7 @@ router.put('/:id', async (req, res, next) => {
     if (priority !== undefined) data.priority = priority;
     if (isActive !== undefined) data.isActive = isActive;
     const rule = await prisma.pricingRule.update({ where: { id: req.params.id }, data });
+    productListCache.invalidate(store.id);
     res.json(rule);
   } catch (error) { next(error); }
 });
@@ -101,6 +104,7 @@ router.delete('/:id', async (req, res, next) => {
     const owned = await prisma.pricingRule.findFirst({ where: { id: req.params.id, storeId: store.id }, select: { id: true } });
     if (!owned) return res.status(404).json({ error: 'Kural bulunamadı' });
     await prisma.pricingRule.delete({ where: { id: req.params.id } });
+    productListCache.invalidate(store.id);
     res.json({ message: 'Fiyatlandırma kuralı silindi' });
   } catch (error) { next(error); }
 });

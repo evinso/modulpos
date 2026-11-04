@@ -53,19 +53,43 @@ class ReadinessContext {
     this.mpByProduct = mpByProduct;
   }
 
-  /** Category mapping, incl. pipe-separated categories ("Kadın|Kolye|") and global-provider fallback. */
+  /**
+   * Category mapping lookup. Tries, in order:
+   *  1. exact key (and the global-provider fallback)
+   *  2. case/space-insensitive key
+   *  3. product category is a path ("Kadın|Kolye|") -> each of its parts
+   *  4. mapping key is a path ("Kadın|Bayan Bileklik|") and the product category is its last level ("Bayan Bileklik")
+   */
   resolveMapping(category, xmlSourceId) {
     if (!category) return null;
     const { catMap, globalCatMap } = this;
     if (catMap[category]) return catMap[category];
     if (xmlSourceId && globalCatMap[xmlSourceId]?.[category]) return globalCatMap[xmlSourceId][category];
-    if (category.includes('|')) {
-      for (const part of category.split('|').map((s) => s.trim()).filter(Boolean)) {
-        if (catMap[part]) return catMap[part];
-        if (xmlSourceId && globalCatMap[xmlSourceId]?.[part]) return globalCatMap[xmlSourceId][part];
+
+    if (!this._norm) {
+      this._norm = new Map();   // normalised key -> mapping
+      this._leaf = new Map();   // last level of path-style keys -> mapping
+      for (const [key, m] of Object.entries(catMap)) {
+        const nk = key.trim().toLowerCase();
+        if (!this._norm.has(nk)) this._norm.set(nk, m);
+        if (key.includes('|')) {
+          const leaf = key.split('|').map((x) => x.trim()).filter(Boolean).pop();
+          if (leaf && !this._leaf.has(leaf.toLowerCase())) this._leaf.set(leaf.toLowerCase(), m);
+        }
       }
     }
-    return null;
+    const norm = category.trim().toLowerCase();
+    if (this._norm.has(norm)) return this._norm.get(norm);
+
+    if (category.includes('|')) {
+      for (const part of category.split('|').map((x) => x.trim()).filter(Boolean)) {
+        if (catMap[part]) return catMap[part];
+        if (xmlSourceId && globalCatMap[xmlSourceId]?.[part]) return globalCatMap[xmlSourceId][part];
+        const hit = this._norm.get(part.toLowerCase());
+        if (hit) return hit;
+      }
+    }
+    return this._leaf.get(norm) || null;
   }
 
   /** Returns { ready, issues:[{code,message}], salePrice, priceRule, mapping } */

@@ -22,15 +22,25 @@ router.param('id', ownedParam('marketplaceConnection'));
 
 // Short-lived cache of evaluated rows so paging/filtering by status does not re-evaluate the catalogue.
 const CACHE_TTL_MS = 20 * 1000;
-const cache = new Map(); // key -> { at, rows }
+const { cache, version } = require('../services/productListCache');
 
 function categoryClauses(list) {
-  return list.flatMap((c) => [
-    { category: c },
-    { category: { contains: `|${c}|` } },
-    { category: { startsWith: `${c}|` } },
-    { category: { endsWith: `|${c}` } },
-  ]);
+  const clauses = [];
+  for (const raw of list) {
+    // "Kadın|Bayan Bileklik|" must also find products stored as just "Bayan Bileklik"
+    const variants = new Set([raw]);
+    const leaf = raw.split('|').map((x) => x.trim()).filter(Boolean).pop();
+    if (leaf) variants.add(leaf);
+    for (const c of variants) {
+      clauses.push(
+        { category: { equals: c, mode: 'insensitive' } },
+        { category: { contains: `|${c}|`, mode: 'insensitive' } },
+        { category: { startsWith: `${c}|`, mode: 'insensitive' } },
+        { category: { endsWith: `|${c}`, mode: 'insensitive' } },
+      );
+    }
+  }
+  return clauses;
 }
 
 router.get('/connections/:id/product-list', async (req, res, next) => {
@@ -41,7 +51,7 @@ router.get('/connections/:id/product-list', async (req, res, next) => {
     const { search = '', xmlSourceId = '', categories = '', readiness = 'all', issue = '', mpStatus = 'all' } = req.query;
     const fresh = req.query.fresh === '1';
 
-    const key = [connection.id, search, xmlSourceId, categories].join('|');
+    const key = [connection.id, version(connection.storeId), search, xmlSourceId, categories].join('|');
     let entry = cache.get(key);
     if (fresh || !entry || Date.now() - entry.at > CACHE_TTL_MS) {
       const and = [{ storeId: connection.storeId }];
