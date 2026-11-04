@@ -85,6 +85,14 @@ app.use(cors(corsOptions));
 // Security
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
+// Temporary diagnostics (enabled only with DEBUG_IP=1): shows which headers carry the client IP
+if (process.env.DEBUG_IP === '1') {
+  app.use((req, _res, next) => {
+    if (req.path !== '/api/health') console.log('[ip-debug]', JSON.stringify({ ip: req.ip, xff: req.headers['x-forwarded-for'], cf: req.headers['cf-connecting-ip'], ra: req.socket.remoteAddress }));
+    next();
+  });
+}
+
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
