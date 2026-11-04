@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const { loadPricingContext } = require('./pricingEngine');
+const SS = require('./sendSettings');
 
 /**
  * "Is this product safe to send to the marketplace?"
@@ -30,6 +31,7 @@ const ISSUE = {
   NO_IMAGE: 'no_image',
   BAD_VAT: 'bad_vat',
   BAD_STOCK: 'bad_stock',
+  EXCLUDED: 'excluded_by_settings',
   REJECTED: 'rejected_by_marketplace',
   MISSING_ATTR: 'missing_attributes',
   NO_BRAND: 'no_brand',
@@ -112,7 +114,7 @@ class MappingIndex {
 }
 
 class ReadinessContext {
-  constructor({ indexes, globalCatMap, priceCtx, dupBarcodes, dupWinner, mpByProduct, requiredAttrs, brandCfg }) {
+  constructor({ indexes, globalCatMap, priceCtx, dupBarcodes, dupWinner, mpByProduct, requiredAttrs, brandCfg, send }) {
     this.indexes = indexes; // xmlSourceId ('' = legacy, shared) -> MappingIndex
     this.globalCatMap = globalCatMap;
     this.priceCtx = priceCtx;
@@ -120,6 +122,7 @@ class ReadinessContext {
     this.dupWinner = dupWinner;
     this.requiredAttrs = requiredAttrs;
     this.brandCfg = brandCfg;
+    this.send = send || SS.normalizeSendSettings(null); // this marketplace's send settings
     this.mpByProduct = mpByProduct;
   }
 
@@ -150,6 +153,9 @@ class ReadinessContext {
     const issues = [];
     const add = (code, message) => issues.push({ code, message });
 
+    const excluded = SS.excludedReasons(p, this.send);
+    if (excluded.length) add(ISSUE.EXCLUDED, `Gönderim ayarlarına takıldı: ${excluded.join('; ')}`);
+
     const mapping = this.resolveMapping(p.category, p.xmlSourceId);
     if (!mapping) add(ISSUE.NO_CATEGORY, `Kategori eşleştirmesi yok (${p.category || 'kategori boş'})`);
 
@@ -173,7 +179,8 @@ class ReadinessContext {
       if (purchase > 0 && salePrice < purchase) add(ISSUE.BELOW_COST, `Satış fiyatı (₺${salePrice}) alış fiyatının (₺${purchase}) altında`);
     }
 
-    const title = (p.title || '').trim();
+    const sendTitle = SS.shapeTitle((p.title || '').trim(), this.send);
+    const title = sendTitle;
     if (title.length < 2) add(ISSUE.NO_TITLE, 'Başlık boş');
     else if (title.length > LIMITS.TITLE_MAX) add(ISSUE.LONG_TITLE, `Başlık ${LIMITS.TITLE_MAX} karakteri aşıyor (${title.length})`);
 
@@ -181,7 +188,8 @@ class ReadinessContext {
     if (!desc) add(ISSUE.NO_DESC, 'Açıklama boş');
     else if (desc.length > LIMITS.DESCRIPTION_MAX) add(ISSUE.LONG_DESC, `Açıklama ${LIMITS.DESCRIPTION_MAX} karakteri aşıyor`);
 
-    const images = parseImages(p.images).filter((u) => /^https?:\/\//i.test(u));
+    const sendImages = SS.shapeImages(p.images, this.send).filter((u) => /^https?:\/\//i.test(u));
+    const images = sendImages;
     if (images.length === 0) add(ISSUE.NO_IMAGE, 'Geçerli ürün görseli yok');
 
     if (p.vatRate !== null && p.vatRate !== undefined && !LIMITS.VAT_RATES.includes(Number(p.vatRate))) {
@@ -191,7 +199,7 @@ class ReadinessContext {
 
     // Brand: the product's own brand, or the connection's default brand, must exist
     const { strategy, defaultBrandId } = this.brandCfg;
-    const ownBrand = (p.brand || '').trim();
+    const ownBrand = (p.brand || '').trim() || this.send.defaultBrandName;
     if ((!ownBrand || strategy === 'override') && !defaultBrandId) {
       add(ISSUE.NO_BRAND, strategy === 'override' ? 'Marka stratejisi "varsayılan marka" ama varsayılan marka seçilmemiş' : 'Üründe marka yok ve bağlantıda varsayılan marka tanımlı değil');
     }
@@ -223,6 +231,11 @@ class ReadinessContext {
       salePrice,
       priceRule: priced ? { id: priced.ruleId, name: priced.ruleName } : null,
       mapping,
+      // what is actually transmitted (the stored product is never changed)
+      sendTitle,
+      sendImages,
+      sendStock: SS.sendStock(p.stock, this.send),
+      sendBrand: (p.brand || '').trim() || this.send.defaultBrandName || null,
     };
   }
 }
@@ -291,6 +304,7 @@ async function buildReadinessContext(connection, { xmlSourceIds = null } = {}) {
   let cfg = {};
   try { cfg = connection.config ? JSON.parse(connection.config) : {}; } catch { cfg = {}; }
   const brandCfg = { strategy: cfg.brandStrategy || 'xml', defaultBrandId: cfg.defaultBrandId || null };
+  const send = SS.normalizeSendSettings(cfg.sendSettings);
 
   const mappedCategoryIds = [...new Set(catMappings.map((m) => String(m.marketplaceCategoryId)))].slice(0, 80);
   const requiredAttrs = await loadRequiredAttributes(connection, mappedCategoryIds);
@@ -304,6 +318,7 @@ async function buildReadinessContext(connection, { xmlSourceIds = null } = {}) {
     mpByProduct: new Map(mps.map((m) => [m.productId, m])),
     requiredAttrs,
     brandCfg,
+    send,
   });
 }
 

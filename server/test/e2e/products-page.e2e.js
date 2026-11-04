@@ -14,7 +14,7 @@ const base = 'https://raw.githubusercontent.com/evinso/modulpos/main/server/test
   const sync = async (id) => { await a('POST', `/xml-sources/${id}/sync`); for (let i = 0; i < 60; i++) { await new Promise((r) => setTimeout(r, 1500)); const s = (await a('GET', `/xml-sources/${id}/sync-status`)).d; if (!s.running && s.last.status !== 'started') return s.last; } };
   try {
     const sources = {};
-    for (const f of ['feed-google.xml', 'feed-turkish.xml', 'feed-english.xml']) { sources[f] = (await a('POST', '/xml-sources', { name: f, url: base + f, syncIntervalMin: 60, defaultVatRate: 20, options: { content: { defaultBrand: 'Markasiz' } } })).d; await sync(sources[f].id); }
+    for (const f of ['feed-google.xml', 'feed-turkish.xml', 'feed-english.xml']) { sources[f] = (await a('POST', '/xml-sources', { name: f, url: base + f, syncIntervalMin: 60, defaultVatRate: 20 })).d; await sync(sources[f].id); }
     const total = (await c.query(`select count(*)::int n from app."Product" where "storeId"=$1`, [storeId])).rows[0].n;
     ok('three feeds imported', total === 8, 'products=' + total);
 

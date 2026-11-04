@@ -44,6 +44,7 @@ export const ISSUE_LABELS = {
   rejected_by_marketplace: 'Trendyol reddetti',
   missing_attributes: 'Zorunlu özellik eksik',
   no_brand: 'Marka yok',
+  excluded_by_settings: 'Gönderim ayarlarına takıldı',
 };
 
 export function Thumb({ src, size = 40, radius = 8 }) {

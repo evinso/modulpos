@@ -13,25 +13,15 @@ const API=process.env.API_URL||"https://api.modulpos.com/api";
  const a=call(A.token), b=call(B.token); const store=A.user.stores[0];
  try{
   const real={url:'https://raw.githubusercontent.com/evinso/modulpos/main/server/test/fixtures/feed-google.xml',mappingConfig:null}; // synthetic feed: the suite must not depend on anyone's real source
-  const options={stock:{maxStock:5},filters:{minPrice:1000,maxPrice:2000},content:{titlePrefix:"[T] ",titleCase:"upper",maxImages:2,defaultBrand:"Markasiz"},run:{markMissingPassive:true}};
-  let r=await a("POST","/xml-sources",{name:"e2e",url:real.url,mappingConfig:real.mappingConfig,options,defaultVatRate:20,syncIntervalMin:60});
-  ok("create source with options",r.s===201,JSON.stringify(r.d?.options||r.d).slice(0,60)); const srcId=r.d.id;
+  let r=await a("POST","/xml-sources",{name:"e2e",url:real.url,mappingConfig:real.mappingConfig,defaultVatRate:20,syncIntervalMin:60});
+  ok("create source",r.s===201); const srcId=r.d.id;
   const waitSync=async(tok)=>{ await tok("POST",`/xml-sources/${srcId}/sync`); for(let i=0;i<120;i++){await new Promise(x=>setTimeout(x,1500));const s=await tok("GET",`/xml-sources/${srcId}/sync-status`);if(!s.d.running&&s.d.last.status!=="started")return s.d.last}};
-  let t=Date.now(); let log=await waitSync(a); let det=JSON.parse(log.details||"{}");
-  ok("sync completed",log.status==="completed",`${((Date.now()-t)/1000).toFixed(1)}s created=${log.created} filtered=${det.filtered}`);
-  const prods=(await c.query(`select title,stock,images,"rawXmlData",category from app."Product" where "xmlSourceId"=$1`,[srcId])).rows;
-  ok("window filter",prods.length===log.created&&prods.length>0&&det.filtered>0,"products="+prods.length);
-  ok("title prefix + UPPER",prods.every(p=>p.title.startsWith("[T] ")&&p.title===p.title.toLocaleUpperCase("tr")),prods[0].title.slice(0,45));
-  ok("stock capped",prods.every(p=>p.stock<=5)); ok("images capped",prods.every(p=>!p.images||JSON.parse(p.images).length<=2));
-  ok("raw copy untouched",prods.every(p=>!JSON.parse(p.rawXmlData).title.startsWith("[T] ")));
+  let t=Date.now(); let log=await waitSync(a);
+  ok("sync completed",log.status==="completed",`${((Date.now()-t)/1000).toFixed(1)}s created=${log.created}`);
+  const prods=(await c.query(`select title,stock,images,"rawXmlData",category,"xmlPrice" from app."Product" where "xmlSourceId"=$1`,[srcId])).rows;
+  ok("every feed product imported unchanged (no import-time filtering)",prods.length===log.created&&prods.length>0,"products="+prods.length);
+  ok("raw copy untouched",prods.every(p=>JSON.parse(p.rawXmlData).title===p.title));
   const other=await b("POST",`/xml-sources/${srcId}/sync`); ok("other tenant cannot sync my source",other.s===404);
-
-  // markMissingPassive both ways
-  await a("PUT",`/xml-sources/${srcId}`,{options:{...options,filters:{minPrice:100000}}}); log=await waitSync(a);
-  ok("missing -> passive",JSON.parse(log.details).passivated===prods.length,"passivated="+JSON.parse(log.details).passivated);
-  await a("PUT",`/xml-sources/${srcId}`,{options}); log=await waitSync(a);
-  ok("returning -> active",(await c.query(`select count(*)::int n from app."Product" where "xmlSourceId"=$1 and status='active'`,[srcId])).rows[0].n===prods.length);
-
 
   // connection + mapping + pricing + readiness
   const conn=(await c.query(`insert into app."MarketplaceConnection"(id,"storeId","marketplaceType","sellerId","apiKey","apiSecret","updatedAt") values(gen_random_uuid(),$1,'trendyol','1','k','s',now()) returning id`,[store.id])).rows[0].id;
@@ -53,6 +43,21 @@ const API=process.env.API_URL||"https://api.modulpos.com/api";
   ok("unmapped categories flagged",l.d.stats.byIssue.no_category_mapping===prods.length-withMap);
   const rdy=await a("GET",url+"?readiness=ready&limit=5&fresh=1"); ok("ready filter server-side",rdy.d.pagination.total===l.d.stats.ready,"ready="+l.d.stats.ready);
   const blk=await a("GET",url+"?readiness=blocked&issue=no_category_mapping&limit=5&fresh=1"); ok("issue filter",blk.d.pagination.total===l.d.stats.byIssue.no_category_mapping);
+  // send settings (per connection): validated, tenant-isolated, applied by the readiness check
+  const ss=`/marketplace/connections/${conn}/send-settings`;
+  ok("B cannot read/write A's send settings",(await b("GET",ss)).s===404&&(await b("PUT",ss,{settings:{minStock:1}})).s===404);
+  ok("defaults come back normalised",(await a("GET",ss)).d?.settings?.titleCase==="none");
+  const prices=prods.map(p=>p.xmlPrice).sort((x,y)=>x-y); const cut=prices[Math.floor(prices.length/2)];
+  const inside=prods.filter(p=>p.xmlPrice>=cut).length;
+  const put=await a("PUT",ss,{settings:{minPurchasePrice:cut,titlePrefix:"[T] ",titleCase:"upper",maxStock:5,maxImages:2,defaultBrandName:"Markasiz"}});
+  ok("save send settings",put.s===200&&put.d.settings.minPurchasePrice===cut&&put.d.settings.maxStock===5);
+  const bad=await a("PUT",ss,{settings:{titleCase:"<script>",maxStock:"abc",includeCategories:"x,y"}});
+  ok("garbage is normalised, not stored raw",bad.s===200&&bad.d.settings.titleCase==="none"&&bad.d.settings.maxStock===null&&bad.d.settings.includeCategories.length===2);
+  await a("PUT",ss,{settings:put.d.settings});
+  l=await a("GET",url+"?limit=50&fresh=1");
+  ok("products below the purchase price floor are blocked by send settings",l.d.stats.byIssue.excluded_by_settings===prods.length-inside,"blocked="+l.d.stats.byIssue.excluded_by_settings+" expected="+(prods.length-inside));
+  ok("stored products are NOT changed by send settings",(await c.query(`select count(*)::int n from app."Product" where "xmlSourceId"=$1 and title like '[T] %'`,[srcId])).rows[0].n===0);
+
   // send route refuses blocked products
   const blockedId=(await a("GET",url+"?readiness=blocked&limit=1&fresh=1")).d.products[0].id;
   const sendBlocked=await a("POST",`/marketplace/connections/${conn}/send-products`,{productIds:[blockedId]});

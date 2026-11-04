@@ -13,21 +13,6 @@ router.use(auth);
 router.param('id', ownedParam('xmlSource'));
 
 
-// Whitelist + size-limit the per-source options object before storing it as JSON.
-function serializeOptions(o) {
-  if (o === null || o === undefined || o === '') return null;
-  let obj = o;
-  if (typeof o === 'string') { try { obj = JSON.parse(o); } catch { return null; } }
-  if (typeof obj !== 'object' || Array.isArray(obj)) return null;
-  const out = {};
-  for (const k of ['stock', 'filters', 'content', 'price', 'run']) {
-    if (obj[k] && typeof obj[k] === 'object' && !Array.isArray(obj[k])) out[k] = obj[k];
-  }
-  const json = JSON.stringify(out);
-  if (json.length > 20000) { const e = new Error('Seçenekler çok büyük'); e.status = 400; throw e; }
-  return json;
-}
-
 async function getUserStore(userId) {
   return prisma.store.findFirst({ where: { userId } });
 }
@@ -114,7 +99,7 @@ router.post('/', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
-    const { name, url, format, syncIntervalMin, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate, purchaseVatRate, options } = req.body;
+    const { name, url, format, syncIntervalMin, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate, purchaseVatRate } = req.body;
     if (!name || !url) return res.status(400).json({ error: 'İsim ve URL zorunludur' });
 
     await checkXmlSourceLimit(req.user.id, store.id);
@@ -127,7 +112,6 @@ router.post('/', async (req, res, next) => {
         format: format || 'xml',
         syncIntervalMin: syncIntervalMin || 60,
         mappingConfig: mappingConfig ? (typeof mappingConfig === 'string' ? mappingConfig : JSON.stringify(mappingConfig)) : null,
-        options: serializeOptions(options),
         barcodePrefix: barcodePrefix || null,
         defaultCategoryId: defaultCategoryId || null,
         defaultBrandId: defaultBrandId || null,
@@ -153,7 +137,7 @@ router.post('/', async (req, res, next) => {
 // Update XML source (including mapping)
 router.put('/:id', async (req, res, next) => {
   try {
-    const { name, url, format, syncIntervalMin, status, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate, purchaseVatRate, options } = req.body;
+    const { name, url, format, syncIntervalMin, status, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate, purchaseVatRate } = req.body;
     const data = {};
     if (name !== undefined) data.name = name;
     if (url !== undefined) data.url = url;
@@ -170,7 +154,6 @@ router.put('/:id', async (req, res, next) => {
     if (priceMarkupPct !== undefined) data.priceMarkupPct = priceMarkupPct || 0;
     if (defaultVatRate !== undefined) data.defaultVatRate = parseInt(defaultVatRate);
     if (purchaseVatRate !== undefined) data.purchaseVatRate = parseInt(purchaseVatRate);
-    if (options !== undefined) data.options = serializeOptions(options);
     const xmlSource = await prisma.xmlSource.update({ where: { id: req.params.id }, data });
     res.json(xmlSource);
   } catch (error) { next(error); }

@@ -9,6 +9,7 @@ const { syncAllOrders } = require('./orderSyncService');
 const whatsappService = require('./whatsappService');
 const { startXmlSync, failStaleSyncs, failAbandonedSyncs, isRunning } = require('./xml/syncService');
 const { runRetention } = require('./retentionService');
+const SS = require('./sendSettings');
 
 class CronService {
   constructor() { this.staleAlerted = new Map(); }
@@ -131,6 +132,8 @@ class CronService {
 
           const service = new TrendyolService(conn);
           const priceCtx = await loadPricingContext(storeId, conn.id);
+          let connCfg = {}; try { connCfg = conn.config ? JSON.parse(conn.config) : {}; } catch { /* ignore */ }
+          const sendCfg = SS.normalizeSendSettings(connCfg.sendSettings);
           const items = [];
           const dbUpdates = [];
 
@@ -143,13 +146,14 @@ class CronService {
             const salePrice = priced.price;
 
             // Only push what actually changed on Trendyol
-            const sameStock = (mp.marketplaceStock ?? null) === (p.stock ?? null);
+            const qty = SS.sendStock(p.stock, sendCfg);
+            const sameStock = (mp.marketplaceStock ?? null) === qty;
             const samePrice = mp.marketplacePrice !== null && mp.marketplacePrice !== undefined && Math.abs(mp.marketplacePrice - salePrice) < 0.005;
             if (sameStock && samePrice) continue;
 
             const listPrice = p.listPrice > salePrice ? p.listPrice : salePrice;
-            items.push({ barcode: p.barcode, quantity: p.stock, salePrice, listPrice });
-            dbUpdates.push({ id: mp.id, data: { marketplacePrice: salePrice, marketplaceStock: p.stock, lastSyncedAt: new Date() } });
+            items.push({ barcode: p.barcode, quantity: qty, salePrice, listPrice });
+            dbUpdates.push({ id: mp.id, data: { marketplacePrice: salePrice, marketplaceStock: qty, lastSyncedAt: new Date() } });
           }
 
           if (items.length > 0) {

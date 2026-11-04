@@ -9,6 +9,9 @@ const notificationService = require('../services/notificationService');
 const whatsappService = require('../services/whatsappService');
 const { loadPricingContext, PricingContext } = require('../services/pricingEngine');
 const { buildReadinessContext } = require('../services/readiness');
+const SS = require('../services/sendSettings');
+
+const parseConfig = (conn) => { try { return conn && conn.config ? JSON.parse(conn.config) : {}; } catch { return {}; } };
 const productListCache = require('../services/productListCache');
 const { deductCredits, getSetting } = require('./credits');
 const { ownedParam, userStoreIds } = require('../middleware/ownership');
@@ -151,8 +154,30 @@ router.put('/connections/:id', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+// Send settings: what is shaped/filtered when products go to this marketplace
+router.get('/connections/:id/send-settings', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+    const settings = SS.normalizeSendSettings(parseConfig(connection).sendSettings);
+    res.json({ settings, summary: SS.describeSettings(settings) });
+  } catch (error) { next(error); }
+});
+
+router.put('/connections/:id/send-settings', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
+    const settings = SS.normalizeSendSettings(req.body && req.body.settings !== undefined ? req.body.settings : req.body);
+    const config = parseConfig(connection);
+    config.sendSettings = settings;
+    await prisma.marketplaceConnection.update({ where: { id: connection.id }, data: { config: JSON.stringify(config) } });
+    res.json({ settings, summary: SS.describeSettings(settings) });
+  } catch (error) { next(error); }
+});
+
 // Test connection
-router.post('/connections/:id/test', async (req, res, next) => {
+router.post('/connections/:id/test',async (req, res, next) => {
   try {
     const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
     if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
@@ -1244,6 +1269,8 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
       }
       const mapping = ev.mapping;
       p.price = ev.salePrice;
+      // Send settings shape what goes out; the stored product is not saved with these changes
+      p.title = ev.sendTitle; p.images = JSON.stringify(ev.sendImages); p.stock = ev.sendStock; p.brand = p.brand || ev.sendBrand;
 
       // Parse mapped attributes
       const attributes = [];
@@ -1547,12 +1574,15 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
         } catch (e) {}
       }
 
-      const brandId = await resolveProductBrandIdAll(p);
+      const brandId = await resolveProductBrandIdAll({ ...p, brand: p.brand || ev.sendBrand });
       if (!brandId) { skipped++; skipReasons.no_brand = (skipReasons.no_brand || 0) + 1; continue; }
 
-      const item = TrendyolService.formatProduct({ ...p, price: finalPrice }, mapping.marketplaceCategoryId, brandId, attributes);
+      // Send settings shape what goes out (title, images, quantity); the stored product stays as it is
+      const item = TrendyolService.formatProduct(
+        { ...p, price: finalPrice, title: ev.sendTitle, images: JSON.stringify(ev.sendImages), stock: ev.sendStock },
+        mapping.marketplaceCategoryId, brandId, attributes);
       formatted.push(item);
-      toUpsert.push({ productId: p.id, price: finalPrice, stock: p.stock });
+      toUpsert.push({ productId: p.id, price: finalPrice, stock: ev.sendStock });
     }
 
     if (formatted.length === 0) {
@@ -1632,6 +1662,7 @@ async function adjustBuyboxPrices(connection, barcodes, mode, amount, userId) {
   });
   const productMap = new Map(products.map(p => [p.id, p]));
 
+  const sendCfg = SS.normalizeSendSettings(parseConfig(connection).sendSettings);
   const items = records.map(r => {
     const p = productMap.get(r.productId);
     if (!p || !r.buyboxPrice) return null;
@@ -1640,7 +1671,7 @@ async function adjustBuyboxPrices(connection, barcodes, mode, amount, userId) {
     newPrice = Math.round(newPrice * 100) / 100;
     return {
       barcode: r.barcode,
-      quantity: p.stock ?? 0,
+      quantity: SS.sendStock(p.stock, sendCfg),
       salePrice: newPrice,
       listPrice: Math.max(p.listPrice || 0, newPrice),
       _productId: r.productId,
@@ -2041,17 +2072,20 @@ router.post('/connections/:id/sync-price-stock', async (req, res, next) => {
       // Fetch pricing rules to compute correct sale price
       const priceCtx = await loadPricingContext(connection.storeId, connection.id);
 
+      const sendCfg = SS.normalizeSendSettings(parseConfig(connection).sendSettings);
+      // A product without a matching price template is NOT sent: its raw purchase price would be published as the sale price
       const items = marketplaceProducts.map(mp => {
         const p = mp.product;
         const priced = priceCtx.priceFor(p);
-        const finalPrice = priced ? priced.price : p.price;
+        if (!priced) return null;
         return {
           barcode: p.barcode || p.sku,
-          quantity: p.stock,
-          salePrice: finalPrice,
-          listPrice: Math.max(p.listPrice || 0, finalPrice)
+          quantity: SS.sendStock(p.stock, sendCfg),
+          salePrice: priced.price,
+          listPrice: Math.max(p.listPrice || 0, priced.price)
         };
-      });
+      }).filter(Boolean);
+      if (items.length === 0) return res.status(400).json({ error: 'Seçili ürünlere uyan fiyat şablonu yok, hiçbir şey gönderilmedi.' });
 
       const result = await service.updatePriceAndInventory(items);
 

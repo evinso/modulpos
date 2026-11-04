@@ -5,6 +5,7 @@ const { checkProductLimit } = require('../utils/quotaHelper');
 const { getReadinessContext } = require('../services/readiness');
 const { loadPricingContext } = require('../services/pricingEngine');
 const productListCache = require('../services/productListCache');
+const SS = require('../services/sendSettings');
 const { ownedParam, userStoreIds } = require('../middleware/ownership');
 
 const router = express.Router();
@@ -560,6 +561,8 @@ router.post('/bulk-action', async (req, res, next) => {
               // One pricing engine for everything (templates + legacy rules). A product the engine cannot price is
               // NOT sent: sending its raw purchase price as the sale price would sell it at cost.
               const priceCtx = await loadPricingContext(connection.storeId, connection.id);
+              let connCfg = {}; try { connCfg = connection.config ? JSON.parse(connection.config) : {}; } catch { /* ignore */ }
+              const sendCfg = SS.normalizeSendSettings(connCfg.sendSettings);
               const items = [];
               let unpriced = 0;
               for (const mp of mps) {
@@ -567,7 +570,7 @@ router.post('/bulk-action', async (req, res, next) => {
                 if (!priced) { unpriced++; continue; }
                 items.push({
                   barcode: mp.product.barcode || mp.product.sku,
-                  quantity: mp.product.stock,
+                  quantity: SS.sendStock(mp.product.stock, sendCfg),
                   salePrice: priced.price,
                   listPrice: mp.product.listPrice > priced.price ? mp.product.listPrice : priced.price,
                 });

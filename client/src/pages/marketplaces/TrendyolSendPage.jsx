@@ -6,6 +6,7 @@ import {
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import SendSettingsPanel from './SendSettingsPanel';
 
 const MP_STATUS = {
   active:  { label: 'Aktif',    color: 'var(--success)',      bg: 'rgba(16,185,129,0.1)',  icon: <Check size={11} /> },
@@ -33,6 +34,7 @@ const ISSUE_LABELS = {
   missing_attributes: 'Zorunlu özellik eksik',
   low_stock: 'Stok eşiğinin altında',
   no_brand: 'Marka yok',
+  excluded_by_settings: 'Gönderim ayarlarına takıldı',
 };
 
 export default function TrendyolSendPage() {
@@ -351,6 +353,8 @@ export default function TrendyolSendPage() {
           </div>
         </div>
       )}
+
+      {selectedConn && <SendSettingsPanel connectionId={selectedConn.id} onSaved={() => fetchProducts(true)} />}
 
       {/* Why products are blocked (server validator) */}
       {issueEntries.length > 0 && (

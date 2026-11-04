@@ -102,7 +102,6 @@ model XmlSource {
   totalProducts   Int      @default(0)
   status          String   @default("active") // active, paused, error
   errorMessage    String?
-  options        String?  // JSON: stock/filter/content/price options chosen when adding the source
   mappingConfig   String?  // JSON string for field mappings
   barcodePrefix   String?  // Prefix to add to barcodes
   defaultCategoryId String? // Default Trendyol category ID

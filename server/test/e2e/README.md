@@ -8,7 +8,7 @@ cd server
 E2E_DB_URL="postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres" node test/e2e/<suite>.e2e.js
 ```
 
-* `tenant-pricing-readiness` – data isolation between stores, XML source options, pricing templates, the server-side
+* `tenant-pricing-readiness` – data isolation between stores, per-connection send settings, pricing templates, the server-side
   readiness list, send-time validation, rejected products.
 * `xml-scoped-mapping` – category mappings belong to one XML source and disappear with it; earnings summary of the price template.
 * `products-page` – the products screen API: summary, facets, filters, sorting, paging, per-marketplace pricing, detail panel, editing rules.
