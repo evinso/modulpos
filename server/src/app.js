@@ -5,6 +5,7 @@ require('dotenv').config();
  * Version: 1.0.1
  */
 const net = require('net');
+const { isPrivateIp } = require('./utils/safeHttp');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -55,7 +56,9 @@ app.set('trust proxy', 1);
 // real client (and overwrites any client-supplied value), so use it when present.
 app.use((req, _res, next) => {
   const cf = req.headers['cf-connecting-ip'];
-  if (typeof cf === 'string' && net.isIP(cf.trim())) {
+  const peer = String(req.socket?.remoteAddress || '').replace(/^::ffff:/, '');
+  // Only believe the header when the direct peer is the platform's own (private) proxy
+  if (typeof cf === 'string' && net.isIP(cf.trim()) && isPrivateIp(peer)) {
     Object.defineProperty(req, 'ip', { value: cf.trim(), configurable: true });
   }
   next();
@@ -156,7 +159,19 @@ app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/webhooks', webhookRoutes);
 
 // Health check
-app.get('/api/health', (req, res) => {
+// Shallow by default (used by Render's health check, must not depend on the database).
+// ?db=1 also verifies the database – used by the external keepalive/monitor, and it keeps Supabase active.
+app.get('/api/health', async (req, res) => {
+  if (req.query.db === '1') {
+    try {
+      const prisma = require('./config/database');
+      await prisma.$queryRaw`SELECT 1`;
+    } catch (err) {
+      console.error('[health] database check failed:', err.message);
+      return res.status(503).json({ status: 'degraded', database: 'down', timestamp: new Date().toISOString() });
+    }
+    return res.json({ status: 'ok', database: 'up', timestamp: new Date().toISOString() });
+  }
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
@@ -185,6 +200,9 @@ const bootstrapAdmin = async () => {
   }
 };
 bootstrapAdmin();
+
+process.on('unhandledRejection', (reason) => console.error('[unhandledRejection]', reason && reason.stack ? reason.stack : reason));
+process.on('uncaughtException', (err) => console.error('[uncaughtException]', err && err.stack ? err.stack : err));
 
 const cronService = require('./services/cronService');
 cronService.start();

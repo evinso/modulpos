@@ -60,9 +60,9 @@ export default function XmlConverterPage() {
     } catch {}
   };
 
-  const proxyUrl = url
-    ? `${API_BASE}/xml-converter/proxy?url=${encodeURIComponent(url)}`
-    : '';
+  // The proxy only serves URLs signed by the server, so use the address the preview call returned
+  const serverOrigin = String(API_BASE).replace(/\/api\/?$/, '');
+  const proxyUrl = result?.convertedUrl ? `${serverOrigin}${result.convertedUrl}` : '';
 
   const downloadUrl = url
     ? `${API_BASE}/xml-converter/download?url=${encodeURIComponent(url)}`
@@ -82,7 +82,7 @@ export default function XmlConverterPage() {
         setBalance(prev => prev !== null ? Math.max(0, prev - convertCost) : null);
         toast.success(`${res.data.totalProducts} ürün dönüştürüldü! (${convertCost} kredi kullanıldı)`);
         fetchCreditInfo();
-        addToHistory(url, `${API_BASE}/xml-converter/proxy?url=${encodeURIComponent(url)}`, res.data.totalProducts);
+        addToHistory(url, `${serverOrigin}${res.data.convertedUrl}`, res.data.totalProducts);
       }
     } catch (err) {
       const data = err.response?.data;

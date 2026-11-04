@@ -5,11 +5,16 @@ const crypto = require('crypto');
 // Values without the prefix are treated as legacy plaintext, so rollout is gradual.
 const PREFIX = 'enc:v1:';
 
-function getKey() {
-  const hex = process.env.ENCRYPTION_KEY || '';
+function keyFrom(name) {
+  const hex = process.env[name] || '';
   if (!/^[0-9a-fA-F]{64}$/.test(hex)) return null;
   return Buffer.from(hex, 'hex');
 }
+
+const getKey = () => keyFrom('ENCRYPTION_KEY');
+// During a rotation the old key stays available for reading: set ENCRYPTION_KEY_PREVIOUS, run
+// scripts/rotateEncryptionKey.js, then remove it.
+const getPreviousKey = () => keyFrom('ENCRYPTION_KEY_PREVIOUS');
 
 function isEncrypted(v) {
   return typeof v === 'string' && v.startsWith(PREFIX);
@@ -30,12 +35,21 @@ function encrypt(plain) {
 
 function decrypt(value) {
   if (!isEncrypted(value)) return value; // legacy plaintext or empty
+  const [iv, tag, ct] = value.slice(PREFIX.length).split(':').map((p) => Buffer.from(p, 'base64'));
+  const tryKey = (key) => {
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8');
+  };
   const key = getKey();
   if (!key) throw new Error('ENCRYPTION_KEY is required to read encrypted values');
-  const [iv, tag, ct] = value.slice(PREFIX.length).split(':').map((p) => Buffer.from(p, 'base64'));
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8');
+  try {
+    return tryKey(key);
+  } catch (err) {
+    const prev = getPreviousKey();
+    if (!prev) throw err;
+    return tryKey(prev); // value still encrypted with the previous key
+  }
 }
 
 module.exports = { encrypt, decrypt, isEncrypted };

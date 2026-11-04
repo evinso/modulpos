@@ -60,28 +60,32 @@ router.get('/connections/:id/product-list', async (req, res, next) => {
       const catList = String(categories).split(',').map((c) => c.trim()).filter(Boolean);
       if (catList.length) and.push({ OR: categoryClauses(catList) });
 
-      const products = await prisma.product.findMany({
-        where: { AND: and },
-        select: {
-          id: true, sku: true, barcode: true, title: true, description: true, images: true, category: true, brand: true,
-          xmlSourceId: true, xmlPrice: true, price: true, stock: true, vatRate: true, updatedAt: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      const ctx = await buildReadinessContext(connection, { xmlSourceIds: [...new Set(products.map((p) => p.xmlSourceId).filter(Boolean))] });
-      const rows = products.map((p) => {
-        const ev = ctx.evaluate(p);
-        const mp = ctx.mpByProduct.get(p.id) || null;
-        return {
-          id: p.id,
-          ready: ev.ready,
-          issues: ev.issues,
-          salePrice: ev.salePrice,
-          priceRule: ev.priceRule,
-          mpStatus: mp ? mp.status : null,
-        };
-      });
+      // Evaluate in batches: memory is bounded by the batch size, not by the catalogue size
+      const ctx = await buildReadinessContext(connection);
+      const rows = [];
+      const BATCH = 1500;
+      let cursor = null;
+      for (;;) {
+        const batch = await prisma.product.findMany({
+          where: { AND: and },
+          select: {
+            id: true, sku: true, barcode: true, title: true, description: true, images: true, category: true, brand: true,
+            xmlSourceId: true, xmlPrice: true, price: true, stock: true, vatRate: true, updatedAt: true, createdAt: true,
+          },
+          orderBy: { id: 'asc' },
+          take: BATCH,
+          ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+        });
+        if (batch.length === 0) break;
+        for (const p of batch) {
+          const ev = ctx.evaluate(p);
+          const mp = ctx.mpByProduct.get(p.id) || null;
+          rows.push({ id: p.id, t: new Date(p.createdAt).getTime(), ready: ev.ready, issues: ev.issues, salePrice: ev.salePrice, priceRule: ev.priceRule, mpStatus: mp ? mp.status : null });
+        }
+        cursor = batch[batch.length - 1].id;
+        if (batch.length < BATCH) break;
+      }
+      rows.sort((x, y) => (y.t - x.t) || (x.id < y.id ? -1 : 1)); // newest first
       entry = { at: Date.now(), rows };
       if (cache.size > 30) cache.clear();
       cache.set(key, entry);

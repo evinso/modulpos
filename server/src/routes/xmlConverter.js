@@ -3,7 +3,17 @@ const { parsePrice } = require('../utils/parsePrice');
 const express = require('express');
 const axios = require('axios');
 const { XMLParser, XMLBuilder } = require('fast-xml-parser');
+const crypto = require('crypto');
 const { auth } = require('../middleware/auth');
+
+// The proxy is public (other systems consume it as an XML source URL), so every URL it will fetch must be
+// signed by this server. Without that anyone could use it as a free relay for arbitrary pages.
+const signUrl = (url) => crypto.createHmac('sha256', process.env.JWT_SECRET || '').update(String(url)).digest('hex');
+const validSig = (url, sig) => {
+  if (process.env.ALLOW_UNSIGNED_PROXY === '1') return true;
+  const a = Buffer.from(signUrl(url)); const b = Buffer.from(String(sig || ''));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
 const { deductCredits, getSetting } = require('./credits');
 const notificationService = require('../services/notificationService');
 const { streamProductObjects } = require('../services/xml/xmlParser');
@@ -227,7 +237,7 @@ router.post('/preview', auth, async (req, res) => {
       success: true,
       totalProducts,
       sample,
-      convertedUrl: `/api/xml-converter/proxy?url=${encodeURIComponent(url)}`
+      convertedUrl: `/api/xml-converter/proxy?url=${encodeURIComponent(url)}&sig=${signUrl(url)}`
     });
   } catch (err) {
     const rawMsg = err.message || String(err);
@@ -249,8 +259,9 @@ router.post('/preview', auth, async (req, res) => {
  * Peak memory: O(one product), never buffers the full file.
  */
 router.get('/proxy', async (req, res) => {
-  const { url } = req.query;
+  const { url, sig } = req.query;
   if (!url) return res.status(400).send('<error>URL parametresi zorunludur</error>');
+  if (!validSig(url, sig)) return res.status(403).send('<error>Geçersiz veya imzasız adres</error>');
 
   res.set('Content-Type', 'application/xml; charset=utf-8');
   res.set('Cache-Control', 'no-cache');

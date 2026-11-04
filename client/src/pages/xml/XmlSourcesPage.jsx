@@ -18,7 +18,7 @@ const PRODUCT_FIELDS = [
 ];
 
 const EMPTY_OPTIONS = {
-  minStock: '', maxStock: '', onlyInStock: false,
+  minStock: '', maxStock: '', inStockQty: '', onlyInStock: false,
   includeCategories: '', excludeCategories: '', includeBrands: '', excludeBrands: '', minPrice: '', maxPrice: '', requireImage: false,
   titlePrefix: '', titleSuffix: '', titleCase: 'none', maxImages: '', defaultBrand: '',
   currencyRate: '', priceAlertPct: '',
@@ -31,7 +31,7 @@ function buildOptions(o) {
   const list = (v) => { const a = String(v || '').split(',').map((x) => x.trim()).filter(Boolean); return a.length ? a : undefined; };
   const clean = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== '' && v !== false));
   const out = {
-    stock: clean({ minStock: num(o.minStock), maxStock: num(o.maxStock), onlyInStock: o.onlyInStock }),
+    stock: clean({ minStock: num(o.minStock), maxStock: num(o.maxStock), inStockQty: num(o.inStockQty), onlyInStock: o.onlyInStock }),
     filters: clean({
       includeCategories: list(o.includeCategories), excludeCategories: list(o.excludeCategories),
       includeBrands: list(o.includeBrands), excludeBrands: list(o.excludeBrands),
@@ -271,7 +271,7 @@ export default function XmlSourcesPage() {
         priceMarkupPct: parseFloat(addForm.priceMarkupPct) || 0,
         defaultCategoryId: addForm.defaultCategoryId || null,
         defaultBrandId: addForm.defaultBrandId || null,
-        defaultVatRate: parseInt(addForm.defaultVatRate) || 10,
+        defaultVatRate: Number.isNaN(parseInt(addForm.defaultVatRate)) ? 10 : parseInt(addForm.defaultVatRate),
         purchaseVatRate: parseInt(addForm.purchaseVatRate) || 0,
         options: buildOptions(addOptions),
       });
@@ -829,6 +829,8 @@ export default function XmlSourcesPage() {
                       <div className="form-group"><label className="form-label">Maksimum stok</label>
                         <input type="number" min="0" className="form-input" placeholder="Stok bu değerle sınırlanır" value={addOptions.maxStock} onChange={e => setAddOptions({ ...addOptions, maxStock: e.target.value })} /></div>
                     </div>
+                    <div className="form-group"><label className="form-label">“Stokta var” yazan ürünler için adet</label>
+                      <input type="number" min="1" className="form-input" placeholder="Besleme adet yerine yalnızca ‘stokta’ diyorsa (varsayılan 1)" value={addOptions.inStockQty} onChange={e => setAddOptions({ ...addOptions, inStockQty: e.target.value })} /></div>
                     <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, marginBottom: 16 }}>
                       <input type="checkbox" checked={addOptions.onlyInStock} onChange={e => setAddOptions({ ...addOptions, onlyInStock: e.target.checked })} /> Stokta olmayan ürünleri içe aktarma
                     </label>

@@ -8,10 +8,17 @@ const { processAutoAnswerForCron } = require('../routes/questions');
 const { syncAllOrders } = require('./orderSyncService');
 const whatsappService = require('./whatsappService');
 const { startXmlSync, failStaleSyncs, isRunning } = require('./xml/syncService');
+const { runRetention } = require('./retentionService');
 
 class CronService {
+  constructor() { this.staleAlerted = new Map(); }
+
   start() {
     failStaleSyncs().catch((e) => console.error('[Sync] stale cleanup:', e.message));
+
+    // Housekeeping: trim old logs once a day (and shortly after boot)
+    cron.schedule('15 3 * * *', () => { runRetention().catch((e) => console.error('[Retention]', e.message)); });
+    setTimeout(() => { runRetention().catch((e) => console.error('[Retention]', e.message)); }, 2 * 60 * 1000);
 
     // Run every 5 minutes to pull new orders from all marketplaces
     cron.schedule('*/5 * * * *', async () => {
@@ -64,6 +71,23 @@ class CronService {
         );
         const diffMinutes = Math.floor((Date.now() - lastTs) / 60000);
 
+        // Nobody is told when a feed silently stops syncing – raise a notification (at most once per 12h per source)
+        const lastOk = source.lastSyncedAt ? new Date(source.lastSyncedAt).getTime() : 0;
+        const staleAfter = Math.max(3 * (source.syncIntervalMin || 60), 180);
+        if (lastOk && Math.floor((Date.now() - lastOk) / 60000) > staleAfter) {
+          const prev = this.staleAlerted.get(source.id) || 0;
+          if (Date.now() - prev > 12 * 60 * 60 * 1000) {
+            this.staleAlerted.set(source.id, Date.now());
+            notificationService.create({
+              storeId: source.storeId,
+              title: 'XML senkronizasyonu gecikti',
+              message: `"${source.name}" kaynağı ${Math.round((Date.now() - lastOk) / 3600000)} saattir başarıyla senkronize edilemedi. Kaynağı ve bağlantıyı kontrol edin.`,
+              type: 'warning',
+              link: '/xml-sources',
+            }).catch(() => {});
+          }
+        }
+
         if (diffMinutes >= (source.syncIntervalMin || 60)) {
           console.log(`[CRON] Syncing XML Source: ${source.name} (Store: ${source.storeId})`);
           await this.processXmlSync(source);
@@ -98,7 +122,7 @@ class CronService {
         try {
           // Find marketplace products for this connection whose product came from this XML source
           const existingMPs = await prisma.marketplaceProduct.findMany({
-            where: { connectionId: conn.id, product: { xmlSourceId } },
+            where: { connectionId: conn.id, status: 'active', product: { xmlSourceId } },
             include: { product: true }
           });
 

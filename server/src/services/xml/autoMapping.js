@@ -92,6 +92,13 @@ function suggestMapping(fields) {
     if (f) { out[target] = f.path; used.add(f.path); }
   }
 
+  // No quantity field: fall back to an availability flag ("in stock" / "stokta var")
+  if (!out.stock) {
+    const avail = ['AVAILABILITY', 'STOKDURUMU', 'STOKDURUM', 'STOCKSTATUS', 'INSTOCK', 'MEVCUT'];
+    const f = usable.find((x) => !used.has(x.path) && !x.path.includes('[') && avail.includes(norm(leaf(x.path))) && x.type !== 'object');
+    if (f) { out.stock = f.path; used.add(f.path); }
+  }
+
   // Looser fallback for the price: any field mentioning price/fiyat that is not a list/old/cost price
   if (!out.price) {
     const f = usable.find((x) => !used.has(x.path) && /FIYAT|PRICE/.test(norm(x.path)) && !PRICE_EXCLUDE.test(norm(x.path)) && sane('price', x));

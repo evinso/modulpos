@@ -31,8 +31,9 @@ const ISSUE_LABELS = {
   bad_stock: 'Stok hatalı',
   blocked_words: 'Yasaklı kelime',
   rejected_by_marketplace: 'Trendyol reddetti',
+  missing_attributes: 'Zorunlu özellik eksik',
   low_stock: 'Stok eşiğinin altında',
-  no_brand: 'Marka bulunamadı',
+  no_brand: 'Marka yok',
 };
 
 export default function TrendyolSendPage() {

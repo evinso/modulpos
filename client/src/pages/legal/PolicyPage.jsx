@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import DOMPurify from 'dompurify';
 import { useParams, Link } from 'react-router-dom';
 import { legalContent } from './legalContent';
 import { ArrowLeft } from 'lucide-react';
@@ -63,7 +64,7 @@ export default function PolicyPage() {
         <div
           className="policy-content"
           style={{ color: 'var(--text-secondary)', lineHeight: 1.8, fontSize: 16 }}
-          dangerouslySetInnerHTML={{ __html: policy.content }}
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(policy.content || '') }}
         />
 
         <div style={{ marginTop: 60, padding: 32, borderRadius: 16, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>

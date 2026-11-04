@@ -7,7 +7,7 @@ services:
     rootDir: server
     plan: free
     buildCommand: npm install && npx prisma generate
-    startCommand: npx prisma db push && npm start
+    startCommand: (npx prisma db push --skip-generate || echo "[warn] prisma db push failed - starting with the existing schema") && npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -23,6 +23,8 @@ services:
       - key: ADMIN_EMAIL
         sync: false
       - key: ENCRYPTION_KEY   # 64 hex chars; losing it makes stored marketplace credentials unrecoverable
+        sync: false
+      - key: ENCRYPTION_KEY_PREVIOUS   # only during a key rotation, see server/scripts/rotateEncryptionKey.js
         sync: false
       - key: JWT_EXPIRES_IN
         value: 7d
@@ -47,6 +49,15 @@ services:
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=()
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.modulpos.com; frame-src https://www.paytr.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     routes:
       - type: rewrite
         source: /*

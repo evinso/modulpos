@@ -1,6 +1,7 @@
-# Render's free plan puts a service to sleep after ~15 minutes without traffic, and the
-# in-process cron jobs (XML sync, order sync, questions) do not run while it sleeps.
-# This pings the API every 10 minutes (GitHub-hosted, free for public repositories).
+# Render's free plan puts a service to sleep after ~15 minutes without traffic, and the in-process
+# cron jobs (XML sync, order sync, questions) do not run while it sleeps. This pings the API every
+# 10 minutes. ?db=1 also checks the database (and keeps the Supabase project from pausing).
+# If the check fails the run fails, and GitHub e-mails the repository owner – that is the outage alert.
 name: keepalive
 on:
   schedule:
@@ -10,5 +11,7 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping API
-        run: curl -fsS --retry 3 --retry-delay 10 --max-time 60 https://api.modulpos.com/api/health
+      - name: API + database
+        run: curl -fsS --retry 3 --retry-delay 15 --max-time 90 "https://api.modulpos.com/api/health?db=1"
+      - name: Web app
+        run: curl -fsS --retry 3 --retry-delay 15 --max-time 60 -o /dev/null https://modulpos.com/

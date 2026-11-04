@@ -37,6 +37,7 @@ export default function ContentRulesPage() {
 
   const [applyInfo, setApplyInfo] = useState(null);
   const [applying, setApplying] = useState(false);
+  const [applyProgress, setApplyProgress] = useState('');
 
   useEffect(() => { load(); }, []);
 
@@ -106,11 +107,26 @@ export default function ContentRulesPage() {
     if (!window.confirm(`${applyInfo.willChange} ürünün başlık/açıklaması güncellenecek. Orijinal metinler korunur, kuralları silerek geri alabilirsiniz. Devam edilsin mi?`)) return;
     setApplying(true);
     try {
-      const res = await api.post('/content-rules/apply', { dryRun: false });
-      toast.success(`${res.data.willChange} ürün güncellendi`);
+      await api.post('/content-rules/apply', { dryRun: false });
+    } catch (err) {
+      if (err.response?.status !== 409) { toast.error(err.response?.data?.error || 'Uygulanamadı'); setApplying(false); return; }
+    }
+    // runs in the background on the server; follow it until it ends
+    try {
+      for (let i = 0; i < 1200; i++) {
+        await new Promise(r => setTimeout(r, 1500));
+        const { data } = await api.get('/content-rules/apply/status');
+        const job = data.job;
+        if (job) setApplyProgress(`${job.scanned}/${job.total} ürün işlendi`);
+        if (job && job.state !== 'running') {
+          if (job.state === 'done') toast.success(`${job.changed} ürün güncellendi`);
+          else toast.error(job.error || 'Uygulama başarısız oldu');
+          break;
+        }
+      }
       setApplyInfo(null);
-    } catch { toast.error('Uygulanamadı'); }
-    finally { setApplying(false); }
+    } catch { toast.error('Durum alınamadı'); }
+    finally { setApplying(false); setApplyProgress(''); }
   };
 
   const RuleTable = ({ rules, editable }) => (
@@ -271,7 +287,7 @@ export default function ContentRulesPage() {
                 </div>
               )}
               {applyInfo.willChange > 0 && (
-                <button className="btn btn-primary" style={{ marginTop: 10 }} onClick={applyNow} disabled={applying}>{applyInfo.willChange} ürüne uygula</button>
+                <button className="btn btn-primary" style={{ marginTop: 10 }} onClick={applyNow} disabled={applying}>{applying ? (applyProgress || 'Uygulanıyor…') : `${applyInfo.willChange} ürüne uygula`}</button>
               )}
             </div>
           )}

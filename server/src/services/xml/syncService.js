@@ -74,6 +74,7 @@ function normalizeOptions(raw) {
   return {
     minStock: n(o.stock?.minStock),        // stock below this is imported as 0
     maxStock: n(o.stock?.maxStock),        // stock is capped to this value
+    inStockQty: n(o.stock?.inStockQty) > 0 ? n(o.stock?.inStockQty) : 1, // quantity used when the feed only says "in stock"
     onlyInStock: !!o.stock?.onlyInStock,   // skip products without stock
     includeCategories: list(o.filters?.includeCategories),
     excludeCategories: list(o.filters?.excludeCategories),
@@ -124,8 +125,11 @@ function shapeText(title, o) {
   return `${o.titlePrefix}${t}${o.titleSuffix}`.trim();
 }
 
-function shapeStock(stock, opts) {
-  if (stock === null || stock === undefined || !opts) return stock;
+function shapeStock(stock, opts, available) {
+  if (!opts) return stock;
+  // Feeds that only publish "in stock / out of stock" instead of a quantity
+  if ((stock === null || stock === undefined || Number(stock) === 0) && available === true) return opts.inStockQty;
+  if (stock === null || stock === undefined) return stock;
   let v = Number(stock) || 0;
   if (opts.minStock !== null && v < opts.minStock) v = 0;
   if (opts.maxStock !== null && v > opts.maxStock) v = opts.maxStock;
@@ -158,7 +162,7 @@ function buildProductFields(p, source, userPlan, opts) {
   return {
     sku, finalBarcode, hasBarcode: !!rawBarcode || !!p.barcode, xmlPrice, rawXmlData,
     title: p.title, description: p.description, cost: p.cost, listPrice: p.listPrice,
-    stock: shapeStock(p.stock, opts), brand: p.brand || (opts && opts.defaultBrand) || p.brand, category: p.category,
+    stock: shapeStock(p.stock, opts, p.stockAvailable), brand: p.brand || (opts && opts.defaultBrand) || p.brand, category: p.category,
     images: p.images?.length ? JSON.stringify(opts && opts.maxImages ? p.images.slice(0, opts.maxImages) : p.images) : null,
   };
 }
@@ -230,7 +234,8 @@ async function execute(source, syncLog, trigger, ruleHooks) {
           title: title || ex.title,
           description: description || ex.description,
           xmlPrice: f.xmlPrice,
-          price: f.xmlPrice,
+          // A price edited by hand (differs from the previous feed price) is kept; otherwise it follows the feed
+          price: (ex.price > 0 && Math.abs(ex.price - (ex.xmlPrice || 0)) > 0.005) ? ex.price : f.xmlPrice,
           cost: f.cost || ex.cost,
           listPrice: f.listPrice || ex.listPrice,
           stock: f.stock ?? ex.stock,
@@ -266,7 +271,7 @@ async function execute(source, syncLog, trigger, ruleHooks) {
         creates.push({
           id, storeId, xmlSourceId: source.id, sku: f.sku, barcode: f.finalBarcode,
           title: title || 'İsimsiz', description: description || null,
-          xmlPrice: f.xmlPrice, price: f.xmlPrice, vatRate: source.defaultVatRate || 10,
+          xmlPrice: f.xmlPrice, price: f.xmlPrice, vatRate: Number.isFinite(Number(source.defaultVatRate)) ? Number(source.defaultVatRate) : 10,
           cost: f.cost || 0, listPrice: f.listPrice || 0, stock: f.stock || 0,
           brand: f.brand || null, category: f.category || null, images: f.images, rawXmlData: f.rawXmlData,
         });
@@ -382,6 +387,16 @@ async function startXmlSync(xmlSourceId, { trigger = 'manual', userId = null } =
   }
   const source = await prisma.xmlSource.findUnique({ where: { id: xmlSourceId }, include: { store: true } });
   if (!source) { const e = new Error('XML kaynağı bulunamadı'); e.status = 404; throw e; }
+
+  // The in-memory lock only knows this process; also honour a sync another instance has started recently
+  const other = await prisma.syncLog.findFirst({
+    where: { xmlSourceId, type: 'xml_sync', status: 'started', startedAt: { gt: new Date(Date.now() - 3 * 60 * 60 * 1000) } },
+    select: { id: true },
+  });
+  if (other) {
+    const e = new Error('Bu kaynak için senkronizasyon zaten çalışıyor'); e.code = 'SYNC_RUNNING'; e.status = 409; e.syncLogId = other.id;
+    throw e;
+  }
 
   const lock = { syncLogId: null, startedAt: Date.now() };
   running.set(xmlSourceId, lock);

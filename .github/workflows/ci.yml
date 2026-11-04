@@ -1,0 +1,33 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: server } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+      - run: npx prisma validate
+        env: { DATABASE_URL: 'postgresql://u:p@localhost:5432/db', DIRECT_URL: 'postgresql://u:p@localhost:5432/db' }
+      - run: npx prisma generate
+      - name: Load every module (catches syntax / import errors)
+        run: |
+          for f in src/routes/*.js src/services/*.js src/services/xml/*.js src/middleware/*.js src/utils/*.js; do
+            node -e "require('./$f')" || exit 1
+          done
+        env: { DATABASE_URL: 'postgresql://u:p@localhost:5432/db', DIRECT_URL: 'postgresql://u:p@localhost:5432/db', JWT_SECRET: ci }
+      - run: npm test
+  client:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: client } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: client/package-lock.json }
+      - run: npm ci
+      - run: npm run build

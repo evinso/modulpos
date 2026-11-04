@@ -392,6 +392,16 @@ async function parseXmlBuffered(url, options = {}) {
 
 // ─── Product mapping ─────────────────────────────────────────────────────────
 
+// "in stock" / "stokta" -> true, "out of stock" / "yok" -> false, anything else (numbers, empty) -> undefined
+function parseAvailability(v) {
+  if (v === null || v === undefined) return undefined;
+  const t = String(v).trim().toLowerCase();
+  if (!t || /^-?\d+([.,]\d+)?$/.test(t)) return undefined;
+  if (/^(out[\s_-]?of[\s_-]?stock|outofstock|stokta[\s_-]?yok|yok|tükendi|tukendi|hayır|hayir|no|false|0)$/.test(t)) return false;
+  if (/^(in[\s_-]?stock|instock|available|stokta[\s_-]?var|stokta|var|mevcut|evet|yes|true|1)$/.test(t)) return true;
+  return undefined;
+}
+
 // 'x', '', null -> 0 instead of NaN
 const safeInt = (v) => { const n = parseInt(String(v ?? '').replace(/[^\d-]/g, ''), 10); return Number.isFinite(n) ? n : 0; };
 
@@ -418,6 +428,7 @@ function mapProducts(rawProducts, mcIn) {
     listPrice:   cleanPrice(getFieldValue(p, mc.listPrice, ['ListPrice', 'listPrice', 'ListeFiyat', 'listeFiyat', 'MarketPrice', 'PiyasaFiyat', 'listprice', 'g:list_price'])),
     cost:        cleanPrice(getFieldValue(p, mc.cost,      ['Cost', 'cost', 'Maliyet', 'maliyet', 'AlisFiyat'])),
     stock:       safeInt(getFieldValue(p, mc.stock,       ['Stock', 'stock', 'Stok', 'stok', 'Quantity', 'quantity', 'Adet', 'Miktar', 'g:quantity']) ),
+    stockAvailable: parseAvailability(getFieldValue(p, mc.stock, ['Stock', 'stock', 'Stok', 'stok', 'Quantity', 'quantity', 'Adet', 'Miktar', 'g:quantity'])),
     brand:       getFieldValue(p, mc.brand,       ['Brand', 'brand', 'Marka', 'marka', 'BrandName', 'g:brand']),
     category:    getCategoryValue(p, mc.category,    ['Category', 'category', 'Kategori', 'kategori', 'CategoryName', 'KategoriAdi', 'product_type', 'google_product_category', 'g:product_type', 'g:google_product_category']),
     images:      getImagesValue(p, mc.images,     ['Images', 'images', 'Resimler', 'Image', 'image', 'Resim', 'ImageUrl', 'imageUrl', 'img', 'Img', 'Pictures', 'Gorsel', 'gorsel', 'image_link', 'g:image_link', 'additional_image_link', 'g:additional_image_link', 'ProductImage', 'productImage', 'UrunResim', 'urunResim', 'BigImage', 'bigImage', 'MainImage', 'mainImage', 'Thumbnail', 'thumbnail', 'resim_url', 'gorsel_url', 'image_url', 'ImageURL', 'Photo', 'photo', 'Picture', 'picture', 'Foto', 'foto']),
