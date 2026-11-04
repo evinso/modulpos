@@ -18,11 +18,19 @@ Everything is described in `render.yaml` (Blueprint, auto-sync on push to `main`
 | `ENCRYPTION_KEY` | 64 hex chars, AES-256-GCM key for stored marketplace credentials. **Back it up** – losing it makes them unrecoverable |
 | `ENCRYPTION_KEY_PREVIOUS` | only while rotating the key (`server/scripts/rotateEncryptionKey.js`) |
 | `ADMIN_EMAIL` | account promoted to `superadmin` at boot |
+| `RETURN_TOKEN_IN_BODY` | `0` (current): login/register no longer put the JWT in the JSON body; the session is the httpOnly cookie `mp_session` only |
 | `CORS_ORIGIN` | comma separated allowed origins |
 | `RETENTION_*_DAYS` | optional log retention (defaults: product logs 30, API logs 30, sync logs 60, webhooks 30) |
 | `ALLOW_UNSIGNED_PROXY` | `1` re-opens `/api/xml-converter/proxy` for unsigned URLs (not recommended) |
 
 PayTR credentials are stored in the admin settings (or `PAYTR_MERCHANT_ID/KEY/SALT`); payments stay disabled until all three exist.
+
+## Sessions
+The browser session is an **httpOnly, Secure, SameSite=Lax cookie** (`mp_session`, host-only on `api.modulpos.com`), so page scripts can
+never read it. State-changing requests must also carry `X-Requested-With: XMLHttpRequest` (the web app adds it); cross-site pages cannot.
+Because `modulpos.com` and `api.modulpos.com` are the same *site*, this works only on the custom domains – logging in at
+`*.onrender.com` addresses will not keep the session. `Authorization: Bearer` is still accepted for scripts/tests (a token can be
+read from the cookie). Rotating `JWT_SECRET` signs everybody out. Env-var changes made through the API need a manual deploy to take effect.
 
 ## Start-up
 `(npx prisma db push --skip-generate || echo …) && npm start`. `db push` is additive; if it fails (for example because a newer

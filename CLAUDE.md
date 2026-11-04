@@ -27,6 +27,8 @@ cd client && npm install && npm run dev         # VITE_API_BASE_URL in client/.e
 * **Field mapping**: `xml/autoMapping.js` guesses the mapping for new feeds; the user's saved mapping always wins.
 * **Tenant isolation**: every route that takes an `:id` must verify the record belongs to the caller's store
   (`middleware/ownership.js` → `router.param`). Never look records up by `id` alone.
+* **Auth**: httpOnly cookie session (`utils/sessionCookie.js`, `middleware/auth.js`); never store the JWT in browser storage or URLs.
+  Cookie-authenticated unsafe requests need the `X-Requested-With` header (CSRF guard). Bearer tokens remain valid for scripts.
 * Marketplace credentials are encrypted at rest by a Prisma client extension (`config/database.js`); responses never include them.
 * Content rules (forbidden words) are applied to the stored copy; the original feed text stays in `Product.rawXmlData`.
 * Free-tier hosting: the API sleeps without traffic; cron jobs only run while awake (see DEPLOY_RENDER.md).
