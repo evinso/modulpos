@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const productListCache = require('../services/productListCache');
+const { normalizeOptions, shapeText } = require('../services/xml/syncService');
 const { ContentRuleSet, buildRegex } = require('../services/contentRules');
 
 const router = express.Router();
@@ -115,7 +116,7 @@ async function* productBatches(where, size = 500) {
   let cursor = null;
   for (;;) {
     const batch = await prisma.product.findMany({
-      where, select: { id: true, title: true, description: true, rawXmlData: true },
+      where, select: { id: true, title: true, description: true, rawXmlData: true, xmlSourceId: true },
       orderBy: { id: 'asc' }, take: size, ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
     });
     if (!batch.length) return;
@@ -125,10 +126,13 @@ async function* productBatches(where, size = 500) {
   }
 }
 
-function changeFor(p, set) {
+function changeFor(p, set, optionsBySource = new Map()) {
   let raw = {};
   try { raw = p.rawXmlData ? JSON.parse(p.rawXmlData) : {}; } catch { /* keep empty */ }
-  const out = set.apply({ title: raw.title || p.title, description: raw.description ?? p.description });
+  // Same pipeline as the XML sync: source title options (prefix/suffix/case) first, then the forbidden-word rules
+  const opts = optionsBySource.get(p.xmlSourceId);
+  const baseTitle = raw.title ? (opts ? shapeText(raw.title, opts) : raw.title) : p.title;
+  const out = set.apply({ title: baseTitle, description: raw.description ?? p.description });
   const title = out.title || p.title;
   const description = out.description ?? p.description;
   const changed = title !== p.title || (description ?? null) !== (p.description ?? null);
@@ -143,6 +147,8 @@ router.post('/apply', async (req, res, next) => {
     const rules = await prisma.contentRule.findMany({ where: { isActive: true, OR: [{ storeId: store.id }, { storeId: null }] } });
     const set = new ContentRuleSet(rules);
     const where = { storeId: store.id, ...(req.body.xmlSourceId ? { xmlSourceId: req.body.xmlSourceId } : {}) };
+    const sources = await prisma.xmlSource.findMany({ where: { storeId: store.id }, select: { id: true, options: true } });
+    const optionsBySource = new Map(sources.map((s) => [s.id, normalizeOptions(s.options)]));
 
     if (dryRun) {
       let scanned = 0, willChange = 0, blocked = 0;
@@ -150,7 +156,7 @@ router.post('/apply', async (req, res, next) => {
       for await (const batch of productBatches(where)) {
         for (const p of batch) {
           scanned++;
-          const c = changeFor(p, set);
+          const c = changeFor(p, set, optionsBySource);
           if (c.blocked) blocked++;
           if (c.changed) { willChange++; if (samples.length < 10) samples.push({ before: c.before, after: c.title }); }
         }
@@ -171,7 +177,7 @@ router.post('/apply', async (req, res, next) => {
           const updates = [];
           for (const p of batch) {
             job.scanned++;
-            const c = changeFor(p, set);
+            const c = changeFor(p, set, optionsBySource);
             if (c.blocked) job.blocked++;
             if (c.changed) updates.push({ id: p.id, title: c.title, description: c.description });
           }

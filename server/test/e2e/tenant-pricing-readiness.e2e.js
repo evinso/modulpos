@@ -11,9 +11,10 @@ const API=process.env.API_URL||"https://api.modulpos.com/api";
  const A=await mk("e2eA"), B=await mk("e2eB");
  const call=(tok)=>async(m,u,b)=>{const r=await fetch(API+u,{method:m,headers:{"Content-Type":"application/json",Authorization:"Bearer "+tok},body:b?JSON.stringify(b):undefined});let d;try{d=await r.json()}catch{};return {s:r.status,d}};
  const a=call(A.token), b=call(B.token); const store=A.user.stores[0];
+  const applyAndWait = async () => { const st = await a("POST","/content-rules/apply",{dryRun:false}); for(let k=0;k<90;k++){ await new Promise(x=>setTimeout(x,1000)); const j=(await a("GET","/content-rules/apply/status")).d.job; if(j&&j.state!=="running") return j; } return null; };
  try{
-  const real=(await c.query(`select url,"mappingConfig" from app."XmlSource" limit 1`)).rows[0];
-  const options={stock:{maxStock:5},filters:{minPrice:190,maxPrice:199.99},content:{titlePrefix:"[T] ",titleCase:"upper",maxImages:2,defaultBrand:"Markasiz"},run:{markMissingPassive:true}};
+  const real={url:'https://raw.githubusercontent.com/evinso/modulpos/main/server/test/fixtures/feed-google.xml',mappingConfig:null}; // synthetic feed: the suite must not depend on anyone's real source
+  const options={stock:{maxStock:5},filters:{minPrice:1000,maxPrice:2000},content:{titlePrefix:"[T] ",titleCase:"upper",maxImages:2,defaultBrand:"Markasiz"},run:{markMissingPassive:true}};
   let r=await a("POST","/xml-sources",{name:"e2e",url:real.url,mappingConfig:real.mappingConfig,options,defaultVatRate:20,syncIntervalMin:60});
   ok("create source with options",r.s===201,JSON.stringify(r.d?.options||r.d).slice(0,60)); const srcId=r.d.id;
   const waitSync=async(tok)=>{ await tok("POST",`/xml-sources/${srcId}/sync`); for(let i=0;i<120;i++){await new Promise(x=>setTimeout(x,1500));const s=await tok("GET",`/xml-sources/${srcId}/sync-status`);if(!s.d.running&&s.d.last.status!=="started")return s.d.last}};
@@ -36,17 +37,18 @@ const API=process.env.API_URL||"https://api.modulpos.com/api";
   const word=prods.find(p=>p.title.split(" ").length>3).title.replace("[T] ","").split(" ")[1];
   r=await a("POST","/content-rules",{pattern:word,action:"replace",replacement:"XYZ"}); ok("create content rule",r.s===201,word);
   r=await a("POST","/content-rules/apply",{dryRun:true}); ok("dry-run changes nothing",r.d.dryRun&&r.d.willChange>0&&(await c.query(`select count(*)::int n from app."Product" where "storeId"=$1 and title like '%XYZ%'`,[store.id])).rows[0].n===0,"willChange="+r.d.willChange);
-  r=await a("POST","/content-rules/apply",{dryRun:false}); ok("apply rewrites",(await c.query(`select count(*)::int n from app."Product" where "storeId"=$1 and title like '%XYZ%'`,[store.id])).rows[0].n>0);
+  await applyAndWait(); ok("apply rewrites",(await c.query(`select count(*)::int n from app."Product" where "storeId"=$1 and title like '%XYZ%'`,[store.id])).rows[0].n>0);
+  ok("apply keeps the source's title prefix and UPPER case",(await c.query(`select count(*)::int n from app."Product" where "storeId"=$1 and ("title" not like '[T] %' or title<>upper(title))`,[store.id])).rows[0].n===0);
   ok("normal user cannot make global rule",(await a("POST","/content-rules",{pattern:"x",isGlobal:true})).s===403);
   const rule=(await a("GET","/content-rules")).d.own[0]; ok("B cannot delete A's rule",(await b("DELETE","/content-rules/"+rule.id)).s===404);
-  await a("DELETE","/content-rules/"+rule.id); await a("POST","/content-rules/apply",{dryRun:false});
+  await a("DELETE","/content-rules/"+rule.id); await applyAndWait();
   ok("delete rule + apply restores original",(await c.query(`select count(*)::int n from app."Product" where "storeId"=$1 and title like '%XYZ%'`,[store.id])).rows[0].n===0);
   await a("POST","/content-rules",{pattern:word,action:"block"});
 
   // connection + mapping + pricing + readiness
   const conn=(await c.query(`insert into app."MarketplaceConnection"(id,"storeId","marketplaceType","sellerId","apiKey","apiSecret","updatedAt") values(gen_random_uuid(),$1,'trendyol','1','k','s',now()) returning id`,[store.id])).rows[0].id;
   const cats=[...new Set(prods.map(p=>p.category))];
-  await c.query(`insert into app."CategoryMapping"(id,"connectionId","localCategory","marketplaceCategoryId","marketplaceCategoryName") values(gen_random_uuid(),$1,$2,'411','x')`,[conn,cats[0]]);
+  await c.query(`insert into app."CategoryMapping"(id,"connectionId","xmlSourceId","localCategory","marketplaceCategoryId","marketplaceCategoryName") values(gen_random_uuid(),$1,$2,$3,'411','x')`,[conn,srcId,cats[0]]);
   const url=`/marketplace/connections/${conn}/product-list`;
   let l=await a("GET",url+"?limit=50"); ok("list works; no price rule => nothing ready",l.s===200&&l.d.stats.ready===0&&l.d.stats.byIssue.no_price_rule===prods.length);
   ok("other tenant gets 404 on list",(await b("GET",url)).s===404);

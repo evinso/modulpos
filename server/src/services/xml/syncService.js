@@ -488,4 +488,4 @@ function isRunning(xmlSourceId) {
   return running.has(xmlSourceId);
 }
 
-module.exports = { startXmlSync, failStaleSyncs, failAbandonedSyncs, isRunning };
+module.exports = { startXmlSync, failStaleSyncs, failAbandonedSyncs, isRunning, normalizeOptions, shapeText };
