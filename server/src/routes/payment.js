@@ -53,8 +53,7 @@ router.post('/paytr-token', auth, async (req, res, next) => {
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı.' });
 
-    const rawIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1')
-      .split(',')[0].trim().replace(/^::ffff:/, '');
+    const rawIp = String(req.ip || '127.0.0.1').replace(/^::ffff:/, '');
     const user_ip = rawIp === '::1' ? '127.0.0.1' : rawIp;
 
     // Alphanumeric only: MP + 32-char userId (no hyphens) + 13-digit timestamp
@@ -151,8 +150,7 @@ router.post('/subscription-token', auth, async (req, res, next) => {
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!user) return res.status(404).json({ error: 'Kullanıcı bulunamadı.' });
 
-    const rawIp2 = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1')
-      .split(',')[0].trim().replace(/^::ffff:/, '');
+    const rawIp2 = String(req.ip || '127.0.0.1').replace(/^::ffff:/, '');
     const user_ip = rawIp2 === '::1' ? '127.0.0.1' : rawIp2;
     const subDays = parseInt(days) || 30;
     // Alphanumeric only: SUB + 32-char userId (no hyphens) + 3-digit days + 13-digit timestamp

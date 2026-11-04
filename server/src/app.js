@@ -4,6 +4,7 @@ require('dotenv').config();
  * ModulPOS API Server
  * Version: 1.0.1
  */
+const net = require('net');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -47,6 +48,17 @@ const app = express();
 // Behind Render's load balancer: use the real client IP (rate limiting, logs)
 app.set('trust proxy', 1);
 
+// Render sits behind Cloudflare plus internal proxies, so req.ip would be an internal
+// 10.x address shared by every visitor. Cloudflare always sets cf-connecting-ip to the
+// real client (and overwrites any client-supplied value), so use it when present.
+app.use((req, _res, next) => {
+  const cf = req.headers['cf-connecting-ip'];
+  if (typeof cf === 'string' && net.isIP(cf.trim())) {
+    Object.defineProperty(req, 'ip', { value: cf.trim(), configurable: true });
+  }
+  next();
+});
+
 const defaultDevOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
@@ -84,14 +96,6 @@ app.use(cors(corsOptions));
 
 // Security
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-
-// Temporary diagnostics (enabled only with DEBUG_IP=1): shows which headers carry the client IP
-if (process.env.DEBUG_IP === '1') {
-  app.use((req, _res, next) => {
-    if (req.path !== '/api/health') console.log('[ip-debug]', JSON.stringify({ ip: req.ip, xff: req.headers['x-forwarded-for'], cf: req.headers['cf-connecting-ip'], ra: req.socket.remoteAddress }));
-    next();
-  });
-}
 
 // Rate limiting
 const limiter = rateLimit({
