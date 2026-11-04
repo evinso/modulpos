@@ -80,7 +80,7 @@ router.get('/connections/:id/product-list', async (req, res, next) => {
         for (const p of batch) {
           const ev = ctx.evaluate(p);
           const mp = ctx.mpByProduct.get(p.id) || null;
-          rows.push({ id: p.id, t: new Date(p.createdAt).getTime(), ready: ev.ready, issues: ev.issues, salePrice: ev.salePrice, priceRule: ev.priceRule, mpStatus: mp ? mp.status : null });
+          rows.push({ id: p.id, t: new Date(p.createdAt).getTime(), ready: ev.ready, issues: ev.issues, salePrice: ev.salePrice, priceRule: ev.priceRule, mapName: ev.mapping ? (ev.mapping.marketplaceCategoryName || String(ev.mapping.marketplaceCategoryId)) : null, mpStatus: mp ? mp.status : null });
         }
         cursor = batch[batch.length - 1].id;
         if (batch.length < BATCH) break;
@@ -130,6 +130,7 @@ router.get('/connections/:id/product-list', async (req, res, next) => {
         ...p,
         salePrice: byId[p.id].salePrice,
         priceRule: byId[p.id].priceRule,
+        mapName: byId[p.id].mapName,
         ready: byId[p.id].ready,
         issues: byId[p.id].issues,
       })),

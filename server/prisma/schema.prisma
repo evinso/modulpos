@@ -123,6 +123,7 @@ model XmlSource {
   store    Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
   products Product[]
   syncLogs SyncLog[]
+  categoryMappings CategoryMapping[]
 }
 
 model Product {
@@ -254,9 +255,13 @@ model CategoryMapping {
   marketplaceCategoryId String
   marketplaceCategoryName String?
   attributes            String? // JSON: required attributes for this category
+  xmlSourceId           String? // the XML source this mapping belongs to (null = legacy mapping shared by all sources)
   createdAt             DateTime @default(now())
 
   connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  xmlSource  XmlSource?            @relation(fields: [xmlSourceId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId, xmlSourceId])
 }
 
 model Order {

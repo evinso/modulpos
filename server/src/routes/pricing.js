@@ -2,7 +2,7 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const productListCache = require('../services/productListCache');
-const { explainTemplatePrice, matchesConds } = require('../services/pricingEngine');
+const { explainTemplatePrice, summarizeCoverage } = require('../services/pricingEngine');
 
 const router = express.Router();
 router.use(auth);
@@ -34,7 +34,7 @@ router.post('/calculate', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-// How many of my products would this rule's scope + purchase-price range cover?
+// Over my real products: how many does this template apply to, and what would I earn in total / per product?
 router.post('/coverage', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
@@ -43,11 +43,9 @@ router.post('/coverage', async (req, res, next) => {
     await assertConditionsOwned(store.id, conds);
     const products = await prisma.product.findMany({
       where: { storeId: store.id },
-      select: { xmlSourceId: true, category: true, brand: true, xmlPrice: true, price: true },
+      select: { xmlSourceId: true, category: true, brand: true, xmlPrice: true, price: true, vatRate: true },
     });
-    const rule = { applyTo: 'price_template' };
-    const covered = products.filter((p) => matchesConds(rule, conds, p, conds.connectionId || null)).length;
-    res.json({ total: products.length, covered });
+    res.json({ total: products.length, ...summarizeCoverage(products, req.body.value, conds) });
   } catch (error) { next(error); }
 });
 

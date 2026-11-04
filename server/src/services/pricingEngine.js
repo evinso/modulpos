@@ -56,6 +56,29 @@ function computeTemplatePrice(purchasePrice, value, c) {
   const v = num(value);
   const mode = c.profitMode || 'percent_of_purchase';
 
+  // commissionBasis 'gross' (used by the price-template screen): the marketplace commission is charged on the
+  // VAT-inclusive sale price, like Trendyol does. Without it (older rules) it is charged on the VAT-exclusive price.
+  if (c.commissionBasis === 'gross') {
+    const v = num(c.vatRate) / 100;
+    const share = 1 / (1 + v);                 // part of the gross price that is revenue (VAT is passed on to the state)
+    const pc = pct / 100;
+    let gross;
+    if (mode === 'margin_on_price') {
+      const denom = share * (1 - num(value) / 100) - pc;
+      if (denom <= 0.02) return null;
+      gross = cost / denom;
+    } else {
+      let profit;
+      if (mode === 'percent_of_cost') profit = cost * (num(value) / 100);
+      else if (mode === 'fixed') profit = num(value);
+      else profit = P * (num(value) / 100);
+      const denom = share - pc;
+      if (denom <= 0.02) return null;
+      gross = (cost + profit) / denom;
+    }
+    return finishPrice(gross, c);
+  }
+
   let base;
   if (mode === 'margin_on_price') {
     const denom = 1 - (pct + v) / 100;
@@ -71,8 +94,12 @@ function computeTemplatePrice(purchasePrice, value, c) {
     base = (cost + profit) / denom;
   }
 
-  let price = base * (1 + num(c.vatRate) / 100);
+  return finishPrice(base * (1 + num(c.vatRate) / 100), c);
+}
 
+/** Min/max clamp and price-ending rounding shared by both formulas. */
+function finishPrice(rawPrice, c) {
+  let price = rawPrice;
   const minP = optNum(c.minPrice), maxP = optNum(c.maxPrice);
   if (minP !== null && price < minP) price = minP;
   if (maxP !== null && price > maxP) price = maxP;
@@ -170,16 +197,49 @@ function explainTemplatePrice(purchasePrice, value, c) {
   const cost = P + fixedCosts;
   const pct = num(c.commissionPct) + num(c.extraPct);
   const vat = num(c.vatRate);
-  const grossBeforeClamp = price / (1 + vat / 100);
+  const exVat = price / (1 + vat / 100);
+  const commission = c.commissionBasis === 'gross' ? price * pct / 100 : exVat * pct / 100;
   return {
     price,
     purchase: round2(P),
     fixedCosts: round2(fixedCosts),
     cost: round2(cost),
-    commissionAmount: round2(grossBeforeClamp * pct / 100),
-    profit: round2(grossBeforeClamp - cost - grossBeforeClamp * pct / 100),
-    vatAmount: round2(price - grossBeforeClamp),
+    commissionAmount: round2(commission),
+    profit: round2(exVat - cost - commission),
+    profitPct: P > 0 ? round2((exVat - cost - commission) / P * 100) : 0,
+    vatAmount: round2(price - exVat),
   };
 }
 
-module.exports = { PricingContext, loadPricingContext, computeTemplatePrice, explainTemplatePrice, matchesConds: matches, parseConds };
+/**
+ * "How much will I earn?" – runs the template over the products it would apply to and sums the net profit.
+ * Uses each product's own purchase price and sale VAT, exactly like real pricing does.
+ * products: [{ xmlSourceId, category, brand, xmlPrice, price, vatRate }]
+ */
+function summarizeCoverage(products, value, conds) {
+  const hasOwnVat = conds.vatRate !== null && conds.vatRate !== undefined && conds.vatRate !== '';
+  let covered = 0, priced = 0, totalProfit = 0, totalRevenue = 0, totalPurchase = 0, minProfit = Infinity, maxProfit = -Infinity, losing = 0;
+  for (const p of products) {
+    if (!matches({ applyTo: 'price_template' }, conds, p, conds.connectionId || null)) continue;
+    covered++;
+    const purchase = num(p.xmlPrice) || num(p.price);
+    const e = explainTemplatePrice(purchase, value, hasOwnVat ? conds : { ...conds, vatRate: p.vatRate });
+    if (!e) continue;
+    priced++;
+    totalProfit += e.profit; totalRevenue += e.price; totalPurchase += e.purchase;
+    if (e.profit < minProfit) minProfit = e.profit;
+    if (e.profit > maxProfit) maxProfit = e.profit;
+    if (e.profit < 0) losing++;
+  }
+  return {
+    covered, priced, unpriced: covered - priced, losing,
+    totalProfit: round2(totalProfit),
+    avgProfit: priced ? round2(totalProfit / priced) : 0,
+    avgPrice: priced ? round2(totalRevenue / priced) : 0,
+    avgPurchase: priced ? round2(totalPurchase / priced) : 0,
+    minProfit: priced ? round2(minProfit) : 0,
+    maxProfit: priced ? round2(maxProfit) : 0,
+  };
+}
+
+module.exports = { PricingContext, loadPricingContext, computeTemplatePrice, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };

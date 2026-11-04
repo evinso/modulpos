@@ -36,9 +36,19 @@ export default function CategoryMappingPage() {
     api.get('/credits/prices').then(r => setCategoryAiCost(r.data.categoryAiCost ?? 0.5)).catch(() => {});
   }, []);
 
+  // The Trendyol category tree depends only on the connection …
   useEffect(() => {
-    if (selectedConn) fetchLocalCategories();
-  }, [filterXmlSource, selectedConn]);
+    if (selectedConn) fetchTrendyolTree(selectedConn.id);
+  }, [selectedConn]);
+
+  // … but local categories and mappings belong to ONE XML source, so nothing is loaded until one is chosen
+  useEffect(() => {
+    setSelectedLocal('');
+    setSelectedTrendyol(null);
+    setCatSearch('');
+    if (selectedConn && filterXmlSource) loadSourceData(selectedConn.id, filterXmlSource);
+    else { setLocalCategories([]); setMappings([]); }
+  }, [selectedConn, filterXmlSource]);
 
   useEffect(() => {
     if (!selectedTrendyol || !selectedConn) {
@@ -83,39 +93,33 @@ export default function CategoryMappingPage() {
       const res = await api.get('/marketplace/connections');
       const trendyolConns = res.data.filter(c => c.marketplaceType === 'trendyol');
       setConnections(trendyolConns);
-      if (trendyolConns.length > 0) {
-        setSelectedConn(trendyolConns[0]);
-        await loadData(trendyolConns[0].id);
-      }
+      if (trendyolConns.length > 0) setSelectedConn(trendyolConns[0]);
     } catch { toast.error('Bağlantılar yüklenemedi'); }
     finally { setLoading(false); }
   };
 
-  const fetchLocalCategories = async () => {
-    try {
-      const params = filterXmlSource ? { xmlSourceId: filterXmlSource } : {};
-      const res = await api.get('/marketplace/local-categories', { params });
-      setLocalCategories(res.data);
-    } catch (err) {
-      toast.error('Kategoriler güncellenemedi');
-    }
-  };
-
-  const loadData = async (connId) => {
+  const fetchTrendyolTree = async (connId) => {
     setCatLoading(true);
     try {
-      const params = filterXmlSource ? { xmlSourceId: filterXmlSource } : {};
-      const [localRes, catRes, mapRes] = await Promise.all([
-        api.get('/marketplace/local-categories', { params }),
-        api.get(`/marketplace/connections/${connId}/categories`),
-        api.get(`/marketplace/connections/${connId}/category-mappings`)
+      const catRes = await api.get(`/marketplace/connections/${connId}/categories`);
+      setTrendyolCategories(catRes.data?.categories || catRes.data || []);
+    } catch { toast.error('Trendyol kategorileri yüklenemedi'); }
+    finally { setCatLoading(false); }
+  };
+
+  const fetchMappings = async (connId, xmlId) => {
+    const res = await api.get(`/marketplace/connections/${connId}/category-mappings`, { params: { xmlSourceId: xmlId } });
+    setMappings(res.data);
+  };
+
+  const loadSourceData = async (connId, xmlId) => {
+    try {
+      const [localRes] = await Promise.all([
+        api.get('/marketplace/local-categories', { params: { xmlSourceId: xmlId } }),
+        fetchMappings(connId, xmlId),
       ]);
       setLocalCategories(localRes.data);
-      setTrendyolCategories(catRes.data?.categories || catRes.data || []);
-      setMappings(mapRes.data);
-    } catch (err) {
-      toast.error('Veriler yüklenemedi');
-    } finally { setCatLoading(false); }
+    } catch { toast.error('Veriler yüklenemedi'); }
   };
 
   // Build flat searchable list from tree
@@ -167,6 +171,7 @@ export default function CategoryMappingPage() {
     setSaving(true);
     try {
       await api.post(`/marketplace/connections/${selectedConn.id}/category-mappings`, {
+        xmlSourceId: filterXmlSource,
         localCategory: selectedLocal,
         marketplaceCategoryId: selectedTrendyol.id,
         marketplaceCategoryName: selectedTrendyol.fullPath || selectedTrendyol.name,
@@ -176,8 +181,7 @@ export default function CategoryMappingPage() {
       setSelectedLocal('');
       setSelectedTrendyol(null);
       setCatSearch('');
-      const mapRes = await api.get(`/marketplace/connections/${selectedConn.id}/category-mappings`);
-      setMappings(mapRes.data);
+      await fetchMappings(selectedConn.id, filterXmlSource);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Kaydetme hatası');
     } finally { setSaving(false); }
@@ -209,6 +213,7 @@ export default function CategoryMappingPage() {
         if (!match) continue;
         try {
           await api.post(`/marketplace/connections/${selectedConn.id}/category-mappings`, {
+            xmlSourceId: filterXmlSource,
             localCategory: cat,
             marketplaceCategoryId: match.id,
             marketplaceCategoryName: match.path,
@@ -220,8 +225,7 @@ export default function CategoryMappingPage() {
           console.error('[AI Save Error]', cat, saveErr?.response?.data || saveErr.message);
         }
       }
-      const mapRes = await api.get(`/marketplace/connections/${selectedConn.id}/category-mappings`);
-      setMappings(mapRes.data);
+      await fetchMappings(selectedConn.id, filterXmlSource);
       if (saveErrors > 0) {
         toast.error(`${added} kaydedildi, ${saveErrors} kaydedilemedi. Konsola bakın.`);
       } else {
@@ -232,6 +236,15 @@ export default function CategoryMappingPage() {
     } finally {
       setAiMatching(false);
     }
+  };
+
+  const handleDeleteMapping = async (m) => {
+    if (!window.confirm(`“${m.localCategory}” eşleştirmesi silinsin mi?`)) return;
+    try {
+      await api.delete(`/marketplace/category-mappings/${m.id}`);
+      await fetchMappings(selectedConn.id, filterXmlSource);
+      toast.success('Eşleştirme silindi');
+    } catch (err) { toast.error(err.response?.data?.error || 'Silinemedi'); }
   };
 
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
@@ -262,23 +275,10 @@ export default function CategoryMappingPage() {
           <p>XML ürün kategorilerinizi Trendyol kategorileriyle eşleştirin</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          {xmlSources.length > 0 && (
-            <select className="form-select" style={{ width: 220 }}
-              value={filterXmlSource}
-              onChange={e => setFilterXmlSource(e.target.value)}
-            >
-              <option value="">Tüm Tedarikçiler (XML)</option>
-              {xmlSources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          )}
           {connections.length > 0 && (
             <select className="form-select" style={{ width: 220 }}
               value={selectedConn?.id || ''}
-              onChange={e => {
-                const c = connections.find(c => c.id === e.target.value);
-                setSelectedConn(c);
-                loadData(c.id);
-              }}
+              onChange={e => setSelectedConn(connections.find(c => c.id === e.target.value))}
             >
               {connections.map(c => <option key={c.id} value={c.id}>{c.supplierName || c.marketplaceType} ({c.marketplaceType})</option>)}
             </select>
@@ -286,8 +286,38 @@ export default function CategoryMappingPage() {
         </div>
       </div>
 
-      {/* New Mapping Form */}
-      {(() => {
+      {/* Step 1: the XML source comes first – categories and mappings are per source */}
+      <div className="card" style={{ marginBottom: 20, padding: 20, border: filterXmlSource ? undefined : '1px solid var(--accent-primary)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <span style={{ width: 24, height: 24, borderRadius: 12, background: 'var(--accent-primary)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>1</span>
+          <strong style={{ fontSize: 15 }}>Önce XML kaynağını seçin</strong>
+        </div>
+        {xmlSources.length === 0 ? (
+          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 13 }}>
+            Henüz kendi eklediğiniz bir XML kaynağı yok. Kategori eşleştirmesi bir XML kaynağına bağlıdır: önce <a href="/xml-sources">XML Kaynakları</a> sayfasından bir kaynak ekleyip ürünleri çekin.
+          </p>
+        ) : (
+          <>
+            <select className="form-select" style={{ maxWidth: 420 }} value={filterXmlSource} onChange={e => setFilterXmlSource(e.target.value)}>
+              <option value="">XML kaynağı seçin…</option>
+              {xmlSources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', fontSize: 12 }}>
+              Eşleştirmeler seçtiğiniz XML’e kaydedilir; o XML silinince eşleştirmeleri de silinir. Aynı adlı kategori başka bir XML’de ayrıca eşleştirilir.
+            </p>
+          </>
+        )}
+      </div>
+
+      {!filterXmlSource && xmlSources.length > 0 && (
+        <div className="card" style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}>
+          <FolderTree size={40} style={{ opacity: 0.4, marginBottom: 10 }} />
+          <div>Devam etmek için yukarıdan bir XML kaynağı seçin.</div>
+        </div>
+      )}
+
+      {/* Step 2: the mapping form (only once a source is chosen) */}
+      {filterXmlSource && (() => {
         if (isGlobalXml) {
           return (
             <div className="card" style={{ marginBottom: 20, padding: 32, textAlign: 'center', background: 'rgba(59,130,246,0.03)' }}>
@@ -492,6 +522,35 @@ export default function CategoryMappingPage() {
       </div>
         );
       })()}
+
+      {filterXmlSource && !isGlobalXml && (
+        <div className="card" style={{ padding: 20 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 12px' }}>
+            Bu XML’in eşleştirmeleri ({mappings.length}) · eşleşmeyen kategori: {localCategories.filter(c => !mappedLookup[c]).length}
+          </h3>
+          {mappings.length === 0 ? (
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 13 }}>Bu XML için henüz eşleştirme yok.</p>
+          ) : (
+            <div className="table-container">
+              <table>
+                <thead><tr><th>XML kategorisi</th><th>Trendyol kategorisi</th><th></th></tr></thead>
+                <tbody>
+                  {mappings.map(m => (
+                    <tr key={m.id}>
+                      <td style={{ fontWeight: 500 }}>{m.localCategory}</td>
+                      <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{m.marketplaceCategoryName || m.marketplaceCategoryId}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        {m.isGlobal ? <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>merkezi</span>
+                          : <button className="btn btn-danger btn-sm" onClick={() => handleDeleteMapping(m)}>Sil</button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
     </div>
   );

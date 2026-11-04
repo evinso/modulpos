@@ -82,9 +82,40 @@ async function loadRequiredAttributes(connection, categoryIds) {
   return out;
 }
 
+/** Lookup structure over the mappings of one XML source. */
+class MappingIndex {
+  constructor(catMap) {
+    this.exact = catMap;
+    this.norm = new Map();  // normalised key -> mapping
+    this.leaf = new Map();  // last level of path-style keys ("Kadın|Bayan Bileklik|" -> "bayan bileklik") -> mapping
+    for (const [key, m] of Object.entries(catMap)) {
+      const nk = key.trim().toLowerCase();
+      if (!this.norm.has(nk)) this.norm.set(nk, m);
+      if (key.includes('|')) {
+        const leaf = key.split('|').map((x) => x.trim()).filter(Boolean).pop();
+        if (leaf && !this.leaf.has(leaf.toLowerCase())) this.leaf.set(leaf.toLowerCase(), m);
+      }
+    }
+  }
+
+  find(category) {
+    if (this.exact[category]) return this.exact[category];
+    const norm = category.trim().toLowerCase();
+    if (this.norm.has(norm)) return this.norm.get(norm);
+    if (category.includes('|')) {
+      for (const part of category.split('|').map((x) => x.trim()).filter(Boolean)) {
+        if (this.exact[part]) return this.exact[part];
+        const hit = this.norm.get(part.toLowerCase());
+        if (hit) return hit;
+      }
+    }
+    return this.leaf.get(norm) || null;
+  }
+}
+
 class ReadinessContext {
-  constructor({ catMap, globalCatMap, priceCtx, ruleSet, dupBarcodes, dupWinner, mpByProduct, requiredAttrs, brandCfg }) {
-    this.catMap = catMap;
+  constructor({ indexes, globalCatMap, priceCtx, ruleSet, dupBarcodes, dupWinner, mpByProduct, requiredAttrs, brandCfg }) {
+    this.indexes = indexes; // xmlSourceId ('' = legacy, shared) -> MappingIndex
     this.globalCatMap = globalCatMap;
     this.priceCtx = priceCtx;
     this.ruleSet = ruleSet;
@@ -96,42 +127,25 @@ class ReadinessContext {
   }
 
   /**
-   * Category mapping lookup. Tries, in order:
-   *  1. exact key (and the global-provider fallback)
-   *  2. case/space-insensitive key
-   *  3. product category is a path ("Kadın|Kolye|") -> each of its parts
-   *  4. mapping key is a path ("Kadın|Bayan Bileklik|") and the product category is its last level ("Bayan Bileklik")
+   * Category mapping lookup. A mapping belongs to the XML source it was made for; tries, in order:
+   *  1. the product's own XML source (exact key, case-insensitive key, path parts, last level of a path key)
+   *  2. the global-provider mapping of that source
+   *  3. legacy mappings that were created before mappings were tied to a source
    */
   resolveMapping(category, xmlSourceId) {
     if (!category) return null;
-    const { catMap, globalCatMap } = this;
-    if (catMap[category]) return catMap[category];
-    if (xmlSourceId && globalCatMap[xmlSourceId]?.[category]) return globalCatMap[xmlSourceId][category];
+    const own = xmlSourceId ? this.indexes.get(xmlSourceId) : null;
+    if (own) { const hit = own.find(category); if (hit) return hit; }
 
-    if (!this._norm) {
-      this._norm = new Map();   // normalised key -> mapping
-      this._leaf = new Map();   // last level of path-style keys -> mapping
-      for (const [key, m] of Object.entries(catMap)) {
-        const nk = key.trim().toLowerCase();
-        if (!this._norm.has(nk)) this._norm.set(nk, m);
-        if (key.includes('|')) {
-          const leaf = key.split('|').map((x) => x.trim()).filter(Boolean).pop();
-          if (leaf && !this._leaf.has(leaf.toLowerCase())) this._leaf.set(leaf.toLowerCase(), m);
-        }
+    const g = xmlSourceId ? this.globalCatMap[xmlSourceId] : null;
+    if (g) {
+      if (g[category]) return g[category];
+      if (category.includes('|')) {
+        for (const part of category.split('|').map((x) => x.trim()).filter(Boolean)) if (g[part]) return g[part];
       }
     }
-    const norm = category.trim().toLowerCase();
-    if (this._norm.has(norm)) return this._norm.get(norm);
-
-    if (category.includes('|')) {
-      for (const part of category.split('|').map((x) => x.trim()).filter(Boolean)) {
-        if (catMap[part]) return catMap[part];
-        if (xmlSourceId && globalCatMap[xmlSourceId]?.[part]) return globalCatMap[xmlSourceId][part];
-        const hit = this._norm.get(part.toLowerCase());
-        if (hit) return hit;
-      }
-    }
-    return this._leaf.get(norm) || null;
+    const legacy = this.indexes.get('');
+    return legacy ? legacy.find(category) : null;
   }
 
   /** Returns { ready, issues:[{code,message}], salePrice, priceRule, mapping } */
@@ -237,8 +251,13 @@ async function buildReadinessContext(connection, { xmlSourceIds = null } = {}) {
     }),
   ]);
 
-  const catMap = {};
-  for (const m of catMappings) catMap[m.localCategory] = m;
+  const maps = new Map();
+  for (const m of catMappings) {
+    const k = m.xmlSourceId || '';
+    if (!maps.has(k)) maps.set(k, {});
+    maps.get(k)[m.localCategory] = m;
+  }
+  const indexes = new Map([...maps].map(([k, v]) => [k, new MappingIndex(v)]));
 
   // Global provider category mappings as fallback
   const globalCatMap = {};
@@ -284,7 +303,7 @@ async function buildReadinessContext(connection, { xmlSourceIds = null } = {}) {
   const requiredAttrs = await loadRequiredAttributes(connection, mappedCategoryIds);
 
   return new ReadinessContext({
-    catMap,
+    indexes,
     globalCatMap,
     priceCtx,
     ruleSet,
@@ -296,4 +315,4 @@ async function buildReadinessContext(connection, { xmlSourceIds = null } = {}) {
   });
 }
 
-module.exports = { buildReadinessContext, ReadinessContext, ISSUE, LIMITS, parseImages };
+module.exports = { buildReadinessContext, ReadinessContext, MappingIndex, ISSUE, LIMITS, parseImages };

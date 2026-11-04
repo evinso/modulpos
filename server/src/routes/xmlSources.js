@@ -6,6 +6,7 @@ const notificationService = require('../services/notificationService');
 const { checkXmlSourceLimit, getUserQuota } = require('../utils/quotaHelper');
 const { ownedParam, userStoreIds } = require('../middleware/ownership');
 const { startXmlSync, isRunning } = require('../services/xml/syncService');
+const productListCache = require('../services/productListCache');
 
 const router = express.Router();
 router.use(auth);
@@ -270,6 +271,8 @@ router.delete('/:id', async (req, res, next) => {
 
     await prisma.product.deleteMany({ where: { xmlSourceId: req.params.id } });
     await prisma.xmlSource.delete({ where: { id: req.params.id } });
+
+    productListCache.invalidate((await getUserStore(req.user.id))?.id);
 
     res.json({ message: 'XML kaynağı ve bağlı ürünler silindi' });
   } catch (error) { next(error); }

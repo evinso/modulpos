@@ -1,105 +1,93 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, Trash2, Tags, ToggleLeft, ToggleRight, Edit2, Calculator, Info } from 'lucide-react';
+import { Plus, Trash2, Tags, ToggleLeft, ToggleRight, Edit2, TrendingUp, AlertTriangle } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
 /**
- * Fiyat şablonları.
- * Tüm hesaplama sunucudaki fiyat motorunda yapılır (aynı motor ürünleri gönderirken de kullanılır);
- * bu sayfa yalnızca kuralı tanımlar ve motordan canlı önizleme ister.
+ * Fiyat şablonları – kısa form + canlı "ne kadar kazanırım" özeti.
+ * Hesabın tamamı sunucudaki fiyat motorunda yapılır (ürünler gönderilirken kullanılan aynı motor).
  */
 
-const PROFIT_MODES = [
-  { key: 'percent_of_purchase', label: 'Alış fiyatının %’si kadar kâr', hint: 'Alış 100₺, değer 30 → 30₺ kâr (maliyetlerden bağımsız).' },
-  { key: 'percent_of_cost', label: 'Toplam maliyetin %’si kadar kâr', hint: 'Alış + kargo + paketleme + ek gider üzerinden yüzde kâr.' },
-  { key: 'margin_on_price', label: 'Satış fiyatında hedef kâr marjı (%)', hint: 'Komisyon ve giderler düşüldükten sonra satış fiyatının %’si net kalır.' },
-  { key: 'fixed', label: 'Sabit kâr (₺)', hint: 'Her ürüne sabit tutar eklenir.' },
+const ROUNDINGS = [
+  { key: 'none', label: 'Değiştirme' },
+  { key: 'ending:0.9', label: 'Sonu .90 olsun (129,90)' },
+  { key: 'ending:0.99', label: 'Sonu .99 olsun (129,99)' },
+  { key: 'int', label: 'Tam sayıya yuvarla (130)' },
 ];
 
-const ROUNDINGS = [
-  { key: 'none', label: 'Yuvarlama yok' },
-  { key: 'ending:0.9', label: 'Sonu .90 olsun (örn: 129,90)' },
-  { key: 'ending:0.99', label: 'Sonu .99 olsun (örn: 129,99)' },
-  { key: 'ending:0.5', label: 'Sonu .50 olsun (örn: 129,50)' },
-  { key: 'int', label: 'Yukarı tam sayıya yuvarla (örn: 130)' },
-];
+const MODE_LABELS = {
+  percent_of_purchase: 'Yüzde kâr',
+  fixed: 'Sabit kâr',
+  percent_of_cost: 'Maliyetin yüzdesi',
+  margin_on_price: 'Satış fiyatı marjı',
+};
 
 const EMPTY_FORM = {
-  name: '', priority: '0',
-  connectionId: '', xmlSourceIds: [], categories: [], brands: '',
+  name: '', connectionId: '', xmlChoice: '',
   minPurchasePrice: '', maxPurchasePrice: '',
-  shippingCost: '', packagingCost: '', extraCost: '', commissionPct: '', extraPct: '',
-  profitMode: 'percent_of_purchase', value: '',
-  rounding: 'none', minPrice: '', maxPrice: '',
+  shippingCost: '', otherCost: '', commissionPct: '',
+  profitMode: 'percent_of_purchase', value: '', rounding: 'none',
 };
 
 const num = (v) => (v === '' || v === null || v === undefined || Number.isNaN(parseFloat(v)) ? null : parseFloat(v));
-const fmt = (n) => (Number(n) || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = (n) => (Number(n) || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-function formToPayload(f) {
-  const [rm, re] = f.rounding.includes(':') ? f.rounding.split(':') : [f.rounding, null];
-  const conditions = {
-    connectionId: f.connectionId || null,
-    xmlSourceIds: f.xmlSourceIds,
-    categories: f.categories,
-    brands: f.brands.split(',').map((x) => x.trim()).filter(Boolean),
-    minPurchasePrice: num(f.minPurchasePrice),
-    maxPurchasePrice: num(f.maxPurchasePrice),
-    shippingCost: num(f.shippingCost) ?? 0,
-    packagingCost: num(f.packagingCost) ?? 0,
-    extraCost: num(f.extraCost) ?? 0,
-    commissionPct: num(f.commissionPct) ?? 0,
-    extraPct: num(f.extraPct) ?? 0,
-    vatRate: null, // sale VAT comes from the product's XML source (chosen when the source was added)
-    profitMode: f.profitMode,
-    roundingMode: rm,
-    roundingEnding: re ? parseFloat(re) : null,
-    minPrice: num(f.minPrice),
-    maxPrice: num(f.maxPrice),
-  };
-  return { name: f.name, type: 'percentage', value: num(f.value) ?? 0, applyTo: 'price_template', priority: parseInt(f.priority) || 0, conditions };
+function parseConds(rule) {
+  try { return rule.conditions ? JSON.parse(rule.conditions) : {}; } catch { return {}; }
 }
 
 function ruleToForm(r) {
-  let c = {};
-  try { c = r.conditions ? JSON.parse(r.conditions) : {}; } catch { c = {}; }
-  const legacyStandard = r.applyTo === 'marketplace_xml';
+  const c = parseConds(r);
+  const legacy = r.applyTo === 'marketplace_xml';
   const srcIds = c.xmlSourceIds && c.xmlSourceIds.length ? c.xmlSourceIds : (c.xmlSourceId ? [c.xmlSourceId] : []);
   let rounding = 'none';
   if (c.roundingMode === 'int') rounding = 'int';
   else if (c.roundingMode === 'ending') rounding = `ending:${c.roundingEnding ?? 0.9}`;
   return {
-    ...EMPTY_FORM,
     name: r.name || '',
-    priority: String(r.priority ?? 0),
     connectionId: c.connectionId || '',
-    xmlSourceIds: srcIds,
-    categories: c.categories || [],
-    brands: (c.brands || []).join(', '),
+    xmlChoice: srcIds.length > 1 ? '__keep' : (srcIds[0] || ''),
     minPurchasePrice: c.minPurchasePrice ?? '',
     maxPurchasePrice: c.maxPurchasePrice ?? '',
     shippingCost: c.shippingCost ?? '',
-    packagingCost: c.packagingCost ?? '',
-    extraCost: c.extraCost ?? '',
+    otherCost: c.packagingCost ?? '',
     commissionPct: c.commissionPct ?? '',
-    extraPct: c.extraPct ?? '',
-    // legacy fixed-amount rules map to the fixed profit mode
-    profitMode: c.profitMode || (legacyStandard && r.type === 'fixed' ? 'fixed' : 'percent_of_purchase'),
+    profitMode: c.profitMode || (legacy && r.type === 'fixed' ? 'fixed' : 'percent_of_purchase'),
     value: r.value ?? '',
     rounding,
-    minPrice: c.minPrice ?? '',
-    maxPrice: c.maxPrice ?? '',
+    _keep: {
+      xmlSourceIds: srcIds, extraCost: c.extraCost ?? 0, extraPct: c.extraPct ?? 0,
+      minPrice: c.minPrice ?? null, maxPrice: c.maxPrice ?? null, priority: r.priority ?? 0,
+      hadFilters: !!((c.categories && c.categories.length) || (c.brands && c.brands.length)),
+    },
   };
 }
 
-function Section({ title, children, hint }) {
-  return (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{title}</div>
-      {hint && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>{hint}</div>}
-      {children}
-    </div>
-  );
+function formToPayload(f) {
+  const keep = f._keep || {};
+  const [rm, re] = f.rounding.includes(':') ? f.rounding.split(':') : [f.rounding, null];
+  const xmlSourceIds = f.xmlChoice === '__keep' ? (keep.xmlSourceIds || []) : (f.xmlChoice ? [f.xmlChoice] : []);
+  const conditions = {
+    connectionId: f.connectionId || null,
+    xmlSourceIds,
+    // categories / brands are no longer part of a template
+    categories: [], brands: [],
+    minPurchasePrice: num(f.minPurchasePrice),
+    maxPurchasePrice: num(f.maxPurchasePrice),
+    shippingCost: num(f.shippingCost) ?? 0,
+    packagingCost: num(f.otherCost) ?? 0,
+    extraCost: keep.extraCost ?? 0,
+    commissionPct: num(f.commissionPct) ?? 0,
+    extraPct: keep.extraPct ?? 0,
+    commissionBasis: 'gross', // commission on the VAT-inclusive sale price, as the marketplace charges it
+    vatRate: null,            // sale VAT comes from the product's XML source
+    profitMode: f.profitMode,
+    roundingMode: rm,
+    roundingEnding: re ? parseFloat(re) : null,
+    minPrice: keep.minPrice ?? null,
+    maxPrice: keep.maxPrice ?? null,
+  };
+  return { name: f.name, type: 'percentage', value: num(f.value) ?? 0, applyTo: 'price_template', priority: keep.priority ?? 0, conditions };
 }
 
 export default function PricingPage() {
@@ -111,65 +99,54 @@ export default function PricingPage() {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [xmlSources, setXmlSources] = useState([]);
   const [connections, setConnections] = useState([]);
-  const [categoryOptions, setCategoryOptions] = useState([]);
-  const [catSearch, setCatSearch] = useState('');
   const [samplePrice, setSamplePrice] = useState('100');
   const [preview, setPreview] = useState(null);
   const [previewError, setPreviewError] = useState('');
-  const [coverage, setCoverage] = useState(null);
+  const [summary, setSummary] = useState(null);
   const reqId = useRef(0);
 
   useEffect(() => { fetchRules(); fetchOptions(); }, []);
 
   const fetchOptions = async () => {
     try {
-      const [xmlRes, connRes, catRes] = await Promise.all([
-        api.get('/xml-sources'),
-        api.get('/marketplace/connections'),
-        api.get('/marketplace/local-categories').catch(() => ({ data: [] })),
-      ]);
+      const [xmlRes, connRes] = await Promise.all([api.get('/xml-sources'), api.get('/marketplace/connections')]);
       setXmlSources(xmlRes.data);
       setConnections(connRes.data);
-      // categories arrive as "Kadın|Bileklik|" – offer the individual levels
-      const set = new Set();
-      for (const c of catRes.data || []) String(c).split('|').map((x) => x.trim()).filter(Boolean).forEach((x) => set.add(x));
-      setCategoryOptions([...set].sort((a, b) => a.localeCompare(b, 'tr')));
-    } catch { /* options are optional */ }
+    } catch { /* optional lists */ }
   };
 
   const fetchRules = async () => {
-    try {
-      const res = await api.get('/pricing');
-      setRules(res.data);
-    } catch { toast.error('Kurallar yüklenemedi'); }
+    try { setRules((await api.get('/pricing')).data); }
+    catch { toast.error('Şablonlar yüklenemedi'); }
     finally { setLoading(false); }
   };
 
   const payload = useMemo(() => formToPayload(form), [form]);
 
-  // The preview uses the sale VAT of the chosen XML source (or the first one) – same rule the engine applies to real products
+  // Sale VAT used by the preview = the VAT chosen when the XML source was added
   const previewVat = useMemo(() => {
-    const ids = form.xmlSourceIds.length ? form.xmlSourceIds : xmlSources.map((x) => x.id);
-    const src = xmlSources.find((x) => ids.includes(x.id));
-    return src?.defaultVatRate ?? 20;
-  }, [form.xmlSourceIds, xmlSources]);
+    const ids = form.xmlChoice && form.xmlChoice !== '__keep' ? [form.xmlChoice] : (form.xmlChoice === '__keep' ? form._keep?.xmlSourceIds || [] : xmlSources.map((x) => x.id));
+    return xmlSources.find((x) => ids.includes(x.id))?.defaultVatRate ?? 20;
+  }, [form.xmlChoice, form._keep, xmlSources]);
 
-  // live preview from the server pricing engine (debounced)
+  // Live numbers from the server pricing engine (debounced)
   useEffect(() => {
     if (!showModal) return undefined;
     const my = ++reqId.current;
     const t = setTimeout(async () => {
+      if (form.value === '') { setPreview(null); setSummary(null); setPreviewError(''); return; }
       const purchase = num(samplePrice);
-      if (!purchase || purchase <= 0 || form.value === '') { setPreview(null); setPreviewError(''); return; }
+      if (purchase && purchase > 0) {
+        try {
+          const res = await api.post('/pricing/calculate', { purchasePrice: purchase, value: payload.value, conditions: { ...payload.conditions, vatRate: previewVat } });
+          if (my === reqId.current) { setPreview(res.data); setPreviewError(''); }
+        } catch (err) {
+          if (my === reqId.current) { setPreview(null); setPreviewError(err.response?.data?.error || 'Hesaplanamadı'); }
+        }
+      } else if (my === reqId.current) setPreview(null);
       try {
-        const res = await api.post('/pricing/calculate', { purchasePrice: purchase, value: payload.value, conditions: { ...payload.conditions, vatRate: previewVat } });
-        if (my === reqId.current) { setPreview(res.data); setPreviewError(''); }
-      } catch (err) {
-        if (my === reqId.current) { setPreview(null); setPreviewError(err.response?.data?.error || 'Hesaplanamadı'); }
-      }
-      try {
-        const cov = await api.post('/pricing/coverage', { conditions: payload.conditions });
-        if (my === reqId.current) setCoverage(cov.data);
+        const res = await api.post('/pricing/coverage', { value: payload.value, conditions: payload.conditions });
+        if (my === reqId.current) setSummary(res.data);
       } catch { /* optional */ }
     }, 350);
     return () => clearTimeout(t);
@@ -178,95 +155,79 @@ export default function PricingPage() {
   const openModal = (rule = null) => {
     if (rule) { setEditingId(rule.id); setForm(ruleToForm(rule)); }
     else { setEditingId(null); setForm({ ...EMPTY_FORM }); }
-    setPreview(null); setCoverage(null); setPreviewError(''); setCatSearch('');
+    setPreview(null); setSummary(null); setPreviewError('');
     setShowModal(true);
   };
-
   const closeModal = () => { setShowModal(false); setEditingId(null); setForm({ ...EMPTY_FORM }); };
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (form.value === '') return toast.error('Kâr değeri zorunludur');
+    if (form.value === '') return toast.error('Kâr değerini girin');
     const min = num(form.minPurchasePrice), max = num(form.maxPurchasePrice);
     if (min !== null && max !== null && min > max) return toast.error('Alış fiyatı aralığında en düşük değer en yüksekten büyük olamaz');
     try {
-      if (editingId) {
-        await api.put(`/pricing/${editingId}`, payload);
-        toast.success('Şablon güncellendi');
-      } else {
-        await api.post('/pricing', payload);
-        toast.success('Fiyat şablonu eklendi');
-      }
+      if (editingId) { await api.put(`/pricing/${editingId}`, payload); toast.success('Şablon güncellendi'); }
+      else { await api.post('/pricing', payload); toast.success('Şablon eklendi'); }
       closeModal();
       fetchRules();
     } catch (err) { toast.error(err.response?.data?.error || 'Hata'); }
   };
 
-  const toggleActive = async (id, currentState) => {
-    try { await api.put(`/pricing/${id}`, { isActive: !currentState }); fetchRules(); }
+  const toggleActive = async (id, current) => {
+    try { await api.put(`/pricing/${id}`, { isActive: !current }); fetchRules(); }
     catch { toast.error('Güncelleme hatası'); }
   };
 
   const handleDelete = async () => {
     if (!deleteConfirm) return;
-    const id = deleteConfirm;
-    setDeleteConfirm(null);
-    try { await api.delete(`/pricing/${id}`); toast.success('Kural silindi'); fetchRules(); }
+    const id = deleteConfirm; setDeleteConfirm(null);
+    try { await api.delete(`/pricing/${id}`); toast.success('Şablon silindi'); fetchRules(); }
     catch { toast.error('Silme hatası'); }
   };
 
-  const toggleIn = (key, value) => setForm((f) => ({
-    ...f, [key]: f[key].includes(value) ? f[key].filter((x) => x !== value) : [...f[key], value],
-  }));
+  const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+  const modes = [
+    { key: 'percent_of_purchase', title: 'Yüzde kâr', hint: 'Alış fiyatının yüzdesi kadar kâr' },
+    { key: 'fixed', title: 'Sabit kâr', hint: 'Her üründe aynı tutar (₺)' },
+  ];
+  // an older template may use a method that is no longer offered – keep it visible so it is not changed by accident
+  if (!modes.some((m) => m.key === form.profitMode)) modes.push({ key: form.profitMode, title: MODE_LABELS[form.profitMode] || form.profitMode, hint: 'Eski şablondan' });
 
-  const visibleCategories = categoryOptions.filter((c) => c.toLowerCase().includes(catSearch.toLowerCase())).slice(0, 80);
+  const profitLabel = (r) => {
+    const c = parseConds(r);
+    if (r.applyTo === 'marketplace_xml') return r.type === 'fixed' ? `+₺${r.value}` : `%${r.value}`;
+    return c.profitMode === 'fixed' ? `₺${r.value}` : `%${r.value}`;
+  };
 
   const renderScope = (r) => {
-    let c = {};
-    try { c = r.conditions ? JSON.parse(r.conditions) : {}; } catch { c = {}; }
+    const c = parseConds(r);
     const conn = c.connectionId ? connections.find((x) => x.id === c.connectionId) : null;
     const srcIds = c.xmlSourceIds && c.xmlSourceIds.length ? c.xmlSourceIds : (c.xmlSourceId ? [c.xmlSourceId] : []);
-    const srcNames = srcIds.map((id) => xmlSources.find((x) => x.id === id)?.name || '—');
-    const hasRange = c.minPurchasePrice != null || c.maxPurchasePrice != null;
-    const lines = [];
-    lines.push(<div key="conn"><strong>Pazaryeri:</strong> {conn ? (conn.supplierName || conn.marketplaceType) : 'Tümü'}</div>);
-    if (srcNames.length) lines.push(<div key="src"><strong>Kaynak:</strong> {srcNames.join(', ')}</div>);
-    if (c.categories?.length) lines.push(<div key="cat"><strong>Kategori:</strong> {c.categories.join(', ')}</div>);
-    if (c.brands?.length) lines.push(<div key="br"><strong>Marka:</strong> {c.brands.join(', ')}</div>);
-    if (hasRange) lines.push(<div key="rng"><strong>Alış aralığı:</strong> {c.minPurchasePrice != null ? `₺${c.minPurchasePrice}` : '—'} – {c.maxPurchasePrice != null ? `₺${c.maxPurchasePrice}` : '—'}</div>);
-    return <div style={{ fontSize: 12, lineHeight: 1.7 }}>{lines}</div>;
+    const names = srcIds.map((id) => xmlSources.find((x) => x.id === id)?.name || '—');
+    const parts = [conn ? (conn.supplierName || conn.marketplaceType) : 'Tüm pazaryerleri', names.length ? names.join(', ') : 'Tüm XML’ler'];
+    if (c.minPurchasePrice != null || c.maxPurchasePrice != null) parts.push(`alış ₺${c.minPurchasePrice ?? 0} – ${c.maxPurchasePrice != null ? '₺' + c.maxPurchasePrice : '∞'}`);
+    if ((c.categories && c.categories.length) || (c.brands && c.brands.length)) parts.push('eski kategori/marka filtresi');
+    return <span style={{ fontSize: 12 }}>{parts.join(' · ')}</span>;
   };
 
   const renderCosts = (r) => {
-    let c = {};
-    try { c = r.conditions ? JSON.parse(r.conditions) : {}; } catch { c = {}; }
-    const parts = [];
+    const c = parseConds(r);
     const fixed = (Number(c.shippingCost) || 0) + (Number(c.packagingCost) || 0) + (Number(c.extraCost) || 0);
-    if (fixed > 0) parts.push(`Sabit gider ₺${fmt(fixed)}`);
+    const parts = [];
+    if (fixed > 0) parts.push(`₺${money(fixed)} sabit`);
     const pct = (Number(c.commissionPct) || 0) + (Number(c.extraPct) || 0);
-    if (pct > 0) parts.push(`Komisyon/gider %${pct}`);
-    if (c.vatRate !== null && c.vatRate !== undefined && c.vatRate !== '' && Number(c.vatRate) > 0) parts.push(`KDV %${c.vatRate}`);
-    if (c.roundingMode === 'ending') parts.push(`Sonu .${String(Math.round((c.roundingEnding ?? 0.9) * 100)).padStart(2, '0')}`);
-    if (c.roundingMode === 'int') parts.push('Tam sayı');
-    return <span style={{ fontSize: 12 }}>{parts.length ? parts.join(' · ') : '—'}</span>;
+    if (pct > 0) parts.push(`%${pct} komisyon`);
+    return <span style={{ fontSize: 12 }}>{parts.length ? parts.join(' + ') : '—'}</span>;
   };
 
-  const profitLabel = (r) => {
-    let c = {};
-    try { c = r.conditions ? JSON.parse(r.conditions) : {}; } catch { c = {}; }
-    if (r.applyTo === 'marketplace_xml') return r.type === 'fixed' ? `+₺${r.value}` : `%${r.value}`;
-    if (c.profitMode === 'fixed') return `₺${r.value}`;
-    return `%${r.value}`;
-  };
-
-  const inputStyle = { width: '100%' };
+  const earnClass = (n) => (n > 0 ? 'var(--success)' : n < 0 ? 'var(--danger)' : 'var(--text-muted)');
 
   return (
     <div>
       <div className="page-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1>Fiyat Şablonları</h1>
-          <p>Alış fiyatından pazaryeri satış fiyatını hesaplayan kuralları yönetin. Birden fazla şablon eşleşirse önce öncelik sayısı küçük olan, sonra kapsamı daha dar olan uygulanır.</p>
+          <p>Alış fiyatından satış fiyatını hesaplar ve ne kadar kazanacağınızı gösterir. Ürünlerin gönderilebilmesi için en az bir şablon gerekir.</p>
         </div>
         <button className="btn btn-primary" onClick={() => openModal()}><Plus size={16} /> Şablon Ekle</button>
       </div>
@@ -278,16 +239,14 @@ export default function PricingPage() {
           <div className="empty-state">
             <Tags size={48} className="empty-icon" />
             <h3>Henüz fiyat şablonu yok</h3>
-            <p>Ürünlerin Trendyol’a gönderilebilmesi için en az bir şablon gerekir.</p>
+            <p>Giderlerinizi ve istediğiniz kârı girin, satış fiyatını ve kazancınızı görün.</p>
             <button className="btn btn-primary" onClick={() => openModal()}><Plus size={16} /> İlk Şablonu Ekle</button>
           </div>
         </div>
       ) : (
         <div className="table-container">
           <table>
-            <thead>
-              <tr><th>Şablon</th><th>Kâr</th><th>Kapsam</th><th>Maliyet / Yuvarlama</th><th>Öncelik</th><th>Durum</th><th>İşlem</th></tr>
-            </thead>
+            <thead><tr><th>Şablon</th><th>Kâr</th><th>Giderler</th><th>Kapsam</th><th>Durum</th><th>İşlem</th></tr></thead>
             <tbody>
               {rules.map((r) => (
                 <tr key={r.id}>
@@ -298,12 +257,10 @@ export default function PricingPage() {
                     )}
                   </td>
                   <td style={{ fontWeight: 600 }}>{profitLabel(r)}</td>
-                  <td>{renderScope(r)}</td>
                   <td>{renderCosts(r)}</td>
-                  <td>{r.priority}</td>
+                  <td>{renderScope(r)}</td>
                   <td>
-                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: r.isActive ? 'var(--success)' : 'var(--text-muted)' }}
-                      onClick={() => toggleActive(r.id, r.isActive)}>
+                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: r.isActive ? 'var(--success)' : 'var(--text-muted)' }} onClick={() => toggleActive(r.id, r.isActive)}>
                       {r.isActive ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
                     </button>
                   </td>
@@ -320,164 +277,162 @@ export default function PricingPage() {
 
       {showModal && (
         <div className="modal-overlay" onClick={closeModal}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 980, width: '95%' }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 900, width: '95%' }}>
             <div className="modal-header">
               <h3>{editingId ? 'Şablonu Düzenle' : 'Fiyat Şablonu Ekle'}</h3>
               <button className="modal-close" onClick={closeModal}>×</button>
             </div>
             <form onSubmit={handleSave}>
-              <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.5fr) minmax(280px,1fr)', gap: 24, maxHeight: '75vh', overflowY: 'auto' }}>
+              <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.2fr) minmax(300px,1fr)', gap: 24, maxHeight: '75vh', overflowY: 'auto' }}>
+                {/* ---------- form ---------- */}
                 <div>
+                  <div className="form-group">
+                    <label className="form-label">Şablon adı *</label>
+                    <input className="form-input" placeholder="ör: Genel fiyat" value={form.name} onChange={(e) => set({ name: e.target.value })} required />
+                  </div>
+
                   <div className="grid grid-2">
                     <div className="form-group">
-                      <label className="form-label">Şablon adı *</label>
-                      <input className="form-input" placeholder="ör: 1–100₺ arası %30 kâr" value={form.name}
-                        onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+                      <label className="form-label">Pazaryeri</label>
+                      <select className="form-select" value={form.connectionId} onChange={(e) => set({ connectionId: e.target.value })}>
+                        <option value="">Hepsi</option>
+                        {connections.map((c) => <option key={c.id} value={c.id}>{c.supplierName || c.marketplaceType}</option>)}
+                      </select>
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Öncelik</label>
-                      <input type="number" className="form-input" value={form.priority}
-                        onChange={(e) => setForm({ ...form, priority: e.target.value })} />
+                      <label className="form-label">XML kaynağı</label>
+                      <select className="form-select" value={form.xmlChoice} onChange={(e) => set({ xmlChoice: e.target.value })}>
+                        <option value="">Hepsi</option>
+                        {form.xmlChoice === '__keep' && <option value="__keep">Seçili {form._keep?.xmlSourceIds?.length} kaynak (korunuyor)</option>}
+                        {xmlSources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
                     </div>
                   </div>
 
-                  <Section title="1. Hangi ürünlere uygulansın?" hint="Boş bıraktığınız her filtre ‘hepsi’ anlamına gelir.">
-                    <div className="grid grid-2">
-                      <div className="form-group">
-                        <label className="form-label">Pazaryeri bağlantısı</label>
-                        <select className="form-select" value={form.connectionId} onChange={(e) => setForm({ ...form, connectionId: e.target.value })}>
-                          <option value="">Tümü</option>
-                          {connections.map((c) => <option key={c.id} value={c.id}>{c.supplierName || c.marketplaceType} ({c.marketplaceType})</option>)}
-                        </select>
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Markalar (virgülle)</label>
-                        <input className="form-input" placeholder="ör: Nike, Adidas" value={form.brands}
-                          onChange={(e) => setForm({ ...form, brands: e.target.value })} />
-                      </div>
+                  <div className="form-group">
+                    <label className="form-label">Alış fiyatı aralığı (₺) <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>— boşsa tüm fiyatlar</span></label>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input type="number" min="0" step="0.01" className="form-input" placeholder="en az" value={form.minPurchasePrice} onChange={(e) => set({ minPurchasePrice: e.target.value })} />
+                      <span style={{ color: 'var(--text-muted)' }}>–</span>
+                      <input type="number" min="0" step="0.01" className="form-input" placeholder="en çok" value={form.maxPurchasePrice} onChange={(e) => set({ maxPurchasePrice: e.target.value })} />
                     </div>
-                    {xmlSources.length > 0 && (
-                      <div className="form-group">
-                        <label className="form-label">XML kaynakları</label>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                          {xmlSources.map((s) => (
-                            <label key={s.id} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
-                              <input type="checkbox" checked={form.xmlSourceIds.includes(s.id)} onChange={() => toggleIn('xmlSourceIds', s.id)} /> {s.name}
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {categoryOptions.length > 0 && (
-                      <div className="form-group">
-                        <label className="form-label">Kategoriler {form.categories.length > 0 && <span style={{ color: 'var(--text-muted)' }}>({form.categories.length} seçili)</span>}</label>
-                        <input className="form-input" placeholder="Kategori ara…" value={catSearch} onChange={(e) => setCatSearch(e.target.value)} style={{ marginBottom: 6 }} />
-                        <div style={{ maxHeight: 130, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 8, padding: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
-                          {visibleCategories.map((c) => (
-                            <label key={c} style={{ display: 'flex', gap: 5, alignItems: 'center', fontSize: 12 }}>
-                              <input type="checkbox" checked={form.categories.includes(c)} onChange={() => toggleIn('categories', c)} /> {c}
-                            </label>
-                          ))}
-                          {visibleCategories.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Sonuç yok</span>}
-                        </div>
-                      </div>
-                    )}
-                    <div className="form-group">
-                      <label className="form-label">Alış fiyatı aralığı (₺, KDV dahil alış)</label>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <input type="number" min="0" step="0.01" className="form-input" placeholder="En az" value={form.minPurchasePrice}
-                          onChange={(e) => setForm({ ...form, minPurchasePrice: e.target.value })} style={inputStyle} />
-                        <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>ile</span>
-                        <input type="number" min="0" step="0.01" className="form-input" placeholder="En çok" value={form.maxPurchasePrice}
-                          onChange={(e) => setForm({ ...form, maxPurchasePrice: e.target.value })} style={inputStyle} />
-                      </div>
-                    </div>
-                  </Section>
+                  </div>
 
-                  <Section title="2. Giderler" hint="Sabit giderler alış fiyatına eklenir; yüzdeler satış fiyatından düşülür. Satış KDV’si ürünün XML kaynağındaki orandan alınır (XML eklenirken belirlenir).">
-                    <div className="grid grid-2">
-                      <div className="form-group"><label className="form-label">Kargo (₺)</label>
-                        <input type="number" min="0" step="0.01" className="form-input" value={form.shippingCost} onChange={(e) => setForm({ ...form, shippingCost: e.target.value })} /></div>
-                      <div className="form-group"><label className="form-label">Paketleme (₺)</label>
-                        <input type="number" min="0" step="0.01" className="form-input" value={form.packagingCost} onChange={(e) => setForm({ ...form, packagingCost: e.target.value })} /></div>
-                      <div className="form-group"><label className="form-label">Ek sabit gider (₺)</label>
-                        <input type="number" min="0" step="0.01" className="form-input" value={form.extraCost} onChange={(e) => setForm({ ...form, extraCost: e.target.value })} /></div>
-                      <div className="form-group"><label className="form-label">Pazaryeri komisyonu (%)</label>
-                        <input type="number" min="0" max="100" step="0.1" className="form-input" value={form.commissionPct} onChange={(e) => setForm({ ...form, commissionPct: e.target.value })} /></div>
-                      <div className="form-group"><label className="form-label">Diğer yüzde gider (%) — reklam, ödeme vb.</label>
-                        <input type="number" min="0" max="100" step="0.1" className="form-input" value={form.extraPct} onChange={(e) => setForm({ ...form, extraPct: e.target.value })} /></div>
+                  <div style={{ fontSize: 13, fontWeight: 700, margin: '18px 0 8px' }}>Giderleriniz</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                    <div className="form-group"><label className="form-label">Kargo (₺)</label>
+                      <input type="number" min="0" step="0.01" className="form-input" value={form.shippingCost} onChange={(e) => set({ shippingCost: e.target.value })} /></div>
+                    <div className="form-group"><label className="form-label">Paketleme/diğer (₺)</label>
+                      <input type="number" min="0" step="0.01" className="form-input" value={form.otherCost} onChange={(e) => set({ otherCost: e.target.value })} /></div>
+                    <div className="form-group"><label className="form-label">Komisyon (%)</label>
+                      <input type="number" min="0" max="90" step="0.1" className="form-input" value={form.commissionPct} onChange={(e) => set({ commissionPct: e.target.value })} /></div>
+                  </div>
 
-                    </div>
-                  </Section>
+                  <div style={{ fontSize: 13, fontWeight: 700, margin: '18px 0 8px' }}>Kârınız</div>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                    {modes.map((m) => (
+                      <button key={m.key} type="button" onClick={() => set({ profitMode: m.key })}
+                        style={{ flex: 1, textAlign: 'left', padding: '10px 12px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit',
+                          border: form.profitMode === m.key ? '2px solid var(--accent-primary)' : '2px solid var(--border-color)',
+                          background: form.profitMode === m.key ? 'rgba(99,102,241,0.08)' : 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{m.title}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{m.hint}</div>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">{form.profitMode === 'fixed' ? 'Ürün başına kâr (₺) *' : 'Kâr oranı (%) *'}</label>
+                    <input type="number" min="0" step="0.01" className="form-input" value={form.value} onChange={(e) => set({ value: e.target.value })} required />
+                  </div>
 
-                  <Section title="3. Kâr">
-                    <div className="grid grid-2">
-                      <div className="form-group">
-                        <label className="form-label">Kâr yöntemi</label>
-                        <select className="form-select" value={form.profitMode} onChange={(e) => setForm({ ...form, profitMode: e.target.value })}>
-                          {PROFIT_MODES.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-                        </select>
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">{form.profitMode === 'fixed' ? 'Kâr tutarı (₺) *' : 'Kâr oranı (%) *'}</label>
-                        <input type="number" min="0" step="0.01" className="form-input" value={form.value}
-                          onChange={(e) => setForm({ ...form, value: e.target.value })} required />
-                      </div>
-                    </div>
-                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: -6 }}>{PROFIT_MODES.find((m) => m.key === form.profitMode)?.hint}</p>
-                  </Section>
+                  <div className="form-group">
+                    <label className="form-label">Fiyat sonu</label>
+                    <select className="form-select" value={form.rounding} onChange={(e) => set({ rounding: e.target.value })}>
+                      {ROUNDINGS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+                    </select>
+                  </div>
 
-                  <Section title="4. Yuvarlama ve sınırlar">
-                    <div className="grid grid-2">
-                      <div className="form-group"><label className="form-label">Fiyat sonu</label>
-                        <select className="form-select" value={form.rounding} onChange={(e) => setForm({ ...form, rounding: e.target.value })}>
-                          {ROUNDINGS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
-                        </select></div>
-                      <div className="form-group" />
-                      <div className="form-group"><label className="form-label">En düşük satış fiyatı (₺)</label>
-                        <input type="number" min="0" step="0.01" className="form-input" value={form.minPrice} onChange={(e) => setForm({ ...form, minPrice: e.target.value })} /></div>
-                      <div className="form-group"><label className="form-label">En yüksek satış fiyatı (₺)</label>
-                        <input type="number" min="0" step="0.01" className="form-input" value={form.maxPrice} onChange={(e) => setForm({ ...form, maxPrice: e.target.value })} /></div>
+                  {editingId && form._keep?.hadFilters && (
+                    <div style={{ fontSize: 12, color: 'var(--warning)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                      <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                      Bu şablonda eski bir kategori/marka filtresi vardı. Kaydedince kaldırılır ve şablon seçtiğiniz tüm ürünlere uygulanır.
                     </div>
-                  </Section>
+                  )}
                 </div>
 
-                {/* Live preview */}
+                {/* ---------- earnings ---------- */}
                 <div>
                   <div style={{ position: 'sticky', top: 0, background: 'var(--bg-secondary)', borderRadius: 12, padding: 16 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                      <Calculator size={18} style={{ color: 'var(--accent-primary)' }} />
-                      <strong style={{ fontSize: 14 }}>Canlı önizleme</strong>
+                      <TrendingUp size={18} style={{ color: 'var(--success)' }} />
+                      <strong style={{ fontSize: 14 }}>Ne kadar kazanırsınız?</strong>
                     </div>
-                    <label className="form-label">Örnek alış fiyatı (₺)</label>
+
+                    <label className="form-label">Örnek ürün — alış fiyatı (₺)</label>
                     <input type="number" min="0" step="0.01" className="form-input" value={samplePrice} onChange={(e) => setSamplePrice(e.target.value)} />
+
                     {previewError && <p style={{ color: 'var(--danger)', fontSize: 12, marginTop: 10 }}>{previewError}</p>}
-                    {!preview && !previewError && <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 10 }}>Kâr değerini girince satış fiyatı burada hesaplanır.</p>}
+                    {!preview && !previewError && <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 10 }}>Kâr değerini girince satış fiyatı ve kazancınız burada görünür.</p>}
+
                     {preview && (
                       <div style={{ marginTop: 14 }}>
-                        <div style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 10, padding: '12px 16px', marginBottom: 12 }}>
-                          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Satış fiyatı</div>
-                          <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--accent-primary)' }}>₺{fmt(preview.price)}</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                          <div style={{ background: 'var(--bg-tertiary)', borderRadius: 10, padding: '10px 12px' }}>
+                            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Satış fiyatı</div>
+                            <div style={{ fontSize: 22, fontWeight: 800 }}>₺{money(preview.price)}</div>
+                          </div>
+                          <div style={{ background: 'var(--bg-tertiary)', borderRadius: 10, padding: '10px 12px' }}>
+                            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Net kazancınız</div>
+                            <div style={{ fontSize: 22, fontWeight: 800, color: earnClass(preview.profit) }}>₺{money(preview.profit)}</div>
+                            <div style={{ fontSize: 11, color: earnClass(preview.profit) }}>alışın %{preview.profitPct}’i</div>
+                          </div>
                         </div>
                         {[
-                          ['Alış fiyatı', `₺${fmt(preview.purchase)}`],
-                          ['Sabit giderler', `₺${fmt(preview.fixedCosts)}`],
-                          ['Komisyon + gider %', `−₺${fmt(preview.commissionAmount)}`],
-                          ['Kâr', `₺${fmt(preview.profit)}`],
-                          [`KDV (%${previewVat})`, `₺${fmt(preview.vatAmount)}`],
+                          ['Satış fiyatı (KDV dahil)', `₺${money(preview.price)}`],
+                          [`KDV (%${previewVat})`, `−₺${money(preview.vatAmount)}`],
+                          ['Komisyon', `−₺${money(preview.commissionAmount)}`],
+                          ['Kargo ve diğer giderler', `−₺${money(preview.fixedCosts)}`],
+                          ['Alış fiyatı', `−₺${money(preview.purchase)}`],
                         ].map(([k, v]) => (
-                          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0' }}>
-                            <span style={{ color: 'var(--text-secondary)' }}>{k}</span><span style={{ fontWeight: 600 }}>{v}</span>
+                          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>{k}</span><span>{v}</span>
                           </div>
                         ))}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 700, padding: '8px 0 0', marginTop: 6, borderTop: '1px solid var(--border-color)' }}>
+                          <span>Elinize kalan</span><span style={{ color: earnClass(preview.profit) }}>₺{money(preview.profit)}</span>
+                        </div>
                       </div>
                     )}
-                    {coverage && (
-                      <div style={{ marginTop: 14, fontSize: 12, display: 'flex', gap: 6, alignItems: 'flex-start', color: 'var(--text-secondary)' }}>
-                        <Info size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                        <span>Bu şablonun kapsamı <strong>{coverage.covered}</strong> / {coverage.total} ürün.</span>
+
+                    {summary && (
+                      <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border-color)', fontSize: 13 }}>
+                        {summary.covered === 0 ? (
+                          <span style={{ color: 'var(--text-muted)' }}>
+                            {summary.total === 0 ? 'Henüz ürününüz yok; ürün ekleyince toplam kazanç burada görünür.' : 'Bu ayarlarla eşleşen ürün yok.'}
+                          </span>
+                        ) : (
+                          <>
+                            <div style={{ color: 'var(--text-secondary)' }}>Ürünlerinizden <strong>{summary.covered}</strong> / {summary.total} tanesine uygulanır. Hepsi satılırsa:</div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: earnClass(summary.totalProfit), margin: '4px 0' }}>₺{money(summary.totalProfit)} toplam kazanç</div>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                              Ürün başına ortalama ₺{money(summary.avgProfit)} (en az ₺{money(summary.minProfit)}, en çok ₺{money(summary.maxProfit)}) · ortalama satış fiyatı ₺{money(summary.avgPrice)}
+                            </div>
+                            {summary.losing > 0 && (
+                              <div style={{ marginTop: 8, color: 'var(--danger)', display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 12 }}>
+                                <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                                {summary.losing} üründe zarar edersiniz (giderler kârı aşıyor).
+                              </div>
+                            )}
+                            {summary.unpriced > 0 && (
+                              <div style={{ marginTop: 6, color: 'var(--warning)', fontSize: 12 }}>{summary.unpriced} ürün için fiyat hesaplanamadı (komisyon çok yüksek olabilir).</div>
+                            )}
+                          </>
+                        )}
                       </div>
                     )}
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '12px 0 0' }}>
+                      Satış KDV’si ürünün XML kaynağındaki orandan alınır; komisyon KDV dahil satış fiyatı üzerinden hesaplanır. Rakamlar tahmindir (iade, indirim ve kampanyalar dahil değil).
+                    </p>
                   </div>
                 </div>
               </div>

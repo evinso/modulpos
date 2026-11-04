@@ -80,7 +80,7 @@ export default function TrendyolSendPage() {
 
   useEffect(() => {
     if (selectedConn) fetchMappings();
-  }, [selectedConn]);
+  }, [selectedConn, filterXmlSource]);
 
   const fetchConnections = async () => {
     try {
@@ -121,27 +121,10 @@ export default function TrendyolSendPage() {
   const fetchMappings = async () => {
     if (!selectedConn) return;
     try {
-      const res = await api.get(`/marketplace/connections/${selectedConn.id}/category-mappings`);
+      // mappings belong to an XML source: with a source selected only its mappings are shown
+      const res = await api.get(`/marketplace/connections/${selectedConn.id}/category-mappings`, { params: filterXmlSource ? { xmlSourceId: filterXmlSource } : {} });
       setMappings(res.data);
     } catch {}
-  };
-
-  const mappedCategories = useMemo(() => {
-    const acc = {};
-    for (const m of mappings) acc[m.localCategory.toLowerCase().trim()] = m;
-    return acc;
-  }, [mappings]);
-
-  const findCatMapping = (category) => {
-    if (!category) return null;
-    const key = category.toLowerCase().trim();
-    if (mappedCategories[key]) return mappedCategories[key];
-    if (key.includes('|')) {
-      for (const part of key.split('|').map(s => s.trim()).filter(Boolean)) {
-        if (mappedCategories[part]) return mappedCategories[part];
-      }
-    }
-    return null;
   };
 
   const getMp = (p) => p.marketplaceProducts?.find(m => m.connectionId === selectedConn?.id) || null;
@@ -450,7 +433,7 @@ export default function TrendyolSendPage() {
               {products.map(p => {
                 const status = p.ready ? 'ready' : 'missing';
                 const isSelected = selectedIds.has(p.id);
-                const catMapping = findCatMapping(p.category);
+                const catMapping = p.mapName ? { marketplaceCategoryName: p.mapName } : null;
                 const thumbImg = getFirstImage(p);
                 const mp = getMp(p);
                 const mpInfo = mp?.status ? MP_STATUS[mp.status] : null;

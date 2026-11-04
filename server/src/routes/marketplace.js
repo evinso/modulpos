@@ -989,7 +989,8 @@ router.get('/connections/:id/category-mappings', async (req, res, next) => {
   try {
     const [mappings, connection] = await Promise.all([
       prisma.categoryMapping.findMany({
-        where: { connectionId: req.params.id },
+        // ?xmlSourceId=… → this source's mappings (+ legacy shared ones); without it → every mapping of the connection
+        where: { connectionId: req.params.id, ...(req.query.xmlSourceId ? { OR: [{ xmlSourceId: String(req.query.xmlSourceId) }, { xmlSourceId: null }] } : {}) },
         orderBy: { createdAt: 'desc' }
       }),
       prisma.marketplaceConnection.findUnique({
@@ -1046,14 +1047,21 @@ router.get('/connections/:id/category-mappings', async (req, res, next) => {
 // Category mappings - create/update
 router.post('/connections/:id/category-mappings', async (req, res, next) => {
   try {
-    const { localCategory, marketplaceCategoryId, marketplaceCategoryName, attributes } = req.body;
+    const { localCategory, marketplaceCategoryId, marketplaceCategoryName, attributes, xmlSourceId } = req.body;
     if (!localCategory || !marketplaceCategoryId) {
       return res.status(400).json({ error: 'Yerel kategori ve pazaryeri kategorisi zorunludur' });
     }
+    if (!xmlSourceId) {
+      return res.status(400).json({ error: 'Önce bir XML kaynağı seçmelisiniz' });
+    }
+    // The source must belong to the same store as the connection
+    const conn = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id }, select: { storeId: true } });
+    const src = await prisma.xmlSource.findFirst({ where: { id: String(xmlSourceId), storeId: conn?.storeId }, select: { id: true } });
+    if (!src) return res.status(400).json({ error: 'Geçersiz XML kaynağı' });
 
-    // Upsert: aynı localCategory varsa güncelle
+    // Upsert: aynı kaynakta aynı localCategory varsa güncelle
     const existing = await prisma.categoryMapping.findFirst({
-      where: { connectionId: req.params.id, localCategory }
+      where: { connectionId: req.params.id, localCategory, xmlSourceId: src.id }
     });
 
     let mapping;
@@ -1070,6 +1078,7 @@ router.post('/connections/:id/category-mappings', async (req, res, next) => {
       mapping = await prisma.categoryMapping.create({
         data: {
           connectionId: req.params.id,
+          xmlSourceId: src.id,
           localCategory,
           marketplaceCategoryId: String(marketplaceCategoryId),
           marketplaceCategoryName,
