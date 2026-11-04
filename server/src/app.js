@@ -102,7 +102,7 @@ app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 300 : 100,
+  max: process.env.NODE_ENV === 'production' ? 1000 : 100,
   standardHeaders: true,
   legacyHeaders: false,
   // req.path (not the URL with query string) so the exemption cannot be spoofed
