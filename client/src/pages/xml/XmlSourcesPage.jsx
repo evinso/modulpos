@@ -211,8 +211,13 @@ export default function XmlSourcesPage() {
       const res = await api.post('/xml-sources/analyze', { url: addForm.url });
       if (res.data.success) {
         setAddAnalysis(res.data);
+        const detected = res.data.suggestedMapping || {};
+        setAddMapping(detected);
         setAddStep(2);
-        toast.success(`${res.data.totalProducts} ürün bulundu! Şimdi alan eşleştirmesi yapın.`);
+        const n = Object.keys(detected).length;
+        toast.success(n > 0
+          ? `${res.data.totalProducts} ürün bulundu. ${n} alan otomatik eşleştirildi, lütfen kontrol edin.`
+          : `${res.data.totalProducts} ürün bulundu! Şimdi alan eşleştirmesi yapın.`);
       } else {
         toast.error(res.data.error || 'XML analiz edilemedi');
       }
@@ -361,6 +366,13 @@ export default function XmlSourcesPage() {
       const res = await api.post(`/xml-sources/${source.id}/analyze`);
       if (res.data.success) {
         setXmlAnalysis(res.data);
+        // keep the user's saved mapping, only fill what is still empty with the detected fields
+        const detected = res.data.suggestedMapping || {};
+        setMapping(prev => {
+          const next = { ...prev };
+          for (const [k, v] of Object.entries(detected)) if (!next[k] || String(next[k]).trim() === '') next[k] = v;
+          return next;
+        });
       } else {
         toast.error(res.data.error || 'XML analiz edilemedi');
       }

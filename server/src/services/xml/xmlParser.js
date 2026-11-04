@@ -1,5 +1,6 @@
 const { safeAxiosOptions } = require('../../utils/safeHttp');
 const { parsePrice } = require('../../utils/parsePrice');
+const { suggestMapping } = require('./autoMapping');
 const axios = require('axios');
 const { XMLParser } = require('fast-xml-parser');
 const sax = require('sax');
@@ -316,6 +317,7 @@ async function analyzeXml(url, options = {}) {
     fields,
     sampleData,
     sampleProduct,
+    suggestedMapping: suggestMapping(fields),
     categories: Array.from(uniqueCategories).slice(0, 500),
   };
 }
@@ -390,8 +392,22 @@ async function parseXmlBuffered(url, options = {}) {
 
 // ─── Product mapping ─────────────────────────────────────────────────────────
 
-function mapProducts(rawProducts, mc) {
+// 'x', '', null -> 0 instead of NaN
+const safeInt = (v) => { const n = parseInt(String(v ?? '').replace(/[^\d-]/g, ''), 10); return Number.isFinite(n) ? n : 0; };
+
+function mapProducts(rawProducts, mcIn) {
   const cleanPrice = parsePrice;
+
+  // New/unmapped feeds: fill the essential fields the user did not map with the detected ones.
+  // Explicit user mappings always win; listPrice/cost keep their old behaviour.
+  let mc = mcIn || {};
+  if (rawProducts.length > 0) {
+    const auto = suggestMapping(extractFields(rawProducts[0]));
+    mc = { ...mc };
+    for (const k of ['sku', 'barcode', 'title', 'description', 'price', 'stock', 'brand', 'category', 'images']) {
+      if (!mc[k] || String(mc[k]).trim() === '') { if (auto[k]) mc[k] = auto[k]; }
+    }
+  }
 
   return rawProducts.map(p => ({
     sku:         getFieldValue(p, mc.sku,         ['StockCode', 'stockCode', 'sku', 'SKU', 'urunKodu', 'UrunKodu', 'ProductCode', 'productCode', 'Sku', 'id', 'ID', 'model_number', 'mpn', 'g:id', 'g:mpn']),
@@ -401,9 +417,9 @@ function mapProducts(rawProducts, mc) {
     price:       cleanPrice(getFieldValue(p, mc.price,     ['Price', 'price', 'Fiyat', 'fiyat', 'SalePrice', 'salePrice', 'SatisFiyat', 'sale_price', 'g:price', 'g:sale_price'])),
     listPrice:   cleanPrice(getFieldValue(p, mc.listPrice, ['ListPrice', 'listPrice', 'ListeFiyat', 'listeFiyat', 'MarketPrice', 'PiyasaFiyat', 'listprice', 'g:list_price'])),
     cost:        cleanPrice(getFieldValue(p, mc.cost,      ['Cost', 'cost', 'Maliyet', 'maliyet', 'AlisFiyat'])),
-    stock:       parseInt(getFieldValue(p, mc.stock,       ['Stock', 'stock', 'Stok', 'stok', 'Quantity', 'quantity', 'Adet', 'Miktar', 'g:quantity']) || 0),
+    stock:       safeInt(getFieldValue(p, mc.stock,       ['Stock', 'stock', 'Stok', 'stok', 'Quantity', 'quantity', 'Adet', 'Miktar', 'g:quantity']) ),
     brand:       getFieldValue(p, mc.brand,       ['Brand', 'brand', 'Marka', 'marka', 'BrandName', 'g:brand']),
-    category:    getFieldValue(p, mc.category,    ['Category', 'category', 'Kategori', 'kategori', 'CategoryName', 'KategoriAdi', 'product_type', 'google_product_category', 'g:product_type', 'g:google_product_category']),
+    category:    getCategoryValue(p, mc.category,    ['Category', 'category', 'Kategori', 'kategori', 'CategoryName', 'KategoriAdi', 'product_type', 'google_product_category', 'g:product_type', 'g:google_product_category']),
     images:      getImagesValue(p, mc.images,     ['Images', 'images', 'Resimler', 'Image', 'image', 'Resim', 'ImageUrl', 'imageUrl', 'img', 'Img', 'Pictures', 'Gorsel', 'gorsel', 'image_link', 'g:image_link', 'additional_image_link', 'g:additional_image_link', 'ProductImage', 'productImage', 'UrunResim', 'urunResim', 'BigImage', 'bigImage', 'MainImage', 'mainImage', 'Thumbnail', 'thumbnail', 'resim_url', 'gorsel_url', 'image_url', 'ImageURL', 'Photo', 'photo', 'Picture', 'picture', 'Foto', 'foto']),
     attributes:  {}
   }));
@@ -558,10 +574,55 @@ function getNestedValue(obj, path) {
 function getFieldValue(obj, mappedField, fallbackFields) {
   if (mappedField && mappedField.trim() !== '') return getNestedValue(obj, mappedField);
   for (const field of fallbackFields) {
-    const val = getNestedValue(obj, field);
+    let val = getNestedValue(obj, field);
+    if (val === null || val === undefined || val === '') val = getNestedValue(obj, String(field).toUpperCase());
     if (val !== null && val !== undefined && val !== '') return val;
   }
   return null;
+}
+
+/** Every value at a path, expanding repeated nodes (<Resim>a</Resim><Resim>b</Resim> -> ['a','b']). */
+function getAllValues(obj, path) {
+  let cur = [obj];
+  for (const part of String(path).split('.')) {
+    const next = [];
+    for (const c of cur) {
+      if (c === null || c === undefined || typeof c !== 'object') continue;
+      const v = c[part];
+      if (Array.isArray(v)) next.push(...v);
+      else if (v !== undefined && v !== null) next.push(v);
+    }
+    cur = next;
+  }
+  const out = [];
+  for (const v of cur) {
+    if (v === null || v === undefined) continue;
+    if (typeof v === 'object') {
+      const t = v['#text'] ?? v.url ?? v.Url ?? v.URL ?? v.src;
+      if (typeof t === 'string' && t.trim()) out.push(t.trim());
+    } else if (String(v).trim() !== '') out.push(String(v).trim());
+  }
+  return out;
+}
+
+/** "Giyim > Kadın > Elbise" / "Ev / Mutfak / Kupa" -> "Giyim|Kadın|Elbise" (the path format used everywhere else). */
+function normalizeCategory(value) {
+  if (value === null || value === undefined) return value;
+  let v = String(value).trim();
+  if (!v) return null;
+  v = v.replace(/\s*(?:>|»|›|&gt;)\s*/g, '|').replace(/\s+\/\s+/g, '|');
+  return v;
+}
+
+/** Category: repeated nodes become a path; the separator style is normalised. */
+function getCategoryValue(obj, mappedField, fallbackFields) {
+  if (mappedField && mappedField.trim() !== '') {
+    const vals = getAllValues(obj, mappedField.trim());
+    if (vals.length > 1) return normalizeCategory(vals.join('|'));
+    if (vals.length === 1) return normalizeCategory(vals[0]);
+    return normalizeCategory(getNestedValue(obj, mappedField));
+  }
+  return normalizeCategory(getFieldValue(obj, null, fallbackFields));
 }
 
 function getImagesValue(obj, mappedField, fallbackFields) {
@@ -569,6 +630,8 @@ function getImagesValue(obj, mappedField, fallbackFields) {
     const fields = mappedField.split(',').map(s => s.trim()).filter(Boolean);
     const resultImages = [];
     for (const field of fields) {
+      const many = getAllValues(obj, field).filter((v) => /^(https?:)?\/\//i.test(v));
+      if (many.length > 1) { resultImages.push(...many); continue; }
       const val = getNestedValue(obj, field);
       if (!val) continue;
       try {
