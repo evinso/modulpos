@@ -29,7 +29,6 @@ const ISSUE_LABELS = {
   no_image: 'Görsel yok',
   bad_vat: 'KDV hatalı',
   bad_stock: 'Stok hatalı',
-  blocked_words: 'Yasaklı kelime',
   rejected_by_marketplace: 'Trendyol reddetti',
   missing_attributes: 'Zorunlu özellik eksik',
   low_stock: 'Stok eşiğinin altında',
@@ -613,7 +612,7 @@ export default function TrendyolSendPage() {
                 </div>
               </div>
               <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 12 }}>
-                Ürünler 100'lük partiler halinde gönderilir. Doğrulamadan geçemeyen (kategori, barkod, fiyat şablonu, başlık, açıklama, görsel, yasaklı kelime vb.) ürünler hiçbir zaman gönderilmez ve atlanma nedenleri gösterilir.
+                Ürünler 100'lük partiler halinde gönderilir. Doğrulamadan geçemeyen (kategori, barkod, fiyat şablonu, başlık, açıklama, görsel vb.) ürünler hiçbir zaman gönderilmez ve atlanma nedenleri gösterilir.
               </p>
             </div>
             <div className="modal-footer">

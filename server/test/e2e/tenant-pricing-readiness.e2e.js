@@ -11,7 +11,6 @@ const API=process.env.API_URL||"https://api.modulpos.com/api";
  const A=await mk("e2eA"), B=await mk("e2eB");
  const call=(tok)=>async(m,u,b)=>{const r=await fetch(API+u,{method:m,headers:{"Content-Type":"application/json",Authorization:"Bearer "+tok},body:b?JSON.stringify(b):undefined});let d;try{d=await r.json()}catch{};return {s:r.status,d}};
  const a=call(A.token), b=call(B.token); const store=A.user.stores[0];
-  const applyAndWait = async () => { const st = await a("POST","/content-rules/apply",{dryRun:false}); for(let k=0;k<90;k++){ await new Promise(x=>setTimeout(x,1000)); const j=(await a("GET","/content-rules/apply/status")).d.job; if(j&&j.state!=="running") return j; } return null; };
  try{
   const real={url:'https://raw.githubusercontent.com/evinso/modulpos/main/server/test/fixtures/feed-google.xml',mappingConfig:null}; // synthetic feed: the suite must not depend on anyone's real source
   const options={stock:{maxStock:5},filters:{minPrice:1000,maxPrice:2000},content:{titlePrefix:"[T] ",titleCase:"upper",maxImages:2,defaultBrand:"Markasiz"},run:{markMissingPassive:true}};
@@ -33,17 +32,6 @@ const API=process.env.API_URL||"https://api.modulpos.com/api";
   await a("PUT",`/xml-sources/${srcId}`,{options}); log=await waitSync(a);
   ok("returning -> active",(await c.query(`select count(*)::int n from app."Product" where "xmlSourceId"=$1 and status='active'`,[srcId])).rows[0].n===prods.length);
 
-  // content rules
-  const word=prods.find(p=>p.title.split(" ").length>3).title.replace("[T] ","").split(" ")[1];
-  r=await a("POST","/content-rules",{pattern:word,action:"replace",replacement:"XYZ"}); ok("create content rule",r.s===201,word);
-  r=await a("POST","/content-rules/apply",{dryRun:true}); ok("dry-run changes nothing",r.d.dryRun&&r.d.willChange>0&&(await c.query(`select count(*)::int n from app."Product" where "storeId"=$1 and title like '%XYZ%'`,[store.id])).rows[0].n===0,"willChange="+r.d.willChange);
-  await applyAndWait(); ok("apply rewrites",(await c.query(`select count(*)::int n from app."Product" where "storeId"=$1 and title like '%XYZ%'`,[store.id])).rows[0].n>0);
-  ok("apply keeps the source's title prefix and UPPER case",(await c.query(`select count(*)::int n from app."Product" where "storeId"=$1 and ("title" not like '[T] %' or title<>upper(title))`,[store.id])).rows[0].n===0);
-  ok("normal user cannot make global rule",(await a("POST","/content-rules",{pattern:"x",isGlobal:true})).s===403);
-  const rule=(await a("GET","/content-rules")).d.own[0]; ok("B cannot delete A's rule",(await b("DELETE","/content-rules/"+rule.id)).s===404);
-  await a("DELETE","/content-rules/"+rule.id); await applyAndWait();
-  ok("delete rule + apply restores original",(await c.query(`select count(*)::int n from app."Product" where "storeId"=$1 and title like '%XYZ%'`,[store.id])).rows[0].n===0);
-  await a("POST","/content-rules",{pattern:word,action:"block"});
 
   // connection + mapping + pricing + readiness
   const conn=(await c.query(`insert into app."MarketplaceConnection"(id,"storeId","marketplaceType","sellerId","apiKey","apiSecret","updatedAt") values(gen_random_uuid(),$1,'trendyol','1','k','s',now()) returning id`,[store.id])).rows[0].id;
@@ -61,11 +49,10 @@ const API=process.env.API_URL||"https://api.modulpos.com/api";
   ok("every product has server-side price",l.d.products.every(p=>p.salePrice>0),"e.g. alış "+l.d.products[0].xmlPrice+" → "+l.d.products[0].salePrice);
   const exp=Math.ceil(((l.d.products[0].xmlPrice+10)+l.d.products[0].xmlPrice*0.3)/0.9*1.2-1e-9);
   ok("VAT taken from product (20%) and .90 ending",Math.floor(l.d.products[0].salePrice)>=exp-1&&String(l.d.products[0].salePrice).endsWith(".9"));
-  const bw=l.d.stats.byIssue.blocked_words||0; ok("blocked word flagged",bw>0,"count="+bw);
   const withMap=prods.filter(p=>p.category===cats[0]).length;
   ok("unmapped categories flagged",l.d.stats.byIssue.no_category_mapping===prods.length-withMap);
   const rdy=await a("GET",url+"?readiness=ready&limit=5&fresh=1"); ok("ready filter server-side",rdy.d.pagination.total===l.d.stats.ready,"ready="+l.d.stats.ready);
-  const blk=await a("GET",url+"?readiness=blocked&issue=blocked_words&limit=5&fresh=1"); ok("issue filter",blk.d.pagination.total===bw);
+  const blk=await a("GET",url+"?readiness=blocked&issue=no_category_mapping&limit=5&fresh=1"); ok("issue filter",blk.d.pagination.total===l.d.stats.byIssue.no_category_mapping);
   // send route refuses blocked products
   const blockedId=(await a("GET",url+"?readiness=blocked&limit=1&fresh=1")).d.products[0].id;
   const sendBlocked=await a("POST",`/marketplace/connections/${conn}/send-products`,{productIds:[blockedId]});
@@ -80,7 +67,7 @@ const API=process.env.API_URL||"https://api.modulpos.com/api";
   }
  }catch(e){console.log("ERROR",e);fails++}
  finally{
-  for(const u of [A,B]){ await c.query(`delete from app."SyncLog" where "storeId"=$1`,[u.user.stores[0].id]).catch(()=>{}); await c.query(`delete from app."ContentRule" where "storeId"=$1`,[u.user.stores[0].id]).catch(()=>{}); await c.query(`delete from app."User" where id=$1`,[u.user.id]).catch(e=>console.log("cleanup:",e.message)); }
+  for(const u of [A,B]){ await c.query(`delete from app."SyncLog" where "storeId"=$1`,[u.user.stores[0].id]).catch(()=>{}); await c.query(`delete from app."User" where id=$1`,[u.user.id]).catch(e=>console.log("cleanup:",e.message)); }
   console.log("leftover temp users:",(await c.query(`select count(*)::int n from app."User" where email like 'tmp-%'`)).rows[0].n);
   await c.end(); console.log(fails?`\n${fails} FAILED`:"\nALL PASSED"); process.exit(fails?1:0);
  }

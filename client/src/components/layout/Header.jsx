@@ -18,7 +18,6 @@ const pageTitles = {
   '/trendyol-send': 'Pazaryerine Gönder',
   '/orders': 'Sipariş Yönetimi',
   '/pricing': 'Fiyat Şablonları',
-  '/content-rules': 'Yasaklı Kelimeler',
 };
 
 export default function Header({ onMenuClick }) {

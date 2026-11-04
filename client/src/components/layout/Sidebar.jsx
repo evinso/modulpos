@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, FolderTree, Send, ArrowLeftRight, Shield, Globe, Wallet, CreditCard, Activity, Truck, TrendingUp, Ban, ChevronDown, RefreshCw, BookOpen, Flower } from 'lucide-react';
+import { LayoutDashboard, Package, FileCode2, Store, ShoppingCart, Tags, MessageSquare, FolderTree, Send, ArrowLeftRight, Shield, Globe, Wallet, CreditCard, Activity, Truck, TrendingUp, ChevronDown, RefreshCw, BookOpen, Flower } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import api from '../../services/api';
 
@@ -298,9 +298,6 @@ export default function Sidebar({ isOpen }) {
           <div className="sidebar-section-title">Yönetim</div>
           <NavLink to="/pricing" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <Tags size={18} className="icon" /><span>Fiyat Şablonları</span>
-          </NavLink>
-          <NavLink to="/content-rules" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <Ban size={18} className="icon" /><span>Yasaklı Kelimeler</span>
           </NavLink>
           <NavLink to="/credits" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <Wallet size={18} className="icon" /><span>Kredi & Bakiye</span>

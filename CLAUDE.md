@@ -30,5 +30,5 @@ cd client && npm install && npm run dev         # VITE_API_BASE_URL in client/.e
 * **Auth**: httpOnly cookie session (`utils/sessionCookie.js`, `middleware/auth.js`); never store the JWT in browser storage or URLs.
   Cookie-authenticated unsafe requests need the `X-Requested-With` header (CSRF guard). Bearer tokens remain valid for scripts.
 * Marketplace credentials are encrypted at rest by a Prisma client extension (`config/database.js`); responses never include them.
-* Content rules (forbidden words) are applied to the stored copy; the original feed text stays in `Product.rawXmlData`.
+* The original feed values stay in `Product.rawXmlData` (used to detect what changed on the next sync).
 * Free-tier hosting: the API sleeps without traffic; cron jobs only run while awake (see DEPLOY_RENDER.md).

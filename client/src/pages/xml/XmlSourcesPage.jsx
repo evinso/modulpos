@@ -869,7 +869,6 @@ export default function XmlSourcesPage() {
                       <div className="form-group"><label className="form-label">Markası olmayanlar için marka</label>
                         <input className="form-input" placeholder="ör: Markasız" value={addOptions.defaultBrand} onChange={e => setAddOptions({ ...addOptions, defaultBrand: e.target.value })} /></div>
                     </div>
-                    <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '-6px 0 16px' }}>Yasaklı kelimeler için <a href="/content-rules">Yasaklı Kelimeler</a> sayfasındaki kurallar ayrıca uygulanır.</p>
 
                     <h5 style={{ fontSize: 13, margin: '0 0 8px' }}>💱 Fiyat</h5>
                     <div className="grid grid-2">

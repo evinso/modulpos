@@ -189,7 +189,7 @@ async function writeResilient(items, writeChunk, writeOne) {
   return failed;
 }
 
-async function execute(source, syncLog, trigger, ruleHooks, ctl = { aborted: false }) {
+async function execute(source, syncLog, trigger, ctl = { aborted: false }) {
   const checkAbort = () => { if (ctl.aborted) throw new Error('Senkron süre sınırı nedeniyle durduruldu'); };
   const storeId = source.storeId;
   const owner = source.store?.userId;
@@ -219,7 +219,7 @@ async function execute(source, syncLog, trigger, ruleHooks, ctl = { aborted: fal
   const updates = [];
   const logs = [];
   const seen = new Set();
-  let skipped = 0, unchanged = 0, errors = 0, blocked = 0, filtered = 0, passivated = 0, reactivated = 0;
+  let skipped = 0, unchanged = 0, errors = 0, filtered = 0, passivated = 0, reactivated = 0;
   const alerts = [];
 
   for (const p of feed) {
@@ -229,13 +229,7 @@ async function execute(source, syncLog, trigger, ruleHooks, ctl = { aborted: fal
       if (seen.has(f.sku)) { skipped++; continue; } // duplicate SKU inside the same feed
       seen.add(f.sku);
 
-      // Content rules (forbidden words etc.) apply to the stored copy only
-      let title = shapeText(f.title, opts), description = f.description;
-      if (ruleHooks) {
-        const out = ruleHooks.apply({ title, description });
-        title = out.title; description = out.description;
-        if (out.blocked) blocked++;
-      }
+      const title = shapeText(f.title, opts), description = f.description;
 
       const ex = bySku.get(f.sku);
       if (ex && opts.mode === 'create_only') { unchanged++; continue; }
@@ -360,7 +354,7 @@ async function execute(source, syncLog, trigger, ruleHooks, ctl = { aborted: fal
     where: { id: syncLog.id },
     data: {
       status: 'completed', itemCount: created + updated, created, updated, skipped, errorCount: errors,
-      completedAt: new Date(), details: JSON.stringify({ total: feed.length, unchanged, blocked, filtered, passivated, reactivated, priceAlerts: alerts.length, alertSamples: alerts.slice(0, 10), trigger }),
+      completedAt: new Date(), details: JSON.stringify({ total: feed.length, unchanged, filtered, passivated, reactivated, priceAlerts: alerts.length, alertSamples: alerts.slice(0, 10), trigger }),
     },
   });
   await prisma.xmlSource.update({
@@ -368,7 +362,7 @@ async function execute(source, syncLog, trigger, ruleHooks, ctl = { aborted: fal
   });
 
   productListCache.invalidate(storeId);
-  const result = { total: feed.length, created, updated, unchanged, skipped, errors, blocked, filtered, passivated, priceAlerts: alerts.length };
+  const result = { total: feed.length, created, updated, unchanged, skipped, errors, filtered, passivated, priceAlerts: alerts.length };
 
   const skippedNote = (skipped > 0 ? ` ${skipped} ürün atlandı (limit/tekrar).` : '')
     + (filtered > 0 ? ` ${filtered} ürün filtrelere takıldı.` : '')
@@ -425,11 +419,6 @@ async function startXmlSync(xmlSourceId, { trigger = 'manual', userId = null } =
 
   const promise = (async () => {
     try {
-      let ruleHooks = null;
-      try {
-        const { loadContentRules } = require('../contentRules');
-        ruleHooks = await loadContentRules(source.storeId);
-      } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') console.error('[XML Sync] content rules:', e.message); }
       // Hard upper bound: a sync that overruns is abandoned and the source is released for the next attempt
       const limitMs = (parseInt(process.env.SYNC_MAX_MINUTES, 10) || 30) * 60 * 1000;
       const ctl = { aborted: false };
@@ -438,7 +427,7 @@ async function startXmlSync(xmlSourceId, { trigger = 'manual', userId = null } =
         timer = setTimeout(() => { ctl.aborted = true; reject(new Error(`Senkron ${limitMs / 60000} dakikayı aştığı için iptal edildi`)); }, limitMs);
       });
       try {
-        return await Promise.race([execute(source, syncLog, trigger, ruleHooks, ctl), deadline]);
+        return await Promise.race([execute(source, syncLog, trigger, ctl), deadline]);
       } finally {
         clearTimeout(timer);
       }
@@ -488,4 +477,4 @@ function isRunning(xmlSourceId) {
   return running.has(xmlSourceId);
 }
 
-module.exports = { startXmlSync, failStaleSyncs, failAbandonedSyncs, isRunning, normalizeOptions, shapeText };
+module.exports = { startXmlSync, failStaleSyncs, failAbandonedSyncs, isRunning };

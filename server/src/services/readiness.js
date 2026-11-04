@@ -1,6 +1,5 @@
 const prisma = require('../config/database');
 const { loadPricingContext } = require('./pricingEngine');
-const { loadContentRules } = require('./contentRules');
 
 /**
  * "Is this product safe to send to the marketplace?"
@@ -31,7 +30,6 @@ const ISSUE = {
   NO_IMAGE: 'no_image',
   BAD_VAT: 'bad_vat',
   BAD_STOCK: 'bad_stock',
-  BLOCKED_WORD: 'blocked_words',
   REJECTED: 'rejected_by_marketplace',
   MISSING_ATTR: 'missing_attributes',
   NO_BRAND: 'no_brand',
@@ -114,11 +112,10 @@ class MappingIndex {
 }
 
 class ReadinessContext {
-  constructor({ indexes, globalCatMap, priceCtx, ruleSet, dupBarcodes, dupWinner, mpByProduct, requiredAttrs, brandCfg }) {
+  constructor({ indexes, globalCatMap, priceCtx, dupBarcodes, dupWinner, mpByProduct, requiredAttrs, brandCfg }) {
     this.indexes = indexes; // xmlSourceId ('' = legacy, shared) -> MappingIndex
     this.globalCatMap = globalCatMap;
     this.priceCtx = priceCtx;
-    this.ruleSet = ruleSet;
     this.dupBarcodes = dupBarcodes;
     this.dupWinner = dupWinner;
     this.requiredAttrs = requiredAttrs;
@@ -214,9 +211,6 @@ class ReadinessContext {
       }
     }
 
-    const blocked = this.ruleSet.findBlocked({ title: p.title, description: p.description });
-    if (blocked.length) add(ISSUE.BLOCKED_WORD, `Yasaklı kelime: ${blocked.join(', ')}`);
-
     // A product the marketplace already rejected is not re-sent until it has changed
     const mp = this.mpByProduct.get(p.id);
     if (mp && mp.status === 'rejected' && p.updatedAt && mp.updatedAt && new Date(p.updatedAt) <= new Date(mp.updatedAt)) {
@@ -240,10 +234,9 @@ class ReadinessContext {
 async function buildReadinessContext(connection, { xmlSourceIds = null } = {}) {
   const storeId = connection.storeId;
 
-  const [catMappings, priceCtx, ruleSet, dupRows, mps] = await Promise.all([
+  const [catMappings, priceCtx, dupRows, mps] = await Promise.all([
     prisma.categoryMapping.findMany({ where: { connectionId: connection.id } }),
     loadPricingContext(storeId, connection.id),
-    loadContentRules(storeId),
     prisma.product.groupBy({ by: ['barcode'], where: { storeId, barcode: { not: null } }, _count: { _all: true }, having: { barcode: { _count: { gt: 1 } } } }),
     prisma.marketplaceProduct.findMany({
       where: { connectionId: connection.id },
@@ -306,7 +299,6 @@ async function buildReadinessContext(connection, { xmlSourceIds = null } = {}) {
     indexes,
     globalCatMap,
     priceCtx,
-    ruleSet,
     dupBarcodes,
     dupWinner,
     mpByProduct: new Map(mps.map((m) => [m.productId, m])),

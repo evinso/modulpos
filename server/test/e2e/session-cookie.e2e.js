@@ -22,9 +22,9 @@ const ORIGIN = process.env.WEB_ORIGIN || 'https://modulpos.com';
     ok('CORS: exact origin + credentials allowed', reg.r.headers.get('access-control-allow-origin') === ORIGIN && reg.r.headers.get('access-control-allow-credentials') === 'true');
 
     const me = await xhr('GET', '/auth/me'); ok('GET /auth/me works with the cookie alone (no Authorization header)', me.r.status === 200 && me.d.email === email);
-    const noCsrf = await xhr('POST', '/content-rules/test', { body: { title: 'x' }, csrf: false });
+    const noCsrf = await xhr('POST', '/pricing/calculate', { body: { purchasePrice: 100, value: 10, conditions: {} }, csrf: false });
     ok('state-changing request WITHOUT the X-Requested-With header is refused (CSRF)', noCsrf.r.status === 403, String(noCsrf.r.status));
-    const withCsrf = await xhr('POST', '/content-rules/test', { body: { title: 'x' } });
+    const withCsrf = await xhr('POST', '/pricing/calculate', { body: { purchasePrice: 100, value: 10, conditions: {} } });
     ok('same request WITH the header succeeds', withCsrf.r.status === 200, String(withCsrf.r.status));
     const getNoHeader = await xhr('GET', '/auth/me', { csrf: false }); ok('safe GET does not need the header', getNoHeader.r.status === 200);
 

@@ -56,16 +56,8 @@ const base = 'https://raw.githubusercontent.com/evinso/modulpos/main/server/test
     // brand check: no brand + no default brand on the connection => blocked
     const noBrand = list.products.filter((p) => !p.brand);
     ok('products without a brand are blocked when the connection has no default brand', list.stats.byIssue.no_brand === undefined || noBrand.every((p) => p.issues.some((i) => i.code === 'no_brand')), 'no_brand=' + (list.stats.byIssue.no_brand || 0));
-
-    // content rules apply runs as a background job
-    await call('POST', '/content-rules', { pattern: 'Wireless', action: 'replace', replacement: 'Kablosuz' });
-    const start = await call('POST', '/content-rules/apply', { dryRun: false }); ok('apply starts a background job (202)', start.s === 202, String(start.s));
-    let job; for (let i = 0; i < 40; i++) { await new Promise((r) => setTimeout(r, 1000)); job = (await call('GET', '/content-rules/apply/status')).d.job; if (job && job.state !== 'running') break; }
-    ok('background job finishes and rewrites titles', job && job.state === 'done' && job.changed >= 1, JSON.stringify(job && { state: job.state, scanned: job.scanned, changed: job.changed }));
-    ok('title really changed', (await c.query(`select count(*)::int n from app."Product" where "storeId"=$1 and title like 'Kablosuz%'`, [storeId])).rows[0].n >= 1);
   } catch (e) { console.log('ERROR', e); fails++; } finally {
     await c.query(`delete from app."SyncLog" where "storeId"=$1`, [storeId]).catch(() => {});
-    await c.query(`delete from app."ContentRule" where "storeId"=$1`, [storeId]).catch(() => {});
     await c.query(`delete from app."User" where id=$1`, [reg.user.id]).catch((e) => console.log('cleanup:', e.message));
     console.log('leftover temp users:', (await c.query(`select count(*)::int n from app."User" where email like 'tmp-%'`)).rows[0].n);
     await c.end(); console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED'); process.exit(fails ? 1 : 0);
