@@ -25,7 +25,8 @@ function connString() {
 }
 
 async function* readRows(file) {
-  const rl = readline.createInterface({ input: fs.createReadStream(file).pipe(zlib.createGunzip()), crlfDelay: Infinity });
+  const raw = fs.createReadStream(file);
+  const rl = readline.createInterface({ input: file.endsWith('.gz') ? raw.pipe(zlib.createGunzip()) : raw, crlfDelay: Infinity });
   for await (const line of rl) if (line.trim()) yield JSON.parse(line);
 }
 
@@ -67,7 +68,8 @@ async function* readRows(file) {
       const r = await client.query(`INSERT INTO "${target}"."${t}" SELECT * FROM jsonb_populate_recordset(null::"${target}"."${t}", $1::jsonb) ON CONFLICT DO NOTHING`, [JSON.stringify(chunk)]);
       inserted += r.rowCount; chunk = [];
     };
-    for await (const row of readRows(path.join(dir, `${sourceSchema}.${t}.ndjson.gz`))) { chunk.push(row); if (chunk.length >= 500) await flush(); }
+    const plainFile = path.join(dir, `${sourceSchema}.${t}.ndjson`);
+    for await (const row of readRows(fs.existsSync(plainFile) ? plainFile : `${plainFile}.gz`)) { chunk.push(row); if (chunk.length >= 500) await flush(); }
     await flush();
     console.log(`  ${t}: inserted ${inserted}/${expected}`);
   }

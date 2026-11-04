@@ -38,8 +38,15 @@ version does not need the new tables.
   plan removes the dependency on the keepalive.
 
 ## Backups
-Supabase's free plan has no automatic backups. Run `node server/scripts/backup.js` regularly (see the script header) and keep
-the output somewhere safe.
+Supabase's free plan has no automatic backups, so they are done separately:
+
+* **Daily, automatic:** the **private** repository `evinso/modulpos-backups` runs a GitHub Action every day at 03:30 UTC
+  (secret `DIRECT_URL` = the Supabase session URL) and commits the database as plain NDJSON under `data/`.
+  The git history is the version history; a failed run e-mails the repository owner. Restore instructions are in that repo's README.
+  Never put backup files in *this* repository – it is public.
+* **Manual:** `node server/scripts/backup.js` (timestamped, compressed, `~/modulpos-backups`) – see the script header.
+* The backups contain personal data. Keep the backup repository private, protect the GitHub account with two-factor authentication,
+  and keep a copy of `ENCRYPTION_KEY` in a password manager (stored marketplace credentials are unreadable without it).
 
 ## Rollback
 Render dashboard → service → *Deploys* → redeploy a previous commit. Schema changes are additive, so older code keeps working.
