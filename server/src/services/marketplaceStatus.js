@@ -63,23 +63,43 @@ function rejectReasonOf(tp) {
 }
 
 /**
- * Listings we show as "removed" (passive) that the marketplace now sells again, e.g. after the seller revised them in
- * the marketplace panel. `findOnSale(code)` asks the marketplace; `apply(row)` records the change. At most `max` per run,
- * and the first failed query stops the run (the marketplace may be unavailable), leaving everything as it was.
+ * What the marketplace says about a barcode we show as removed (passive).
+ *   sells it                                   -> { state: 'active' }
+ *   waiting for review (revised and resubmitted) -> { state: 'pending' }
+ *   still flagged                              -> { state: 'rejected', reason }
+ *   not found in either list                   -> null
+ * `onSaleItems` = approved & on sale matches, `unapprovedItems` = not approved yet matches (both for this barcode).
  */
-async function recoverOnSale(rows, findOnSale, apply, max = 30) {
-  let recovered = 0;
+function classifyRemoved(code, onSaleItems, unapprovedItems) {
+  const same = (tp) => !!tp && (tp.barcode === code || tp.stockCode === code);
+  if ((onSaleItems || []).some(same)) return { state: 'active' };
+  const tp = (unapprovedItems || []).find(same);
+  if (!tp) return null;
+  const reason = rejectReasonOf(tp);
+  if (tp.rejected === true || reason) return { state: 'rejected', reason };
+  return { state: 'pending' };
+}
+
+/**
+ * Looks the removed listings up again, e.g. after the seller revised them in the marketplace panel.
+ * `lookup(code)` asks the marketplace (see classifyRemoved); `apply(row, result)` records what it said.
+ * At most `max` per run, and the first failed lookup stops the run (the marketplace may be unavailable),
+ * leaving everything as it was. Returns how many became active / pending / got an updated reason.
+ */
+async function reviveRemoved(rows, lookup, apply, max = 30) {
+  const done = { active: 0, pending: 0, reason: 0 };
   for (const mp of rows.slice(0, max)) {
     const code = mp.product && (mp.product.barcode || mp.product.sku);
     if (!code) continue;
-    let items;
-    try { items = await findOnSale(code); } catch { break; }
-    if (Array.isArray(items) && items.some((tp) => tp && (tp.barcode === code || tp.stockCode === code))) {
-      await apply(mp);
-      recovered++;
-    }
+    let result;
+    try { result = await lookup(code); } catch { break; }
+    if (!result) continue;
+    await apply(mp, result);
+    if (result.state === 'active') done.active++;
+    else if (result.state === 'pending') done.pending++;
+    else done.reason++;
   }
-  return recovered;
+  return done;
 }
 
-module.exports = { isAlreadyListedMessage, classifyBatchItem, healAlreadyListed, rejectReasonOf, recoverOnSale };
+module.exports = { isAlreadyListedMessage, classifyBatchItem, healAlreadyListed, rejectReasonOf, classifyRemoved, reviveRemoved };

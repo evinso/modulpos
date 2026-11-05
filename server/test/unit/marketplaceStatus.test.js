@@ -34,7 +34,7 @@ test('update batches and unfinished items change nothing on success', () => {
   assert.deepEqual(classifyBatchItem({ itemStatus: 'IN_PROGRESS', isOnboarding: true, failureReasons: [], current: { status: 'pending', error: 'x' } }), { status: 'pending', error: 'x' });
 });
 
-const { rejectReasonOf, recoverOnSale } = require('../../src/services/marketplaceStatus');
+const { rejectReasonOf } = require('../../src/services/marketplaceStatus');
 
 test('the marketplace\'s own rejection reason is kept, whichever field carries it', () => {
   assert.equal(rejectReasonOf({ rejectReason: 'Yasaklı Kelime: Çeyrek' }), 'Yasaklı Kelime: Çeyrek');
@@ -45,28 +45,46 @@ test('the marketplace\'s own rejection reason is kept, whichever field carries i
   assert.equal(rejectReasonOf(null), null);
 });
 
+const { classifyRemoved, reviveRemoved } = require('../../src/services/marketplaceStatus');
 const row = (id, barcode) => ({ id, product: { barcode, sku: 'S-' + id } });
 
-test('a removed listing the marketplace sells again becomes active; others stay as they are', async () => {
+test('removed listing: on sale again -> active', () => {
+  assert.deepEqual(classifyRemoved('B1', [{ barcode: 'B1' }], []), { state: 'active' });
+  assert.deepEqual(classifyRemoved('B1', [{ stockCode: 'B1' }], [{ barcode: 'B1', rejected: true }]), { state: 'active' });
+});
+test('removed listing: revised and waiting for review -> pending', () => {
+  assert.deepEqual(classifyRemoved('B1', [], [{ barcode: 'B1', approved: false, rejected: false }]), { state: 'pending' });
+  assert.deepEqual(classifyRemoved('B1', [], [{ barcode: 'B1' }]), { state: 'pending' });
+});
+test('removed listing: still flagged -> rejected, with the marketplace\'s reason', () => {
+  assert.deepEqual(classifyRemoved('B1', [], [{ barcode: 'B1', rejected: true, rejectReason: 'Yasaklı Kelime' }]), { state: 'rejected', reason: 'Yasaklı Kelime' });
+  assert.deepEqual(classifyRemoved('B1', [], [{ barcode: 'B1', rejected: true }]), { state: 'rejected', reason: null });
+  assert.deepEqual(classifyRemoved('B1', [], [{ barcode: 'B1', rejectReasonDetails: [{ reason: 'Yasaklı Kelime' }] }]), { state: 'rejected', reason: 'Yasaklı Kelime' });
+});
+test('removed listing: other barcodes in the answer or no answer -> unknown', () => {
+  assert.equal(classifyRemoved('B1', [{ barcode: 'B2' }], [{ barcode: 'B3' }]), null);
+  assert.equal(classifyRemoved('B1', [], []), null);
+  assert.equal(classifyRemoved('B1', null, undefined), null);
+});
+
+test('reviving: every row is looked up, results are applied, counts add up', async () => {
   const applied = [];
-  const n = await recoverOnSale([row('a', 'B1'), row('b', 'B2'), row('c', 'B3')],
-    async (code) => (code === 'B2' ? [{ barcode: 'B2' }] : code === 'B3' ? [{ barcode: 'SOMETHING-ELSE' }] : []),
-    async (mp) => { applied.push(mp.id); });
-  assert.equal(n, 1); assert.deepEqual(applied, ['b']);
+  const answers = { B1: { state: 'active' }, B2: { state: 'pending' }, B3: null, B4: { state: 'rejected', reason: 'x' } };
+  const n = await reviveRemoved([row('a', 'B1'), row('b', 'B2'), row('c', 'B3'), row('d', 'B4')], async (code) => answers[code], async (mp, r) => { applied.push([mp.id, r.state]); });
+  assert.deepEqual(n, { active: 1, pending: 1, reason: 1 });
+  assert.deepEqual(applied, [['a', 'active'], ['b', 'pending'], ['d', 'rejected']]);
 });
-
-test('recovery stops quietly when the marketplace query fails and changes nothing', async () => {
+test('reviving stops quietly when the marketplace query fails and changes nothing', async () => {
   const applied = []; let calls = 0;
-  const n = await recoverOnSale([row('a', 'B1'), row('b', 'B2')], async () => { calls++; throw new Error('426'); }, async (mp) => { applied.push(mp.id); });
-  assert.equal(n, 0); assert.equal(calls, 1); assert.deepEqual(applied, []);
+  const n = await reviveRemoved([row('a', 'B1'), row('b', 'B2')], async () => { calls++; throw new Error('426'); }, async (mp) => { applied.push(mp.id); });
+  assert.deepEqual(n, { active: 0, pending: 0, reason: 0 }); assert.equal(calls, 1); assert.deepEqual(applied, []);
 });
-
-test('recovery looks at no more than the given number of listings and skips rows without a barcode', async () => {
+test('reviving looks at no more than the given number of listings and skips rows without a barcode', async () => {
   let calls = 0;
   const rows = [row('a', 'B1'), { id: 'x', product: {} }, row('c', 'B3'), row('d', 'B4')];
-  await recoverOnSale(rows, async () => { calls++; return []; }, async () => {}, 2);
-  assert.equal(calls, 1);      // only the first two rows are looked at, and the one without a barcode is skipped
+  await reviveRemoved(rows, async () => { calls++; return null; }, async () => {}, 2);
+  assert.equal(calls, 1);
   calls = 0;
-  await recoverOnSale(rows, async () => { calls++; return []; }, async () => {}, 3);
-  assert.equal(calls, 2);      // a and c
+  await reviveRemoved(rows, async () => { calls++; return null; }, async () => {}, 3);
+  assert.equal(calls, 2);
 });

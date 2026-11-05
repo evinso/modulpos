@@ -190,7 +190,7 @@ export default function TrendyolSendPage() {
       const res = await api.post(`/marketplace/connections/${selectedConn.id}/sync-status`);
       fetchProducts(true);
       const d = res.data;
-      toast.success(`Güncellendi: ${d.activated || 0} aktif, ${d.rejected || 0} reddedildi, ${d.passived || 0} kaldırıldı`);
+      toast.success(`Güncellendi: ${d.activated || 0} aktif, ${d.rejected || 0} reddedildi, ${d.passived || 0} kaldırıldı${d.revivedPending ? `, ${d.revivedPending} onay bekliyor` : ''}`);
     } catch { toast.error('Durum sorgulanamadı'); }
     finally { setSyncingStatus(false); }
   };

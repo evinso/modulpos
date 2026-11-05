@@ -10,7 +10,7 @@ const whatsappService = require('../services/whatsappService');
 const { loadPricingContext, PricingContext } = require('../services/pricingEngine');
 const { buildReadinessContext } = require('../services/readiness');
 const SS = require('../services/sendSettings');
-const { classifyBatchItem, healAlreadyListed, rejectReasonOf, recoverOnSale } = require('../services/marketplaceStatus');
+const { classifyBatchItem, healAlreadyListed, rejectReasonOf, classifyRemoved, reviveRemoved } = require('../services/marketplaceStatus');
 
 const parseConfig = (conn) => { try { return conn && conn.config ? JSON.parse(conn.config) : {}; } catch { return {}; } };
 const productListCache = require('../services/productListCache');
@@ -2177,16 +2177,34 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
       // Listings an earlier sync marked "rejected" only because the marketplace said "same barcode already exists"
       const healed = await healAlreadyListed(connection.id);
 
-      // Listings we show as removed that the marketplace sells again (e.g. revised in its panel) become active again
+      // Listings we show as removed: after the seller revised them in the marketplace panel they are on sale again
+      // or waiting for the marketplace's review. Ask the marketplace, one barcode at a time.
       const passiveRows = await prisma.marketplaceProduct.findMany({
         where: { connectionId: connection.id, status: 'passive' },
         include: { product: { select: { barcode: true, sku: true } } },
         orderBy: { updatedAt: 'asc' }, take: 30,
       });
-      const recovered = await recoverOnSale(
+      const revived = await reviveRemoved(
         passiveRows,
-        async (code) => (await service.getFilteredProducts({ barcode: code, approved: true, onSale: true }, 0, 5))?.content || [],
-        (mp) => prisma.marketplaceProduct.update({ where: { id: mp.id }, data: { status: 'active', errorMessage: null, lastSyncedAt: new Date() } }),
+        async (code) => {
+          const onSale = (await service.getFilteredProducts({ barcode: code, approved: true, onSale: true }, 0, 5))?.content || [];
+          const unapproved = onSale.length ? [] : ((await service.getFilteredProducts({ barcode: code, approved: false, archived: false }, 0, 5))?.content || []);
+          const result = classifyRemoved(code, onSale, unapproved);
+          const tp = unapproved.find((x) => x && (x.barcode === code || x.stockCode === code)) || onSale[0] || null;
+          console.log('[Trendyol Revive]', code, result ? result.state : 'not found',
+            tp ? JSON.stringify({ approved: tp.approved, rejected: tp.rejected, archived: tp.archived, onSale: tp.onSale, blacklisted: tp.blacklisted, hasReason: !!rejectReasonOf(tp) }) : '');
+          return result;
+        },
+        async (mp, r) => {
+          if (r.state === 'active') {
+            await prisma.marketplaceProduct.update({ where: { id: mp.id }, data: { status: 'active', errorMessage: null, lastSyncedAt: new Date() } });
+          } else if (r.state === 'pending') {
+            // waiting for review again; the old creation batch says nothing about this, so it is forgotten
+            await prisma.marketplaceProduct.update({ where: { id: mp.id }, data: { status: 'pending', errorMessage: null, batchRequestId: null, lastSyncedAt: new Date() } });
+          } else if (r.reason && r.reason !== mp.errorMessage) {
+            await prisma.marketplaceProduct.update({ where: { id: mp.id }, data: { errorMessage: r.reason, lastSyncedAt: new Date() } });
+          }
+        },
       );
 
       // Get all pending products
@@ -2195,8 +2213,8 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
         include: { product: true }
       });
 
-      let updatedCount = healed + recovered;
-      let activated = healed + recovered;
+      let updatedCount = healed + revived.active + revived.pending;
+      let activated = healed + revived.active;
       let rejected = 0;
       let batchChecked = 0;
       let fallbackChecked = 0;
@@ -2522,6 +2540,7 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
         rejected,
         discovered,
         passived,
+        revivedPending: revived.pending,
         batchChecked,
         fallbackChecked,
         errors: errorMessages

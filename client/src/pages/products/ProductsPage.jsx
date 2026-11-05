@@ -177,10 +177,10 @@ export default function ProductsPage() {
     setSyncingStatus(true);
     try {
       const trendyol = connections.filter((c) => c.marketplaceType === 'trendyol');
-      const agg = { updated: 0, activated: 0, rejected: 0, discovered: 0, passived: 0, batchChecked: 0, fallbackChecked: 0, errors: [], connections: [] };
+      const agg = { updated: 0, activated: 0, rejected: 0, discovered: 0, passived: 0, revivedPending: 0, batchChecked: 0, fallbackChecked: 0, errors: [], connections: [] };
       for (const conn of trendyol) {
         const d = (await api.post(`/marketplace/connections/${conn.id}/sync-status`)).data;
-        for (const k of ['updated', 'activated', 'rejected', 'discovered', 'passived', 'batchChecked', 'fallbackChecked']) agg[k] += d[k] || 0;
+        for (const k of ['updated', 'activated', 'rejected', 'discovered', 'passived', 'revivedPending', 'batchChecked', 'fallbackChecked']) agg[k] += d[k] || 0;
         agg.errors.push(...(d.errors || [])); agg.connections.push({ name: conn.supplierName || conn.marketplaceType, ...d });
       }
       agg.syncedAt = new Date().toLocaleString('tr-TR');
@@ -567,7 +567,7 @@ export default function ProductsPage() {
                 {[
                   ['Güncellenen', syncResult.updated, 'var(--accent-primary)'], ['Satışa geçen', syncResult.activated, 'var(--success)'],
                   ['Reddedilen', syncResult.rejected, 'var(--danger)'], ['Trendyol’da bulunan', syncResult.discovered, 'var(--warning)'],
-                  ['Kaldırılan', syncResult.passived || 0, '#f97316'],
+                  ['Kaldırılan', syncResult.passived || 0, '#f97316'], ['Onay bekliyor', syncResult.revivedPending || 0, 'var(--warning)'],
                 ].map(([l, v, c]) => (
                   <div key={l} style={{ padding: '12px 14px', borderRadius: 10, background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
                     <div style={{ fontSize: 22, fontWeight: 800, color: v > 0 ? c : 'var(--text-muted)' }}>{v}</div>
@@ -581,7 +581,7 @@ export default function ProductsPage() {
                   {syncResult.errors.map((e, i) => <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 3 }}>• {e}</div>)}
                 </div>
               )}
-              {syncResult.updated === 0 && syncResult.discovered === 0 && !syncResult.passived && syncResult.errors.length === 0 && (
+              {syncResult.updated === 0 && syncResult.discovered === 0 && !syncResult.passived && !syncResult.revivedPending && syncResult.errors.length === 0 && (
                 <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>Tüm durumlar güncel, değişen ürün yok.</div>
               )}
             </div>
