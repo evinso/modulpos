@@ -46,6 +46,7 @@ export const ISSUE_LABELS = {
   no_brand: 'Marka yok',
   excluded_by_settings: 'Gönderim ayarlarına takıldı',
   already_listed: 'Trendyol’da zaten var',
+  off_sale: 'Trendyol’da var ama satışta değil',
 };
 
 export function Thumb({ src, size = 40, radius = 8 }) {

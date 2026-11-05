@@ -232,6 +232,7 @@ class ReadinessContext {
     return {
       ready: issues.length === 0,
       listed,                    // already on the marketplace (or being created there): a create request would only fail
+      offSale: !!(mp && mp.status === 'passive'), // on the marketplace but removed/rejected there: it has to be fixed in the marketplace panel
       issues,
       salePrice,
       priceRule: priced ? { id: priced.ruleId, name: priced.ruleName } : null,

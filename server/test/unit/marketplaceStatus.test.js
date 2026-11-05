@@ -33,3 +33,40 @@ test('update batches and unfinished items change nothing on success', () => {
   assert.deepEqual(classifyBatchItem({ itemStatus: 'SUCCESS', isOnboarding: false, failureReasons: [], current: cur }), { status: 'pending', error: null });
   assert.deepEqual(classifyBatchItem({ itemStatus: 'IN_PROGRESS', isOnboarding: true, failureReasons: [], current: { status: 'pending', error: 'x' } }), { status: 'pending', error: 'x' });
 });
+
+const { rejectReasonOf, recoverOnSale } = require('../../src/services/marketplaceStatus');
+
+test('the marketplace\'s own rejection reason is kept, whichever field carries it', () => {
+  assert.equal(rejectReasonOf({ rejectReason: 'Yasaklı Kelime: Çeyrek' }), 'Yasaklı Kelime: Çeyrek');
+  assert.equal(rejectReasonOf({ rejectReasonDetails: [{ reason: 'Yasaklı Kelime' }, { description: 'Görsel hatalı' }] }), 'Yasaklı Kelime; Görsel hatalı');
+  assert.equal(rejectReasonOf({ rejectReason: 'A', rejectReasonDetails: ['A', 'B'] }), 'A; B');
+  assert.equal(rejectReasonOf({ rejectReason: '  ' }), null);
+  assert.equal(rejectReasonOf({}), null);
+  assert.equal(rejectReasonOf(null), null);
+});
+
+const row = (id, barcode) => ({ id, product: { barcode, sku: 'S-' + id } });
+
+test('a removed listing the marketplace sells again becomes active; others stay as they are', async () => {
+  const applied = [];
+  const n = await recoverOnSale([row('a', 'B1'), row('b', 'B2'), row('c', 'B3')],
+    async (code) => (code === 'B2' ? [{ barcode: 'B2' }] : code === 'B3' ? [{ barcode: 'SOMETHING-ELSE' }] : []),
+    async (mp) => { applied.push(mp.id); });
+  assert.equal(n, 1); assert.deepEqual(applied, ['b']);
+});
+
+test('recovery stops quietly when the marketplace query fails and changes nothing', async () => {
+  const applied = []; let calls = 0;
+  const n = await recoverOnSale([row('a', 'B1'), row('b', 'B2')], async () => { calls++; throw new Error('426'); }, async (mp) => { applied.push(mp.id); });
+  assert.equal(n, 0); assert.equal(calls, 1); assert.deepEqual(applied, []);
+});
+
+test('recovery looks at no more than the given number of listings and skips rows without a barcode', async () => {
+  let calls = 0;
+  const rows = [row('a', 'B1'), { id: 'x', product: {} }, row('c', 'B3'), row('d', 'B4')];
+  await recoverOnSale(rows, async () => { calls++; return []; }, async () => {}, 2);
+  assert.equal(calls, 1);      // only the first two rows are looked at, and the one without a barcode is skipped
+  calls = 0;
+  await recoverOnSale(rows, async () => { calls++; return []; }, async () => {}, 3);
+  assert.equal(calls, 2);      // a and c
+});

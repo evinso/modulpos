@@ -16,13 +16,14 @@ const DUP = (b) => `Aynı barkodlu bir ürününüz bulunduğundan yeni ürün o
   try {
     const conn = (await c.query(`insert into app."MarketplaceConnection"(id,"storeId","marketplaceType","sellerId","apiKey","apiSecret","updatedAt") values(gen_random_uuid(),$1,'trendyol','1','k','s',now()) returning id`, [store.id])).rows[0].id;
     const mkp = async (sku) => (await a('POST', '/products', { sku, barcode: 'e2e-' + sku, title: 'Ürün ' + sku, price: 100, stock: 10, vatRate: 20, category: 'Kolye' })).d;
-    const P = {}; for (const k of ['active', 'pending', 'dup', 'real', 'fresh']) P[k] = await mkp(k);
+    const P = {}; for (const k of ['active', 'pending', 'dup', 'real', 'fresh', 'off']) P[k] = await mkp(k);
     ok('products created', Object.values(P).every((p) => p && p.id));
     const mp = (pid, status, msg) => c.query(`insert into app."MarketplaceProduct"(id,"productId","connectionId",status,"errorMessage","updatedAt") values(gen_random_uuid(),$1,$2,$3,$4,now())`, [pid, conn, status, msg]);
     await mp(P.active.id, 'active', null);
     await mp(P.pending.id, 'pending', null);
     await mp(P.dup.id, 'rejected', DUP('e2e-dup'));
     await mp(P.real.id, 'rejected', 'Marka geçersiz');
+    await mp(P.off.id, 'passive', 'Yasaklı Kelime: Çeyrek');
     const st = async () => Object.fromEntries((await c.query(`select p.sku,mp.status,mp."errorMessage" from app."MarketplaceProduct" mp join app."Product" p on p.id=mp."productId" where mp."connectionId"=$1`, [conn])).rows.map((r) => [r.sku, { status: r.status, err: r.errorMessage }]));
 
     // the list must not show the "already exists" answer as a blocking rejection, a real rejection stays blocked
@@ -35,8 +36,11 @@ const DUP = (b) => `Aynı barkodlu bir ürününüz bulunduğundan yeni ürün o
     const all = await a('POST', `/marketplace/connections/${conn}/send-all-ready`, { minStock: 0 });
     ok('send-all-ready skips products that are already on the marketplace (active, pending, "already exists")', all.s === 400 && all.d.skipReasons && all.d.skipReasons.already_listed === 3, JSON.stringify(all.d && all.d.skipReasons));
     ok('a real rejection and a never-sent product are not counted as "already listed"', (all.d.skipped || 0) >= 3 && all.d.skipReasons.already_listed === 3);
+    ok('a product that is on the marketplace but removed there is skipped with its own reason (not re-sent, not flipped to active)', all.d.skipReasons.off_sale === 1, JSON.stringify(all.d.skipReasons));
 
     // sending selected products: same rule, clear message
+    const offSel = await a('POST', `/marketplace/connections/${conn}/send-products`, { productIds: [P.off.id] });
+    ok('send-products tells the user the removed product has to be fixed in the marketplace panel', offSel.s === 400 && /satışta değil/i.test(offSel.d.error || '') && offSel.d.offSale === 1, JSON.stringify(offSel.d).slice(0, 140));
     const sel = await a('POST', `/marketplace/connections/${conn}/send-products`, { productIds: [P.active.id, P.pending.id, P.dup.id] });
     ok('send-products refuses already listed products with a clear message', sel.s === 400 && /zaten Trendyol/i.test(sel.d.error || '') && sel.d.alreadyListed === 3, JSON.stringify(sel.d).slice(0, 140));
     const after1 = await st();
@@ -48,6 +52,7 @@ const DUP = (b) => `Aynı barkodlu bir ürününüz bulunduğundan yeni ürün o
     const after2 = await st();
     ok('"already exists" rejection -> active, message cleared', after2.dup.status === 'active' && after2.dup.err === null, JSON.stringify(after2.dup));
     ok('a real rejection is left alone', after2.real.status === 'rejected' && after2.real.err === 'Marka geçersiz');
+    ok('a removed listing stays removed when the marketplace cannot confirm it is on sale again (reason kept)', after2.off.status === 'passive' && after2.off.err === 'Yasaklı Kelime: Çeyrek', JSON.stringify(after2.off));
     ok('the update reports the fixed listing as active', sync.d.activated >= 1 && sync.d.updated >= 1, `activated=${sync.d.activated}`);
     const list2 = await a('GET', `/marketplace/connections/${conn}/product-list?fresh=1&limit=50`);
     const dupRow = list2.d.products.find((p) => p.sku === 'dup');

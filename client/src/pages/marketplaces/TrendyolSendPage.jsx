@@ -36,6 +36,7 @@ const ISSUE_LABELS = {
   no_brand: 'Marka yok',
   excluded_by_settings: 'Gönderim ayarlarına takıldı',
   already_listed: 'Trendyol’da zaten var (yeniden gönderilmedi)',
+  off_sale: 'Trendyol’da var ama satışta değil (Trendyol panelinden düzeltin)',
 };
 
 export default function TrendyolSendPage() {
@@ -173,7 +174,7 @@ export default function TrendyolSendPage() {
       const res = await api.post(`/marketplace/connections/${selectedConn.id}/send-products`, {
         productIds: Array.from(selectedIds), minStock,
       });
-      setSendResult({ type: 'selected', sent: res.data.sent ?? selectedIds.size, batches: res.data.batches || 1, skipped: res.data.alreadyListed || 0, skipReasons: res.data.alreadyListed ? { already_listed: res.data.alreadyListed } : undefined, sentAt: new Date().toLocaleString('tr-TR'), message: res.data.message });
+      setSendResult({ type: 'selected', sent: res.data.sent ?? selectedIds.size, batches: res.data.batches || 1, skipped: (res.data.alreadyListed || 0) + (res.data.offSale || 0), skipReasons: (res.data.alreadyListed || res.data.offSale) ? { ...(res.data.alreadyListed ? { already_listed: res.data.alreadyListed } : {}), ...(res.data.offSale ? { off_sale: res.data.offSale } : {}) } : undefined, sentAt: new Date().toLocaleString('tr-TR'), message: res.data.message });
       toast.success(res.data.message || `${selectedIds.size} ürün gönderildi`);
       setSelectedIds(new Set());
       fetchProducts(true);

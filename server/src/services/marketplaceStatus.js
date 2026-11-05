@@ -51,4 +51,35 @@ async function healAlreadyListed(connectionId) {
   return ids.length;
 }
 
-module.exports = { isAlreadyListedMessage, classifyBatchItem, healAlreadyListed };
+/** The most specific reason the marketplace gives for a rejected product (the field it uses varies). null when it gives none. */
+function rejectReasonOf(tp) {
+  const parts = [];
+  const add = (v) => { if (v === null || v === undefined) return; const t = String(v).trim(); if (t && !parts.includes(t)) parts.push(t); };
+  if (!tp) return null;
+  add(tp.rejectReason);
+  const details = tp.rejectReasonDetails || tp.rejectReasons;
+  if (Array.isArray(details)) for (const d of details) add(typeof d === 'string' ? d : (d && (d.reason || d.reasonDescription || d.description || d.message)));
+  return parts.join('; ') || null;
+}
+
+/**
+ * Listings we show as "removed" (passive) that the marketplace now sells again, e.g. after the seller revised them in
+ * the marketplace panel. `findOnSale(code)` asks the marketplace; `apply(row)` records the change. At most `max` per run,
+ * and the first failed query stops the run (the marketplace may be unavailable), leaving everything as it was.
+ */
+async function recoverOnSale(rows, findOnSale, apply, max = 30) {
+  let recovered = 0;
+  for (const mp of rows.slice(0, max)) {
+    const code = mp.product && (mp.product.barcode || mp.product.sku);
+    if (!code) continue;
+    let items;
+    try { items = await findOnSale(code); } catch { break; }
+    if (Array.isArray(items) && items.some((tp) => tp && (tp.barcode === code || tp.stockCode === code))) {
+      await apply(mp);
+      recovered++;
+    }
+  }
+  return recovered;
+}
+
+module.exports = { isAlreadyListedMessage, classifyBatchItem, healAlreadyListed, rejectReasonOf, recoverOnSale };

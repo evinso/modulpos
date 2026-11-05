@@ -10,7 +10,7 @@ const whatsappService = require('../services/whatsappService');
 const { loadPricingContext, PricingContext } = require('../services/pricingEngine');
 const { buildReadinessContext } = require('../services/readiness');
 const SS = require('../services/sendSettings');
-const { classifyBatchItem, healAlreadyListed } = require('../services/marketplaceStatus');
+const { classifyBatchItem, healAlreadyListed, rejectReasonOf, recoverOnSale } = require('../services/marketplaceStatus');
 
 const parseConfig = (conn) => { try { return conn && conn.config ? JSON.parse(conn.config) : {}; } catch { return {}; } };
 const productListCache = require('../services/productListCache');
@@ -1262,11 +1262,13 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     const formatted = [];
     const errors = [];
     let alreadyListed = 0;
+    let offSale = 0;
     const sentIds = new Set();
     for (const p of products) {
       // Single validator shared with the product list: never send a product it flags
       const ev = readiness.evaluate(p);
       if (ev.listed) { alreadyListed++; continue; } // already on the marketplace: creating it again would only be refused
+      if (ev.offSale) { offSale++; continue; }      // on the marketplace but removed/rejected there: fix it in the marketplace panel
       if (!ev.ready) {
         errors.push(`${p.sku}: ${ev.issues.map((i) => i.message).join('; ')}`);
         continue;
@@ -1333,11 +1335,10 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     }
 
     if (formatted.length === 0) {
-      const onlyListed = alreadyListed > 0 && errors.length === 0;
-      return res.status(400).json({
-        error: onlyListed ? 'Seçili ürünler zaten Trendyol\'da; yeniden gönderilmedi' : 'Gönderilebilir ürün yok',
-        details: errors, alreadyListed,
-      });
+      const onlyThere = (alreadyListed + offSale) > 0 && errors.length === 0;
+      const msg = !onlyThere ? 'Gönderilebilir ürün yok'
+        : (offSale > 0 && alreadyListed === 0 ? 'Seçili ürünler Trendyol\'da var ama satışta değil; Trendyol panelinden düzeltin' : 'Seçili ürünler zaten Trendyol\'da; yeniden gönderilmedi');
+      return res.status(400).json({ error: msg, details: errors, alreadyListed, offSale });
     }
 
     // Debug: Log payload being sent
@@ -1393,9 +1394,10 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     });
 
     res.json({
-      message: `${formatted.length} ürün Trendyol'a gönderildi${alreadyListed ? `, ${alreadyListed} ürün zaten Trendyol'da olduğu için atlandı` : ''}`,
+      message: `${formatted.length} ürün Trendyol'a gönderildi${alreadyListed ? `, ${alreadyListed} ürün zaten Trendyol'da olduğu için atlandı` : ''}${offSale ? `, ${offSale} ürün Trendyol'da satışta olmadığı için atlandı` : ''}`,
       sent: formatted.length,
       alreadyListed,
+      offSale,
       errors: errors.length,
       errorDetails: errors,
       batchId: result?.batchRequestId || null
@@ -1547,6 +1549,7 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
       if (minStock > 0 && (p.stock ?? 0) < minStock) { skipped++; skipReasons.low_stock = (skipReasons.low_stock || 0) + 1; continue; }
       const ev = readiness.evaluate(p);
       if (ev.listed) { skipped++; skipReasons.already_listed = (skipReasons.already_listed || 0) + 1; continue; } // already on the marketplace
+      if (ev.offSale) { skipped++; skipReasons.off_sale = (skipReasons.off_sale || 0) + 1; continue; }             // there, but removed/rejected
       if (!ev.ready) {
         skipped++;
         for (const iss of ev.issues) skipReasons[iss.code] = (skipReasons[iss.code] || 0) + 1;
@@ -2174,14 +2177,26 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
       // Listings an earlier sync marked "rejected" only because the marketplace said "same barcode already exists"
       const healed = await healAlreadyListed(connection.id);
 
+      // Listings we show as removed that the marketplace sells again (e.g. revised in its panel) become active again
+      const passiveRows = await prisma.marketplaceProduct.findMany({
+        where: { connectionId: connection.id, status: 'passive' },
+        include: { product: { select: { barcode: true, sku: true } } },
+        orderBy: { updatedAt: 'asc' }, take: 30,
+      });
+      const recovered = await recoverOnSale(
+        passiveRows,
+        async (code) => (await service.getFilteredProducts({ barcode: code, approved: true, onSale: true }, 0, 5))?.content || [],
+        (mp) => prisma.marketplaceProduct.update({ where: { id: mp.id }, data: { status: 'active', errorMessage: null, lastSyncedAt: new Date() } }),
+      );
+
       // Get all pending products
       const allPendingProducts = await prisma.marketplaceProduct.findMany({
         where: { connectionId: connection.id, status: 'pending' },
         include: { product: true }
       });
 
-      let updatedCount = healed;
-      let activated = healed;
+      let updatedCount = healed + recovered;
+      let activated = healed + recovered;
       let rejected = 0;
       let batchChecked = 0;
       let fallbackChecked = 0;
@@ -2319,13 +2334,13 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
                 for (const tp of inactiveRes.content) {
                   const matchedMp = barcodeMap.get(tp.barcode) || barcodeMap.get(tp.stockCode);
                   if (matchedMp) {
-                    const isRejected = tp.rejected || (tp.rejectReason && tp.rejectReason.length > 0);
+                    const isRejected = tp.rejected || !!rejectReasonOf(tp);
                     if (isRejected) {
                       await prisma.marketplaceProduct.update({
                         where: { id: matchedMp.id },
                         data: {
                           status: 'rejected',
-                          errorMessage: tp.rejectReason || 'Trendyol tarafından reddedildi'
+                          errorMessage: rejectReasonOf(tp) || 'Trendyol tarafından reddedildi'
                         }
                       });
                       updatedCount++;
@@ -2450,6 +2465,18 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
             }
           };
 
+          // Removed listings keep the marketplace's own reason (e.g. a forbidden word) when it gives one
+          const passiveMps = await prisma.marketplaceProduct.findMany({
+            where: { connectionId: connection.id, status: 'passive' },
+            include: { product: { select: { barcode: true, sku: true } } }
+          });
+          const passiveByCode = new Map();
+          for (const mp of passiveMps) {
+            if (mp.product.barcode) passiveByCode.set(mp.product.barcode, mp);
+            if (mp.product.sku) passiveByCode.set(mp.product.sku, mp);
+          }
+          const reasonUpdates = new Map(); // marketplace product id → reason
+
           // Collect barcodes that are archived or rejected on Trendyol
           const removedMap = new Map(); // barcode → { reason, trendyolStatus }
           await scanTrendyol({ archived: true }, tp => {
@@ -2458,9 +2485,16 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
           });
           await scanTrendyol({ rejected: true, approved: false }, tp => {
             const b = tp.barcode || tp.stockCode;
+            const own = b && passiveByCode.get(b);
+            const specific = rejectReasonOf(tp);
+            if (own && specific && specific !== own.errorMessage) reasonUpdates.set(own.id, specific);
             if (b && activeBarcodeMap.has(b) && !removedMap.has(b))
-              removedMap.set(b, { reason: tp.rejectReason || 'Trendyol tarafından reddedildi', trendyolStatus: 'rejected' });
+              removedMap.set(b, { reason: rejectReasonOf(tp) || 'Trendyol tarafından reddedildi', trendyolStatus: 'rejected' });
           });
+
+          for (const [id, reason] of reasonUpdates) {
+            await prisma.marketplaceProduct.update({ where: { id }, data: { errorMessage: reason } });
+          }
 
           // Update matched products to passive
           for (const [barcode, info] of removedMap) {
