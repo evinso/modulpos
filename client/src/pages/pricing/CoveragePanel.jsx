@@ -119,7 +119,7 @@ export default function CoveragePanel({ summary, preview, previewError, samplePr
                   {showCalc ? '▾' : '▸'} Hesabı göster
                 </button>
                 {showCalc && [
-                  ['Satış fiyatı (KDV dahil)', `₺${money(preview.price)}`],
+                  ['Satış fiyatı', `₺${money(preview.price)}`],
                   [`KDV (%${previewVat})`, `−₺${money(preview.vatAmount)}`],
                   ['Komisyon', `−₺${money(preview.commissionAmount)}`],
                   ['Kargo ve diğer giderler', `−₺${money(preview.fixedCosts)}`],
@@ -134,7 +134,7 @@ export default function CoveragePanel({ summary, preview, previewError, samplePr
         )}
       </div>
       <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '12px 0 0' }}>
-        Satış KDV’si ürünün XML kaynağındaki orandan alınır; komisyon KDV dahil satış fiyatı üzerinden hesaplanır. Rakamlar tahmindir (iade, indirim ve kampanyalar dahil değil).
+        Rakamlar tahmindir (iade, indirim ve kampanyalar dahil değil).
       </p>
     </div>
   );

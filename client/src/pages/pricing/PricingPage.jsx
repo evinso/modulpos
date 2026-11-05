@@ -2,9 +2,14 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, Trash2, Tags, ToggleLeft, ToggleRight, Edit2, AlertTriangle } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+import CoveragePanel from './CoveragePanel';
+import TierTable, { emptyTiers, rowsToTiers, tiersToRows } from './TierTable';
 
 /**
- * Fiyat şablonları – kısa form + canlı "ne kadar kazanırım" özeti.
+ * Fiyat şablonları – tek ekran, iki şablon türü:
+ *   Tek kâr       : tüm ürünlere aynı kâr (yüzde ya da tutar)
+ *   Kademeli kâr  : alış fiyatına göre farklı kâr (yüzde ya da tutar, en çok 3 kademe)
+ * Maliyetler her ikisinde de aynı ve tek değerlidir: kargo, diğer gider, komisyon.
  * Hesabın tamamı sunucudaki fiyat motorunda yapılır (ürünler gönderilirken kullanılan aynı motor).
  */
 
@@ -15,25 +20,27 @@ const ROUNDINGS = [
   { key: 'int', label: 'Tam sayıya yuvarla (130)' },
 ];
 
-const MODE_LABELS = {
-  percent_of_purchase: 'Yüzde kâr',
-  fixed: 'Sabit kâr',
-  percent_of_cost: 'Maliyetin yüzdesi',
-  margin_on_price: 'Satış fiyatı marjı (KDV hariç)',
-  margin_on_gross: 'Net marj (satış fiyatına göre)',
-};
+const UNITS = [
+  { key: 'percent_of_purchase', label: 'Yüzde (%)' },
+  { key: 'fixed', label: 'Tutar (₺)' },
+];
 
-import CoveragePanel from './CoveragePanel';
-import { TabStrip, Explain, Example, OptionCard, Cards, ROUNDING_HELP } from './FormTabs';
-import { KINDS, kindTitle } from './pricingText';
-import TierTable, { emptyTiers, rowsToTiers, tiersToRows } from './TierTable';
+// Older versions of the screen could store these; the current screen does not offer them
+const MODE_LABELS = {
+  percent_of_cost: 'maliyetin yüzdesi',
+  margin_on_price: 'satış fiyatı marjı',
+  margin_on_gross: 'net marj',
+};
 
 const EMPTY_FORM = {
   name: '', connectionId: '', xmlChoice: '',
-  minPurchasePrice: '', maxPurchasePrice: '',
+  minPurchasePrice: '', maxPurchasePrice: '', // only kept when an existing template has them
   shippingCost: '', otherCost: '', commissionPct: '',
-  profitMode: 'percent_of_purchase', value: '', rounding: 'none',
-  shippingRows: [], shippingExVat: true, profitRows: [], // empty = single amount / single rate (tables closed)
+  mode: 'single',                 // 'single' | 'tiered'
+  unit: 'percent_of_purchase',    // 'percent_of_purchase' | 'fixed'
+  value: '',                      // single profit
+  profitRows: [],                 // tiered profit rows
+  rounding: 'none',
 };
 
 const num = (v) => (v === '' || v === null || v === undefined || Number.isNaN(parseFloat(v)) ? null : parseFloat(v));
@@ -50,25 +57,37 @@ function ruleToForm(r) {
   let rounding = 'none';
   if (c.roundingMode === 'int') rounding = 'int';
   else if (c.roundingMode === 'ending') rounding = `ending:${c.roundingEnding ?? 0.9}`;
+
+  const mode0 = c.profitMode || (legacy && r.type === 'fixed' ? 'fixed' : 'percent_of_purchase');
+  const supportedMode = mode0 === 'fixed' || mode0 === 'percent_of_purchase';
+  const profitRows = tiersToRows(c.profitTiers, 'value');
+  const hasShippingTable = Array.isArray(c.shippingTiers) && c.shippingTiers.length > 1;
+
+  // Settings this screen does not show: told to the user, dropped when the template is saved
+  const legacyNotes = [];
+  if (legacy) legacyNotes.push('eski tip kural');
+  if (hasShippingTable) legacyNotes.push('sipariş tutarına göre kademeli kargo');
+  if (!supportedMode) legacyNotes.push(`kâr yöntemi: ${MODE_LABELS[mode0] || mode0}`);
+  if ((c.categories && c.categories.length) || (c.brands && c.brands.length)) legacyNotes.push('kategori/marka filtresi');
+
   return {
     name: r.name || '',
     connectionId: c.connectionId || '',
     xmlChoice: srcIds.length > 1 ? '__keep' : (srcIds[0] || ''),
     minPurchasePrice: c.minPurchasePrice ?? '',
     maxPurchasePrice: c.maxPurchasePrice ?? '',
-    shippingCost: c.shippingCost ?? '',
+    shippingCost: hasShippingTable ? '' : (c.shippingCost ?? ''),
     otherCost: c.packagingCost ?? '',
     commissionPct: c.commissionPct ?? '',
-    profitMode: c.profitMode || (legacy && r.type === 'fixed' ? 'fixed' : 'percent_of_purchase'),
+    mode: profitRows.length > 0 ? 'tiered' : 'single',
+    unit: mode0 === 'fixed' ? 'fixed' : 'percent_of_purchase',
     value: r.value ?? '',
+    profitRows,
     rounding,
-    shippingRows: tiersToRows(c.shippingTiers, 'cost'),
-    shippingExVat: !!c.shippingTiersExVat,
-    profitRows: tiersToRows(c.profitTiers, 'value'),
     _keep: {
       xmlSourceIds: srcIds, extraCost: c.extraCost ?? 0, extraPct: c.extraPct ?? 0,
       minPrice: c.minPrice ?? null, maxPrice: c.maxPrice ?? null, priority: r.priority ?? 0,
-      hadFilters: !!((c.categories && c.categories.length) || (c.brands && c.brands.length)),
+      legacyNotes,
     },
   };
 }
@@ -77,10 +96,10 @@ function formToPayload(f) {
   const keep = f._keep || {};
   const [rm, re] = f.rounding.includes(':') ? f.rounding.split(':') : [f.rounding, null];
   const xmlSourceIds = f.xmlChoice === '__keep' ? (keep.xmlSourceIds || []) : (f.xmlChoice ? [f.xmlChoice] : []);
+  const tiered = f.mode === 'tiered';
   const conditions = {
     connectionId: f.connectionId || null,
     xmlSourceIds,
-    // categories / brands are no longer part of a template
     categories: [], brands: [],
     minPurchasePrice: num(f.minPurchasePrice),
     maxPurchasePrice: num(f.maxPurchasePrice),
@@ -89,19 +108,33 @@ function formToPayload(f) {
     extraCost: keep.extraCost ?? 0,
     commissionPct: num(f.commissionPct) ?? 0,
     extraPct: keep.extraPct ?? 0,
-    commissionBasis: 'gross', // commission on the VAT-inclusive sale price, as the marketplace charges it
+    commissionBasis: 'gross', // commission on the sale price the customer pays, as marketplaces charge it
     vatRate: null,            // sale VAT comes from the product's XML source
-    profitMode: f.profitMode,
+    profitMode: f.unit,
     roundingMode: rm,
     roundingEnding: re ? parseFloat(re) : null,
     minPrice: keep.minPrice ?? null,
     maxPrice: keep.maxPrice ?? null,
-    shippingTiers: rowsToTiers(f.shippingRows, 'cost').tiers,
-    shippingTiersExVat: f.shippingRows.length > 0 && !!f.shippingExVat,
-    profitTiers: rowsToTiers(f.profitRows, 'value').tiers,
+    shippingTiers: [],
+    profitTiers: tiered ? rowsToTiers(f.profitRows, 'value').tiers : [],
   };
-  return { name: f.name, type: 'percentage', value: num(f.value) ?? 0, applyTo: 'price_template', priority: keep.priority ?? 0, conditions };
+  return { name: f.name, type: 'percentage', value: tiered ? 0 : (num(f.value) ?? 0), applyTo: 'price_template', priority: keep.priority ?? 0, conditions };
 }
+
+function Choice({ active, title, hint, onClick, testId }) {
+  return (
+    <button type="button" data-testid={testId} aria-pressed={active} onClick={onClick}
+      style={{ textAlign: 'left', padding: '10px 12px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text-primary)',
+        border: active ? '2px solid var(--accent-primary)' : '2px solid var(--border-color)',
+        background: active ? 'rgba(99,102,241,0.08)' : 'var(--bg-secondary)' }}>
+      <div style={{ fontWeight: 600, fontSize: 13 }}>{title}</div>
+      {hint && <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{hint}</div>}
+    </button>
+  );
+}
+
+const sectionTitle = { fontSize: 13, fontWeight: 700, margin: '18px 0 8px' };
+const hintStyle = { fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.5 };
 
 export default function PricingPage() {
   const [rules, setRules] = useState([]);
@@ -113,8 +146,6 @@ export default function PricingPage() {
   const [xmlSources, setXmlSources] = useState([]);
   const [connections, setConnections] = useState([]);
   const [samplePrice, setSamplePrice] = useState('');
-  const [tab, setTab] = useState('general');
-  const [typeChosen, setTypeChosen] = useState(false); // new template: pick the pricing type first
   const [ruleSummaries, setRuleSummaries] = useState(null);
   const [preview, setPreview] = useState(null);
   const [previewError, setPreviewError] = useState('');
@@ -139,8 +170,11 @@ export default function PricingPage() {
   };
 
   const payload = useMemo(() => formToPayload(form), [form]);
+  const tiered = form.mode === 'tiered';
+  const rowsIncomplete = tiered && rowsToTiers(form.profitRows, 'value').incomplete;
+  const profitReady = tiered ? payload.conditions.profitTiers.length > 0 : form.value !== '';
 
-  // Sale VAT used by the preview = the VAT chosen when the XML source was added
+  // Sale VAT used by the single-price try-out = the VAT chosen when the XML source was added
   const previewVat = useMemo(() => {
     const ids = form.xmlChoice && form.xmlChoice !== '__keep' ? [form.xmlChoice] : (form.xmlChoice === '__keep' ? form._keep?.xmlSourceIds || [] : xmlSources.map((x) => x.id));
     return xmlSources.find((x) => ids.includes(x.id))?.defaultVatRate ?? 20;
@@ -151,9 +185,9 @@ export default function PricingPage() {
     if (!showModal) return undefined;
     const my = ++reqId.current;
     const t = setTimeout(async () => {
-      if (form.value === '' && !profitTiersOn) { setPreview(null); setSummary(null); setPreviewError(''); return; }
+      if (!profitReady) { setPreview(null); setSummary(null); setPreviewError(''); return; }
       const purchase = num(samplePrice);
-      if (purchase && purchase > 0 && form.value !== '') {
+      if (purchase && purchase > 0) {
         try {
           const res = await api.post('/pricing/calculate', { purchasePrice: purchase, value: payload.value, conditions: { ...payload.conditions, vatRate: previewVat } });
           if (my === reqId.current) { setPreview(res.data); setPreviewError(''); }
@@ -167,13 +201,11 @@ export default function PricingPage() {
       } catch { /* optional */ }
     }, 350);
     return () => clearTimeout(t);
-  }, [payload, samplePrice, showModal, previewVat]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [payload, samplePrice, showModal, previewVat, profitReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openModal = (rule = null) => {
-    if (rule) {
-      setEditingId(rule.id); setForm(ruleToForm(rule)); setTypeChosen(true);
-    } else { setEditingId(null); setForm({ ...EMPTY_FORM }); setTypeChosen(false); }
-    setTab('general');
+    if (rule) { setEditingId(rule.id); setForm(ruleToForm(rule)); }
+    else { setEditingId(null); setForm({ ...EMPTY_FORM }); }
     setPreview(null); setSummary(null); setPreviewError('');
     setShowModal(true);
   };
@@ -181,11 +213,9 @@ export default function PricingPage() {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    const shipInc = rowsToTiers(form.shippingRows, 'cost').incomplete, profInc = rowsToTiers(form.profitRows, 'value').incomplete;
-    if (!form.name.trim()) { setTab('general'); return toast.error('Şablon adını yazın (Genel menüsü)'); }
-    if (shipInc) { setTab('costs'); return toast.error('Kargo tablosundaki tüm alanları doldurun ya da "Her ürün için aynı tutar"ı seçin'); }
-    if (profInc) { setTab('profit'); return toast.error('Kâr tablosundaki tüm alanları doldurun ya da başka bir kâr yöntemi seçin'); }
-    if (form.value === '' && !profitTiersOn) { setTab('profit'); return toast.error('Kâr değerini girin (Kâr menüsü)'); }
+    if (!form.name.trim()) return toast.error('Şablon adını yazın');
+    if (tiered && rowsIncomplete) return toast.error('Kâr tablosundaki tüm alanları doldurun');
+    if (!tiered && form.value === '') return toast.error('Kâr değerini girin');
     const min = num(form.minPurchasePrice), max = num(form.maxPurchasePrice);
     if (min !== null && max !== null && min > max) return toast.error('Alış fiyatı aralığında en düşük değer en yüksekten büyük olamaz');
     try {
@@ -209,14 +239,15 @@ export default function PricingPage() {
   };
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
-  const rowsIncomplete = rowsToTiers(form.shippingRows, 'cost').incomplete || rowsToTiers(form.profitRows, 'value').incomplete;
-  const profitTiersOn = payload.conditions.profitTiers.length > 0;
+  const setMode = (mode) => set(mode === 'tiered' ? { mode, profitRows: form.profitRows.length ? form.profitRows : emptyTiers() } : { mode });
+
   const profitLabel = (r) => {
     const c = parseConds(r);
-    if (r.applyTo === 'marketplace_xml') return r.type === 'fixed' ? `+₺${r.value}` : `%${r.value}`;
-    if (Array.isArray(c.profitTiers) && c.profitTiers.length > 1) return 'Kademeli';
-    if (c.profitMode === 'margin_on_gross') return `net marj %${r.value}`;
-    return c.profitMode === 'fixed' ? `₺${r.value}` : `%${r.value}`;
+    if (r.applyTo === 'marketplace_xml') return r.type === 'fixed' ? `Tek kâr +₺${r.value}` : `Tek kâr %${r.value}`;
+    const fixed = c.profitMode === 'fixed';
+    if (Array.isArray(c.profitTiers) && c.profitTiers.length > 1) return `Kademeli kâr (${fixed ? 'tutar' : 'yüzde'})`;
+    if (c.profitMode === 'margin_on_gross' || c.profitMode === 'margin_on_price') return `Net marj %${r.value}`;
+    return fixed ? `Tek kâr ₺${r.value}` : `Tek kâr %${r.value}`;
   };
 
   const renderScope = (r) => {
@@ -238,29 +269,13 @@ export default function PricingPage() {
     else if (fixed > 0) parts.push(`₺${money(fixed)} sabit`);
     const pct = (Number(c.commissionPct) || 0) + (Number(c.extraPct) || 0);
     if (pct > 0) parts.push(`%${pct} komisyon`);
-    return <span style={{ fontSize: 12 }}>{parts.length ? parts.join(' + ') : '—'}</span>;
+    return parts.length ? parts.join(' + ') : '—';
   };
 
   const earnClass = (n) => (n > 0 ? 'var(--success)' : n < 0 ? 'var(--danger)' : 'var(--text-muted)');
-
   const sum = (id) => ruleSummaries?.rules?.[id];
-  // The pricing type is derived from what the template holds, so older templates open correctly too
-  const kind = form.shippingRows.length > 0 ? 'barem' : form.profitRows.length > 0 ? 'tiered'
-    : form.profitMode === 'fixed' ? 'fixed' : form.profitMode === 'margin_on_gross' ? 'margin' : form.profitMode === 'percent_of_purchase' ? 'percent' : 'legacy';
-  const baseMode = form.profitMode === 'fixed' || form.profitMode === 'margin_on_gross' ? form.profitMode : 'percent_of_purchase';
-  const chooseKind = (k) => {
-    const patch = { shippingRows: [], profitRows: [], profitMode: baseMode };
-    if (k === 'percent') patch.profitMode = 'percent_of_purchase';
-    if (k === 'fixed') patch.profitMode = 'fixed';
-    if (k === 'margin') patch.profitMode = 'margin_on_gross';
-    if (k === 'tiered') patch.profitRows = form.profitRows.length ? form.profitRows : emptyTiers();
-    if (k === 'barem') { patch.shippingRows = form.shippingRows.length ? form.shippingRows : emptyTiers(); patch.profitRows = form.profitRows; if (!form.shippingRows.length) patch.shippingExVat = true; }
-    set(patch); setTypeChosen(true); setTab(k === 'barem' ? 'costs' : 'general');
-  };
-  // inside the barem type the profit can still be a rate, a TL amount or a table
-  const baremProfit = form.profitRows.length > 0 ? 'tiered' : baseMode === 'fixed' ? 'fixed' : baseMode === 'margin_on_gross' ? 'margin' : 'percent';
-  const shipIncomplete = rowsToTiers(form.shippingRows, 'cost').incomplete;
-  const profitMissing = rowsToTiers(form.profitRows, 'value').incomplete || (form.profitRows.length === 0 && form.value === '');
+  const legacyNotes = editingId ? (form._keep?.legacyNotes || []) : [];
+  const hasRange = form.minPurchasePrice !== '' || form.maxPurchasePrice !== '';
 
   return (
     <div>
@@ -299,7 +314,7 @@ export default function PricingPage() {
                           <span className="badge badge-warning" style={{ marginLeft: 8, fontSize: 10, verticalAlign: 'middle' }} title="Eski tip kural. Düzenleyip kaydederseniz yeni şablona dönüşür.">Eski tip</span>
                         )}
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Kâr {profitLabel(r)} · giderler {renderCosts(r)}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{profitLabel(r)} · giderler {renderCosts(r)}</div>
                     </td>
                     <td>{renderScope(r)}</td>
                     <td style={{ textAlign: 'right' }}>{r.applyTo === 'marketplace_xml' ? '—' : sm ? sm.covered : '…'}</td>
@@ -314,7 +329,7 @@ export default function PricingPage() {
                       </button>
                     </td>
                     <td style={{ display: 'flex', gap: 6 }}>
-                      <button className="btn btn-secondary btn-sm" onClick={() => openModal(r)}><Edit2 size={14} /></button>
+                      <button className="btn btn-secondary btn-sm" data-testid={`edit-${r.id}`} onClick={() => openModal(r)}><Edit2 size={14} /></button>
                       <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(r.id)}><Trash2 size={14} /></button>
                     </td>
                   </tr>
@@ -333,229 +348,99 @@ export default function PricingPage() {
               <button className="modal-close" onClick={closeModal}>×</button>
             </div>
             <form onSubmit={handleSave}>
-              {!typeChosen ? (
-                <div className="modal-body" data-testid="kind-picker" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Nasıl fiyatlandırmak istiyorsunuz?</div>
-                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 14px', lineHeight: 1.55 }}>
-                    Önce fiyatlandırma türünü seçin; sonraki ekranda yalnızca seçtiğiniz türle ilgili alanlar çıkar. Seçimi sonradan “Türü değiştir” ile değiştirebilirsiniz.
-                  </p>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }}>
-                    {KINDS.map((k) => (
-                      <button key={k.key} type="button" data-testid={`kind-${k.key}`} onClick={() => chooseKind(k.key)}
-                        style={{ textAlign: 'left', padding: 14, borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text-primary)',
-                          border: editingId && kind === k.key ? '2px solid var(--accent-primary)' : '2px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
-                        <div style={{ fontWeight: 700, fontSize: 14 }}>{k.title}</div>
-                        <div style={{ fontSize: 11, color: 'var(--accent-primary)', margin: '2px 0 8px' }}>{k.tag}</div>
-                        <div style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-secondary)' }}>{k.what}</div>
-                        <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 8 }}><strong>Ne zaman?</strong> {k.when}</div>
-                        <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 6, background: 'var(--bg-tertiary)', borderRadius: 6, padding: '6px 8px' }}><strong>Örnek:</strong> {k.example}</div>
-                      </button>
+              <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(340px,1.1fr)', gap: 24, maxHeight: '75vh', overflowY: 'auto' }}>
+                {/* ---------- one screen: template type, where, costs, profit ---------- */}
+                <div data-testid="template-form">
+                  <div style={{ ...sectionTitle, marginTop: 0 }}>Şablon türü</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <Choice testId="mode-single" active={!tiered} title="Tek kâr" hint="Tüm ürünlere aynı kâr" onClick={() => setMode('single')} />
+                    <Choice testId="mode-tiered" active={tiered} title="Kademeli kâr" hint="Alış fiyatına göre farklı kâr" onClick={() => setMode('tiered')} />
+                  </div>
+
+                  <div className="form-group" style={{ marginTop: 16 }}>
+                    <label className="form-label">Şablon adı *</label>
+                    <input className="form-input" placeholder="ör: Genel fiyat" value={form.name} onChange={(e) => set({ name: e.target.value })} required />
+                  </div>
+                  <div className="grid grid-2">
+                    <div className="form-group">
+                      <label className="form-label">Pazaryeri</label>
+                      <select className="form-select" value={form.connectionId} onChange={(e) => set({ connectionId: e.target.value })}>
+                        <option value="">Hepsi</option>
+                        {connections.map((c) => <option key={c.id} value={c.id}>{c.supplierName || c.marketplaceType}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">XML kaynağı</label>
+                      <select className="form-select" value={form.xmlChoice} onChange={(e) => set({ xmlChoice: e.target.value })}>
+                        <option value="">Hepsi</option>
+                        {form.xmlChoice === '__keep' && <option value="__keep">Seçili {form._keep?.xmlSourceIds?.length} kaynak (korunuyor)</option>}
+                        {xmlSources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  {hasRange && (
+                    <div data-testid="range-note" style={{ ...hintStyle, marginBottom: 8 }}>
+                      Bu şablon yalnızca alış fiyatı ₺{form.minPurchasePrice === '' ? 0 : form.minPurchasePrice} – {form.maxPurchasePrice === '' ? '∞' : `₺${form.maxPurchasePrice}`} olan ürünlere uygulanır.{' '}
+                      <button type="button" onClick={() => set({ minPurchasePrice: '', maxPurchasePrice: '' })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', fontSize: 11.5, padding: 0, fontFamily: 'inherit' }}>Sınırı kaldır</button>
+                    </div>
+                  )}
+
+                  <div style={sectionTitle}>Maliyetlerim</div>
+                  <div style={{ ...hintStyle, marginBottom: 8 }}>Her sipariş için ödediğiniz tutarları yazın. Satış fiyatı bunları ve kârınızı karşılayacak şekilde hesaplanır.</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                    <div className="form-group"><label className="form-label">Kargo (₺)</label>
+                      <input type="number" min="0" step="0.01" className="form-input" data-testid="cost-shipping" value={form.shippingCost} onChange={(e) => set({ shippingCost: e.target.value })} /></div>
+                    <div className="form-group"><label className="form-label">Diğer gider (₺)</label>
+                      <input type="number" min="0" step="0.01" className="form-input" data-testid="cost-other" value={form.otherCost} onChange={(e) => set({ otherCost: e.target.value })} />
+                      <small style={hintStyle}>paketleme, hizmet bedeli vb.</small></div>
+                    <div className="form-group"><label className="form-label">Komisyon (%)</label>
+                      <input type="number" min="0" max="90" step="0.01" className="form-input" data-testid="cost-commission" value={form.commissionPct} onChange={(e) => set({ commissionPct: e.target.value })} />
+                      <small style={hintStyle}>satış fiyatının %’si</small></div>
+                  </div>
+
+                  <div style={sectionTitle}>Kârım</div>
+                  <div style={{ ...hintStyle, marginBottom: 8 }}>Kâr, tüm giderler düşüldükten sonra elinize kalan net tutardır.</div>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                    {UNITS.map((u) => (
+                      <button key={u.key} type="button" data-testid={`unit-${u.key}`} onClick={() => set({ unit: u.key })}
+                        style={{ flex: 1, padding: '7px 10px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--text-primary)',
+                          border: form.unit === u.key ? '2px solid var(--accent-primary)' : '2px solid var(--border-color)',
+                          background: form.unit === u.key ? 'rgba(99,102,241,0.08)' : 'var(--bg-secondary)' }}>{u.label}</button>
                     ))}
                   </div>
-                  {editingId && kind === 'legacy' && <p style={{ fontSize: 12, color: 'var(--warning)', marginTop: 12 }}>Bu şablon eski bir yöntem kullanıyor; yeni bir tür seçerseniz yöntem değişir.</p>}
-                </div>
-              ) : (
-              <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(340px,1.1fr)', gap: 24, maxHeight: '75vh', overflowY: 'auto' }}>
-                {/* ---------- form: one menu per topic, each shows only what its chosen method needs ---------- */}
-                <div>
-                  <div data-testid="kind-badge" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
-                    <div style={{ fontSize: 13 }}>Şablon türü: <strong>{kindTitle(kind)}</strong></div>
-                    <button type="button" data-testid="change-kind" onClick={() => setTypeChosen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', fontSize: 12, fontFamily: 'inherit' }}>Türü değiştir</button>
+
+                  {!tiered ? (
+                    <div className="form-group">
+                      <label className="form-label">{form.unit === 'fixed' ? 'Ürün başına kâr (₺) *' : 'Kâr oranı (%) *'}</label>
+                      <input type="number" min="0" step="0.01" className="form-input" data-testid="profit-value" value={form.value} onChange={(e) => set({ value: e.target.value })} required />
+                      <small style={hintStyle}>
+                        {form.unit === 'fixed'
+                          ? 'Her üründe aynı tutar. Örnek: 25 yazarsanız her üründen net 25 ₺ kalır.'
+                          : 'Alış fiyatının yüzdesi. Örnek: alış 100 ₺, oran %30 → net 30 ₺ kalır.'}
+                      </small>
+                    </div>
+                  ) : (
+                    <div data-testid="tiered-profit">
+                      <div style={{ ...hintStyle, marginBottom: 8 }}>
+                        Ürünün alış fiyatına uyan satır uygulanır. Her satıra alış fiyatının üst sınırını ve kârı yazın; son satır “üstü”dür (en çok 3 satır).
+                        Örnek: 100 ₺’ye kadar %40 · 300 ₺’ye kadar %30 · üstü %20.
+                      </div>
+                      <TierTable testId="profit-tiers" rows={form.profitRows} onChange={(rows) => set({ profitRows: rows })}
+                        limitLabel="Alış fiyatı" valueLabel={form.unit === 'fixed' ? 'Kâr (₺)' : 'Kâr oranı'} valueUnit={form.unit === 'fixed' ? '₺' : '%'} />
+                    </div>
+                  )}
+
+                  <div className="form-group" style={{ marginTop: 14 }}>
+                    <label className="form-label">Fiyat sonu</label>
+                    <select className="form-select" data-testid="rounding" value={form.rounding} onChange={(e) => set({ rounding: e.target.value })}>
+                      {ROUNDINGS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+                    </select>
                   </div>
-                  <TabStrip active={tab} onChange={setTab} flags={{ costs: shipIncomplete, profit: profitMissing }}
-                    tabs={[{ key: 'general', label: 'Genel' }, { key: 'costs', label: 'Giderler' }, { key: 'profit', label: 'Kâr' }, { key: 'rounding', label: 'Fiyat sonu' }]} />
 
-                  {tab === 'general' && (
-                    <div data-testid="pane-general">
-                      <Explain title="Bu şablon ne işe yarar?">
-                        Şablon, XML’den gelen <strong>alış fiyatını</strong> alır; kargo, komisyon, KDV ve kârınızı karşılayacak <strong>satış fiyatını</strong> hesaplar.
-                        Bu menüde şablonun hangi ürünlere uygulanacağını seçersiniz. Hiçbir şey seçmezseniz tüm ürünlerinize uygulanır.
-                        Sağ taraf, seçimlerinizin tüm ürünlerinizde ne kazandıracağını anında gösterir.
-                      </Explain>
-                      <div className="form-group">
-                        <label className="form-label">Şablon adı *</label>
-                        <input className="form-input" placeholder="ör: Genel fiyat" value={form.name} onChange={(e) => set({ name: e.target.value })} required />
-                      </div>
-                      <div className="grid grid-2">
-                        <div className="form-group">
-                          <label className="form-label">Pazaryeri</label>
-                          <select className="form-select" value={form.connectionId} onChange={(e) => set({ connectionId: e.target.value })}>
-                            <option value="">Hepsi</option>
-                            {connections.map((c) => <option key={c.id} value={c.id}>{c.supplierName || c.marketplaceType}</option>)}
-                          </select>
-                        </div>
-                        <div className="form-group">
-                          <label className="form-label">XML kaynağı</label>
-                          <select className="form-select" value={form.xmlChoice} onChange={(e) => set({ xmlChoice: e.target.value })}>
-                            <option value="">Hepsi</option>
-                            {form.xmlChoice === '__keep' && <option value="__keep">Seçili {form._keep?.xmlSourceIds?.length} kaynak (korunuyor)</option>}
-                            {xmlSources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                          </select>
-                        </div>
-                      </div>
-                      <Example>Her pazaryeri için ayrı fiyat istiyorsanız (komisyonlar farklıdır) her pazaryerine ayrı şablon oluşturun.</Example>
-                      <div className="form-group">
-                        <label className="form-label">Yalnızca şu alış fiyatındaki ürünlere uygula (₺) <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>— boşsa hepsi</span></label>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <input type="number" min="0" step="0.01" className="form-input" placeholder="en az" value={form.minPurchasePrice} onChange={(e) => set({ minPurchasePrice: e.target.value })} />
-                          <span style={{ color: 'var(--text-muted)' }}>–</span>
-                          <input type="number" min="0" step="0.01" className="form-input" placeholder="en çok" value={form.maxPurchasePrice} onChange={(e) => set({ maxPurchasePrice: e.target.value })} />
-                        </div>
-                      </div>
-                      <Example>
-                        Örnek: 0–100 ₺ arası ürünler için bir şablon, 100 ₺ üstü için başka bir şablon yapabilirsiniz. Aralıkları çakıştırmamaya özen gösterin;
-                        bir ürüne birden fazla şablon uyarsa önce daha dar kapsamlı (pazaryeri/XML seçilmiş), eşitse daha önce oluşturulan şablon kullanılır.
-                        Her ürünü tek şablon karşılıyorsa bu alanı boş bırakın. Fiyata göre farklı kâr için aralık yerine <em>Kademeli kâr</em> türünü kullanmak daha kolaydır.
-                      </Example>
-                    </div>
-                  )}
-
-                  {tab === 'costs' && (
-                    <div data-testid="pane-costs">
-                      <Explain title="Giderler nedir?">
-                        Satış fiyatı, ürünün size maliyeti ile kârınızın üstüne bu giderleri ekleyerek bulunur. Tutarları faturada ödediğiniz gibi (KDV dahil) yazın.
-                        <strong> Komisyon</strong> pazaryerinin satıştan kestiği yüzdedir ve KDV dahil satış fiyatı üzerinden alınır. Satış KDV’sini ayrıca girmeniz gerekmez;
-                        ürünün XML kaynağını eklerken seçtiğiniz KDV oranı kullanılır.
-                      </Explain>
-
-                      {kind !== 'barem' ? (
-                        <div className="form-group">
-                          <label className="form-label">Kargo ücreti (₺)</label>
-                          <input type="number" min="0" step="0.01" className="form-input" value={form.shippingCost} onChange={(e) => set({ shippingCost: e.target.value })} />
-                          <Example>Her ürün için aynı kargo ücreti uygulanır. Örnek: her pakete 60 ₺ ödüyorsanız 60 yazın. Kargo ücretiniz satış fiyatına göre basamak atlıyorsa şablon türünü “Kademeli kargolu (barem)” yapın.</Example>
-                        </div>
-                      ) : (
-                        <>
-                          <Explain title="Barem (kademeli kargo) nasıl çalışır?">
-                            Pazaryerleri kargo ücretini siparişin tutarına göre sabitler: tutar düşükse ücret düşük, tutar belirli bir sınırı aşınca bir üst basamağa geçer.
-                            Satış fiyatını bulmak için kargo ücretini bilmek gerekir, kargo ücretini bilmek için de satış fiyatı gerekir. Sistem bunu sizin yerinize çözer:
-                            satırları sırayla dener ve ürünün satış fiyatının gerçekten uyduğu satırı seçer. Böylece “düşük kargo varsaydım, fiyat yükselince zarar ettim” durumu olmaz.
-                            <br /><strong>Nasıl doldurulur:</strong> her satıra satış fiyatının üst sınırını ve o aralıktaki kargo ücretinizi yazın. Son satır “üstü”dür, sınır yazılmaz.
-                            Rakamları satıcı panelinizden ya da kargo sözleşmenizden alın; sistem hazır tarife içermez çünkü sözleşmeler ve fiyatlar değişir.
-</Explain>
-                          <div style={{ fontWeight: 700, fontSize: 13, margin: '0 0 6px' }}>Tabloyu nasıl yazacaksınız?</div>
-                          <Cards>
-                            <OptionCard testId="vat-ex" active={form.shippingExVat} title="Tarifedeki gibi (KDV hariç) — önerilir"
-                              desc="Trendyol tarifesindeki rakamları olduğu gibi yazın (ör. 199,99 ₺ ve 48,33 ₺). Sistem kargoya %20 KDV ekler ve sınırları ürünün KDV oranına göre kendisi çevirir."
-                              onClick={() => set({ shippingExVat: true })} />
-                            <OptionCard testId="vat-inc" active={!form.shippingExVat} title="KDV dahil"
-                              desc="Sınırları ve kargo ücretlerini KDV dahil yazarsınız (tarife rakamını 1,2 ile çarpmanız gerekir)."
-                              onClick={() => set({ shippingExVat: false })} />
-                          </Cards>
-                          <Example>Örnek (rakamlar yalnızca örnektir, KDV hariç): 199,99 ₺’ye kadar → 48,33 ₺ · 349,99 ₺’ye kadar → 79,16 ₺ · üstü → 88,96 ₺. Satış fiyatı KDV hariç 250 ₺ eden ürün için 2. satır kullanılır.</Example>
-                          <TierTable testId="shipping-tiers" rows={form.shippingRows} onChange={(rows) => set({ shippingRows: rows })}
-                            limitLabel={form.shippingExVat ? 'Paket tutarı (KDV hariç)' : 'Satış fiyatı (KDV dahil)'} valueLabel={form.shippingExVat ? 'Kargo ücretim (KDV hariç)' : 'Kargo ücretim (KDV dahil)'} valueUnit="₺" />
-                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>En fazla 3 satır. Sınırlar küçükten büyüğe gitmeli. Tüm alanlar dolu olmalı.</div>
-                        </>
-                      )}
-
-                      <div className="grid grid-2" style={{ marginTop: 10 }}>
-                        <div className="form-group"><label className="form-label">Paketleme / diğer gider (₺)</label>
-                          <input type="number" min="0" step="0.01" className="form-input" value={form.otherCost} onChange={(e) => set({ otherCost: e.target.value })} />
-                          <small style={{ color: 'var(--text-muted)', fontSize: 11 }}>Koli, bant, etiket gibi ürün başına giderler.</small></div>
-                        <div className="form-group"><label className="form-label">Komisyon (%)</label>
-                          <input type="number" min="0" max="90" step="0.1" className="form-input" value={form.commissionPct} onChange={(e) => set({ commissionPct: e.target.value })} />
-                          <small style={{ color: 'var(--text-muted)', fontSize: 11 }}>Pazaryerinin kategoriye göre kestiği oran.</small></div>
-                      </div>
-                    </div>
-                  )}
-
-                  {tab === 'profit' && (
-                    <div data-testid="pane-profit">
-                      <Explain title="Kâr nedir?">
-                        Burada yazdığınız kâr <strong>net kârdır</strong>: kargo, paketleme, komisyon ve KDV düşüldükten sonra cebinizde kalan tutar.
-                        Sistem satış fiyatını bu kârı garanti edecek şekilde hesaplar.
-                      </Explain>
-
-                      {kind === 'barem' && (
-                        <>
-                          <div style={{ fontWeight: 700, fontSize: 13, margin: '0 0 6px' }}>Kârı nasıl belirleyeceksiniz?</div>
-                          <Cards>
-                            <OptionCard testId="barem-profit-percent" active={baremProfit === 'percent'} title="Yüzde kâr" desc="Alış fiyatının aynı yüzdesi."
-                              onClick={() => set({ profitRows: [], profitMode: 'percent_of_purchase' })} />
-                            <OptionCard testId="barem-profit-fixed" active={baremProfit === 'fixed'} title="Sabit TL kâr" desc="Her üründe aynı TL tutar."
-                              onClick={() => set({ profitRows: [], profitMode: 'fixed' })} />
-                            <OptionCard testId="barem-profit-margin" active={baremProfit === 'margin'} title="Net marj" desc="Satış fiyatının belli yüzdesi net kalsın (örn. %10)."
-                              onClick={() => set({ profitRows: [], profitMode: 'margin_on_gross' })} />
-                            <OptionCard testId="barem-profit-tiered" active={baremProfit === 'tiered'} title="Alış fiyatına göre kademeli" desc="Fiyat aralığına göre farklı kâr (en fazla 3 kademe)."
-                              onClick={() => form.profitRows.length === 0 && set({ profitRows: emptyTiers() })} />
-                          </Cards>
-                        </>
-                      )}
-
-                      {form.profitRows.length === 0 && (kind === 'percent' || (kind === 'barem' && baremProfit === 'percent')) && (
-                        <div className="form-group">
-                          <label className="form-label">Kâr oranı (%) *</label>
-                          <input type="number" min="0" step="0.01" className="form-input" value={form.value} onChange={(e) => set({ value: e.target.value })} required />
-                          <Example>Örnek: alış fiyatı 100 ₺, oran %30 → giderler ve komisyon karşılandıktan sonra elinizde 30 ₺ kalır. Satış fiyatı bunu sağlayacak şekilde hesaplanır.</Example>
-                        </div>
-                      )}
-                      {form.profitRows.length === 0 && (kind === 'fixed' || (kind === 'barem' && baremProfit === 'fixed')) && (
-                        <div className="form-group">
-                          <label className="form-label">Ürün başına kâr (₺) *</label>
-                          <input type="number" min="0" step="0.01" className="form-input" value={form.value} onChange={(e) => set({ value: e.target.value })} required />
-                          <Example>Örnek: 25 yazarsanız 40 ₺’lik ürün de 400 ₺’lik ürün de size net 25 ₺ bırakır.</Example>
-                        </div>
-                      )}
-                      {form.profitRows.length === 0 && (kind === 'margin' || (kind === 'barem' && baremProfit === 'margin')) && (
-                        <div className="form-group">
-                          <label className="form-label">Net marj (%) *</label>
-                          <input type="number" min="0" max="80" step="0.1" className="form-input" data-testid="margin-input" value={form.value} onChange={(e) => set({ value: e.target.value })} required />
-                          <Example>
-                            Örnek: %10 yazarsanız ürün müşteriye 400 ₺’ye satıldığında size, kargo, komisyon, KDV ve diğer giderler düşüldükten sonra 40 ₺ kalır; 200 ₺’ye satılsa 20 ₺.
-                            Bu oran pazaryeri hesaplayıcılarındaki “kâr marjı” ile aynıdır (net kâr ÷ KDV dahil satış fiyatı). Sağdaki tablodan hangi alış fiyatında kaç ₺ kazandığınızı görebilirsiniz.
-                          </Example>
-                        </div>
-                      )}
-                      {kind === 'legacy' && (
-                        <div className="form-group">
-                          <label className="form-label">Değer *</label>
-                          <input type="number" min="0" step="0.01" className="form-input" value={form.value} onChange={(e) => set({ value: e.target.value })} required />
-                          <Example>Bu şablon eski bir yöntem kullanıyor ({MODE_LABELS[form.profitMode] || form.profitMode}). Değeri değiştirebilirsiniz; yöntemi değiştirmek için “Türü değiştir”i kullanın.</Example>
-                        </div>
-                      )}
-                      {form.profitRows.length > 0 && (
-                        <>
-                          <Explain title="Kademeli kâr nasıl çalışır?">
-                            Ürünün <strong>alış fiyatına</strong> uyan satır seçilir ve o satırdaki kâr uygulanır. Her satıra alış fiyatının üst sınırını ve o aralıktaki kârı yazın;
-                            son satır “üstü”dür. Çok ürünlü XML’lerde ucuz ürünlerde kargo ve komisyon payı büyük olduğu için orayı yüksek, pahalı ürünleri daha düşük tutmak yaygın bir yöntemdir.
-                            <br />Kârı alış fiyatının yüzdesi, sabit TL ya da satış fiyatına göre net marj olarak yazabilirsiniz; aşağıdan seçin.
-                          </Explain>
-                          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                            {[['percent_of_purchase', 'Alışın yüzdesi (%)'], ['fixed', 'Sabit TL (₺)'], ['margin_on_gross', 'Net marj (%)']].map(([k, l]) => (
-                              <button key={k} type="button" data-testid={`unit-${k}`} onClick={() => set({ profitMode: k })}
-                                style={{ flex: 1, padding: '7px 10px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--text-primary)',
-                                  border: form.profitMode === k ? '2px solid var(--accent-primary)' : '2px solid var(--border-color)',
-                                  background: form.profitMode === k ? 'rgba(99,102,241,0.08)' : 'var(--bg-secondary)' }}>{l}</button>
-                            ))}
-                          </div>
-                          <Example>Örnek tablo: 100 ₺’ye kadar → %40 · 300 ₺’ye kadar → %30 · üstü → %20. Alışı 80 ₺ olan ürün 1. satırdan %40 kâr (32 ₺) bırakır.</Example>
-                          <TierTable testId="profit-tiers" rows={form.profitRows} onChange={(rows) => set({ profitRows: rows })}
-                            limitLabel="Alış fiyatı" valueLabel={form.profitMode === 'fixed' ? 'Kâr (₺)' : form.profitMode === 'margin_on_gross' ? 'Net marj' : 'Kâr oranı'} valueUnit={form.profitMode === 'fixed' ? '₺' : '%'} />
-                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>En fazla 3 satır. Sınırlar küçükten büyüğe gitmeli. Tüm alanlar dolu olmalı.</div>
-                        </>
-                      )}
-                    </div>
-                  )}
-
-                  {tab === 'rounding' && (
-                    <div data-testid="pane-rounding">
-                      <Explain title="Fiyat sonu nedir?">
-                        Hesaplanan satış fiyatı 129,37 ₺ gibi düzensiz çıkabilir. Pazaryerinde daha düzgün görünmesi için fiyatın sonunu belirleyebilirsiniz.
-                        Yuvarlama her zaman <strong>yukarı</strong> doğrudur, yani fiyat hiçbir zaman hesaplanandan düşük olmaz ve kârınız azalmaz.
-                      </Explain>
-                      <Cards>
-                        {ROUNDINGS.map((r) => (
-                          <OptionCard key={r.key} testId={`round-${r.key}`} active={form.rounding === r.key} title={r.label} desc={ROUNDING_HELP[r.key]} onClick={() => set({ rounding: r.key })} />
-                        ))}
-                      </Cards>
-                    </div>
-                  )}
-
-                  {editingId && form._keep?.hadFilters && (
-                    <div style={{ fontSize: 12, color: 'var(--warning)', display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 10 }}>
+                  {legacyNotes.length > 0 && (
+                    <div data-testid="legacy-warning" style={{ fontSize: 12, color: 'var(--warning)', display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 10 }}>
                       <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                      Bu şablonda eski bir kategori/marka filtresi vardı. Kaydedince kaldırılır ve şablon seçtiğiniz tüm ürünlere uygulanır.
+                      <span>Bu şablonda bu ekranda bulunmayan ayarlar var ({legacyNotes.join(', ')}). Kaydederseniz bu ayarlar kaldırılır ve fiyatlar değişebilir; sağdaki tablo yeni halini gösterir.</span>
                     </div>
                   )}
                 </div>
@@ -568,10 +453,9 @@ export default function PricingPage() {
                   </div>
                 </div>
               </div>
-              )}
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={closeModal}>İptal</button>
-                {typeChosen && <button type="submit" className="btn btn-primary">{editingId ? 'Güncelle' : 'Kaydet'}</button>}
+                <button type="submit" className="btn btn-primary">{editingId ? 'Güncelle' : 'Kaydet'}</button>
               </div>
             </form>
           </div>

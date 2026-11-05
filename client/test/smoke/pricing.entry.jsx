@@ -9,11 +9,14 @@ const text = () => document.body.textContent;
 let fails = 0; const ok = (n, c, x) => { console.log((c ? 'PASS' : 'FAIL') + '  ' + n + (x ? '  → ' + x : '')); if (!c) fails++; };
 const click = async (el) => { await act(async () => { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }); await wait(60); };
 const btn = (label) => [...document.querySelectorAll('button')].find((b) => (b.textContent || '').includes(label));
+const q = (id) => document.querySelector(`[data-testid="${id}"]`);
 const setVal = async (el, v) => {
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-  await act(async () => { setter.call(el, v); el.dispatchEvent(new window.Event('input', { bubbles: true })); });
+  const proto = el.tagName === 'SELECT' ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+  await act(async () => { setter.call(el, v); el.dispatchEvent(new window.Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); });
   await wait(450);
 };
+const lastCoverage = () => calls.filter((c) => c.url === '/pricing/coverage').pop();
 const errors = [];
 console.error = (...a) => { errors.push(a.map(String).join(' ').slice(0, 200)); };
 
@@ -21,117 +24,93 @@ const root = createRoot(document.getElementById('root'));
 await act(async () => { root.render(<PricingPage />); });
 await wait(150);
 
-await click(btn('Şablon Ekle') || btn('Yeni') || [...document.querySelectorAll('button')].find((b) => /şablon/i.test(b.textContent)));
+// ---- list ----
+ok('list shows both templates with their kind', text().includes('Genel fiyat') && text().includes('Tek kâr ₺30') && text().includes('Net marj %10'));
 
-const numberInputs = () => [...document.querySelectorAll('input[type="number"]')];
-const tab = async (k) => click(document.querySelector(`[data-testid="tab-${k}"]`));
-const kindBtn = (k) => document.querySelector(`[data-testid="kind-${k}"]`);
+// ---- new template: ONE screen, two template types ----
+await click(btn('Şablon Ekle'));
+const form = q('template-form');
+ok('one screen: both template types, costs, profit and rounding are all on it', !!form && !!q('mode-single') && !!q('mode-tiered') && !!q('cost-shipping') && !!q('cost-other') && !!q('cost-commission') && !!q('unit-percent_of_purchase') && !!q('profit-value') && !!q('rounding'));
+ok('no tabs, no separate type-picker step', !document.querySelector('[role="tablist"]') && !q('kind-picker') && !q('tab-general'));
+ok('the form carries no marketplace names, VAT or tariff wording', !/Trendyol|KDV|barem|Barem|Aras|hızlı/i.test(form.textContent), form.textContent.match(/Trendyol|KDV|barem|Barem|Aras|hızlı/i)?.[0]);
+ok('the result over all products is next to the form', !!q('coverage-panel'));
+ok('starts as "Tek kâr" with a percent profit', q('mode-single').getAttribute('aria-pressed') === 'true' && text().includes('Kâr oranı (%)'));
 
-// 1) the pricing type is chosen FIRST; nothing else is shown yet
-ok('a new template starts with the type picker only', !!document.querySelector('[data-testid="kind-picker"]') && !document.querySelector('[data-testid="tab-general"]') && !document.querySelector('[data-testid="coverage-panel"]') && !btn('Kaydet'));
-ok('five pricing types are explained (what / when / example)', ['percent', 'fixed', 'margin', 'tiered', 'barem'].every((k) => kindBtn(k)) && text().includes('Ne zaman?') && text().includes('Örnek:') && text().includes('Nasıl fiyatlandırmak istiyorsunuz'));
-
-// 2) percent type: only its fields
-await click(kindBtn('percent'));
-ok('after choosing, the form with menus and the result panel appear', !!document.querySelector('[data-testid="tab-general"]') && !!document.querySelector('[data-testid="coverage-panel"]') && text().includes('Şablon türü: Yüzde kâr'));
+// ---- single profit, percent ----
 await setVal(document.querySelector('input[required]'), 'Deneme');
-await tab('costs');
-ok('percent type: single shipping amount, no table', text().includes('Kargo ücreti (₺)') && !document.querySelector('[data-testid="shipping-tiers"]'));
-await tab('profit');
-ok('percent type: only the rate field', text().includes('Kâr oranı (%)') && !text().includes('Ürün başına kâr (₺)') && !document.querySelector('[data-testid="profit-tiers"]') && !document.querySelector('[data-testid="barem-profit-percent"]'));
-await setVal(numberInputs().find((i) => i.closest('.form-group')?.textContent.includes('Kâr oranı')), '30');
-
-// result panel works over the real products
-const panel = document.querySelector('[data-testid="coverage-panel"]');
-ok('result panel shows how many products it applies to and the total', panel.textContent.includes('4098') && panel.textContent.includes('285.400,50'), panel.querySelector('[data-testid="total-profit"]')?.textContent);
-ok('bands table lists the auto bands', document.querySelectorAll('[data-testid="bands"] tbody tr').length === 3 && panel.textContent.includes('₺100 üstü'));
+await setVal(q('cost-shipping'), '60'); await setVal(q('cost-other'), '10'); await setVal(q('cost-commission'), '23');
+await setVal(q('profit-value'), '30');
+let cov = lastCoverage();
+ok('costs and the single profit reach the server', cov.body.value === 30 && cov.body.conditions.shippingCost === 60 && cov.body.conditions.packagingCost === 10 && cov.body.conditions.commissionPct === 23 && cov.body.conditions.profitMode === 'percent_of_purchase' && cov.body.conditions.profitTiers.length === 0 && cov.body.conditions.commissionBasis === 'gross', JSON.stringify(cov.body.conditions).slice(0, 200));
+ok('no shipping table and no VAT option is ever sent', cov.body.conditions.shippingTiers.length === 0 && cov.body.conditions.shippingTiersExVat === undefined);
+const panel = q('coverage-panel');
+ok('result panel: product count, total and the price bands', panel.textContent.includes('4098') && panel.textContent.includes('285.400,50') && document.querySelectorAll('[data-testid="bands"] tbody tr').length === 3);
 ok('losing products are announced and can be listed', panel.textContent.includes('2 üründe zarar'));
-await click(document.querySelector('[data-testid="show-losers"]'));
-ok('the worst products are listed', panel.textContent.includes('Zarar eden ürün'));
+await click(q('show-losers'));
+ok('the worst products are listed', q('coverage-panel').textContent.includes('Zarar eden ürün'));
 
-// 3) switch to the fixed type
-await click(document.querySelector('[data-testid="change-kind"]'));
-ok('"change type" returns to the picker', !!document.querySelector('[data-testid="kind-picker"]'));
-await click(kindBtn('fixed'));
-await tab('profit');
-ok('fixed type: only the TL field', text().includes('Ürün başına kâr (₺)') && !text().includes('Kâr oranı (%)'));
+// ---- percent <-> amount ----
+await click(q('unit-fixed')); await wait(450);
+cov = lastCoverage();
+ok('"Tutar" switches the profit to TL', text().includes('Ürün başına kâr (₺)') && cov.body.conditions.profitMode === 'fixed');
+await click(q('unit-percent_of_purchase'));
 
-// 4) barem type
-await click(document.querySelector('[data-testid="change-kind"]'));
-await click(kindBtn('barem'));
-ok('barem type opens on the costs menu with its explanation and a two-row table', text().includes('Barem (kademeli kargo) nasıl çalışır') && !!document.querySelector('[data-testid="shipping-tiers"]'));
-const sh = document.querySelector('[data-testid="shipping-tiers"]');
-ok('last row is "Üstü"; single shipping field is not offered', sh.querySelectorAll('input').length === 3 && sh.textContent.includes('Üstü') && !text().includes('Kargo ücreti (₺)'));
-await click([...sh.querySelectorAll('button')].find((b) => b.textContent.includes('Satır ekle')));
-ok('a third row can be added, then no more', sh.querySelectorAll('input').length === 5 && ![...sh.querySelectorAll('button')].some((b) => b.textContent.includes('Satır ekle')));
-ok('barem table can be written like the tariff (VAT-exclusive, default) or VAT-inclusive', !!document.querySelector('[data-testid="vat-ex"]') && !!document.querySelector('[data-testid="vat-inc"]') && sh.textContent.includes('KDV hariç'));
-const ins = [...sh.querySelectorAll('input')];
-await setVal(ins[0], '200'); await setVal(ins[1], '46'); await setVal(ins[2], '350'); await setVal(ins[3], '84'); await setVal(ins[4], '190');
-ok('bands now show which shipping row applies', panel.querySelector('[data-testid="bands"] thead').textContent.includes('Kargo') && panel.textContent.includes('2. satır*'));
-const covEx = calls.filter((c) => c.url === '/pricing/coverage').pop();
-ok('request says the table is VAT-exclusive', covEx.body.conditions.shippingTiersExVat === true);
-await click(document.querySelector('[data-testid="vat-inc"]'));
-const covInc = calls.filter((c) => c.url === '/pricing/coverage').pop();
-await wait(450);
-ok('switching to VAT-inclusive is sent to the server and relabels the table', calls.filter((c) => c.url === '/pricing/coverage').pop().body.conditions.shippingTiersExVat === false && sh.textContent.includes('KDV dahil'));
-await click(document.querySelector('[data-testid="vat-ex"]'));
-await setVal(ins[3], '');
-const cov2 = calls.filter((c) => c.url === '/pricing/coverage').pop();
-ok('incomplete table is not sent, hint shown, menu flagged', cov2.body.conditions.shippingTiers.length === 0 && text().includes('Kademe tablosunu tamamlayınca') && document.querySelector('[data-testid="tab-costs"]').textContent.includes('●'));
-await setVal(ins[3], '84');
-await tab('profit');
-ok('barem type: profit method choice (rate / TL / table) is offered inside it', ['barem-profit-percent', 'barem-profit-fixed', 'barem-profit-tiered'].every((k) => document.querySelector(`[data-testid="${k}"]`)));
-await click(document.querySelector('[data-testid="barem-profit-tiered"]'));
-const pt = document.querySelector('[data-testid="profit-tiers"]');
-ok('table profit inside barem opens its explanation and table', !!pt && text().includes('Kademeli kâr nasıl çalışır'));
-const pins = [...pt.querySelectorAll('input')];
-await setVal(pins[0], '100'); await setVal(pins[1], '40'); await setVal(pins[2], '30');
-const cov = calls.filter((c) => c.url === '/pricing/coverage').pop();
-ok('request carries both tables, last rows are "and above"', cov.body.conditions.shippingTiers.length === 3 && cov.body.conditions.profitTiers.length === 2 && cov.body.conditions.shippingTiers[2].upTo === null && cov.body.conditions.profitTiers[1].upTo === null, JSON.stringify(cov.body.conditions.profitTiers));
+// ---- tiered profit ----
+await click(q('mode-tiered'));
+const tbl = q('profit-tiers');
+ok('"Kademeli kâr" shows the table (two rows, last is "Üstü") and hides the single value', !!tbl && tbl.querySelectorAll('input').length === 3 && tbl.textContent.includes('Üstü') && !q('profit-value'));
+await click([...tbl.querySelectorAll('button')].find((b) => b.textContent.includes('Satır ekle')));
+ok('a third row can be added, then no more', tbl.querySelectorAll('input').length === 5 && ![...tbl.querySelectorAll('button')].some((b) => b.textContent.includes('Satır ekle')));
+await click([...tbl.querySelectorAll('button[title="Satırı sil"]')][0]);
+const ins = [...tbl.querySelectorAll('input')];
+await setVal(ins[0], '100'); await setVal(ins[1], '40'); await setVal(ins[2], '30');
+cov = lastCoverage();
+ok('tiered profit is sent with the last row as "and above"', cov.body.conditions.profitTiers.length === 2 && cov.body.conditions.profitTiers[0].upTo === 100 && cov.body.conditions.profitTiers[1].upTo === null && cov.body.value === 0, JSON.stringify(cov.body.conditions.profitTiers));
+const sentBefore = calls.filter((c) => c.url === '/pricing/coverage').length;
+await setVal(ins[1], '');
+ok('an incomplete table is not sent to the server and the user is told', calls.filter((c) => c.url === '/pricing/coverage').length === sentBefore && text().includes('Kademe tablosunu tamamlayınca'));
+await setVal(ins[1], '40');
+await click(q('unit-fixed')); await wait(450);
+ok('amount works in the table too', q('profit-tiers').textContent.includes('Kâr (₺)') && lastCoverage().body.conditions.profitMode === 'fixed');
+await click(q('unit-percent_of_purchase'));
+await click(q('mode-single')); await wait(450);
+cov = lastCoverage();
+ok('back to "Tek kâr" drops the table and uses the single value again', cov.body.conditions.profitTiers.length === 0 && cov.body.value === 30 && !q('profit-tiers'));
 
-// 4b) net margin type: one number, explained in terms of the sale price
-await click(document.querySelector('[data-testid="change-kind"]'));
-await click(kindBtn('margin'));
-ok('margin type shows its title', text().includes('Şablon türü: Net marj'));
-await tab('profit');
-ok('margin type: only the margin field, with the calculator-style explanation', !!document.querySelector('[data-testid="margin-input"]') && text().includes('net kâr ÷ KDV dahil satış fiyatı') && !text().includes('Kâr oranı (%)') && !document.querySelector('[data-testid="profit-tiers"]'));
-await setVal(document.querySelector('[data-testid="margin-input"]'), '10');
-await wait(450);
-const covM = calls.filter((c) => c.url === '/pricing/coverage').pop();
-ok('margin type reaches the server as margin_on_gross', covM.body.conditions.profitMode === 'margin_on_gross' && covM.body.value === 10, JSON.stringify([covM.body.conditions.profitMode, covM.body.value]));
-await click(document.querySelector('[data-testid="change-kind"]'));
-await click(kindBtn('barem'));
-await tab('profit');
-ok('barem type offers net margin as a profit method too', !!document.querySelector('[data-testid="barem-profit-margin"]'));
-await click(document.querySelector('[data-testid="barem-profit-margin"]'));
-ok('chosen inside barem it shows the margin field', !!document.querySelector('[data-testid="margin-input"]'));
+// ---- rounding ----
+await setVal(q('rounding'), 'ending:0.9');
+cov = lastCoverage();
+ok('price ending reaches the server', cov.body.conditions.roundingMode === 'ending' && cov.body.conditions.roundingEnding === 0.9);
 
-// 5) tiered type on its own; switching away clears the other tables
-await click(document.querySelector('[data-testid="change-kind"]'));
-await click(kindBtn('tiered'));
-await tab('profit');
-ok('tiered type: explanation, unit choice and table; no shipping table', text().includes('Kademeli kâr nasıl çalışır') && !!document.querySelector('[data-testid="unit-fixed"]') && !!document.querySelector('[data-testid="profit-tiers"]'));
-const covT = calls.filter((c) => c.url === '/pricing/coverage').pop();
-await wait(450);
-const covT2 = calls.filter((c) => c.url === '/pricing/coverage').pop();
-ok('switching to tiered dropped the shipping table', covT2.body.conditions.shippingTiers.length === 0);
-await click(document.querySelector('[data-testid="unit-fixed"]'));
-ok('unit choice switches the table to TL', document.querySelector('[data-testid="profit-tiers"]').textContent.includes('Kâr (₺)'));
-
-// 6) rounding menu
-await tab('rounding');
-ok('rounding menu explains each option with an example', text().includes('Fiyat sonu nedir') && text().includes('129,37 ₺ → 129,90 ₺'));
-await click(document.querySelector('[data-testid="round-ending:0.9"]'));
-await wait(450);
-const covR = calls.filter((c) => c.url === '/pricing/coverage').pop();
-ok('rounding choice reaches the server', covR.body.conditions.roundingMode === 'ending' && covR.body.conditions.roundingEnding === 0.9);
-
-// 7) single price try-out
-const panel2 = document.querySelector('[data-testid="coverage-panel"]');
-await click(document.querySelector('[data-testid="open-try"]'));
-const tryInput = [...panel2.querySelectorAll('input[type="number"]')].pop();
+// ---- single price try-out ----
+await click(q('open-try'));
+const tryInput = [...q('coverage-panel').querySelectorAll('input[type="number"]')].pop();
 await setVal(tryInput, '100');
-ok('single-price try-out shows a result', !!panel2.querySelector('[data-testid="try-result"]'));
+ok('single-price try-out shows a result', !!q('try-result'));
+
+// ---- save ----
+await click(btn('Kaydet'));
+await wait(100);
+const post = calls.find((c) => c.m === 'POST' && c.url === '/pricing');
+ok('saving posts a plain template: name, costs, one profit, no tables', post && post.body.name === 'Deneme' && post.body.value === 30 && post.body.conditions.shippingCost === 60 && post.body.conditions.profitTiers.length === 0 && post.body.conditions.shippingTiers.length === 0 && post.body.applyTo === 'price_template', post && JSON.stringify(post.body).slice(0, 160));
+ok('the dialog closes after saving', !q('template-form'));
+
+// ---- editing a simple template ----
+await click(q('edit-r1'));
+ok('an existing template opens with its own values', document.querySelector('input[required]').value === 'Genel fiyat' && q('cost-shipping').value === '60' && q('cost-commission').value === '23' && q('profit-value').value === '30' && q('unit-fixed').style.border.includes('accent'));
+ok('a plain template has no warning', !q('legacy-warning'));
+await click(btn('İptal'));
+
+// ---- editing an older template with settings this screen no longer offers ----
+await click(q('edit-r2'));
+ok('older settings are named in a warning', !!q('legacy-warning') && q('legacy-warning').textContent.includes('kademeli kargo') && q('legacy-warning').textContent.includes('net marj'));
+ok('an old purchase-price limit is shown and can be removed', !!q('range-note') && q('range-note').textContent.includes('500'));
+await click(btn('Sınırı kaldır'));
+ok('limit removed', !q('range-note'));
+await click(btn('Güncelle'));
+await wait(100);
+const put = calls.find((c) => c.m === 'PUT' && c.url === '/pricing/r2');
+ok('saving the older template drops what the screen does not offer', put && put.body.conditions.shippingTiers.length === 0 && put.body.conditions.minPurchasePrice === null && put.body.conditions.profitMode === 'percent_of_purchase', put && JSON.stringify(put.body.conditions).slice(0, 200));
 
 console.error = () => {};
 const real = errors.filter((e) => !/not wrapped in act|Warning: An update|ReactDOMTestUtils|act\(/.test(e));
