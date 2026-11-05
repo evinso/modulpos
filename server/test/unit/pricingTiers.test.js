@@ -164,3 +164,29 @@ test('without the flag nothing changes', () => {
   const b = E.computeTemplatePrice(100, 30, { ...base, shippingTiers: SHIP, shippingTiersExVat: false });
   assert.equal(a, b);
 });
+
+test('net margin mode: profit is exactly value% of the VAT-inclusive sale price (no rounding)', () => {
+  for (const m of [5, 10, 15]) for (const P of [20, 96, 300]) {
+    const c = { commissionPct: 22.37, vatRate: 20, packagingCost: 16.39, shippingCost: 58, profitMode: 'margin_on_gross' };
+    const e = E.explainTemplatePrice(P, m, c);
+    near(e.profit / e.price * 100, m, `m=${m} P=${P}`);
+    near(e.marginOnPricePct, m);
+  }
+});
+
+test('net margin mode works with the commission basis missing (always gross) and with shipping tiers', () => {
+  const c = { commissionPct: 22.37, vatRate: 20, packagingCost: 16.39, profitMode: 'margin_on_gross', shippingTiersExVat: true,
+    shippingTiers: [{ upTo: 199.99, cost: 48.33 }, { upTo: 349.99, cost: 79.16 }, { upTo: null, cost: 88.96 }] };
+  const cheap = E.explainTemplatePrice(20, 10, c), mid = E.explainTemplatePrice(96, 10, c), big = E.explainTemplatePrice(400, 10, c);
+  assert.equal(cheap.shippingTier, 1); assert.equal(mid.shippingTier, 2); assert.equal(big.shippingTier, 3);
+  for (const e of [cheap, mid, big]) assert.ok(e.profit / e.price * 100 >= 9.99, `margin ${e.profit / e.price * 100}`);
+});
+
+test('net margin mode: a margin the costs cannot support gives no price instead of nonsense', () => {
+  assert.equal(E.computeTemplatePrice(100, 90, { commissionPct: 22, vatRate: 20, profitMode: 'margin_on_gross' }), null);
+});
+
+test('net margin can be tiered by purchase price', () => {
+  const c = { commissionPct: 22.37, vatRate: 20, packagingCost: 10, shippingCost: 50, profitMode: 'margin_on_gross', profitTiers: [{ upTo: 50, value: 14 }, { upTo: null, value: 8 }] };
+  near(E.explainTemplatePrice(30, 0, c).marginOnPricePct, 14); near(E.explainTemplatePrice(300, 0, c).marginOnPricePct, 8);
+});

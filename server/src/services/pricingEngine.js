@@ -14,7 +14,8 @@ const prisma = require('../config/database');
  *   shippingCost, packagingCost, extraCost                                fixed costs (TL)
  *   commissionPct, extraPct                                               % of sale price (marketplace commission, ads, ...)
  *   vatRate                                                               sale VAT % added on top (null/absent = the product's own VAT rate)
- *   profitMode: percent_of_purchase (default) | percent_of_cost | margin_on_price | fixed   (amount = rule.value)
+ *   profitMode: percent_of_purchase (default) | percent_of_cost | margin_on_price | margin_on_gross | fixed   (amount = rule.value)
+ *               margin_on_gross = net profit is value% of the VAT-inclusive sale price (always uses the gross commission basis)
  *   roundingMode: none (default) | ending | int ; roundingEnding: e.g. 0.9 / 0.99
  *   minPrice, maxPrice                                                    clamp
  *   shippingTiers: [{ upTo, cost }]   shipping that depends on the SALE price (marketplace "barem"): the first row whose
@@ -151,12 +152,17 @@ function priceWith(P, value, c) {
 
   // commissionBasis 'gross' (used by the price-template screen): the marketplace commission is charged on the
   // VAT-inclusive sale price, like Trendyol does. Without it (older rules) it is charged on the VAT-exclusive price.
-  if (c.commissionBasis === 'gross') {
+  if (c.commissionBasis === 'gross' || mode === 'margin_on_gross') {
     const v = num(c.vatRate) / 100;
     const share = 1 / (1 + v);                 // part of the gross price that is revenue (VAT is passed on to the state)
     const pc = pct / 100;
     let gross;
-    if (mode === 'margin_on_price') {
+    if (mode === 'margin_on_gross') {
+      // net margin = share of the VAT-INCLUSIVE sale price (what marketplace calculators call "kâr marjı") that stays with you
+      const denom = share - pc - num(value) / 100;
+      if (denom <= 0.02) return null;
+      gross = cost / denom;
+    } else if (mode === 'margin_on_price') {
       const denom = share * (1 - num(value) / 100) - pc;
       if (denom <= 0.02) return null;
       gross = cost / denom;
@@ -317,7 +323,7 @@ function explainTemplatePrice(purchasePrice, value, c) {
   const pct = num(c.commissionPct) + num(c.extraPct);
   const vat = num(c.vatRate);
   const exVat = price / (1 + vat / 100);
-  const commission = c.commissionBasis === 'gross' ? price * pct / 100 : exVat * pct / 100;
+  const commission = (c.commissionBasis === 'gross' || c.profitMode === 'margin_on_gross') ? price * pct / 100 : exVat * pct / 100;
   return {
     price,
     purchase: round2(P),

@@ -19,7 +19,8 @@ const MODE_LABELS = {
   percent_of_purchase: 'Yüzde kâr',
   fixed: 'Sabit kâr',
   percent_of_cost: 'Maliyetin yüzdesi',
-  margin_on_price: 'Satış fiyatı marjı',
+  margin_on_price: 'Satış fiyatı marjı (KDV hariç)',
+  margin_on_gross: 'Net marj (satış fiyatına göre)',
 };
 
 import CoveragePanel from './CoveragePanel';
@@ -214,6 +215,7 @@ export default function PricingPage() {
     const c = parseConds(r);
     if (r.applyTo === 'marketplace_xml') return r.type === 'fixed' ? `+₺${r.value}` : `%${r.value}`;
     if (Array.isArray(c.profitTiers) && c.profitTiers.length > 1) return 'Kademeli';
+    if (c.profitMode === 'margin_on_gross') return `net marj %${r.value}`;
     return c.profitMode === 'fixed' ? `₺${r.value}` : `%${r.value}`;
   };
 
@@ -244,18 +246,19 @@ export default function PricingPage() {
   const sum = (id) => ruleSummaries?.rules?.[id];
   // The pricing type is derived from what the template holds, so older templates open correctly too
   const kind = form.shippingRows.length > 0 ? 'barem' : form.profitRows.length > 0 ? 'tiered'
-    : form.profitMode === 'fixed' ? 'fixed' : form.profitMode === 'percent_of_purchase' ? 'percent' : 'legacy';
-  const baseMode = form.profitMode === 'fixed' ? 'fixed' : 'percent_of_purchase';
+    : form.profitMode === 'fixed' ? 'fixed' : form.profitMode === 'margin_on_gross' ? 'margin' : form.profitMode === 'percent_of_purchase' ? 'percent' : 'legacy';
+  const baseMode = form.profitMode === 'fixed' || form.profitMode === 'margin_on_gross' ? form.profitMode : 'percent_of_purchase';
   const chooseKind = (k) => {
     const patch = { shippingRows: [], profitRows: [], profitMode: baseMode };
     if (k === 'percent') patch.profitMode = 'percent_of_purchase';
     if (k === 'fixed') patch.profitMode = 'fixed';
+    if (k === 'margin') patch.profitMode = 'margin_on_gross';
     if (k === 'tiered') patch.profitRows = form.profitRows.length ? form.profitRows : emptyTiers();
     if (k === 'barem') { patch.shippingRows = form.shippingRows.length ? form.shippingRows : emptyTiers(); patch.profitRows = form.profitRows; if (!form.shippingRows.length) patch.shippingExVat = true; }
     set(patch); setTypeChosen(true); setTab(k === 'barem' ? 'costs' : 'general');
   };
   // inside the barem type the profit can still be a rate, a TL amount or a table
-  const baremProfit = form.profitRows.length > 0 ? 'tiered' : baseMode === 'fixed' ? 'fixed' : 'percent';
+  const baremProfit = form.profitRows.length > 0 ? 'tiered' : baseMode === 'fixed' ? 'fixed' : baseMode === 'margin_on_gross' ? 'margin' : 'percent';
   const shipIncomplete = rowsToTiers(form.shippingRows, 'cost').incomplete;
   const profitMissing = rowsToTiers(form.profitRows, 'value').incomplete || (form.profitRows.length === 0 && form.value === '');
 
@@ -472,6 +475,8 @@ export default function PricingPage() {
                               onClick={() => set({ profitRows: [], profitMode: 'percent_of_purchase' })} />
                             <OptionCard testId="barem-profit-fixed" active={baremProfit === 'fixed'} title="Sabit TL kâr" desc="Her üründe aynı TL tutar."
                               onClick={() => set({ profitRows: [], profitMode: 'fixed' })} />
+                            <OptionCard testId="barem-profit-margin" active={baremProfit === 'margin'} title="Net marj" desc="Satış fiyatının belli yüzdesi net kalsın (örn. %10)."
+                              onClick={() => set({ profitRows: [], profitMode: 'margin_on_gross' })} />
                             <OptionCard testId="barem-profit-tiered" active={baremProfit === 'tiered'} title="Alış fiyatına göre kademeli" desc="Fiyat aralığına göre farklı kâr (en fazla 3 kademe)."
                               onClick={() => form.profitRows.length === 0 && set({ profitRows: emptyTiers() })} />
                           </Cards>
@@ -492,6 +497,16 @@ export default function PricingPage() {
                           <Example>Örnek: 25 yazarsanız 40 ₺’lik ürün de 400 ₺’lik ürün de size net 25 ₺ bırakır.</Example>
                         </div>
                       )}
+                      {form.profitRows.length === 0 && (kind === 'margin' || (kind === 'barem' && baremProfit === 'margin')) && (
+                        <div className="form-group">
+                          <label className="form-label">Net marj (%) *</label>
+                          <input type="number" min="0" max="80" step="0.1" className="form-input" data-testid="margin-input" value={form.value} onChange={(e) => set({ value: e.target.value })} required />
+                          <Example>
+                            Örnek: %10 yazarsanız ürün müşteriye 400 ₺’ye satıldığında size, kargo, komisyon, KDV ve diğer giderler düşüldükten sonra 40 ₺ kalır; 200 ₺’ye satılsa 20 ₺.
+                            Bu oran pazaryeri hesaplayıcılarındaki “kâr marjı” ile aynıdır (net kâr ÷ KDV dahil satış fiyatı). Sağdaki tablodan hangi alış fiyatında kaç ₺ kazandığınızı görebilirsiniz.
+                          </Example>
+                        </div>
+                      )}
                       {kind === 'legacy' && (
                         <div className="form-group">
                           <label className="form-label">Değer *</label>
@@ -504,10 +519,10 @@ export default function PricingPage() {
                           <Explain title="Kademeli kâr nasıl çalışır?">
                             Ürünün <strong>alış fiyatına</strong> uyan satır seçilir ve o satırdaki kâr uygulanır. Her satıra alış fiyatının üst sınırını ve o aralıktaki kârı yazın;
                             son satır “üstü”dür. Çok ürünlü XML’lerde ucuz ürünlerde kargo ve komisyon payı büyük olduğu için orayı yüksek, pahalı ürünleri daha düşük tutmak yaygın bir yöntemdir.
-                            <br />Kârı yüzde mi sabit TL mi olarak yazacağınızı aşağıdan seçin.
+                            <br />Kârı alış fiyatının yüzdesi, sabit TL ya da satış fiyatına göre net marj olarak yazabilirsiniz; aşağıdan seçin.
                           </Explain>
                           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                            {[['percent_of_purchase', 'Yüzde (%)'], ['fixed', 'Sabit TL (₺)']].map(([k, l]) => (
+                            {[['percent_of_purchase', 'Alışın yüzdesi (%)'], ['fixed', 'Sabit TL (₺)'], ['margin_on_gross', 'Net marj (%)']].map(([k, l]) => (
                               <button key={k} type="button" data-testid={`unit-${k}`} onClick={() => set({ profitMode: k })}
                                 style={{ flex: 1, padding: '7px 10px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--text-primary)',
                                   border: form.profitMode === k ? '2px solid var(--accent-primary)' : '2px solid var(--border-color)',
@@ -516,7 +531,7 @@ export default function PricingPage() {
                           </div>
                           <Example>Örnek tablo: 100 ₺’ye kadar → %40 · 300 ₺’ye kadar → %30 · üstü → %20. Alışı 80 ₺ olan ürün 1. satırdan %40 kâr (32 ₺) bırakır.</Example>
                           <TierTable testId="profit-tiers" rows={form.profitRows} onChange={(rows) => set({ profitRows: rows })}
-                            limitLabel="Alış fiyatı" valueLabel={form.profitMode === 'fixed' ? 'Kâr (₺)' : 'Kâr oranı'} valueUnit={form.profitMode === 'fixed' ? '₺' : '%'} />
+                            limitLabel="Alış fiyatı" valueLabel={form.profitMode === 'fixed' ? 'Kâr (₺)' : form.profitMode === 'margin_on_gross' ? 'Net marj' : 'Kâr oranı'} valueUnit={form.profitMode === 'fixed' ? '₺' : '%'} />
                           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>En fazla 3 satır. Sınırlar küçükten büyüğe gitmeli. Tüm alanlar dolu olmalı.</div>
                         </>
                       )}

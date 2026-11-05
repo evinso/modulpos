@@ -39,6 +39,15 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     r = await a('POST', '/pricing/calculate', { purchasePrice: 100, value: 30, conditions: exConds });
     ok('VAT-exclusive table: row 2 (limit 199.99 ex VAT = 240 incl VAT), profit kept', r.d.shippingTier === 2 && near(r.d.shippingCost, 94.99) && near(r.d.profit, 30), JSON.stringify(r.d).slice(0, 120));
 
+    // net margin method (profit = value% of the VAT-inclusive sale price), together with the tariff-style shipping table
+    const mConds = { ...exConds, profitMode: 'margin_on_gross', packagingCost: 16.39, commissionPct: 22.37 };
+    for (const P of [20, 96, 300]) {
+      r = await a('POST', '/pricing/calculate', { purchasePrice: P, value: 10, conditions: mConds });
+      ok(`net margin 10% holds for purchase ${P} (shipping row ${r.d?.shippingTier})`, r.s === 200 && r.d.marginOnPricePct >= 9.99 && r.d.marginOnPricePct < 10.6, r.d && JSON.stringify([r.d.price, r.d.profit, r.d.marginOnPricePct]));
+    }
+    r = await a('POST', '/pricing/calculate', { purchasePrice: 100, value: 95, conditions: mConds });
+    ok('an impossible margin is refused with a clear message', r.s === 400, JSON.stringify(r.d));
+
     // validation
     for (const [name, bad] of [
       ['not ascending', { shippingTiers: [{ upTo: 300, cost: 1 }, { upTo: 200, cost: 2 }, { upTo: null, cost: 3 }] }],

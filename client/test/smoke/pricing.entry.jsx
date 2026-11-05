@@ -29,7 +29,7 @@ const kindBtn = (k) => document.querySelector(`[data-testid="kind-${k}"]`);
 
 // 1) the pricing type is chosen FIRST; nothing else is shown yet
 ok('a new template starts with the type picker only', !!document.querySelector('[data-testid="kind-picker"]') && !document.querySelector('[data-testid="tab-general"]') && !document.querySelector('[data-testid="coverage-panel"]') && !btn('Kaydet'));
-ok('four pricing types are explained (what / when / example)', ['percent', 'fixed', 'tiered', 'barem'].every((k) => kindBtn(k)) && text().includes('Ne zaman?') && text().includes('Örnek:') && text().includes('Nasıl fiyatlandırmak istiyorsunuz'));
+ok('five pricing types are explained (what / when / example)', ['percent', 'fixed', 'margin', 'tiered', 'barem'].every((k) => kindBtn(k)) && text().includes('Ne zaman?') && text().includes('Örnek:') && text().includes('Nasıl fiyatlandırmak istiyorsunuz'));
 
 // 2) percent type: only its fields
 await click(kindBtn('percent'));
@@ -88,6 +88,23 @@ const pins = [...pt.querySelectorAll('input')];
 await setVal(pins[0], '100'); await setVal(pins[1], '40'); await setVal(pins[2], '30');
 const cov = calls.filter((c) => c.url === '/pricing/coverage').pop();
 ok('request carries both tables, last rows are "and above"', cov.body.conditions.shippingTiers.length === 3 && cov.body.conditions.profitTiers.length === 2 && cov.body.conditions.shippingTiers[2].upTo === null && cov.body.conditions.profitTiers[1].upTo === null, JSON.stringify(cov.body.conditions.profitTiers));
+
+// 4b) net margin type: one number, explained in terms of the sale price
+await click(document.querySelector('[data-testid="change-kind"]'));
+await click(kindBtn('margin'));
+ok('margin type shows its title', text().includes('Şablon türü: Net marj'));
+await tab('profit');
+ok('margin type: only the margin field, with the calculator-style explanation', !!document.querySelector('[data-testid="margin-input"]') && text().includes('net kâr ÷ KDV dahil satış fiyatı') && !text().includes('Kâr oranı (%)') && !document.querySelector('[data-testid="profit-tiers"]'));
+await setVal(document.querySelector('[data-testid="margin-input"]'), '10');
+await wait(450);
+const covM = calls.filter((c) => c.url === '/pricing/coverage').pop();
+ok('margin type reaches the server as margin_on_gross', covM.body.conditions.profitMode === 'margin_on_gross' && covM.body.value === 10, JSON.stringify([covM.body.conditions.profitMode, covM.body.value]));
+await click(document.querySelector('[data-testid="change-kind"]'));
+await click(kindBtn('barem'));
+await tab('profit');
+ok('barem type offers net margin as a profit method too', !!document.querySelector('[data-testid="barem-profit-margin"]'));
+await click(document.querySelector('[data-testid="barem-profit-margin"]'));
+ok('chosen inside barem it shows the margin field', !!document.querySelector('[data-testid="margin-input"]'));
 
 // 5) tiered type on its own; switching away clears the other tables
 await click(document.querySelector('[data-testid="change-kind"]'));
