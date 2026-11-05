@@ -22,11 +22,14 @@ const MODE_LABELS = {
   margin_on_price: 'Satış fiyatı marjı',
 };
 
+import TierTable, { emptyTiers, rowsToTiers, tiersToRows } from './TierTable';
+
 const EMPTY_FORM = {
   name: '', connectionId: '', xmlChoice: '',
   minPurchasePrice: '', maxPurchasePrice: '',
   shippingCost: '', otherCost: '', commissionPct: '',
   profitMode: 'percent_of_purchase', value: '', rounding: 'none',
+  shippingRows: [], profitRows: [], // empty = single amount / single rate (tables closed)
 };
 
 const num = (v) => (v === '' || v === null || v === undefined || Number.isNaN(parseFloat(v)) ? null : parseFloat(v));
@@ -55,6 +58,8 @@ function ruleToForm(r) {
     profitMode: c.profitMode || (legacy && r.type === 'fixed' ? 'fixed' : 'percent_of_purchase'),
     value: r.value ?? '',
     rounding,
+    shippingRows: tiersToRows(c.shippingTiers, 'cost'),
+    profitRows: tiersToRows(c.profitTiers, 'value'),
     _keep: {
       xmlSourceIds: srcIds, extraCost: c.extraCost ?? 0, extraPct: c.extraPct ?? 0,
       minPrice: c.minPrice ?? null, maxPrice: c.maxPrice ?? null, priority: r.priority ?? 0,
@@ -86,6 +91,8 @@ function formToPayload(f) {
     roundingEnding: re ? parseFloat(re) : null,
     minPrice: keep.minPrice ?? null,
     maxPrice: keep.maxPrice ?? null,
+    shippingTiers: rowsToTiers(f.shippingRows, 'cost').tiers,
+    profitTiers: rowsToTiers(f.profitRows, 'value').tiers,
   };
   return { name: f.name, type: 'percentage', value: num(f.value) ?? 0, applyTo: 'price_template', priority: keep.priority ?? 0, conditions };
 }
@@ -134,7 +141,7 @@ export default function PricingPage() {
     if (!showModal) return undefined;
     const my = ++reqId.current;
     const t = setTimeout(async () => {
-      if (form.value === '') { setPreview(null); setSummary(null); setPreviewError(''); return; }
+      if (form.value === '' && !profitTiersOn) { setPreview(null); setSummary(null); setPreviewError(''); return; }
       const purchase = num(samplePrice);
       if (purchase && purchase > 0) {
         try {
@@ -162,7 +169,10 @@ export default function PricingPage() {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (form.value === '') return toast.error('Kâr değerini girin');
+    const shipInc = rowsToTiers(form.shippingRows, 'cost').incomplete, profInc = rowsToTiers(form.profitRows, 'value').incomplete;
+    if (shipInc) return toast.error('Kargo tablosundaki tüm alanları doldurun ya da tabloyu kapatın');
+    if (profInc) return toast.error('Kâr tablosundaki tüm alanları doldurun ya da tabloyu kapatın');
+    if (form.value === '' && !profitTiersOn) return toast.error('Kâr değerini girin');
     const min = num(form.minPurchasePrice), max = num(form.maxPurchasePrice);
     if (min !== null && max !== null && min > max) return toast.error('Alış fiyatı aralığında en düşük değer en yüksekten büyük olamaz');
     try {
@@ -186,6 +196,8 @@ export default function PricingPage() {
   };
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+  const rowsIncomplete = rowsToTiers(form.shippingRows, 'cost').incomplete || rowsToTiers(form.profitRows, 'value').incomplete;
+  const profitTiersOn = payload.conditions.profitTiers.length > 0;
   const modes = [
     { key: 'percent_of_purchase', title: 'Yüzde kâr', hint: 'Alış fiyatının yüzdesi kadar kâr' },
     { key: 'fixed', title: 'Sabit kâr', hint: 'Her üründe aynı tutar (₺)' },
@@ -196,6 +208,7 @@ export default function PricingPage() {
   const profitLabel = (r) => {
     const c = parseConds(r);
     if (r.applyTo === 'marketplace_xml') return r.type === 'fixed' ? `+₺${r.value}` : `%${r.value}`;
+    if (Array.isArray(c.profitTiers) && c.profitTiers.length > 1) return 'Kademeli';
     return c.profitMode === 'fixed' ? `₺${r.value}` : `%${r.value}`;
   };
 
@@ -214,7 +227,8 @@ export default function PricingPage() {
     const c = parseConds(r);
     const fixed = (Number(c.shippingCost) || 0) + (Number(c.packagingCost) || 0) + (Number(c.extraCost) || 0);
     const parts = [];
-    if (fixed > 0) parts.push(`₺${money(fixed)} sabit`);
+    if (Array.isArray(c.shippingTiers) && c.shippingTiers.length > 1) parts.push(`kademeli kargo + ₺${money((Number(c.packagingCost) || 0) + (Number(c.extraCost) || 0))} diğer`);
+    else if (fixed > 0) parts.push(`₺${money(fixed)} sabit`);
     const pct = (Number(c.commissionPct) || 0) + (Number(c.extraPct) || 0);
     if (pct > 0) parts.push(`%${pct} komisyon`);
     return <span style={{ fontSize: 12 }}>{parts.length ? parts.join(' + ') : '—'}</span>;
@@ -321,11 +335,32 @@ export default function PricingPage() {
                   <div style={{ fontSize: 13, fontWeight: 700, margin: '18px 0 8px' }}>Giderleriniz</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                     <div className="form-group"><label className="form-label">Kargo (₺)</label>
-                      <input type="number" min="0" step="0.01" className="form-input" value={form.shippingCost} onChange={(e) => set({ shippingCost: e.target.value })} /></div>
+                      <input type="number" min="0" step="0.01" className="form-input" value={form.shippingCost} disabled={form.shippingRows.length > 0} onChange={(e) => set({ shippingCost: e.target.value })} />
+                      <small style={{ color: 'var(--text-muted)', fontSize: 11 }}>Faturada ödediğiniz tutar (KDV dahil)</small></div>
                     <div className="form-group"><label className="form-label">Paketleme/diğer (₺)</label>
                       <input type="number" min="0" step="0.01" className="form-input" value={form.otherCost} onChange={(e) => set({ otherCost: e.target.value })} /></div>
                     <div className="form-group"><label className="form-label">Komisyon (%)</label>
                       <input type="number" min="0" max="90" step="0.1" className="form-input" value={form.commissionPct} onChange={(e) => set({ commissionPct: e.target.value })} /></div>
+                  </div>
+
+                  <div style={{ marginBottom: 6 }}>
+                    {form.shippingRows.length === 0 ? (
+                      <button type="button" data-testid="open-shipping-tiers" onClick={() => set({ shippingRows: emptyTiers() })}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', fontSize: 12, padding: 0, fontFamily: 'inherit' }}>
+                        Kargo, satış fiyatına göre değişiyor mu? (ör. barem)
+                      </button>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                          Kargonuzu satış fiyatına göre yazın. Sistem, ürünün satış fiyatına uyan satırı kendisi seçer.
+                        </div>
+                        <TierTable testId="shipping-tiers" rows={form.shippingRows} onChange={(rows) => set({ shippingRows: rows })}
+                          limitLabel="Satış fiyatı (KDV dahil)" valueLabel="Kargo ücretim" valueUnit="₺" />
+                        <button type="button" onClick={() => set({ shippingRows: [] })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12, padding: 0, fontFamily: 'inherit' }}>
+                          Tabloyu kapat, tek tutar kullan
+                        </button>
+                      </>
+                    )}
                   </div>
 
                   <div style={{ fontSize: 13, fontWeight: 700, margin: '18px 0 8px' }}>Kârınız</div>
@@ -342,8 +377,22 @@ export default function PricingPage() {
                   </div>
                   <div className="form-group">
                     <label className="form-label">{form.profitMode === 'fixed' ? 'Ürün başına kâr (₺) *' : 'Kâr oranı (%) *'}</label>
-                    <input type="number" min="0" step="0.01" className="form-input" value={form.value} onChange={(e) => set({ value: e.target.value })} required />
+                    <input type="number" min="0" step="0.01" className="form-input" value={form.value} disabled={form.profitRows.length > 0} onChange={(e) => set({ value: e.target.value })} required={form.profitRows.length === 0} />
                   </div>
+                  {form.profitRows.length === 0 ? (
+                    <button type="button" data-testid="open-profit-tiers" onClick={() => set({ profitRows: emptyTiers() })}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', fontSize: 12, padding: 0, marginBottom: 12, fontFamily: 'inherit' }}>
+                      Kâr, alış fiyatına göre değişsin
+                    </button>
+                  ) : (
+                    <div style={{ marginBottom: 12 }}>
+                      <TierTable testId="profit-tiers" rows={form.profitRows} onChange={(rows) => set({ profitRows: rows })}
+                        limitLabel="Alış fiyatı" valueLabel={form.profitMode === 'fixed' ? 'Kâr (₺)' : 'Kâr oranı'} valueUnit={form.profitMode === 'fixed' ? '₺' : '%'} />
+                      <button type="button" onClick={() => set({ profitRows: [] })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12, padding: 0, fontFamily: 'inherit' }}>
+                        Tabloyu kapat, tek oran kullan
+                      </button>
+                    </div>
+                  )}
 
                   <div className="form-group">
                     <label className="form-label">Fiyat sonu</label>
@@ -371,6 +420,7 @@ export default function PricingPage() {
                     <label className="form-label">Örnek ürün — alış fiyatı (₺)</label>
                     <input type="number" min="0" step="0.01" className="form-input" value={samplePrice} onChange={(e) => setSamplePrice(e.target.value)} />
 
+                    {rowsIncomplete && <p style={{ color: 'var(--warning)', fontSize: 12, marginTop: 10 }}>Kademe tablosunu tamamlayınca hesap buna göre güncellenir.</p>}
                     {previewError && <p style={{ color: 'var(--danger)', fontSize: 12, marginTop: 10 }}>{previewError}</p>}
                     {!preview && !previewError && <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 10 }}>Kâr değerini girince satış fiyatı ve kazancınız burada görünür.</p>}
 
@@ -384,7 +434,7 @@ export default function PricingPage() {
                           <div style={{ background: 'var(--bg-tertiary)', borderRadius: 10, padding: '10px 12px' }}>
                             <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Net kazancınız</div>
                             <div style={{ fontSize: 22, fontWeight: 800, color: earnClass(preview.profit) }}>₺{money(preview.profit)}</div>
-                            <div style={{ fontSize: 11, color: earnClass(preview.profit) }}>alışın %{preview.profitPct}’i</div>
+                            <div style={{ fontSize: 11, color: earnClass(preview.profit) }}>alışın %{preview.profitPct}’i · satış fiyatının %{preview.marginOnPricePct}’i</div>
                           </div>
                         </div>
                         {[
@@ -398,6 +448,13 @@ export default function PricingPage() {
                             <span style={{ color: 'var(--text-secondary)' }}>{k}</span><span>{v}</span>
                           </div>
                         ))}
+                        {(preview.shippingTier || preview.profitTier) && (
+                          <div data-testid="tier-used" style={{ fontSize: 11, color: 'var(--text-muted)', padding: '4px 0' }}>
+                            {preview.shippingTier ? `Uygulanan kargo: ${preview.shippingTier}. satır (₺${money(preview.shippingCost)})` : ''}
+                            {preview.shippingTier && preview.profitTier ? ' · ' : ''}
+                            {preview.profitTier ? `Uygulanan kâr: ${preview.profitTier}. satır` : ''}
+                          </div>
+                        )}
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 700, padding: '8px 0 0', marginTop: 6, borderTop: '1px solid var(--border-color)' }}>
                           <span>Elinize kalan</span><span style={{ color: earnClass(preview.profit) }}>₺{money(preview.profit)}</span>
                         </div>

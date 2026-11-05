@@ -10,6 +10,7 @@ E2E_DB_URL="postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres" 
 
 * `tenant-pricing-readiness` – data isolation between stores, per-connection send settings, pricing templates, the server-side
   readiness list, send-time validation, rejected products.
+* `pricing-tiers` – shipping / profit tier tables in price templates: calculator, validation, storage, isolation, real product price.
 * `xml-scoped-mapping` – category mappings belong to one XML source and disappear with it; earnings summary of the price template.
 * `products-page` – the products screen API: summary, facets, filters, sorting, paging, per-marketplace pricing, detail panel, editing rules.
 * `session-cookie` – cookie flags, CSRF header, CORS preflight, SSE, logout.

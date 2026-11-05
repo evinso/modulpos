@@ -32,9 +32,14 @@ const get = async (url, cfg = {}) => {
   if (url === '/products/ids') return { data: { ids: ['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'], total: 8 } };
   if (/^\/products\/[^/]+\/detail$/.test(url)) return { data: detail };
   if (/^\/products\/[^/]+$/.test(url)) return { data: { ...mk(1), description: 'Tam açıklama' } };
+  if (url === '/pricing') return { data: [] };
   throw new Error('unmocked GET ' + url);
 };
-const post = async (url, body) => { calls.push({ m: 'POST', url, body }); return { data: { message: 'ok', updated: 0, errors: [] } }; };
+const post = async (url, body) => {
+  calls.push({ m: 'POST', url, body });
+  if (url === '/pricing/calculate') return { data: { price: 314, purchase: 100, fixedCosts: 84, cost: 184, commissionAmount: 47.1, profit: 30, profitPct: 30, vatAmount: 52.33, marginOnPricePct: 9.55, shippingTier: body.conditions.shippingTiers && body.conditions.shippingTiers.length ? 2 : null, shippingCost: 84, profitTier: null } };
+  if (url === '/pricing/coverage') return { data: { total: 0, covered: 0, priced: 0, unpriced: 0, losing: 0, totalProfit: 0, avgProfit: 0, avgPrice: 0, avgPurchase: 0, minProfit: 0, maxProfit: 0 } };
+  return { data: { message: 'ok', updated: 0, errors: [] } }; };
 const put = async (url, body) => { calls.push({ m: 'PUT', url, body }); return { data: {} }; };
 const del = async (url) => { calls.push({ m: 'DELETE', url }); return { data: {} }; };
 module.exports = { get, post, put, delete: del, calls };

@@ -17,6 +17,9 @@ const prisma = require('../config/database');
  *   profitMode: percent_of_purchase (default) | percent_of_cost | margin_on_price | fixed   (amount = rule.value)
  *   roundingMode: none (default) | ending | int ; roundingEnding: e.g. 0.9 / 0.99
  *   minPrice, maxPrice                                                    clamp
+ *   shippingTiers: [{ upTo, cost }]   shipping that depends on the SALE price (marketplace "barem"): the first row whose
+ *                                     upTo the price fits in; the last row has upTo = null ("and above"). Replaces shippingCost.
+ *   profitTiers:   [{ upTo, value }]  profit that depends on the PURCHASE price; same shape, overrides rule.value.
  */
 
 const KINDS = ['price_template', 'price_range', 'marketplace_xml'];
@@ -43,13 +46,93 @@ function scopeSize(c) {
     + ((c.categories || []).length ? 1 : 0) + ((c.brands || []).length ? 1 : 0);
 }
 
+const MAX_TIERS = 3;
+
+/**
+ * Validates tier rows coming from the UI. Returns { tiers, error }.
+ * Rows: upTo ascending and > 0, only the last row may (and must) have upTo = null, value >= 0, at most MAX_TIERS rows.
+ * An empty / missing list is valid (feature off).
+ */
+function validateTiers(raw, valueKey) {
+  if (raw === undefined || raw === null || (Array.isArray(raw) && raw.length === 0)) return { tiers: [], error: null };
+  if (!Array.isArray(raw)) return { tiers: [], error: 'Kademe listesi geçersiz' };
+  if (raw.length > MAX_TIERS) return { tiers: [], error: `En fazla ${MAX_TIERS} kademe girilebilir` };
+  const tiers = [];
+  let prev = 0;
+  for (let i = 0; i < raw.length; i++) {
+    const row = raw[i] || {};
+    const v = optNum(row[valueKey]);
+    if (v === null || v < 0) return { tiers: [], error: `${i + 1}. kademede tutar eksik ya da geçersiz` };
+    const last = i === raw.length - 1;
+    const up = optNum(row.upTo);
+    if (last) {
+      if (up !== null) return { tiers: [], error: 'Son kademe "üstü" olmalı (üst sınır boş bırakılmalı)' };
+      tiers.push({ upTo: null, [valueKey]: v });
+    } else {
+      if (up === null || up <= prev) return { tiers: [], error: `${i + 1}. kademenin üst sınırı bir öncekinden büyük olmalı` };
+      tiers.push({ upTo: up, [valueKey]: v });
+      prev = up;
+    }
+  }
+  if (tiers.length === 1) return { tiers: [], error: 'Kademe için en az 2 satır girin ya da tabloyu boş bırakın' };
+  return { tiers, error: null };
+}
+
+/** Lenient version used while pricing: anything invalid simply switches the feature off. */
+function activeTiers(raw, valueKey) {
+  const { tiers, error } = validateTiers(raw, valueKey);
+  return error ? [] : tiers;
+}
+
+/** Profit value for this purchase price (tier table if set, otherwise the rule's value). */
+function pickProfitValue(P, value, c) {
+  const tiers = activeTiers(c.profitTiers, 'value');
+  if (!tiers.length) return { value: num(value), tier: null };
+  const i = tiers.findIndex((t) => t.upTo === null || P <= t.upTo);
+  return { value: tiers[i].value, tier: i + 1 };
+}
+
 /**
  * Pure calculation of a template price from a purchase price.
  * Returns null when the inputs cannot produce a valid price.
  */
 function computeTemplatePrice(purchasePrice, value, c) {
+  const r = resolveTemplate(purchasePrice, value, c);
+  return r ? r.price : null;
+}
+
+/**
+ * Same as computeTemplatePrice but also tells which shipping / profit tier was used.
+ * Shipping that depends on the sale price is solved by trying each row: a row is valid when the price it produces
+ * falls inside that row's range. (If rows get cheaper at higher prices and no row is consistent, the price is set just
+ * above the boundary, which can only make the profit larger than planned, never smaller.)
+ */
+function resolveTemplate(purchasePrice, value, c) {
   const P = num(purchasePrice);
   if (!(P > 0)) return null;
+  const profit = pickProfitValue(P, value, c);
+  const tiers = activeTiers(c.shippingTiers, 'cost');
+  if (!tiers.length) {
+    const price = priceWith(P, profit.value, c);
+    return price === null ? null : { price, shippingCost: num(c.shippingCost), shippingTier: null, profitValue: profit.value, profitTier: profit.tier };
+  }
+  let best = null;
+  let lo = 0;
+  for (let i = 0; i < tiers.length; i++) {
+    const t = tiers[i];
+    let price = priceWith(P, profit.value, { ...c, shippingCost: t.cost });
+    if (price === null) return null;
+    const inside = (t.upTo === null || price <= t.upTo + 1e-9);
+    if (inside) {
+      if (price <= lo + 1e-9 && i > 0) price = round2(lo + 0.01); // cheaper row than the previous one: stay just above the boundary
+      if (!best || price < best.price) best = { price, shippingCost: t.cost, shippingTier: i + 1, profitValue: profit.value, profitTier: profit.tier };
+    }
+    if (t.upTo !== null) lo = t.upTo;
+  }
+  return best;
+}
+
+function priceWith(P, value, c) {
 
   const cost = P + num(c.shippingCost) + num(c.packagingCost) + num(c.extraCost);
   const pct = num(c.commissionPct) + num(c.extraPct);
@@ -215,10 +298,11 @@ async function loadPricingContext(storeId, connectionId) {
 
 /** Step-by-step breakdown of a template price, for the calculator preview in the UI. */
 function explainTemplatePrice(purchasePrice, value, c) {
-  const price = computeTemplatePrice(purchasePrice, value, c);
-  if (price === null) return null;
+  const r = resolveTemplate(purchasePrice, value, c);
+  if (r === null) return null;
+  const price = r.price;
   const P = num(purchasePrice);
-  const fixedCosts = num(c.shippingCost) + num(c.packagingCost) + num(c.extraCost);
+  const fixedCosts = r.shippingCost + num(c.packagingCost) + num(c.extraCost);
   const cost = P + fixedCosts;
   const pct = num(c.commissionPct) + num(c.extraPct);
   const vat = num(c.vatRate);
@@ -233,6 +317,11 @@ function explainTemplatePrice(purchasePrice, value, c) {
     profit: round2(exVat - cost - commission),
     profitPct: P > 0 ? round2((exVat - cost - commission) / P * 100) : 0,
     vatAmount: round2(price - exVat),
+    marginOnPricePct: price > 0 ? round2((exVat - cost - commission) / price * 100) : 0, // net profit as % of the sale price
+    shippingCost: round2(r.shippingCost),
+    shippingTier: r.shippingTier,            // 1-based row of the shipping table that was used (null = single amount)
+    profitTier: r.profitTier,                // 1-based row of the profit table that was used (null = single value)
+    profitValue: r.profitValue,
   };
 }
 
@@ -267,4 +356,4 @@ function summarizeCoverage(products, value, conds) {
   };
 }
 
-module.exports = { PricingContext, loadPricingContext, computeTemplatePrice, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };
+module.exports = { PricingContext, loadPricingContext, computeTemplatePrice, resolveTemplate, validateTiers, MAX_TIERS, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };

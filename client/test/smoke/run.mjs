@@ -6,9 +6,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const out = path.join(here, '.out.mjs');
+const name = process.argv[2] || 'products';
+const out = path.join(here, `.out-${name}.mjs`);
 await build({
-  entryPoints: [path.join(here, 'products.entry.jsx')], bundle: true, platform: 'node', format: 'esm', outfile: out,
+  entryPoints: [path.join(here, `${name}.entry.jsx`)], bundle: true, platform: 'node', format: 'esm', outfile: out,
   loader: { '.jsx': 'jsx', '.js': 'js' }, jsx: 'automatic', logLevel: 'error', nodePaths: [path.join(here, '../../node_modules')],
   plugins: [{ name: 'stub-api', setup(b) { b.onResolve({ filter: /services\/api$/ }, () => ({ path: path.join(here, 'apiStub.cjs') })); } }],
   banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },

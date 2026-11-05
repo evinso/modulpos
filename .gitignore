@@ -35,4 +35,4 @@ server/test2.js
 # Claude Code memory
 .claude/
 
-client/test/smoke/.out.mjs
+client/test/smoke/.out*.mjs

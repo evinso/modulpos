@@ -2,7 +2,7 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const productListCache = require('../services/productListCache');
-const { explainTemplatePrice, summarizeCoverage } = require('../services/pricingEngine');
+const { explainTemplatePrice, summarizeCoverage, validateTiers } = require('../services/pricingEngine');
 
 const router = express.Router();
 router.use(auth);
@@ -12,8 +12,16 @@ async function getUserStore(userId) {
 }
 
 // A rule may only reference the caller's own connection / XML source.
+function assertTiers(c) {
+  for (const [key, valueKey, label] of [['shippingTiers', 'cost', 'Kargo kademeleri'], ['profitTiers', 'value', 'Kâr kademeleri']]) {
+    const { error } = validateTiers(c[key], valueKey);
+    if (error) { const e = new Error(`${label}: ${error}`); e.status = 400; throw e; }
+  }
+}
+
 async function assertConditionsOwned(storeId, conditions) {
   const c = conditions || {};
+  assertTiers(c);
   if (c.connectionId) {
     const ok = await prisma.marketplaceConnection.findFirst({ where: { id: c.connectionId, storeId }, select: { id: true } });
     if (!ok) { const e = new Error('Geçersiz pazaryeri bağlantısı'); e.status = 400; throw e; }
@@ -28,6 +36,7 @@ async function assertConditionsOwned(storeId, conditions) {
 router.post('/calculate', async (req, res, next) => {
   try {
     const { purchasePrice, value, conditions } = req.body;
+    assertTiers(conditions || {});
     const out = explainTemplatePrice(purchasePrice, value, conditions || {});
     if (!out) return res.status(400).json({ error: 'Bu değerlerle geçerli bir fiyat hesaplanamıyor (komisyon + kâr çok yüksek olabilir)' });
     res.json(out);

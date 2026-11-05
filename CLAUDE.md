@@ -21,6 +21,8 @@ cd client && npm run test:smoke                 # renders the products screen in
 ## Architecture notes (non-obvious)
 * **One pricing engine** (`server/src/services/pricingEngine.js`) prices products for the list, the send routes and the cron.
   Sale VAT comes from the product (chosen when the XML source is added), never from the pricing template.
+  Templates may carry up to 3-row `shippingTiers` (shipping by SALE price, solved by trying each row until the price fits it)
+  and `profitTiers` (profit by PURCHASE price). Both are optional; empty = the single amount/rate.
 * **One readiness validator** (`services/readiness.js`) decides whether a product may be sent; the list shows its reasons
   and the send routes refuse what it blocks. Add new send-time rules there, not in the routes.
 * **XML sync** (`services/xml/syncService.js`) is shared by the manual button and cron: diff in memory, batch writes,
