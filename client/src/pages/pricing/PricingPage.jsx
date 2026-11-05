@@ -24,6 +24,7 @@ const MODE_LABELS = {
 
 import CoveragePanel from './CoveragePanel';
 import { TabStrip, Explain, Example, OptionCard, Cards, ROUNDING_HELP } from './FormTabs';
+import { KINDS, kindTitle } from './pricingText';
 import TierTable, { emptyTiers, rowsToTiers, tiersToRows } from './TierTable';
 
 const EMPTY_FORM = {
@@ -110,6 +111,7 @@ export default function PricingPage() {
   const [connections, setConnections] = useState([]);
   const [samplePrice, setSamplePrice] = useState('');
   const [tab, setTab] = useState('general');
+  const [typeChosen, setTypeChosen] = useState(false); // new template: pick the pricing type first
   const [ruleSummaries, setRuleSummaries] = useState(null);
   const [preview, setPreview] = useState(null);
   const [previewError, setPreviewError] = useState('');
@@ -166,8 +168,8 @@ export default function PricingPage() {
 
   const openModal = (rule = null) => {
     if (rule) {
-      setEditingId(rule.id); setForm(ruleToForm(rule));
-    } else { setEditingId(null); setForm({ ...EMPTY_FORM }); }
+      setEditingId(rule.id); setForm(ruleToForm(rule)); setTypeChosen(true);
+    } else { setEditingId(null); setForm({ ...EMPTY_FORM }); setTypeChosen(false); }
     setTab('general');
     setPreview(null); setSummary(null); setPreviewError('');
     setShowModal(true);
@@ -238,6 +240,20 @@ export default function PricingPage() {
   const earnClass = (n) => (n > 0 ? 'var(--success)' : n < 0 ? 'var(--danger)' : 'var(--text-muted)');
 
   const sum = (id) => ruleSummaries?.rules?.[id];
+  // The pricing type is derived from what the template holds, so older templates open correctly too
+  const kind = form.shippingRows.length > 0 ? 'barem' : form.profitRows.length > 0 ? 'tiered'
+    : form.profitMode === 'fixed' ? 'fixed' : form.profitMode === 'percent_of_purchase' ? 'percent' : 'legacy';
+  const baseMode = form.profitMode === 'fixed' ? 'fixed' : 'percent_of_purchase';
+  const chooseKind = (k) => {
+    const patch = { shippingRows: [], profitRows: [], profitMode: baseMode };
+    if (k === 'percent') patch.profitMode = 'percent_of_purchase';
+    if (k === 'fixed') patch.profitMode = 'fixed';
+    if (k === 'tiered') patch.profitRows = form.profitRows.length ? form.profitRows : emptyTiers();
+    if (k === 'barem') { patch.shippingRows = form.shippingRows.length ? form.shippingRows : emptyTiers(); patch.profitRows = form.profitRows; }
+    set(patch); setTypeChosen(true); setTab(k === 'barem' ? 'costs' : 'general');
+  };
+  // inside the barem type the profit can still be a rate, a TL amount or a table
+  const baremProfit = form.profitRows.length > 0 ? 'tiered' : baseMode === 'fixed' ? 'fixed' : 'percent';
   const shipIncomplete = rowsToTiers(form.shippingRows, 'cost').incomplete;
   const profitMissing = rowsToTiers(form.profitRows, 'value').incomplete || (form.profitRows.length === 0 && form.value === '');
 
@@ -312,9 +328,35 @@ export default function PricingPage() {
               <button className="modal-close" onClick={closeModal}>×</button>
             </div>
             <form onSubmit={handleSave}>
+              {!typeChosen ? (
+                <div className="modal-body" data-testid="kind-picker" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Nasıl fiyatlandırmak istiyorsunuz?</div>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 14px', lineHeight: 1.55 }}>
+                    Önce fiyatlandırma türünü seçin; sonraki ekranda yalnızca seçtiğiniz türle ilgili alanlar çıkar. Seçimi sonradan “Türü değiştir” ile değiştirebilirsiniz.
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }}>
+                    {KINDS.map((k) => (
+                      <button key={k.key} type="button" data-testid={`kind-${k.key}`} onClick={() => chooseKind(k.key)}
+                        style={{ textAlign: 'left', padding: 14, borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text-primary)',
+                          border: editingId && kind === k.key ? '2px solid var(--accent-primary)' : '2px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{k.title}</div>
+                        <div style={{ fontSize: 11, color: 'var(--accent-primary)', margin: '2px 0 8px' }}>{k.tag}</div>
+                        <div style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-secondary)' }}>{k.what}</div>
+                        <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 8 }}><strong>Ne zaman?</strong> {k.when}</div>
+                        <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted)', marginTop: 6, background: 'var(--bg-tertiary)', borderRadius: 6, padding: '6px 8px' }}><strong>Örnek:</strong> {k.example}</div>
+                      </button>
+                    ))}
+                  </div>
+                  {editingId && kind === 'legacy' && <p style={{ fontSize: 12, color: 'var(--warning)', marginTop: 12 }}>Bu şablon eski bir yöntem kullanıyor; yeni bir tür seçerseniz yöntem değişir.</p>}
+                </div>
+              ) : (
               <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(340px,1.1fr)', gap: 24, maxHeight: '75vh', overflowY: 'auto' }}>
                 {/* ---------- form: one menu per topic, each shows only what its chosen method needs ---------- */}
                 <div>
+                  <div data-testid="kind-badge" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
+                    <div style={{ fontSize: 13 }}>Şablon türü: <strong>{kindTitle(kind)}</strong></div>
+                    <button type="button" data-testid="change-kind" onClick={() => setTypeChosen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', fontSize: 12, fontFamily: 'inherit' }}>Türü değiştir</button>
+                  </div>
                   <TabStrip active={tab} onChange={setTab} flags={{ costs: shipIncomplete, profit: profitMissing }}
                     tabs={[{ key: 'general', label: 'Genel' }, { key: 'costs', label: 'Giderler' }, { key: 'profit', label: 'Kâr' }, { key: 'rounding', label: 'Fiyat sonu' }]} />
 
@@ -358,7 +400,7 @@ export default function PricingPage() {
                       <Example>
                         Örnek: 0–100 ₺ arası ürünler için bir şablon, 100 ₺ üstü için başka bir şablon yapabilirsiniz. Aralıkları çakıştırmamaya özen gösterin;
                         bir ürüne birden fazla şablon uyarsa önce daha dar kapsamlı (pazaryeri/XML seçilmiş), eşitse daha önce oluşturulan şablon kullanılır.
-                        Her ürünü tek şablon karşılıyorsa bu alanı boş bırakın. Kâr oranını fiyata göre değiştirmek için <em>Kâr</em> menüsündeki kademeli seçeneği kullanmak daha kolaydır.
+                        Her ürünü tek şablon karşılıyorsa bu alanı boş bırakın. Fiyata göre farklı kâr için aralık yerine <em>Kademeli kâr</em> türünü kullanmak daha kolaydır.
                       </Example>
                     </div>
                   )}
@@ -371,21 +413,11 @@ export default function PricingPage() {
                         ürünün XML kaynağını eklerken seçtiğiniz KDV oranı kullanılır.
                       </Explain>
 
-                      <div style={{ fontWeight: 700, fontSize: 13, margin: '0 0 6px' }}>Kargo ücreti nasıl hesaplansın?</div>
-                      <Cards>
-                        <OptionCard testId="ship-single" active={form.shippingRows.length === 0} title="Her ürün için aynı tutar"
-                          desc="Kargo ücretiniz satış fiyatına göre değişmiyorsa bunu seçin."
-                          onClick={() => set({ shippingRows: [] })} />
-                        <OptionCard testId="ship-tiers" active={form.shippingRows.length > 0} title="Satış fiyatına göre değişsin (barem)"
-                          desc="Pazaryeri kargoyu sipariş tutarına göre basamaklandırıyorsa (ör. Trendyol) bunu seçin."
-                          onClick={() => form.shippingRows.length === 0 && set({ shippingRows: emptyTiers() })} />
-                      </Cards>
-
-                      {form.shippingRows.length === 0 ? (
+                      {kind !== 'barem' ? (
                         <div className="form-group">
                           <label className="form-label">Kargo ücreti (₺)</label>
                           <input type="number" min="0" step="0.01" className="form-input" value={form.shippingCost} onChange={(e) => set({ shippingCost: e.target.value })} />
-                          <Example>Örnek: her pakete 60 ₺ kargo ödüyorsanız 60 yazın.</Example>
+                          <Example>Her ürün için aynı kargo ücreti uygulanır. Örnek: her pakete 60 ₺ ödüyorsanız 60 yazın. Kargo ücretiniz satış fiyatına göre basamak atlıyorsa şablon türünü “Kademeli kargolu (barem)” yapın.</Example>
                         </div>
                       ) : (
                         <>
@@ -418,35 +450,42 @@ export default function PricingPage() {
                     <div data-testid="pane-profit">
                       <Explain title="Kâr nedir?">
                         Burada yazdığınız kâr <strong>net kârdır</strong>: kargo, paketleme, komisyon ve KDV düşüldükten sonra cebinizde kalan tutar.
-                        Sistem satış fiyatını bu kârı garanti edecek şekilde hesaplar. Aşağıdan kârı nasıl belirleyeceğinizi seçin.
+                        Sistem satış fiyatını bu kârı garanti edecek şekilde hesaplar.
                       </Explain>
-                      <Cards>
-                        <OptionCard testId="profit-percent" active={form.profitRows.length === 0 && form.profitMode === 'percent_of_purchase'} title="Yüzde kâr"
-                          desc="Alış fiyatınızın belli bir yüzdesi kadar kazanın. Her ürün için aynı oran."
-                          onClick={() => set({ profitRows: [], profitMode: 'percent_of_purchase' })} />
-                        <OptionCard testId="profit-fixed" active={form.profitRows.length === 0 && form.profitMode === 'fixed'} title="Sabit TL kâr"
-                          desc="Her üründe aynı tutarı kazanın, ürün ucuz da olsa pahalı da olsa."
-                          onClick={() => set({ profitRows: [], profitMode: 'fixed' })} />
-                        <OptionCard testId="profit-tiered" active={form.profitRows.length > 0} title="Alış fiyatına göre kademeli"
-                          desc="Ucuz ürünlerde yüksek, pahalı ürünlerde düşük oran gibi fiyata göre farklı kâr belirleyin."
-                          onClick={() => form.profitRows.length === 0 && set({ profitRows: emptyTiers(), profitMode: form.profitMode === 'fixed' ? 'fixed' : 'percent_of_purchase' })} />
-                        {form.profitRows.length === 0 && form.profitMode !== 'percent_of_purchase' && form.profitMode !== 'fixed' && (
-                          <OptionCard active title={MODE_LABELS[form.profitMode] || form.profitMode} desc="Eski şablondan geldi. Yukarıdaki seçeneklerden birini seçerseniz değişir." onClick={() => {}} />
-                        )}
-                      </Cards>
 
-                      {form.profitRows.length === 0 && form.profitMode === 'percent_of_purchase' && (
+                      {kind === 'barem' && (
+                        <>
+                          <div style={{ fontWeight: 700, fontSize: 13, margin: '0 0 6px' }}>Kârı nasıl belirleyeceksiniz?</div>
+                          <Cards>
+                            <OptionCard testId="barem-profit-percent" active={baremProfit === 'percent'} title="Yüzde kâr" desc="Alış fiyatının aynı yüzdesi."
+                              onClick={() => set({ profitRows: [], profitMode: 'percent_of_purchase' })} />
+                            <OptionCard testId="barem-profit-fixed" active={baremProfit === 'fixed'} title="Sabit TL kâr" desc="Her üründe aynı TL tutar."
+                              onClick={() => set({ profitRows: [], profitMode: 'fixed' })} />
+                            <OptionCard testId="barem-profit-tiered" active={baremProfit === 'tiered'} title="Alış fiyatına göre kademeli" desc="Fiyat aralığına göre farklı kâr (en fazla 3 kademe)."
+                              onClick={() => form.profitRows.length === 0 && set({ profitRows: emptyTiers() })} />
+                          </Cards>
+                        </>
+                      )}
+
+                      {form.profitRows.length === 0 && (kind === 'percent' || (kind === 'barem' && baremProfit === 'percent')) && (
                         <div className="form-group">
                           <label className="form-label">Kâr oranı (%) *</label>
                           <input type="number" min="0" step="0.01" className="form-input" value={form.value} onChange={(e) => set({ value: e.target.value })} required />
                           <Example>Örnek: alış fiyatı 100 ₺, oran %30 → giderler ve komisyon karşılandıktan sonra elinizde 30 ₺ kalır. Satış fiyatı bunu sağlayacak şekilde hesaplanır.</Example>
                         </div>
                       )}
-                      {form.profitRows.length === 0 && form.profitMode === 'fixed' && (
+                      {form.profitRows.length === 0 && (kind === 'fixed' || (kind === 'barem' && baremProfit === 'fixed')) && (
                         <div className="form-group">
                           <label className="form-label">Ürün başına kâr (₺) *</label>
                           <input type="number" min="0" step="0.01" className="form-input" value={form.value} onChange={(e) => set({ value: e.target.value })} required />
                           <Example>Örnek: 25 yazarsanız 40 ₺’lik ürün de 400 ₺’lik ürün de size net 25 ₺ bırakır.</Example>
+                        </div>
+                      )}
+                      {kind === 'legacy' && (
+                        <div className="form-group">
+                          <label className="form-label">Değer *</label>
+                          <input type="number" min="0" step="0.01" className="form-input" value={form.value} onChange={(e) => set({ value: e.target.value })} required />
+                          <Example>Bu şablon eski bir yöntem kullanıyor ({MODE_LABELS[form.profitMode] || form.profitMode}). Değeri değiştirebilirsiniz; yöntemi değiştirmek için “Türü değiştir”i kullanın.</Example>
                         </div>
                       )}
                       {form.profitRows.length > 0 && (
@@ -503,9 +542,10 @@ export default function PricingPage() {
                   </div>
                 </div>
               </div>
+              )}
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={closeModal}>İptal</button>
-                <button type="submit" className="btn btn-primary">{editingId ? 'Güncelle' : 'Kaydet'}</button>
+                {typeChosen && <button type="submit" className="btn btn-primary">{editingId ? 'Güncelle' : 'Kaydet'}</button>}
               </div>
             </form>
           </div>
