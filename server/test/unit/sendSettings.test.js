@@ -13,32 +13,10 @@ test('empty / garbage input gives harmless defaults (nothing is excluded or chan
     assert.equal(S.shapeTitle('Ürün', s), 'Ürün'); assert.equal(S.sendStock(7, s), 7);
   }
 });
-test('comma strings and arrays both work for lists', () => {
-  assert.deepEqual(norm({ includeCategories: 'Kolye, Küpe ,' }).includeCategories, ['Kolye', 'Küpe']);
-  assert.deepEqual(norm({ excludeBrands: ['A', ' B '] }).excludeBrands, ['A', 'B']);
-});
 test('minimum stock excludes, with a readable reason', () => {
   const r = S.excludedReasons(P({ stock: 2 }), norm({ minStock: 5 }));
   assert.equal(r.length, 1); assert.match(r[0], /minimum stok/);
   assert.deepEqual(S.excludedReasons(P({ stock: 5 }), norm({ minStock: 5 })), []);
-});
-test('category lists are path-aware and case-insensitive', () => {
-  assert.deepEqual(S.excludedReasons(P(), norm({ includeCategories: ['elbise'] })), []);
-  assert.equal(S.excludedReasons(P(), norm({ includeCategories: ['Kolye'] })).length, 1);
-  assert.equal(S.excludedReasons(P(), norm({ excludeCategories: ['KADIN'] })).length, 1);
-  assert.deepEqual(S.excludedReasons(P(), norm({ excludeCategories: ['Kolye'] })), []);
-});
-test('brand lists', () => {
-  assert.equal(S.excludedReasons(P(), norm({ includeBrands: ['Nike'] })).length, 1);
-  assert.deepEqual(S.excludedReasons(P(), norm({ includeBrands: ['modax'] })), []);
-  assert.equal(S.excludedReasons(P(), norm({ excludeBrands: ['ModaX'] })).length, 1);
-  assert.equal(S.excludedReasons(P({ brand: null }), norm({ includeBrands: ['ModaX'] })).length, 1);
-});
-test('purchase price range', () => {
-  const s = norm({ minPurchasePrice: 50, maxPurchasePrice: 150 });
-  assert.deepEqual(S.excludedReasons(P({ xmlPrice: 100 }), s), []);
-  assert.equal(S.excludedReasons(P({ xmlPrice: 10 }), s).length, 1);
-  assert.equal(S.excludedReasons(P({ xmlPrice: 999 }), s).length, 1);
 });
 test('require image', () => {
   const s = norm({ requireImage: true });
@@ -47,8 +25,8 @@ test('require image', () => {
   assert.equal(S.excludedReasons(P({ images: '[]' }), s).length, 1);
   assert.equal(S.excludedReasons(P({ images: JSON.stringify(['not-a-url']) }), s).length, 1);
 });
-test('several reasons are all reported', () => {
-  assert.equal(S.excludedReasons(P({ stock: 0, brand: 'X' }), norm({ minStock: 1, excludeBrands: ['X'] })).length, 2);
+test('reasons are reported', () => {
+  assert.equal(S.excludedReasons(P({ stock: 0 }), norm({ minStock: 1, requireImage: true })).length, 1);
 });
 test('title shaping: prefix, suffix and Turkish-aware case', () => {
   assert.equal(S.shapeTitle('ışık demeti', norm({ titleCase: 'upper' })), 'IŞIK DEMETİ');
@@ -67,9 +45,4 @@ test('stock to publish: below minimum = 0, above maximum = cap, never negative',
 test('summary lists only what is active', () => {
   assert.deepEqual(S.describeSettings(norm({})), []);
   assert.ok(S.describeSettings(norm({ minStock: 2, requireImage: true, titleCase: 'upper' })).length === 3);
-});
-test('Turkish i/ı spelling differences do not break matching', () => {
-  const s = norm({ excludeCategories: ['kadin'], includeBrands: ['MODAX'] });
-  assert.equal(S.excludedReasons(P({ category: 'Giyim|Kadın|Elbise' }), s).length, 1);
-  assert.deepEqual(S.excludedReasons(P({ category: 'Giyim|Erkek|Gömlek' }), s), []);
 });

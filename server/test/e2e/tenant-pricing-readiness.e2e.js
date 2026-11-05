@@ -47,15 +47,13 @@ const API=process.env.API_URL||"https://api.modulpos.com/api";
   const ss=`/marketplace/connections/${conn}/send-settings`;
   ok("B cannot read/write A's send settings",(await b("GET",ss)).s===404&&(await b("PUT",ss,{settings:{minStock:1}})).s===404);
   ok("defaults come back normalised",(await a("GET",ss)).d?.settings?.titleCase==="none");
-  const prices=prods.map(p=>p.xmlPrice).sort((x,y)=>x-y); const cut=prices[Math.floor(prices.length/2)];
-  const inside=prods.filter(p=>p.xmlPrice>=cut).length;
-  const put=await a("PUT",ss,{settings:{minPurchasePrice:cut,titlePrefix:"[T] ",titleCase:"upper",maxStock:5,maxImages:2}});
-  ok("save send settings",put.s===200&&put.d.settings.minPurchasePrice===cut&&put.d.settings.maxStock===5);
+  const put=await a("PUT",ss,{settings:{minStock:1000000,titlePrefix:"[T] ",titleCase:"upper",maxStock:5,maxImages:2}});
+  ok("save send settings",put.s===200&&put.d.settings.minStock===1000000&&put.d.settings.maxStock===5);
   const bad=await a("PUT",ss,{settings:{titleCase:"<script>",maxStock:"abc",includeCategories:"x,y"}});
-  ok("garbage is normalised, not stored raw",bad.s===200&&bad.d.settings.titleCase==="none"&&bad.d.settings.maxStock===null&&bad.d.settings.includeCategories.length===2);
+  ok("garbage is normalised, not stored raw",bad.s===200&&bad.d.settings.titleCase==="none"&&bad.d.settings.maxStock===null&&bad.d.settings.includeCategories===undefined);
   await a("PUT",ss,{settings:put.d.settings});
   l=await a("GET",url+"?limit=50&fresh=1");
-  ok("products below the purchase price floor are blocked by send settings",l.d.stats.byIssue.excluded_by_settings===prods.length-inside,"blocked="+l.d.stats.byIssue.excluded_by_settings+" expected="+(prods.length-inside));
+  ok("products under the minimum stock are blocked by send settings",l.d.stats.byIssue.excluded_by_settings===prods.length,"blocked="+l.d.stats.byIssue.excluded_by_settings);
   ok("stored products are NOT changed by send settings",(await c.query(`select count(*)::int n from app."Product" where "xmlSourceId"=$1 and title like '[T] %'`,[srcId])).rows[0].n===0);
 
   // send route refuses blocked products

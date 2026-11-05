@@ -8,28 +8,22 @@ import toast from 'react-hot-toast';
  * products are held back; the products stored in the system are never changed by them.
  */
 const EMPTY = {
-  minStock: '', maxStock: '', includeCategories: '', excludeCategories: '', includeBrands: '', excludeBrands: '',
-  minPurchasePrice: '', maxPurchasePrice: '', requireImage: false,
+  minStock: '', maxStock: '', requireImage: false,
   titlePrefix: '', titleSuffix: '', titleCase: 'none', maxImages: '',
 };
-const LISTS = ['includeCategories', 'excludeCategories', 'includeBrands', 'excludeBrands'];
 const toForm = (s = {}) => {
   const f = { ...EMPTY };
   for (const k of Object.keys(EMPTY)) {
     const v = s[k];
     if (v === null || v === undefined) continue;
-    f[k] = LISTS.includes(k) ? (Array.isArray(v) ? v.join(', ') : '') : v;
+    f[k] = v;
   }
   return f;
 };
 const toBody = (f) => {
   const num = (v) => (v === '' || v === null || Number.isNaN(Number(v)) ? null : Number(v));
-  const list = (v) => String(v || '').split(',').map((x) => x.trim()).filter(Boolean);
   return {
     minStock: num(f.minStock), maxStock: num(f.maxStock),
-    includeCategories: list(f.includeCategories), excludeCategories: list(f.excludeCategories),
-    includeBrands: list(f.includeBrands), excludeBrands: list(f.excludeBrands),
-    minPurchasePrice: num(f.minPurchasePrice), maxPurchasePrice: num(f.maxPurchasePrice), requireImage: !!f.requireImage,
     titlePrefix: f.titlePrefix, titleSuffix: f.titleSuffix, titleCase: f.titleCase, maxImages: num(f.maxImages),
   };
 };
@@ -97,15 +91,7 @@ export default function SendSettingsPanel({ connectionId, onSaved }) {
             <Row label="En fazla stok" hint="Stok bu değerle sınırlanır"><input type="number" min="0" className="form-input" value={form.maxStock} onChange={set('maxStock')} /></Row>
           </div>
 
-          <div style={h}>Hangi ürünler gönderilsin</div>
-          <div style={grid}>
-            <Row label="Yalnızca bu kategoriler"><input className="form-input" placeholder="virgülle: Kolye, Bileklik" value={form.includeCategories} onChange={set('includeCategories')} /></Row>
-            <Row label="Bu kategoriler hariç"><input className="form-input" placeholder="virgülle" value={form.excludeCategories} onChange={set('excludeCategories')} /></Row>
-            <Row label="Yalnızca bu markalar"><input className="form-input" placeholder="virgülle" value={form.includeBrands} onChange={set('includeBrands')} /></Row>
-            <Row label="Bu markalar hariç"><input className="form-input" placeholder="virgülle" value={form.excludeBrands} onChange={set('excludeBrands')} /></Row>
-            <Row label="En düşük alış fiyatı"><input type="number" min="0" step="0.01" className="form-input" value={form.minPurchasePrice} onChange={set('minPurchasePrice')} /></Row>
-            <Row label="En yüksek alış fiyatı"><input type="number" min="0" step="0.01" className="form-input" value={form.maxPurchasePrice} onChange={set('maxPurchasePrice')} /></Row>
-          </div>
+          <div style={h}>Görsel</div>
           <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, marginBottom: 6 }}>
             <input type="checkbox" checked={form.requireImage} onChange={set('requireImage')} /> Görseli olmayan ürünleri gönderme
           </label>
