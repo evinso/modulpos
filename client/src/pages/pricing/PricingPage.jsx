@@ -427,6 +427,8 @@ export default function PricingPage() {
                             satırları sırayla dener ve ürünün satış fiyatının gerçekten uyduğu satırı seçer. Böylece “düşük kargo varsaydım, fiyat yükselince zarar ettim” durumu olmaz.
                             <br /><strong>Nasıl doldurulur:</strong> her satıra satış fiyatının üst sınırını ve o aralıktaki kargo ücretinizi yazın. Son satır “üstü”dür, sınır yazılmaz.
                             Rakamları satıcı panelinizden ya da kargo sözleşmenizden alın; sistem hazır tarife içermez çünkü sözleşmeler ve fiyatlar değişir.
+                            <br /><strong>KDV’ye dikkat:</strong> Trendyol baremini <em>KDV hariç</em> paket tutarına göre uygular (ör. 200 ₺ ve 350 ₺). Bu tabloda satış fiyatı <em>KDV dahil</em> olduğu için sınırları KDV’yle çarpıp yazın:
+                            %20 KDV’de 200 ₺ → 240 ₺, 350 ₺ → 420 ₺. Kargo ücretlerini de KDV dahil (tarifedeki rakam × 1,2) yazın.
                           </Explain>
                           <Example>Örnek tablo (rakamlar yalnızca örnektir): 200 ₺’ye kadar → 46 ₺ · 350 ₺’ye kadar → 84 ₺ · üstü → 190 ₺. Satış fiyatı 314 ₺ çıkan ürün için 2. satır (84 ₺) kullanılır.</Example>
                           <TierTable testId="shipping-tiers" rows={form.shippingRows} onChange={(rows) => set({ shippingRows: rows })}
