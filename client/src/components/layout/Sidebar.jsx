@@ -66,6 +66,8 @@ export default function Sidebar({ isOpen }) {
   const [ciceksepetiOpen, setCiceksepetiOpen]     = useState(isCiceksepetiActive);
 
   const [mpStatuses, setMpStatuses] = useState({});
+  // Anything other than 'active' (maintenance / under development) cannot be opened, for every role
+  const blocked = (key) => !!mpStatuses[key] && mpStatuses[key] !== 'active';
   useEffect(() => {
     api.get('/marketplace/statuses').then(r => setMpStatuses(r.data)).catch(() => {});
   }, []);
@@ -107,10 +109,11 @@ export default function Sidebar({ isOpen }) {
 
           {/* Trendyol collapsible */}
           <button
-            onClick={() => setTrendyolOpen(o => !o)}
+            onClick={() => !blocked('trendyol') && setTrendyolOpen(o => !o)}
+            title={blocked('trendyol') ? 'Bu pazaryeri şu an kullanıma açık değil' : undefined}
             style={{
               display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-              padding: '8px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+              padding: '8px 12px', borderRadius: 6, border: 'none', cursor: blocked('trendyol') ? 'not-allowed' : 'pointer', opacity: blocked('trendyol') ? 0.55 : 1,
               background: isTrendyolActive ? 'rgba(99,102,241,0.10)' : 'transparent',
               color: isTrendyolActive ? 'var(--accent-primary)' : 'var(--text-secondary)',
               fontSize: 13, fontWeight: isTrendyolActive ? 600 : 400,
@@ -126,10 +129,10 @@ export default function Sidebar({ isOpen }) {
             />
           </button>
 
-          {trendyolOpen && (
+          {trendyolOpen && !blocked('trendyol') && (
             <div style={{ marginLeft: 12, borderLeft: '2px solid var(--border-color)', paddingLeft: 8, marginBottom: 2 }}>
               {trendyolItems.map(item => {
-                const disabled = mpStatuses.trendyol === 'maintenance';
+                const disabled = blocked('trendyol');
                 if (disabled) return (
                   <div key={item.to} className="nav-item" style={{ fontSize: 13, opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' }}>
                     <item.icon size={16} className="icon" /><span>{item.label}</span>
@@ -146,10 +149,11 @@ export default function Sidebar({ isOpen }) {
 
           {/* Hepsiburada collapsible */}
           <button
-            onClick={() => setHepsiburadaOpen(o => !o)}
+            onClick={() => !blocked('hepsiburada') && setHepsiburadaOpen(o => !o)}
+            title={blocked('hepsiburada') ? 'Bu pazaryeri şu an kullanıma açık değil' : undefined}
             style={{
               display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-              padding: '8px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+              padding: '8px 12px', borderRadius: 6, border: 'none', cursor: blocked('hepsiburada') ? 'not-allowed' : 'pointer', opacity: blocked('hepsiburada') ? 0.55 : 1,
               background: isHepsiburadaActive ? 'rgba(255,96,0,0.10)' : 'transparent',
               color: isHepsiburadaActive ? '#ff6000' : 'var(--text-secondary)',
               fontSize: 13, fontWeight: isHepsiburadaActive ? 600 : 400,
@@ -165,10 +169,10 @@ export default function Sidebar({ isOpen }) {
             />
           </button>
 
-          {hepsiburadaOpen && (
+          {hepsiburadaOpen && !blocked('hepsiburada') && (
             <div style={{ marginLeft: 12, borderLeft: '2px solid var(--border-color)', paddingLeft: 8, marginBottom: 2 }}>
               {hepsiburadaItems.map(item => {
-                const disabled = mpStatuses.hepsiburada === 'maintenance';
+                const disabled = blocked('hepsiburada');
                 if (disabled) return (
                   <div key={item.to} className="nav-item" style={{ fontSize: 13, opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' }}>
                     <item.icon size={16} className="icon" /><span>{item.label}</span>
@@ -185,10 +189,11 @@ export default function Sidebar({ isOpen }) {
 
           {/* Pazarama collapsible */}
           <button
-            onClick={() => setPazaramaOpen(o => !o)}
+            onClick={() => !blocked('pazarama') && setPazaramaOpen(o => !o)}
+            title={blocked('pazarama') ? 'Bu pazaryeri şu an kullanıma açık değil' : undefined}
             style={{
               display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-              padding: '8px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+              padding: '8px 12px', borderRadius: 6, border: 'none', cursor: blocked('pazarama') ? 'not-allowed' : 'pointer', opacity: blocked('pazarama') ? 0.55 : 1,
               background: isPazaramaActive ? 'rgba(21,101,192,0.10)' : 'transparent',
               color: isPazaramaActive ? '#1565c0' : 'var(--text-secondary)',
               fontSize: 13, fontWeight: isPazaramaActive ? 600 : 400, marginTop: 2,
@@ -200,10 +205,10 @@ export default function Sidebar({ isOpen }) {
             <ChevronDown size={14} style={{ transition: 'transform 0.2s', transform: pazaramaOpen ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }} />
           </button>
 
-          {pazaramaOpen && (
+          {pazaramaOpen && !blocked('pazarama') && (
             <div style={{ marginLeft: 12, borderLeft: '2px solid var(--border-color)', paddingLeft: 8, marginBottom: 2 }}>
               {pazaramaItems.map(item => {
-                const disabled = mpStatuses.pazarama === 'maintenance';
+                const disabled = blocked('pazarama');
                 if (disabled) return (
                   <div key={item.to} className="nav-item" style={{ fontSize: 13, opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' }}>
                     <item.icon size={16} className="icon" /><span>{item.label}</span>
@@ -220,10 +225,11 @@ export default function Sidebar({ isOpen }) {
 
           {/* Çiçeksepeti collapsible */}
           <button
-            onClick={() => setCiceksepetiOpen(o => !o)}
+            onClick={() => !blocked('ciceksepeti') && setCiceksepetiOpen(o => !o)}
+            title={blocked('ciceksepeti') ? 'Bu pazaryeri şu an kullanıma açık değil' : undefined}
             style={{
               display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-              padding: '8px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+              padding: '8px 12px', borderRadius: 6, border: 'none', cursor: blocked('ciceksepeti') ? 'not-allowed' : 'pointer', opacity: blocked('ciceksepeti') ? 0.55 : 1,
               background: isCiceksepetiActive ? 'rgba(105,178,42,0.10)' : 'transparent',
               color: isCiceksepetiActive ? '#69b22a' : 'var(--text-secondary)',
               fontSize: 13, fontWeight: isCiceksepetiActive ? 600 : 400, marginTop: 2,
@@ -235,10 +241,10 @@ export default function Sidebar({ isOpen }) {
             <ChevronDown size={14} style={{ transition: 'transform 0.2s', transform: ciceksepetiOpen ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }} />
           </button>
 
-          {ciceksepetiOpen && (
+          {ciceksepetiOpen && !blocked('ciceksepeti') && (
             <div style={{ marginLeft: 12, borderLeft: '2px solid var(--border-color)', paddingLeft: 8, marginBottom: 2 }}>
               {ciceksepetiItems.map(item => {
-                const disabled = mpStatuses.ciceksepeti === 'maintenance';
+                const disabled = blocked('ciceksepeti');
                 if (disabled) return (
                   <div key={item.to} className="nav-item" style={{ fontSize: 13, opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' }}>
                     <item.icon size={16} className="icon" /><span>{item.label}</span>
