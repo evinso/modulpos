@@ -50,7 +50,9 @@ const DUP = (b) => `Aynı barkodlu bir ürününüz bulunduğundan yeni ürün o
     ok('a real rejection is left alone', after2.real.status === 'rejected' && after2.real.err === 'Marka geçersiz');
     ok('the update reports the fixed listing as active', sync.d.activated >= 1 && sync.d.updated >= 1, `activated=${sync.d.activated}`);
     const list2 = await a('GET', `/marketplace/connections/${conn}/product-list?fresh=1&limit=50`);
-    ok('product list now shows it as on sale (active)', list2.d.products.find((p) => p.sku === 'dup').mpStatus === 'active');
+    const dupRow = list2.d.products.find((p) => p.sku === 'dup');
+    ok('product list now shows it as on sale (active, no error text)', dupRow.marketplaceProducts[0].status === 'active' && !dupRow.marketplaceProducts[0].errorMessage);
+    ok('list statistics count it as active', list2.d.stats.mp.active >= 2, JSON.stringify(list2.d.stats.mp));
 
     // a second status update changes nothing
     const sync2 = await a('POST', `/marketplace/connections/${conn}/sync-status`);
