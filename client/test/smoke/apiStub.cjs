@@ -32,6 +32,7 @@ const get = async (url, cfg = {}) => {
   if (url === '/products/ids') return { data: { ids: ['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'], total: 8 } };
   if (/^\/products\/[^/]+\/detail$/.test(url)) return { data: detail };
   if (/^\/products\/[^/]+$/.test(url)) return { data: { ...mk(1), description: 'Tam açıklama' } };
+  if (url === '/marketplace/connections/c1/send-settings') return { data: { settings: { minStock: 0, maxStock: null, requireImage: false, titlePrefix: '', titleSuffix: '', titleCase: 'none', maxImages: null, removeWords: ['Çeyrek', 'Reşat'] }, summary: ['2 kelime çıkarılır'] } };
   if (url === '/pricing') return { data: [
     { id: 'r1', name: 'Genel fiyat', value: 30, type: 'percentage', applyTo: 'price_template', isActive: true, priority: 0, conditions: JSON.stringify({ connectionId: null, xmlSourceIds: [], shippingCost: 60, packagingCost: 10, commissionPct: 23, commissionBasis: 'gross', profitMode: 'fixed', roundingMode: 'ending', roundingEnding: 0.9, profitTiers: [] }) },
     { id: 'r2', name: 'Eski taslak', value: 10, type: 'percentage', applyTo: 'price_template', isActive: false, priority: 0, conditions: JSON.stringify({ shippingTiers: [{ upTo: 199.99, cost: 48.33 }, { upTo: null, cost: 88.96 }], shippingTiersExVat: true, profitMode: 'margin_on_gross', commissionPct: 22.37, packagingCost: 16.39, commissionBasis: 'gross', minPurchasePrice: 10, maxPurchasePrice: 500 }) },
@@ -50,7 +51,7 @@ const post = async (url, body) => {
     ],
     losingSamples: [{ id: 'x1', title: 'Zarar eden ürün', purchase: 90, price: 150, profit: -3 }] } };
   return { data: { message: 'ok', updated: 0, errors: [] } }; };
-const put = async (url, body) => { calls.push({ m: 'PUT', url, body }); return { data: {} }; };
+const put = async (url, body) => { calls.push({ m: 'PUT', url, body }); if (/send-settings$/.test(url)) return { data: { settings: body.settings, summary: [] } }; return { data: {} }; };
 const del = async (url) => { calls.push({ m: 'DELETE', url }); return { data: {} }; };
 module.exports = { get, post, put, delete: del, calls };
 module.exports.default = module.exports;

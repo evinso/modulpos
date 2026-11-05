@@ -1276,7 +1276,7 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
       const mapping = ev.mapping;
       p.price = ev.salePrice;
       // Send settings shape what goes out; the stored product is not saved with these changes
-      p.title = ev.sendTitle; p.images = JSON.stringify(ev.sendImages); p.stock = ev.sendStock;
+      p.title = ev.sendTitle; p.description = ev.sendDescription; p.images = JSON.stringify(ev.sendImages); p.stock = ev.sendStock;
 
       // Parse mapped attributes
       const attributes = [];
@@ -1594,7 +1594,7 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
 
       // Send settings shape what goes out (title, images, quantity); the stored product stays as it is
       const item = TrendyolService.formatProduct(
-        { ...p, price: finalPrice, title: ev.sendTitle, images: JSON.stringify(ev.sendImages), stock: ev.sendStock },
+        { ...p, price: finalPrice, title: ev.sendTitle, description: ev.sendDescription, images: JSON.stringify(ev.sendImages), stock: ev.sendStock },
         mapping.marketplaceCategoryId, brandId, attributes);
       formatted.push(item);
       toUpsert.push({ productId: p.id, price: finalPrice, stock: ev.sendStock });

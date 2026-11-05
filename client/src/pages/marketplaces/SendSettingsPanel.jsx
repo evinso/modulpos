@@ -9,14 +9,14 @@ import toast from 'react-hot-toast';
  */
 const EMPTY = {
   minStock: '', maxStock: '', requireImage: false,
-  titlePrefix: '', titleSuffix: '', titleCase: 'none', maxImages: '',
+  titlePrefix: '', titleSuffix: '', titleCase: 'none', maxImages: '', removeWords: '',
 };
 const toForm = (s = {}) => {
   const f = { ...EMPTY };
   for (const k of Object.keys(EMPTY)) {
     const v = s[k];
     if (v === null || v === undefined) continue;
-    f[k] = v;
+    f[k] = Array.isArray(v) ? v.join(', ') : v;
   }
   return f;
 };
@@ -25,6 +25,7 @@ const toBody = (f) => {
   return {
     minStock: num(f.minStock), maxStock: num(f.maxStock),
     titlePrefix: f.titlePrefix, titleSuffix: f.titleSuffix, titleCase: f.titleCase, maxImages: num(f.maxImages),
+    removeWords: f.removeWords,
   };
 };
 
@@ -107,6 +108,12 @@ export default function SendSettingsPanel({ connectionId, onSaved }) {
               </select>
             </Row>
             <Row label="En fazla görsel"><input type="number" min="1" className="form-input" placeholder="ör: 8" value={form.maxImages} onChange={set('maxImages')} /></Row>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <Row label="Başlık ve açıklamadan çıkarılacak kelimeler"
+              hint="Trendyol “yasaklı kelime” diyerek revize isterse o kelimeyi buraya yazın (virgülle). Gönderirken başlıktan ve açıklamadan silinir; ürününüz sistemde değişmez. Yalnızca yeni gönderimlerde geçerlidir, Trendyol’da zaten olan ürünleri panelden düzeltmelisiniz.">
+              <input className="form-input" data-testid="remove-words" placeholder="ör: Çeyrek, Reşat" value={form.removeWords} onChange={set('removeWords')} />
+            </Row>
           </div>
 
           <button type="button" className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Kaydediliyor…' : 'Ayarları kaydet'}</button>

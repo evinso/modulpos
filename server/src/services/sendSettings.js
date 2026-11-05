@@ -8,6 +8,7 @@
  *   requireImage       products without a valid image are not sent
  *   titlePrefix / titleSuffix / titleCase   applied to the title that goes out
  *   maxImages          number of images sent
+ *   removeWords        words/phrases taken out of the title AND description that go out (e.g. words the marketplace flags as forbidden)
  */
 
 const CASES = ['none', 'upper', 'lower', 'title'];
@@ -27,7 +28,63 @@ function normalizeSendSettings(raw) {
     titleSuffix: String(o.titleSuffix || '').slice(0, 60),
     titleCase: CASES.includes(o.titleCase) ? o.titleCase : 'none',
     maxImages: maxImages !== null && maxImages >= 1 ? Math.floor(maxImages) : null,
+    removeWords: wordList(o.removeWords),
   };
+}
+
+/** "Çeyrek, Reşat" or ['Çeyrek', 'Reşat'] -> ['Çeyrek', 'Reşat'] (trimmed, no duplicates, sane sizes) */
+function wordList(raw) {
+  const items = Array.isArray(raw) ? raw : String(raw || '').split(/[,;\n]/);
+  const seen = new Set();
+  const out = [];
+  for (const it of items) {
+    const w = String(it || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    const key = w.toLocaleLowerCase('tr');
+    if (w && !seen.has(key)) { seen.add(key); out.push(w); }
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+
+// Turkish letters match their plain forms too, in either case: "Çeyrek" = "ceyrek" = "ÇEYREK"
+const LETTER_CLASS = { a: 'aAâÂ', c: 'cCçÇ', e: 'eEêÊ', g: 'gGğĞ', i: 'iIİıîÎ', o: 'oOöÖôÔ', s: 'sSşŞ', u: 'uUüÜûÛ' };
+const escapeRe = (ch) => ch.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&');
+function letterPattern(ch) {
+  const base = ch.toLocaleLowerCase('tr').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const k = base === 'ı' ? 'i' : base;
+  if (LETTER_CLASS[k]) return `[${LETTER_CLASS[k]}]`;
+  if (/\p{L}/u.test(ch)) return `[${ch.toLocaleLowerCase('tr')}${ch.toLocaleUpperCase('tr')}]`;
+  return escapeRe(ch);
+}
+const removalCache = new Map();
+/** One regex per word list: whole words / phrases only ("Çeyrek" never cuts "Çeyreklik"), any case, any Turkish spelling */
+function removalRegex(words) {
+  const key = words.join('\u0000');
+  if (removalCache.has(key)) return removalCache.get(key);
+  const alts = words.map((w) => w.split(' ').map((part) => [...part].map(letterPattern).join('')).join('[\\s\\u00a0]+'));
+  const re = alts.length ? new RegExp(`(?<![\\p{L}\\p{N}])(?:${alts.join('|')})(?![\\p{L}\\p{N}])`, 'gu') : null;
+  if (removalCache.size > 50) removalCache.clear();
+  removalCache.set(key, re);
+  return re;
+}
+
+/** Text without the listed words; the gaps they leave are closed ("A Çeyrek B" -> "A B", "A, Çeyrek, B" -> "A, B"). */
+function removeWordsFrom(text, words) {
+  if (!text || !words || !words.length) return text;
+  const re = removalRegex(words);
+  if (!re) return text;
+  return String(text).replace(re, '')
+    .replace(/\(\s*\)|\[\s*\]/g, '')               // "Kolye (Çeyrek)" -> "Kolye"
+    .replace(/([,;])(\s*[,;])+/g, '$1')
+    .replace(/[ \t\u00a0]{2,}/g, ' ')
+    .replace(/(^|\n)[ \t]+/g, '$1')
+    .replace(/^[\s,;\-–|/]+/, '').replace(/[ \t,;\-–|/]+$/, '')
+    .replace(/[ \t]+([,;.])/g, '$1');
+}
+
+/** The description as it will appear on the marketplace (listed words taken out). */
+function shapeDescription(description, s) {
+  return removeWordsFrom(description, s.removeWords);
 }
 
 function parseImageList(raw) {
@@ -55,7 +112,7 @@ function titleCase(t) {
 /** The title as it will appear on the marketplace. */
 function shapeTitle(title, s) {
   if (!title) return title;
-  let t = String(title);
+  let t = removeWordsFrom(String(title), s.removeWords);
   if (s.titleCase === 'upper') t = t.toLocaleUpperCase('tr');
   else if (s.titleCase === 'lower') t = t.toLocaleLowerCase('tr');
   else if (s.titleCase === 'title') t = titleCase(t);
@@ -83,7 +140,8 @@ function describeSettings(s) {
   if (s.requireImage) out.push('görselsiz gönderilmez');
   if (s.titlePrefix || s.titleSuffix || s.titleCase !== 'none') out.push('başlık düzeni');
   if (s.maxImages) out.push(`en fazla ${s.maxImages} görsel`);
+  if (s.removeWords && s.removeWords.length) out.push(`${s.removeWords.length} kelime çıkarılır`);
   return out;
 }
 
-module.exports = { normalizeSendSettings, excludedReasons, shapeTitle, shapeImages, sendStock, describeSettings, parseImageList };
+module.exports = { normalizeSendSettings, excludedReasons, shapeTitle, shapeDescription, removeWordsFrom, shapeImages, sendStock, describeSettings, parseImageList };

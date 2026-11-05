@@ -185,7 +185,8 @@ class ReadinessContext {
     if (title.length < 2) add(ISSUE.NO_TITLE, 'Başlık boş');
     else if (title.length > LIMITS.TITLE_MAX) add(ISSUE.LONG_TITLE, `Başlık ${LIMITS.TITLE_MAX} karakteri aşıyor (${title.length})`);
 
-    const desc = (p.description || '').trim();
+    const sendDescription = SS.shapeDescription((p.description || '').trim(), this.send);
+    const desc = sendDescription;
     if (!desc) add(ISSUE.NO_DESC, 'Açıklama boş');
     else if (desc.length > LIMITS.DESCRIPTION_MAX) add(ISSUE.LONG_DESC, `Açıklama ${LIMITS.DESCRIPTION_MAX} karakteri aşıyor`);
 
@@ -239,6 +240,7 @@ class ReadinessContext {
       mapping,
       // what is actually transmitted (the stored product is never changed)
       sendTitle,
+      sendDescription,
       sendImages,
       sendStock: SS.sendStock(p.stock, this.send),
     };
