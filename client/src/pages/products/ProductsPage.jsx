@@ -589,7 +589,7 @@ export default function ProductsPage() {
       )}
 
       {formProduct !== undefined && (
-        <ProductFormModal product={formProduct} onClose={() => setFormProduct(undefined)} onSaved={() => { setFormProduct(undefined); refreshAll(); if (detailId) { const id = detailId; setDetailId(null); setTimeout(() => setDetailId(id), 0); } }} />
+        <ProductFormModal product={formProduct} onClose={() => setFormProduct(undefined)} onSaved={() => { const wasNew = formProduct === null; setFormProduct(undefined); refreshAll(); if (wasNew && gate.xmlId !== 'none') toast('Ürün kaydedildi. XML kaynağı olmadığı için “Elle eklenen ürünler” grubunda görünür.', { icon: 'ℹ️', duration: 7000 }); if (detailId) { const id = detailId; setDetailId(null); setTimeout(() => setDetailId(id), 0); } }} />
       )}
 
       {deleteTarget && (
