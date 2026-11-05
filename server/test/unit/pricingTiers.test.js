@@ -135,3 +135,32 @@ test('coverage lists the worst losing products first', () => {
   const s = E.summarizeCoverage(products, 30, { ...base, minPrice: 50, maxPrice: 60 });   // price clamped below cost => loss
   assert.equal(s.losing, 2); assert.equal(s.losingSamples.length, 2); assert.ok(s.losingSamples[0].profit < 0);
 });
+
+test('tariff-style (VAT-exclusive) shipping table: same result as the converted VAT-inclusive table', () => {
+  const ex = { ...base, shippingTiersExVat: true, shippingTiers: [{ upTo: 200, cost: 48.33 }, { upTo: 350, cost: 79.16 }, { upTo: null, cost: 88.96 }] };
+  const inc = { ...base, shippingTiers: [{ upTo: 240, cost: 58.0 }, { upTo: 420, cost: 94.99 }, { upTo: null, cost: 106.75 }] };
+  for (const P of [20, 40, 60, 96, 120, 300, 800]) {
+    const a = E.resolveTemplate(P, 30, ex), b = E.resolveTemplate(P, 30, inc);
+    near(a.price, b.price, `P=${P}`); assert.equal(a.shippingTier, b.shippingTier);
+    near(a.shippingCost, b.shippingCost, 'cost');
+  }
+});
+
+test('VAT-exclusive limits follow the product VAT rate (10% VAT: 200 becomes 220)', () => {
+  const c = { ...base, vatRate: 10, shippingTiersExVat: true, shippingTiers: [{ upTo: 200, cost: 48.33 }, { upTo: null, cost: 100 }] };
+  const r = E.resolveTemplate(20, 30, c);
+  assert.equal(r.shippingTier, 1); assert.ok(r.price <= 220.001);
+  const big = E.resolveTemplate(150, 30, c);
+  assert.equal(big.shippingTier, 2);
+});
+
+test('explain shows the VAT-inclusive shipping that was really charged', () => {
+  const e = E.explainTemplatePrice(40, 30, { ...base, shippingTiersExVat: true, shippingTiers: [{ upTo: 200, cost: 48.33 }, { upTo: null, cost: 88.96 }] });
+  assert.equal(e.shippingTier, 1); near(e.shippingCost, 58.0, 'gross'); near(e.fixedCosts, 58.0, 'fixed');
+});
+
+test('without the flag nothing changes', () => {
+  const a = E.computeTemplatePrice(100, 30, { ...base, shippingTiers: SHIP });
+  const b = E.computeTemplatePrice(100, 30, { ...base, shippingTiers: SHIP, shippingTiersExVat: false });
+  assert.equal(a, b);
+});

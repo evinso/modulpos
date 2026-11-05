@@ -32,7 +32,7 @@ const EMPTY_FORM = {
   minPurchasePrice: '', maxPurchasePrice: '',
   shippingCost: '', otherCost: '', commissionPct: '',
   profitMode: 'percent_of_purchase', value: '', rounding: 'none',
-  shippingRows: [], profitRows: [], // empty = single amount / single rate (tables closed)
+  shippingRows: [], shippingExVat: true, profitRows: [], // empty = single amount / single rate (tables closed)
 };
 
 const num = (v) => (v === '' || v === null || v === undefined || Number.isNaN(parseFloat(v)) ? null : parseFloat(v));
@@ -62,6 +62,7 @@ function ruleToForm(r) {
     value: r.value ?? '',
     rounding,
     shippingRows: tiersToRows(c.shippingTiers, 'cost'),
+    shippingExVat: !!c.shippingTiersExVat,
     profitRows: tiersToRows(c.profitTiers, 'value'),
     _keep: {
       xmlSourceIds: srcIds, extraCost: c.extraCost ?? 0, extraPct: c.extraPct ?? 0,
@@ -95,6 +96,7 @@ function formToPayload(f) {
     minPrice: keep.minPrice ?? null,
     maxPrice: keep.maxPrice ?? null,
     shippingTiers: rowsToTiers(f.shippingRows, 'cost').tiers,
+    shippingTiersExVat: f.shippingRows.length > 0 && !!f.shippingExVat,
     profitTiers: rowsToTiers(f.profitRows, 'value').tiers,
   };
   return { name: f.name, type: 'percentage', value: num(f.value) ?? 0, applyTo: 'price_template', priority: keep.priority ?? 0, conditions };
@@ -249,7 +251,7 @@ export default function PricingPage() {
     if (k === 'percent') patch.profitMode = 'percent_of_purchase';
     if (k === 'fixed') patch.profitMode = 'fixed';
     if (k === 'tiered') patch.profitRows = form.profitRows.length ? form.profitRows : emptyTiers();
-    if (k === 'barem') { patch.shippingRows = form.shippingRows.length ? form.shippingRows : emptyTiers(); patch.profitRows = form.profitRows; }
+    if (k === 'barem') { patch.shippingRows = form.shippingRows.length ? form.shippingRows : emptyTiers(); patch.profitRows = form.profitRows; if (!form.shippingRows.length) patch.shippingExVat = true; }
     set(patch); setTypeChosen(true); setTab(k === 'barem' ? 'costs' : 'general');
   };
   // inside the barem type the profit can still be a rate, a TL amount or a table
@@ -427,12 +429,19 @@ export default function PricingPage() {
                             satırları sırayla dener ve ürünün satış fiyatının gerçekten uyduğu satırı seçer. Böylece “düşük kargo varsaydım, fiyat yükselince zarar ettim” durumu olmaz.
                             <br /><strong>Nasıl doldurulur:</strong> her satıra satış fiyatının üst sınırını ve o aralıktaki kargo ücretinizi yazın. Son satır “üstü”dür, sınır yazılmaz.
                             Rakamları satıcı panelinizden ya da kargo sözleşmenizden alın; sistem hazır tarife içermez çünkü sözleşmeler ve fiyatlar değişir.
-                            <br /><strong>KDV’ye dikkat:</strong> Trendyol baremini <em>KDV hariç</em> paket tutarına göre uygular (ör. 200 ₺ ve 350 ₺). Bu tabloda satış fiyatı <em>KDV dahil</em> olduğu için sınırları KDV’yle çarpıp yazın:
-                            %20 KDV’de 200 ₺ → 240 ₺, 350 ₺ → 420 ₺. Kargo ücretlerini de KDV dahil (tarifedeki rakam × 1,2) yazın.
-                          </Explain>
-                          <Example>Örnek tablo (rakamlar yalnızca örnektir): 200 ₺’ye kadar → 46 ₺ · 350 ₺’ye kadar → 84 ₺ · üstü → 190 ₺. Satış fiyatı 314 ₺ çıkan ürün için 2. satır (84 ₺) kullanılır.</Example>
+</Explain>
+                          <div style={{ fontWeight: 700, fontSize: 13, margin: '0 0 6px' }}>Tabloyu nasıl yazacaksınız?</div>
+                          <Cards>
+                            <OptionCard testId="vat-ex" active={form.shippingExVat} title="Tarifedeki gibi (KDV hariç) — önerilir"
+                              desc="Trendyol tarifesindeki rakamları olduğu gibi yazın (ör. 199,99 ₺ ve 48,33 ₺). Sistem kargoya %20 KDV ekler ve sınırları ürünün KDV oranına göre kendisi çevirir."
+                              onClick={() => set({ shippingExVat: true })} />
+                            <OptionCard testId="vat-inc" active={!form.shippingExVat} title="KDV dahil"
+                              desc="Sınırları ve kargo ücretlerini KDV dahil yazarsınız (tarife rakamını 1,2 ile çarpmanız gerekir)."
+                              onClick={() => set({ shippingExVat: false })} />
+                          </Cards>
+                          <Example>Örnek (rakamlar yalnızca örnektir, KDV hariç): 199,99 ₺’ye kadar → 48,33 ₺ · 349,99 ₺’ye kadar → 79,16 ₺ · üstü → 88,96 ₺. Satış fiyatı KDV hariç 250 ₺ eden ürün için 2. satır kullanılır.</Example>
                           <TierTable testId="shipping-tiers" rows={form.shippingRows} onChange={(rows) => set({ shippingRows: rows })}
-                            limitLabel="Satış fiyatı (KDV dahil)" valueLabel="Kargo ücretim" valueUnit="₺" />
+                            limitLabel={form.shippingExVat ? 'Paket tutarı (KDV hariç)' : 'Satış fiyatı (KDV dahil)'} valueLabel={form.shippingExVat ? 'Kargo ücretim (KDV hariç)' : 'Kargo ücretim (KDV dahil)'} valueUnit="₺" />
                           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>En fazla 3 satır. Sınırlar küçükten büyüğe gitmeli. Tüm alanlar dolu olmalı.</div>
                         </>
                       )}

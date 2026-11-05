@@ -19,6 +19,8 @@ const prisma = require('../config/database');
  *   minPrice, maxPrice                                                    clamp
  *   shippingTiers: [{ upTo, cost }]   shipping that depends on the SALE price (marketplace "barem"): the first row whose
  *                                     upTo the price fits in; the last row has upTo = null ("and above"). Replaces shippingCost.
+ *   shippingTiersExVat: true         the shipping table is written like the marketplace tariff: limits are VAT-EXCLUSIVE order amounts and
+ *                                     costs are VAT-exclusive carrier prices (+20% carrier VAT is added here). Absent/false = both VAT-inclusive.
  *   profitTiers:   [{ upTo, value }]  profit that depends on the PURCHASE price; same shape, overrides rule.value.
  */
 
@@ -47,6 +49,14 @@ function scopeSize(c) {
 }
 
 const MAX_TIERS = 3;
+const CARRIER_VAT = 0.2; // VAT on carrier invoices
+
+/** Turns a tariff-style (VAT-exclusive) table into the VAT-inclusive one the solver works with. */
+function grossTiers(tiers, c) {
+  if (!c.shippingTiersExVat) return tiers;
+  const k = 1 + num(c.vatRate) / 100;
+  return tiers.map((t) => ({ upTo: t.upTo === null ? null : round2(t.upTo * k), cost: round2(t.cost * (1 + CARRIER_VAT)) }));
+}
 
 /**
  * Validates tier rows coming from the UI. Returns { tiers, error }.
@@ -111,7 +121,7 @@ function resolveTemplate(purchasePrice, value, c) {
   const P = num(purchasePrice);
   if (!(P > 0)) return null;
   const profit = pickProfitValue(P, value, c);
-  const tiers = activeTiers(c.shippingTiers, 'cost');
+  const tiers = grossTiers(activeTiers(c.shippingTiers, 'cost'), c);
   if (!tiers.length) {
     const price = priceWith(P, profit.value, c);
     return price === null ? null : { price, shippingCost: num(c.shippingCost), shippingTier: null, profitValue: profit.value, profitTier: profit.tier };
