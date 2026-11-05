@@ -26,6 +26,12 @@ cd client && npm run test:smoke                 # renders the products screen in
   (shipping, other, commission). Keep it that way: no VAT options and no marketplace names/tariffs in this screen.
   The engine can still evaluate older stored rules that use `shippingTiers` (+`shippingTiersExVat`) or `margin_on_gross`,
   but no screen creates them; editing such a rule warns and drops them on save.
+  A sale price typed in by hand for one product on one marketplace lives in `ProductPriceOverride` and is applied INSIDE
+  `PricingContext` (`priceFor` / `explainFor`), so the list, readiness, sends and the automatic updates all use the same
+  number. Never compute or store a sale price anywhere else. If the table cannot be read, pricing falls back to templates.
+* **Products screen** (`client/src/pages/products/`): marketplace first, then its XML source (`SourceGate`); nothing is loaded
+  before both are chosen. `xmlSourceId=none` = products added by hand. The price dialog (`PriceModal`) saves a hand-typed
+  price and can send it (`priceActions.js`: on sale -> `sync-price-stock`, never sent -> `send-products`).
 * **One readiness validator** (`services/readiness.js`) decides whether a product may be sent; the list shows its reasons
   and the send routes refuse what it blocks. Add new send-time rules there, not in the routes.
 * **XML sync** (`services/xml/syncService.js`) is shared by the manual button and cron: diff in memory, batch writes,

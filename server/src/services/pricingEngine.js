@@ -240,9 +240,41 @@ function matches(rule, c, product, connectionId) {
   return true;
 }
 
+const MANUAL_RULE_NAME = 'Elle girilen fiyat';
+
+/**
+ * Profit at a GIVEN sale price (the opposite direction of the template solver): used for prices typed in by hand.
+ * Costs and VAT come from the template that normally prices the product. Same fields as explainTemplatePrice.
+ */
+function explainAtPrice(price, purchasePrice, c) {
+  const G = num(price), P = num(purchasePrice);
+  if (!(G > 0)) return null;
+  const vat = num(c.vatRate);
+  const exVat = G / (1 + vat / 100);
+  let shipping = num(c.shippingCost), shippingTier = null;
+  const tiers = grossTiers(activeTiers(c.shippingTiers, 'cost'), c);
+  if (tiers.length) {
+    const i = Math.max(0, tiers.findIndex((t) => t.upTo === null || G <= t.upTo + 1e-9));
+    shipping = tiers[i].cost; shippingTier = i + 1;
+  }
+  const fixedCosts = shipping + num(c.packagingCost) + num(c.extraCost);
+  const cost = P + fixedCosts;
+  const pct = num(c.commissionPct) + num(c.extraPct);
+  const commission = (c.commissionBasis === 'gross' || c.profitMode === 'margin_on_gross') ? G * pct / 100 : exVat * pct / 100;
+  const profit = exVat - cost - commission;
+  return {
+    price: round2(G), purchase: round2(P), fixedCosts: round2(fixedCosts), cost: round2(cost),
+    commissionAmount: round2(commission), profit: round2(profit), profitPct: P > 0 ? round2(profit / P * 100) : 0,
+    vatAmount: round2(G - exVat), marginOnPricePct: G > 0 ? round2(profit / G * 100) : 0,
+    shippingCost: round2(shipping), shippingTier, profitTier: null, profitValue: null,
+  };
+}
+
 class PricingContext {
-  constructor(rules, connectionId) {
+  constructor(rules, connectionId, overrides = null) {
     this.connectionId = connectionId;
+    // sale prices typed in by hand for this marketplace: productId -> price
+    this.overrides = overrides instanceof Map ? overrides : new Map();
     this.rules = rules
       .filter((r) => r.isActive && KINDS.includes(r.applyTo))
       .map((r) => ({ rule: r, conds: parseConds(r) }))
@@ -256,11 +288,14 @@ class PricingContext {
         (new Date(a.rule.createdAt) - new Date(b.rule.createdAt)));
   }
 
-  /**
-   * Like priceFor(), but also explains how the price came about (for the product detail screen):
-   * { price, ruleId, ruleName, kind: 'template'|'legacy', vatRate, breakdown|null } or null.
-   */
-  explainFor(product) {
+  /** The hand-typed sale price of this product on this marketplace, or null. */
+  manualPrice(product) {
+    const v = this.overrides.get(product.id);
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null;
+  }
+
+  /** What the price rules say for this product (ignoring any hand-typed price). */
+  _resolve(product) {
     for (const { rule, conds } of this.rules) {
       if (!matches(rule, conds, product, this.connectionId)) continue;
 
@@ -268,21 +303,59 @@ class PricingContext {
         let fp = num(product.price);
         if (rule.type === 'percentage') fp = fp * (1 + num(rule.value) / 100);
         else if (rule.type === 'fixed') fp = fp + num(rule.value);
-        return { price: round2(Math.max(0, fp)), ruleId: rule.id, ruleName: rule.name, kind: 'legacy', vatRate: null, breakdown: null };
+        return { price: round2(Math.max(0, fp)), ruleId: rule.id, ruleName: rule.name, kind: 'legacy', vatRate: null, breakdown: null, conds: null, purchase: null };
       }
       const purchase = num(product.xmlPrice) || num(product.price);
       const hasOwnVat = conds.vatRate !== null && conds.vatRate !== undefined && conds.vatRate !== '';
       const effective = hasOwnVat ? conds : { ...conds, vatRate: product.vatRate };
       const breakdown = explainTemplatePrice(purchase, rule.value, effective);
       if (breakdown) {
-        return { price: breakdown.price, ruleId: rule.id, ruleName: rule.name, kind: 'template', vatRate: num(effective.vatRate), breakdown };
+        return { price: breakdown.price, ruleId: rule.id, ruleName: rule.name, kind: 'template', vatRate: num(effective.vatRate), breakdown, conds: effective, purchase };
       }
     }
     return null;
   }
 
+  /**
+   * What would happen at this sale price (a hand-typed one): the costs come from the template that normally prices
+   * the product. { price, ruleName, vatRate, breakdown|null, templatePrice|null }; breakdown is null without a template.
+   */
+  previewAt(product, price) {
+    const base = this._resolve(product);
+    const purchase = base && base.purchase != null ? base.purchase : (num(product.xmlPrice) || num(product.price));
+    const vatRate = base && base.vatRate != null ? base.vatRate : num(product.vatRate);
+    return {
+      price: round2(num(price)),
+      ruleName: base ? base.ruleName : null,
+      vatRate,
+      purchase,
+      breakdown: base && base.conds ? explainAtPrice(price, purchase, base.conds) : null,
+      templatePrice: base ? base.price : null,
+    };
+  }
+
+  /**
+   * Like priceFor(), but also explains how the price came about (for the product detail screen):
+   * { price, ruleId, ruleName, kind: 'template'|'legacy'|'manual', vatRate, breakdown|null } or null.
+   */
+  explainFor(product) {
+    const base = this._resolve(product);
+    const manual = this.manualPrice(product);
+    if (manual === null) return base;
+    const pv = this.previewAt(product, manual);
+    return {
+      price: manual, ruleId: base ? base.ruleId : null, ruleName: MANUAL_RULE_NAME, kind: 'manual',
+      vatRate: pv.vatRate, breakdown: pv.breakdown, manual: true, templatePrice: pv.templatePrice,
+    };
+  }
+
   /** Returns { price, ruleId, ruleName } or null when no rule matches / can price the product. */
   priceFor(product) {
+    const manual = this.manualPrice(product);
+    if (manual !== null) {
+      const base = this._resolve(product);
+      return { price: manual, ruleId: base ? base.ruleId : null, ruleName: MANUAL_RULE_NAME, manual: true };
+    }
     for (const { rule, conds } of this.rules) {
       if (!matches(rule, conds, product, this.connectionId)) continue;
 
@@ -304,12 +377,26 @@ class PricingContext {
   }
 }
 
+/** Hand-typed sale prices of one marketplace. A failure here must never stop pricing: it just means "no manual prices". */
+async function loadOverrides(connectionId) {
+  try {
+    const rows = await prisma.productPriceOverride.findMany({ where: { connectionId }, select: { productId: true, price: true } });
+    return new Map(rows.map((r) => [r.productId, r.price]));
+  } catch (e) {
+    console.error('[Pricing] manual prices could not be loaded:', e.message);
+    return new Map();
+  }
+}
+
 async function loadPricingContext(storeId, connectionId) {
-  const rules = await prisma.pricingRule.findMany({
-    where: { storeId, isActive: true, applyTo: { in: KINDS } },
-    orderBy: { priority: 'asc' },
-  });
-  return new PricingContext(rules, connectionId);
+  const [rules, overrides] = await Promise.all([
+    prisma.pricingRule.findMany({
+      where: { storeId, isActive: true, applyTo: { in: KINDS } },
+      orderBy: { priority: 'asc' },
+    }),
+    connectionId ? loadOverrides(connectionId) : Promise.resolve(new Map()),
+  ]);
+  return new PricingContext(rules, connectionId, overrides);
 }
 
 /** Step-by-step breakdown of a template price, for the calculator preview in the UI. */
@@ -424,4 +511,4 @@ function summarizeCoverage(products, value, conds) {
   };
 }
 
-module.exports = { autoBandEdges, PricingContext, loadPricingContext, computeTemplatePrice, resolveTemplate, validateTiers, MAX_TIERS, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };
+module.exports = { autoBandEdges, explainAtPrice, MANUAL_RULE_NAME, PricingContext, loadPricingContext, computeTemplatePrice, resolveTemplate, validateTiers, MAX_TIERS, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };

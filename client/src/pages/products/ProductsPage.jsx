@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Plus, Search, Trash2, Edit, Package, CheckSquare, Square, X, AlertTriangle, RefreshCw,
-  ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Eye, Send, Power, CheckCircle2,
+  ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Eye, Send, Power, CheckCircle2, Pencil,
 } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
@@ -9,6 +9,9 @@ import { Thumb, Pill, StockPill, StatusPill, MpPills, MP_STATUS, ISSUE_LABELS, p
 import ProductDetailDrawer from './ProductDetailDrawer';
 import ProductFormModal from './ProductFormModal';
 import TrendyolLiveView from './TrendyolLiveView';
+import SourceGate from './SourceGate';
+import PriceModal from './PriceModal';
+import { pushToMarketplace, errorText } from './priceActions';
 
 const SORTS = [
   { key: 'createdAt:desc', label: 'En yeni eklenen' },
@@ -43,7 +46,10 @@ export default function ProductsPage() {
   const [facets, setFacets] = useState({ categories: [], brands: [] });
   const [xmlSources, setXmlSources] = useState([]);
   const [connections, setConnections] = useState([]);
-  const [priceConn, setPriceConn] = useState(null); // marketplace used for sale price / readiness / status tabs ('' = none)
+  const [gate, setGate] = useState({ connId: '', xmlId: '' }); // chosen marketplace and XML source: nothing is loaded before both are chosen
+  const [optionsReady, setOptionsReady] = useState(false);
+  const [priceTarget, setPriceTarget] = useState(null);       // product whose sale price is being edited
+  const [pushingId, setPushingId] = useState(null);
   const [mpStats, setMpStats] = useState(null);
 
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -56,14 +62,17 @@ export default function ProductsPage() {
   const [syncResult, setSyncResult] = useState(null);
   const reqSeq = useRef(0);
 
+  const priceConn = gate.connId;                                                                 // '' = no marketplace (only when none is connected yet)
+  const gateReady = optionsReady && (connections.length === 0 || !!gate.connId) && !!gate.xmlId;
+
   // ───────────── options
   useEffect(() => {
     (async () => {
       try {
         const [x, c] = await Promise.all([api.get('/xml-sources'), api.get('/marketplace/connections')]);
         setXmlSources(x.data); setConnections(c.data);
-        setPriceConn((cur) => (cur === null ? (c.data[0]?.id || '') : cur));
-      } catch { setPriceConn((cur) => cur ?? ''); }
+      } catch { toast.error('Pazaryerleri ve XML kaynakları yüklenemedi'); }
+      finally { setOptionsReady(true); }
     })();
   }, []);
 
@@ -74,38 +83,40 @@ export default function ProductsPage() {
   }, [searchInput]);
 
   const refreshSummary = useCallback(async () => {
+    if (!gateReady) return;
     try {
-      const params = filters.xmlSourceId ? { xmlSourceId: filters.xmlSourceId } : {};
+      const params = { xmlSourceId: gate.xmlId };
       const [s, f] = await Promise.all([api.get('/products/summary', { params }), api.get('/products/facets', { params })]);
       setSummary(s.data); setFacets(f.data);
     } catch { /* cards are optional */ }
-  }, [filters.xmlSourceId]);
+  }, [gateReady, gate.xmlId]);
   useEffect(() => { refreshSummary(); }, [refreshSummary]);
 
   const refreshMpStats = useCallback(async () => {
-    if (!priceConn) { setMpStats(null); return; }
+    if (!gateReady || !priceConn) { setMpStats(null); return; }
     try {
-      const params = { connectionId: priceConn, ...(filters.xmlSourceId ? { xmlSourceId: filters.xmlSourceId } : {}) };
+      const params = { connectionId: priceConn, xmlSourceId: gate.xmlId };
       setMpStats((await api.get('/products/stats', { params })).data);
     } catch { /* tabs work without counts */ }
-  }, [priceConn, filters.xmlSourceId]);
+  }, [gateReady, priceConn, gate.xmlId]);
   useEffect(() => { refreshMpStats(); }, [refreshMpStats]);
 
   // ───────────── list
   const buildParams = useCallback(() => {
     const [sortBy, sortOrder] = sort.split(':');
     const p = { page, limit, sortBy, sortOrder };
-    for (const k of ['search', 'xmlSourceId', 'category', 'brand', 'status', 'stockFilter', 'noImage', 'noBarcode']) if (filters[k]) p[k] = filters[k];
+    for (const k of ['search', 'category', 'brand', 'status', 'stockFilter', 'noImage', 'noBarcode']) if (filters[k]) p[k] = filters[k];
+    if (gate.xmlId) p.xmlSourceId = gate.xmlId;
     if (priceConn) {
       p.priceFor = priceConn;
       if (filters.mpStatus === 'not_sent') p.notSentConnectionId = priceConn;
       else if (filters.mpStatus) { p.connectionId = priceConn; p.marketplaceStatus = filters.mpStatus; }
     }
     return p;
-  }, [filters, sort, limit, page, priceConn]);
+  }, [filters, sort, limit, page, priceConn, gate.xmlId]);
 
   const fetchProducts = useCallback(async () => {
-    if (priceConn === null) return; // wait for the connection list first
+    if (!gateReady) return; // nothing is loaded before a marketplace and an XML source are chosen
     const my = ++reqSeq.current;
     setLoading(true);
     try {
@@ -114,7 +125,7 @@ export default function ProductsPage() {
       setProducts(res.data.products); setPagination(res.data.pagination);
     } catch { if (my === reqSeq.current) toast.error('Ürünler yüklenemedi'); }
     finally { if (my === reqSeq.current) setLoading(false); }
-  }, [buildParams, priceConn]);
+  }, [buildParams, gateReady]);
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
 
   const refreshAll = () => { fetchProducts(); refreshSummary(); refreshMpStats(); };
@@ -125,11 +136,27 @@ export default function ProductsPage() {
   };
   const clearFilters = () => { setSearchInput(''); changeFilters({ ...EMPTY_FILTERS }); };
 
+  // choosing another marketplace / XML source starts the list from scratch
+  const resetView = () => { setFilters(EMPTY_FILTERS); setSearchInput(''); setPage(1); setSelectedIds(new Set()); setAllPagesSelected(false); setProducts([]); setSummary(null); setMpStats(null); };
+  const pickConn = (id) => { setGate({ connId: id, xmlId: '' }); resetView(); };
+  const pickXml = (id) => { setGate((g) => ({ ...g, xmlId: id })); resetView(); };
+  const gateXmlName = gate.xmlId === 'none' ? 'Elle eklenen ürünler' : (xmlSources.find((x) => x.id === gate.xmlId)?.name || '');
+  const priceConnection = connections.find((c) => c.id === priceConn) || null;
+
+  // send one product's current price to the marketplace (row shortcut)
+  const quickPush = async (prod, listing) => {
+    setPushingId(prod.id);
+    try {
+      const r = await pushToMarketplace(prod.id, priceConnection, listing);
+      if (r.kind === 'update' || r.kind === 'create') toast.success(r.message); else toast(r.message, { icon: 'ℹ️', duration: 6000 });
+      refreshAll();
+    } catch (e) { toast.error(errorText(e, 'Gönderilemedi'), { duration: 8000 }); }
+    finally { setPushingId(null); }
+  };
+
   const activeChips = useMemo(() => {
     const chips = [];
-    const src = xmlSources.find((s) => s.id === filters.xmlSourceId);
     if (filters.search) chips.push({ k: 'search', label: `Arama: “${filters.search}”`, clear: () => { setSearchInput(''); } });
-    if (filters.xmlSourceId) chips.push({ k: 'xmlSourceId', label: `XML: ${src?.name || '…'}` });
     if (filters.category) chips.push({ k: 'category', label: `Kategori: ${filters.category}` });
     if (filters.brand) chips.push({ k: 'brand', label: `Marka: ${filters.brand}` });
     if (filters.status) chips.push({ k: 'status', label: filters.status === 'active' ? 'Yalnızca aktif' : 'Yalnızca pasif' });
@@ -138,7 +165,7 @@ export default function ProductsPage() {
     if (filters.noBarcode) chips.push({ k: 'noBarcode', label: 'Barkodu olmayanlar' });
     if (filters.mpStatus) chips.push({ k: 'mpStatus', label: `Pazaryeri: ${filters.mpStatus === 'not_sent' ? 'Gönderilmemiş' : MP_STATUS[filters.mpStatus]?.label}` });
     return chips;
-  }, [filters, xmlSources]);
+  }, [filters]);
 
   // ───────────── selection
   const pageIds = products.map((p) => p.id);
@@ -266,8 +293,24 @@ export default function ProductsPage() {
         ))}
       </div>
 
-      {view === 'trendyol' ? <TrendyolLiveView connections={connections} /> : (
+      {view === 'trendyol' ? <TrendyolLiveView connections={connections} /> : !optionsReady ? (
+        <div className="loading-spinner" style={{ padding: 60 }}><div className="spinner"></div></div>
+      ) : !gateReady ? (
+        <SourceGate connections={connections} xmlSources={xmlSources} connId={gate.connId} xmlId={gate.xmlId} onPickConn={pickConn} onPickXml={pickXml} />
+      ) : (
         <>
+          {/* ───────────── what this screen is showing */}
+          <div className="card" data-testid="context-bar" style={{ padding: '10px 14px', marginBottom: 14, display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
+            {connections.length > 0 && (
+              <span>Pazaryeri: <strong>{connName}</strong>{' '}
+                <button type="button" data-testid="change-conn" onClick={() => setGate({ connId: '', xmlId: '' })} style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: 12 }}>Değiştir</button>
+              </span>
+            )}
+            <span>XML: <strong>{gateXmlName}</strong>{' '}
+              <button type="button" data-testid="change-xml" onClick={() => setGate((g) => ({ ...g, xmlId: '' }))} style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: 12 }}>Değiştir</button>
+            </span>
+          </div>
+
           {/* ───────────── summary cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginBottom: 16 }}>
             {cards.map((c) => (
@@ -291,10 +334,6 @@ export default function ProductsPage() {
                   <input type="text" placeholder="Ürün adı, SKU veya barkod…" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
                 </div>
               </div>
-              <div><label className="form-label" style={{ fontSize: 11 }}>XML kaynağı</label>
-                <select className="form-select" style={selectStyle} value={filters.xmlSourceId} onChange={(e) => changeFilters({ xmlSourceId: e.target.value, category: '', brand: '' })}>
-                  <option value="">Hepsi</option>{xmlSources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select></div>
               <div><label className="form-label" style={{ fontSize: 11 }}>Kategori</label>
                 <select className="form-select" style={selectStyle} value={filters.category} onChange={(e) => changeFilters({ category: e.target.value })}>
                   <option value="">Hepsi</option>
@@ -318,13 +357,6 @@ export default function ProductsPage() {
             </div>
 
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-color)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <label className="form-label" style={{ fontSize: 12, margin: 0 }} title="Satış fiyatı, kâr ve gönderime hazır olma bu pazaryerine göre hesaplanır">Fiyat ve durum için pazaryeri:</label>
-                <select className="form-select" style={{ ...selectStyle, width: 200 }} value={priceConn || ''} onChange={(e) => { setPriceConn(e.target.value); changeFilters({ mpStatus: '' }); }}>
-                  <option value="">Seçilmedi (yalnızca XML verisi)</option>
-                  {connections.map((c) => <option key={c.id} value={c.id}>{c.supplierName || c.marketplaceType}</option>)}
-                </select>
-              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
                 <label className="form-label" style={{ fontSize: 12, margin: 0 }}>Sırala:</label>
                 <select className="form-select" style={{ ...selectStyle, width: 230 }} value={sort} onChange={(e) => { setSort(e.target.value); setPage(1); }}>
@@ -441,16 +473,37 @@ export default function ProductsPage() {
                           {p.xmlPrice > 0 ? `₺${moneyShort(p.xmlPrice)}` : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                           {p.xmlSource && <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{p.xmlSource.name}</div>}
                         </td>
-                        {hasPrice && (
-                          <td style={{ whiteSpace: 'nowrap' }}>
-                            {pr?.salePrice != null ? (
-                              <>
-                                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent-primary)' }}>₺{moneyShort(pr.salePrice)}</div>
-                                {pr.profit != null && <div style={{ fontSize: 11, color: pr.profit >= 0 ? 'var(--success)' : 'var(--danger)' }}>{pr.profit >= 0 ? '+' : ''}₺{moneyShort(pr.profit)} kâr</div>}
-                              </>
-                            ) : <Pill color="var(--danger)" title="Bu ürüne uyan fiyat şablonu yok">Şablon yok</Pill>}
-                          </td>
-                        )}
+                        {hasPrice && (() => {
+                          const listing = (p.marketplaceProducts || []).find((m) => m.connectionId === priceConn) || null;
+                          const differs = !!(listing && listing.status === 'active' && listing.marketplacePrice != null && pr?.salePrice != null && Math.abs(listing.marketplacePrice - pr.salePrice) > 0.005);
+                          return (
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              {pr?.salePrice != null ? (
+                                <>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent-primary)' }}>₺{moneyShort(pr.salePrice)}</span>
+                                    {pr.manual && <Pill color="var(--warning)" title={`Elle girildi. Şablon fiyatı: ${pr.templatePrice != null ? '₺' + moneyShort(pr.templatePrice) : 'yok'}`}>Elle</Pill>}
+                                    <button type="button" className="btn btn-secondary btn-sm" data-testid={`edit-price-${p.id}`} title="Satış fiyatını değiştir" aria-label="Satış fiyatını değiştir" onClick={() => setPriceTarget(p)} style={{ padding: '2px 6px' }}><Pencil size={12} /></button>
+                                  </div>
+                                  {pr.profit != null && <div style={{ fontSize: 11, color: pr.profit >= 0 ? 'var(--success)' : 'var(--danger)' }}>{pr.profit >= 0 ? '+' : ''}₺{moneyShort(pr.profit)} kâr</div>}
+                                  {differs && (
+                                    <div style={{ fontSize: 11, color: 'var(--warning)', display: 'flex', gap: 6, alignItems: 'center' }}>
+                                      {connName}’da ₺{moneyShort(listing.marketplacePrice)}
+                                      <button type="button" className="btn btn-secondary btn-sm" data-testid={`push-price-${p.id}`} disabled={pushingId === p.id} onClick={() => quickPush(p, listing)} title="Bu fiyatı pazaryerine gönder" style={{ padding: '1px 6px', fontSize: 11 }}>
+                                        <Send size={10} /> {pushingId === p.id ? '…' : 'Gönder'}
+                                      </button>
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <Pill color="var(--danger)" title="Bu ürüne uyan fiyat şablonu yok">Şablon yok</Pill>
+                                  <button type="button" className="btn btn-secondary btn-sm" data-testid={`edit-price-${p.id}`} title="Satış fiyatını elle gir" aria-label="Satış fiyatını elle gir" onClick={() => setPriceTarget(p)} style={{ padding: '2px 6px' }}><Pencil size={12} /></button>
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })()}
                         <td><StockPill stock={p.stock} /></td>
                         <td style={{ maxWidth: 200 }}><MpPills list={p.marketplaceProducts} /></td>
                         {hasPrice && (
@@ -529,6 +582,10 @@ export default function ProductsPage() {
           onEdit={(prod) => openEdit(prod)}
           onDelete={(prod) => setDeleteTarget(prod)}
         />
+      )}
+
+      {priceTarget && priceConnection && (
+        <PriceModal product={priceTarget} connection={priceConnection} onClose={() => setPriceTarget(null)} onDone={() => { setPriceTarget(null); refreshAll(); }} />
       )}
 
       {formProduct !== undefined && (

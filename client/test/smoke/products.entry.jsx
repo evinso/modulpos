@@ -13,20 +13,93 @@ const btn = (label) => [...document.querySelectorAll('button')].find((b) => (b.t
 const errors = [];
 const origErr = console.error; console.error = (...a) => { errors.push(a.map(String).join(' ').slice(0, 200)); };
 
+const q = (id) => document.querySelector(`[data-testid="${id}"]`);
+const setVal = async (el, v) => {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  await act(async () => { setter.call(el, v); el.dispatchEvent(new window.Event('input', { bubbles: true })); });
+  await wait(450);
+};
+const productCalls = () => calls.filter((c) => c.url === '/products');
+
 const root = createRoot(document.getElementById('root'));
 await act(async () => { root.render(<ProductsPage />); });
 await wait(150);
 
+// ---- 1) the marketplace is chosen first, then its XML source; nothing is loaded before that
 ok('page title', text().includes('Ürünler'));
+ok('the chooser comes first: marketplaces only, no XML step yet', !!q('gate') && !!q('gate-conn-c1') && !q('gate-xml-s1'));
+ok('no product, summary or statistics request has been made yet', productCalls().length === 0 && !calls.some((c) => (c.url === '/products/summary' && c.params?.xmlSourceId !== 'none') || c.url === '/products/facets' || c.url === '/products/stats'));
+ok('no product table is shown', !document.querySelector('table'));
+await click(q('gate-conn-c1'));
+ok('after the marketplace, its XML sources appear with how many categories are matched', !!q('gate-xml-s1') && text().includes('2 kategori eşleşmiş') && text().includes('8 ürün'));
+ok('still nothing loaded after the first choice', productCalls().length === 0 && !document.querySelector('table'));
+await click(q('gate-xml-s1'));
+await wait(150);
+
+// ---- 2) now the products and their details are shown
 ok('summary cards rendered with numbers', text().includes('Toplam ürün') && text().includes('Stokta yok') && text().includes('Düşük stok (1–5)'));
 ok('five product rows rendered', document.querySelectorAll('tbody tr').length === 5, String(document.querySelectorAll('tbody tr').length));
-ok('price columns visible because a marketplace is selected by default', text().includes('Satış / kâr') && text().includes('Hazırlık'));
+ok('the context bar names the chosen marketplace and XML source', q('context-bar').textContent.includes('Mağazam') && q('context-bar').textContent.includes('Tedarikçi A'));
+ok('the old XML and marketplace drop-downs are gone from the filters', !text().includes('Fiyat ve durum için pazaryeri') && ![...document.querySelectorAll('label')].some((l) => l.textContent === 'XML kaynağı'));
+ok('price columns visible for the chosen marketplace', text().includes('Satış / kâr') && text().includes('Hazırlık'));
 ok('sale price and profit shown', text().includes('₺251,9') && text().includes('+₺51'), '');
 ok('"template missing" and issue count pills', text().includes('Şablon yok') && text().includes('1 sorun'));
 ok('marketplace status chips on the product', text().includes('Mağazam: Satışta'));
 ok('status tabs with counts', text().includes('Gönderilmemiş') && text().includes('Onay bekliyor'));
-const listCall = calls.filter((c) => c.url === '/products').pop();
-ok('list request asks the server for prices of the default marketplace', listCall.params.priceFor === 'c1' && listCall.params.limit === 20 && listCall.params.sortBy === 'createdAt', JSON.stringify(listCall.params));
+const listCall = productCalls().pop();
+ok('the list request carries the chosen marketplace and XML source', listCall.params.priceFor === 'c1' && listCall.params.xmlSourceId === 's1' && listCall.params.limit === 20 && listCall.params.sortBy === 'createdAt', JSON.stringify(listCall.params));
+ok('summary and statistics are asked for the chosen XML source', calls.some((c) => c.url === '/products/summary' && c.params?.xmlSourceId === 's1') && calls.some((c) => c.url === '/products/stats' && c.params?.xmlSourceId === 's1' && c.params?.connectionId === 'c1'));
+
+// ---- 3) change the sale price of one product and send it
+ok('a hand-typed price is marked, products with a different price on the marketplace offer a quick send', text().includes('Elle') && !!q('push-price-p1'));
+await click(q('push-price-p1'));
+const quick = calls.find((c) => c.m === 'POST' && /sync-price-stock$/.test(c.url));
+ok('the row shortcut sends only that product (price update, it is already on sale)', quick && quick.url === '/marketplace/connections/c1/sync-price-stock' && JSON.stringify(quick.body.productIds) === '["p1"]', JSON.stringify(quick && quick.body));
+
+await click(q('edit-price-p0'));
+ok('the price dialog opens with the current price and the numbers around it', !!q('price-modal') && q('price-input').value === '250.9' && [...document.querySelectorAll('[data-testid="info-value"]')].some((n) => n.textContent === 'Gönderilmedi'));
+await setVal(q('price-input'), '100');
+ok('typing a price shows what it earns; a loss asks for a confirmation', text().includes('Net zarar') && !!q('loss-ack'), q('price-preview').textContent.slice(0, 60));
+const prevCall = calls.filter((c) => /price-preview$/.test(c.url)).pop();
+ok('the preview asks the server for this product, marketplace and price', prevCall && prevCall.url === '/products/p0/price-preview' && prevCall.params.connectionId === 'c1' && prevCall.params.price === 100, JSON.stringify(prevCall && prevCall.params));
+await click(q('save-only'));
+ok('saving a loss without the confirmation is refused on the screen and nothing is sent', !!q('price-error') && !calls.some((c) => c.m === 'PUT' && /sale-price$/.test(c.url)));
+await click(q('loss-ack').querySelector('input'));
+await click(q('save-only'));
+const put1 = calls.find((c) => c.m === 'PUT' && /sale-price$/.test(c.url));
+ok('with the confirmation the price is saved for this marketplace', put1 && put1.url === '/products/p0/sale-price' && put1.body.connectionId === 'c1' && put1.body.price === 100 && put1.body.confirmLoss === true, JSON.stringify(put1 && put1.body));
+ok('the dialog closes and the list is reloaded', !q('price-modal'));
+
+// a product that was never sent: "save and send" creates it
+await click(q('edit-price-p0'));
+await setVal(q('price-input'), '300,5');
+ok('a price that earns money needs no confirmation; the button says what will happen', !q('loss-ack') && q('save-send').textContent.includes('Trendyol’a gönder'));
+await click(q('save-send'));
+const put2 = calls.filter((c) => c.m === 'PUT' && /sale-price$/.test(c.url)).pop();
+const create = calls.find((c) => c.m === 'POST' && /send-products$/.test(c.url));
+ok('the typed comma price is read correctly and the product is sent', put2.body.price === 300.5 && create && create.url === '/marketplace/connections/c1/send-products' && JSON.stringify(create.body.productIds) === '["p0"]', JSON.stringify(put2.body));
+
+// a product that is already on sale: the same button updates the price instead
+const updatesBefore = calls.filter((c) => c.m === 'POST' && /sync-price-stock$/.test(c.url)).length;
+await click(q('edit-price-p1'));
+ok('for a product already on sale the button says "update"', q('save-send').textContent.includes('Trendyol’da güncelle'));
+await setVal(q('price-input'), '320');
+await click(q('save-send'));
+ok('the price is saved, then updated on the marketplace for that product only', calls.filter((c) => c.m === 'POST' && /sync-price-stock$/.test(c.url)).length === updatesBefore + 1 && JSON.stringify(calls.filter((c) => /sync-price-stock$/.test(c.url)).pop().body.productIds) === '["p1"]');
+
+// a hand-typed price can be taken back
+await click(q('edit-price-p3'));
+ok('a hand-typed price offers "back to template"', !!q('back-to-template'));
+await click(q('back-to-template'));
+const delCall = calls.find((c) => c.m === 'DELETE' && /sale-price$/.test(c.url));
+ok('going back to the template removes only that product\'s typed price', delCall && delCall.url === '/products/p3/sale-price' && delCall.params.connectionId === 'c1');
+
+// ---- 4) the choice can be changed
+await click(q('change-xml'));
+ok('"change XML" returns to the XML step and hides the products', !!q('gate-xml-s1') && !document.querySelector('table'));
+await click(q('gate-xml-s1'));
+await wait(150);
+ok('choosing it again shows the products again', document.querySelectorAll('tbody tr').length === 5);
 
 // summary card -> filter
 await click(btn('Stokta yok'));
@@ -75,7 +148,7 @@ ok('market tab: blocking reason with explanation and link', text().includes('Kat
 await click([...document.querySelectorAll('aside button')].find((b) => b.textContent.includes('Düzenle')));
 ok('edit form opens with the XML hint', text().includes('Ürünü düzenle') && text().includes('XML kaynağından geliyor'));
 await click(btn('Güncelle'));
-const putCall = calls.find((c) => c.m === 'PUT');
+const putCall = calls.find((c) => c.m === 'PUT' && /^\/products\/[^/]+$/.test(c.url));
 ok('saving without touching the description does not send it (cannot blank it)', putCall && !('description' in putCall.body) && putCall.body.status === 'active', JSON.stringify(putCall && Object.keys(putCall.body)));
 
 // escape closes the drawer
@@ -84,7 +157,7 @@ ok('Escape closes the drawer', !text().includes('XML karşılaştırma'));
 
 // delete confirmation
 await click(document.querySelector('tbody button[title="Sil"]'));
-ok('delete asks for confirmation first', text().includes('Silme onayı') && !calls.some((c) => c.m === 'DELETE'));
+ok('delete asks for confirmation first', text().includes('Silme onayı') && !calls.some((c) => c.m === 'DELETE' && !/sale-price$/.test(c.url)));
 await click(btn('Evet, sil'));
 ok('confirmed delete calls the API', calls.some((c) => c.m === 'DELETE' && c.url === '/products/p0'));
 

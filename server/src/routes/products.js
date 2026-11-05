@@ -41,6 +41,13 @@ function categoryClauses(list) {
   ]);
 }
 
+// xmlSourceId=none means "products that belong to no XML source" (added by hand)
+function xmlScope(v) {
+  if (!v) return {};
+  if (String(v) === 'none') return { xmlSourceId: null };
+  return { xmlSourceId: String(v) };
+}
+
 function buildWhere(storeId, q = {}) {
   const where = { storeId };
   const and = [];
@@ -64,7 +71,7 @@ function buildWhere(storeId, q = {}) {
   }
   if (status) where.status = String(status);
   if (brand) where.brand = String(brand);
-  if (xmlSourceId) where.xmlSourceId = String(xmlSourceId);
+  Object.assign(where, xmlScope(xmlSourceId));
   if (globalXmlOnly === 'true') where.xmlSource = { globalProviderId: { not: null } };
 
   if (stockFilter === 'out') where.stock = { lte: 0 };
@@ -143,6 +150,8 @@ router.get('/', async (req, res, next) => {
         };
         const ex = ctx.priceCtx.explainFor(p);
         if (ex && ex.breakdown) out.pricing.profit = ex.breakdown.profit;
+        out.pricing.manual = !!(ex && ex.manual);                       // a price typed in by hand wins over the template
+        out.pricing.templatePrice = ex && ex.manual ? ex.templatePrice : null;
       }
       return out;
     });
@@ -161,7 +170,7 @@ router.get('/summary', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
-    const base = { storeId: store.id, ...(req.query.xmlSourceId ? { xmlSourceId: String(req.query.xmlSourceId) } : {}) };
+    const base = { storeId: store.id, ...xmlScope(req.query.xmlSourceId) };
     const [total, active, passive, outOfStock, lowStock, noImage, noBarcode] = await Promise.all([
       prisma.product.count({ where: base }),
       prisma.product.count({ where: { ...base, status: 'active' } }),
@@ -180,7 +189,7 @@ router.get('/facets', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
-    const base = { storeId: store.id, ...(req.query.xmlSourceId ? { xmlSourceId: String(req.query.xmlSourceId) } : {}) };
+    const base = { storeId: store.id, ...xmlScope(req.query.xmlSourceId) };
     const group = (field) => prisma.product.groupBy({
       by: [field], where: { ...base, [field]: { not: null } }, _count: { _all: true }, orderBy: { _count: { [field]: 'desc' } }, take: 300,
     });
@@ -203,14 +212,14 @@ router.get('/stats', async (req, res, next) => {
     }
 
     const where = { storeId: store.id };
-    if (xmlSourceId) where.xmlSourceId = xmlSourceId;
+    Object.assign(where, xmlScope(xmlSourceId));
     const total = await prisma.product.count({ where });
 
     const mpStatus = { active: 0, pending: 0, rejected: 0, passive: 0, not_sent: 0 };
     if (connectionId) {
       const mpRows = await prisma.marketplaceProduct.groupBy({
         by: ['status'],
-        where: { connectionId, product: { storeId: store.id, ...(xmlSourceId ? { xmlSourceId } : {}) } },
+        where: { connectionId, product: { storeId: store.id, ...xmlScope(xmlSourceId) } },
         _count: { status: true },
       });
       for (const r of mpRows) mpStatus[r.status] = (mpStatus[r.status] || 0) + r._count.status;
@@ -270,7 +279,7 @@ router.get('/:id/detail', async (req, res, next) => {
         ready: ev.ready,
         issues: ev.issues,
         categoryMapping: ev.mapping ? (ev.mapping.marketplaceCategoryName || String(ev.mapping.marketplaceCategoryId)) : null,
-        pricing: ex ? { salePrice: ex.price, rule: ex.ruleName, kind: ex.kind, vatRate: ex.vatRate, breakdown: ex.breakdown } : null,
+        pricing: ex ? { salePrice: ex.price, rule: ex.ruleName, kind: ex.kind, vatRate: ex.vatRate, breakdown: ex.breakdown, manual: !!ex.manual, templatePrice: ex.manual ? ex.templatePrice : null } : null,
         listing: mp,
       });
     }
@@ -289,6 +298,106 @@ router.get('/:id/detail', async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+// ─── Sale price typed in by hand (per product, per marketplace) ──────────────────────────────────────────────────
+// It wins over the price template everywhere (list, sending, automatic updates) until it is removed again.
+function parseSalePrice(v) {
+  const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').trim().replace(',', '.'));
+  if (!Number.isFinite(n) || n <= 0 || n > 10000000) return null;
+  return Math.round(n * 100) / 100;
+}
+
+async function ownConnection(storeId, connectionId) {
+  if (!connectionId) return null;
+  return prisma.marketplaceConnection.findFirst({ where: { id: String(connectionId), storeId } });
+}
+
+// What a given price would earn, without saving anything (the editor shows it while typing)
+function describePrice(pv, price) {
+  const b = pv.breakdown;
+  const vat = Number(pv.vatRate) || 0;
+  const loss = b ? b.profit < 0 : (pv.purchase > 0 && price / (1 + vat / 100) < pv.purchase);
+  return {
+    salePrice: pv.price,
+    templatePrice: pv.templatePrice,
+    hasTemplate: pv.templatePrice !== null && pv.templatePrice !== undefined,
+    ruleName: pv.ruleName,
+    purchase: pv.purchase,
+    profit: b ? b.profit : null,
+    profitPct: b ? b.profitPct : null,
+    marginOnPricePct: b ? b.marginOnPricePct : null,
+    commissionAmount: b ? b.commissionAmount : null,
+    fixedCosts: b ? b.fixedCosts : null,
+    vatAmount: b ? b.vatAmount : null,
+    loss,
+  };
+}
+
+router.get('/:id/price-preview', async (req, res, next) => {
+  try {
+    const product = await prisma.product.findUnique({ where: { id: req.params.id } });
+    const connection = await ownConnection(product.storeId, req.query.connectionId);
+    if (!connection) return res.status(404).json({ error: 'Pazaryeri bağlantısı bulunamadı' });
+    const price = parseSalePrice(req.query.price);
+    if (price === null) return res.status(400).json({ error: 'Geçerli bir satış fiyatı girin' });
+    const ctx = await getReadinessContext(connection);
+    res.json(describePrice(ctx.priceCtx.previewAt(product, price), price));
+  } catch (error) { next(error); }
+});
+
+router.put('/:id/sale-price', async (req, res, next) => {
+  try {
+    const product = await prisma.product.findUnique({ where: { id: req.params.id } });
+    const connection = await ownConnection(product.storeId, req.body && req.body.connectionId);
+    if (!connection) return res.status(404).json({ error: 'Pazaryeri bağlantısı bulunamadı' });
+    const price = parseSalePrice(req.body.price);
+    if (price === null) return res.status(400).json({ error: 'Geçerli bir satış fiyatı girin (0’dan büyük bir tutar)' });
+
+    const before = await getReadinessContext(connection);
+    const oldPrice = before.priceCtx.priceFor(product);
+    const info = describePrice(before.priceCtx.previewAt(product, price), price);
+    if (info.loss && req.body.confirmLoss !== true) {
+      return res.status(409).json({ error: 'Bu fiyatta zarar edersiniz', loss: true, profit: info.profit });
+    }
+
+    await prisma.productPriceOverride.upsert({
+      where: { productId_connectionId: { productId: product.id, connectionId: connection.id } },
+      update: { price },
+      create: { productId: product.id, connectionId: connection.id, price },
+    });
+    productListCache.invalidate(product.storeId); // before answering, so the very next list already shows the new price
+    await prisma.productLog.create({ data: {
+      productId: product.id, type: 'manual', source: 'manual', oldPrice: oldPrice ? oldPrice.price : null, newPrice: price,
+      notes: `${connection.supplierName || connection.marketplaceType}: satış fiyatı elle ₺${price} yapıldı`,
+    } }).catch(() => {});
+
+    const after = await getReadinessContext(connection);
+    const ex = after.priceCtx.explainFor(product);
+    res.json({ ok: true, loss: info.loss, pricing: { salePrice: ex.price, manual: true, templatePrice: ex.templatePrice, profit: ex.breakdown ? ex.breakdown.profit : null, rule: ex.ruleName } });
+  } catch (error) { next(error); }
+});
+
+router.delete('/:id/sale-price', async (req, res, next) => {
+  try {
+    const product = await prisma.product.findUnique({ where: { id: req.params.id } });
+    const connection = await ownConnection(product.storeId, req.query.connectionId);
+    if (!connection) return res.status(404).json({ error: 'Pazaryeri bağlantısı bulunamadı' });
+
+    const before = await getReadinessContext(connection);
+    const oldPrice = before.priceCtx.priceFor(product);
+    const { count } = await prisma.productPriceOverride.deleteMany({ where: { productId: product.id, connectionId: connection.id } });
+    productListCache.invalidate(product.storeId);
+    const after = await getReadinessContext(connection);
+    const ex = after.priceCtx.explainFor(product);
+    if (count > 0) {
+      await prisma.productLog.create({ data: {
+        productId: product.id, type: 'manual', source: 'manual', oldPrice: oldPrice ? oldPrice.price : null, newPrice: ex ? ex.price : null,
+        notes: `${connection.supplierName || connection.marketplaceType}: elle girilen satış fiyatı kaldırıldı, şablon fiyatına dönüldü`,
+      } }).catch(() => {});
+    }
+    res.json({ ok: true, removed: count, pricing: ex ? { salePrice: ex.price, manual: false, templatePrice: null, profit: ex.breakdown ? ex.breakdown.profit : null, rule: ex.ruleName } : null });
+  } catch (error) { next(error); }
 });
 
 // Get single product

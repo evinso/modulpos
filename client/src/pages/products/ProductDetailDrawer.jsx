@@ -208,9 +208,14 @@ function PriceTab({ data }) {
                       <div style={{ fontSize: 22, fontWeight: 800, color: earn(m.pricing.breakdown.profit) }}>₺{money(m.pricing.breakdown.profit)}</div>
                       <div style={{ fontSize: 11, color: earn(m.pricing.breakdown.profit) }}>alışın %{m.pricing.breakdown.profitPct}’i</div>
                     </>
-                  ) : <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Eski tip kural: kâr dökümü yok</div>}
+                  ) : <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{m.pricing.manual ? 'Şablon olmadığı için kâr hesaplanamadı' : 'Eski tip kural: kâr dökümü yok'}</div>}
                 </div>
               </div>
+              {m.pricing.manual && (
+                <div data-testid="manual-note" style={{ marginBottom: 10, fontSize: 12, color: 'var(--warning)' }}>
+                  Bu fiyatı siz elle girdiniz{m.pricing.templatePrice != null ? `; şablon fiyatı ₺${money(m.pricing.templatePrice)}` : ''}. Ürünler sayfasında “Şablon fiyatına dön” ile kaldırabilirsiniz.
+                </div>
+              )}
               {m.pricing.breakdown && (
                 <div>
                   {[
