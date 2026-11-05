@@ -184,8 +184,8 @@ export default function XmlSourcesPage() {
         setAddStep(2);
         const n = Object.keys(detected).length;
         toast.success(n > 0
-          ? `${res.data.totalProducts} ürün bulundu. ${n} alan otomatik eşleştirildi, lütfen kontrol edin.`
-          : `${res.data.totalProducts} ürün bulundu! Şimdi alan eşleştirmesi yapın.`);
+          ? `${res.data.partial ? 'En az ' : ''}${res.data.totalProducts} ürün bulundu. ${n} alan otomatik eşleştirildi, lütfen kontrol edin.`
+          : `${res.data.partial ? 'En az ' : ''}${res.data.totalProducts} ürün bulundu! Şimdi alan eşleştirmesi yapın.`);
       } else {
         toast.error(res.data.error || 'XML analiz edilemedi');
       }

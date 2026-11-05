@@ -287,6 +287,8 @@ async function streamProductObjects(url, { maxProducts = 0, responseStream, onPr
 
 // ─── analyzeXml ──────────────────────────────────────────────────────────────
 
+const ANALYZE_BUDGET_MS = 20000;
+
 async function analyzeXml(url, options = {}) {
   // Peek at first 512 bytes to detect HTML error pages before committing to SAX
   const peek = await fetchPartialStream(url);
@@ -311,6 +313,9 @@ async function analyzeXml(url, options = {}) {
   const sampleProducts = [];
   const uniqueCategories = new Set();
   let totalCount = 0;
+  let partial = false;
+  const startedAt = Date.now();
+  const budgetMs = options.budgetMs || ANALYZE_BUDGET_MS;
 
   try {
     await streamProductObjects(url, {
@@ -321,6 +326,9 @@ async function analyzeXml(url, options = {}) {
           const catVal = getNestedValue(product, cp);
           if (catVal && typeof catVal === 'string') { uniqueCategories.add(catVal.trim()); break; }
         }
+        // Big feeds: the wizard only needs fields and samples, so stop reading once the time budget is used
+        if (totalCount >= 10 && Date.now() - startedAt > budgetMs) { partial = true; return false; }
+        return true;
       }
     });
   } catch (err) {
@@ -342,6 +350,7 @@ async function analyzeXml(url, options = {}) {
   return {
     success: true,
     totalProducts: totalCount,
+    partial,
     productPath: 'streamed',
     fields,
     sampleData,
