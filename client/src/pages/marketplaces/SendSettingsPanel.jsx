@@ -10,7 +10,7 @@ import toast from 'react-hot-toast';
 const EMPTY = {
   minStock: '', maxStock: '', includeCategories: '', excludeCategories: '', includeBrands: '', excludeBrands: '',
   minPurchasePrice: '', maxPurchasePrice: '', requireImage: false,
-  titlePrefix: '', titleSuffix: '', titleCase: 'none', maxImages: '', defaultBrandName: '',
+  titlePrefix: '', titleSuffix: '', titleCase: 'none', maxImages: '',
 };
 const LISTS = ['includeCategories', 'excludeCategories', 'includeBrands', 'excludeBrands'];
 const toForm = (s = {}) => {
@@ -31,7 +31,6 @@ const toBody = (f) => {
     includeBrands: list(f.includeBrands), excludeBrands: list(f.excludeBrands),
     minPurchasePrice: num(f.minPurchasePrice), maxPurchasePrice: num(f.maxPurchasePrice), requireImage: !!f.requireImage,
     titlePrefix: f.titlePrefix, titleSuffix: f.titleSuffix, titleCase: f.titleCase, maxImages: num(f.maxImages),
-    defaultBrandName: f.defaultBrandName,
   };
 };
 
@@ -111,7 +110,7 @@ export default function SendSettingsPanel({ connectionId, onSaved }) {
             <input type="checkbox" checked={form.requireImage} onChange={set('requireImage')} /> Görseli olmayan ürünleri gönderme
           </label>
 
-          <div style={h}>Başlık, görsel, marka</div>
+          <div style={h}>Başlık ve görsel</div>
           <div style={grid}>
             <Row label="Başlık başına ekle"><input className="form-input" placeholder="ör: Yeni Sezon " value={form.titlePrefix} onChange={set('titlePrefix')} /></Row>
             <Row label="Başlık sonuna ekle"><input className="form-input" placeholder="ör:  - Hızlı Kargo" value={form.titleSuffix} onChange={set('titleSuffix')} /></Row>
@@ -122,7 +121,6 @@ export default function SendSettingsPanel({ connectionId, onSaved }) {
               </select>
             </Row>
             <Row label="En fazla görsel"><input type="number" min="1" className="form-input" placeholder="ör: 8" value={form.maxImages} onChange={set('maxImages')} /></Row>
-            <Row label="Markası yoksa kullanılacak marka"><input className="form-input" placeholder="ör: Markasız" value={form.defaultBrandName} onChange={set('defaultBrandName')} /></Row>
           </div>
 
           <button type="button" className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Kaydediliyor…' : 'Ayarları kaydet'}</button>

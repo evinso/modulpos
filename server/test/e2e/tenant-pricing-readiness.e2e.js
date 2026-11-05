@@ -49,7 +49,7 @@ const API=process.env.API_URL||"https://api.modulpos.com/api";
   ok("defaults come back normalised",(await a("GET",ss)).d?.settings?.titleCase==="none");
   const prices=prods.map(p=>p.xmlPrice).sort((x,y)=>x-y); const cut=prices[Math.floor(prices.length/2)];
   const inside=prods.filter(p=>p.xmlPrice>=cut).length;
-  const put=await a("PUT",ss,{settings:{minPurchasePrice:cut,titlePrefix:"[T] ",titleCase:"upper",maxStock:5,maxImages:2,defaultBrandName:"Markasiz"}});
+  const put=await a("PUT",ss,{settings:{minPurchasePrice:cut,titlePrefix:"[T] ",titleCase:"upper",maxStock:5,maxImages:2}});
   ok("save send settings",put.s===200&&put.d.settings.minPurchasePrice===cut&&put.d.settings.maxStock===5);
   const bad=await a("PUT",ss,{settings:{titleCase:"<script>",maxStock:"abc",includeCategories:"x,y"}});
   ok("garbage is normalised, not stored raw",bad.s===200&&bad.d.settings.titleCase==="none"&&bad.d.settings.maxStock===null&&bad.d.settings.includeCategories.length===2);

@@ -1270,7 +1270,7 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
       const mapping = ev.mapping;
       p.price = ev.salePrice;
       // Send settings shape what goes out; the stored product is not saved with these changes
-      p.title = ev.sendTitle; p.images = JSON.stringify(ev.sendImages); p.stock = ev.sendStock; p.brand = p.brand || ev.sendBrand;
+      p.title = ev.sendTitle; p.images = JSON.stringify(ev.sendImages); p.stock = ev.sendStock;
 
       // Parse mapped attributes
       const attributes = [];
@@ -1574,7 +1574,7 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
         } catch (e) {}
       }
 
-      const brandId = await resolveProductBrandIdAll({ ...p, brand: p.brand || ev.sendBrand });
+      const brandId = await resolveProductBrandIdAll(p);
       if (!brandId) { skipped++; skipReasons.no_brand = (skipReasons.no_brand || 0) + 1; continue; }
 
       // Send settings shape what goes out (title, images, quantity); the stored product stays as it is

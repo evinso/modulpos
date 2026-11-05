@@ -10,7 +10,6 @@
  *   requireImage       products without a valid image are not sent
  *   titlePrefix / titleSuffix / titleCase   applied to the title that goes out
  *   maxImages          number of images sent
- *   defaultBrandName   brand used when a product has none
  */
 
 const CASES = ['none', 'upper', 'lower', 'title'];
@@ -38,7 +37,6 @@ function normalizeSendSettings(raw) {
     titleSuffix: String(o.titleSuffix || '').slice(0, 60),
     titleCase: CASES.includes(o.titleCase) ? o.titleCase : 'none',
     maxImages: maxImages !== null && maxImages >= 1 ? Math.floor(maxImages) : null,
-    defaultBrandName: String(o.defaultBrandName || '').trim().slice(0, 100),
   };
 }
 
@@ -116,7 +114,6 @@ function describeSettings(s) {
   if (s.requireImage) out.push('görselsiz gönderilmez');
   if (s.titlePrefix || s.titleSuffix || s.titleCase !== 'none') out.push('başlık düzeni');
   if (s.maxImages) out.push(`en fazla ${s.maxImages} görsel`);
-  if (s.defaultBrandName) out.push(`varsayılan marka: ${s.defaultBrandName}`);
   return out;
 }
 

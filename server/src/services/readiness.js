@@ -199,7 +199,7 @@ class ReadinessContext {
 
     // Brand: the product's own brand, or the connection's default brand, must exist
     const { strategy, defaultBrandId } = this.brandCfg;
-    const ownBrand = (p.brand || '').trim() || this.send.defaultBrandName;
+    const ownBrand = (p.brand || '').trim();
     if ((!ownBrand || strategy === 'override') && !defaultBrandId) {
       add(ISSUE.NO_BRAND, strategy === 'override' ? 'Marka stratejisi "varsayılan marka" ama varsayılan marka seçilmemiş' : 'Üründe marka yok ve bağlantıda varsayılan marka tanımlı değil');
     }
@@ -235,7 +235,6 @@ class ReadinessContext {
       sendTitle,
       sendImages,
       sendStock: SS.sendStock(p.stock, this.send),
-      sendBrand: (p.brand || '').trim() || this.send.defaultBrandName || null,
     };
   }
 }
