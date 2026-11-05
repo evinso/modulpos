@@ -107,3 +107,31 @@ test('coverage uses the tables per product', () => {
   const s = E.summarizeCoverage(products, 30, { ...base, shippingTiers: SHIP });
   assert.equal(s.priced, 2); assert.equal(s.losing, 0); near(s.totalProfit, 12 + 30);
 });
+
+test('auto bands: round edges, roughly equal counts, no empty or duplicate bands', () => {
+  const prices = [];
+  for (let i = 0; i < 1000; i++) prices.push(10 + (i % 100) * 3 + (i % 7));
+  const edges = E.autoBandEdges(prices);
+  assert.ok(edges.length >= 2 && edges.length <= 4);
+  for (let i = 1; i < edges.length; i++) assert.ok(edges[i] > edges[i - 1]);
+  assert.ok(edges.every((e) => e % 10 === 0));
+  assert.deepEqual(E.autoBandEdges([]), []); assert.deepEqual(E.autoBandEdges([50]), []); assert.deepEqual(E.autoBandEdges([50, 50, 50]), []);
+});
+
+test('coverage bands add up to the totals and show the shipping row per band', () => {
+  const products = [];
+  for (let i = 0; i < 300; i++) products.push({ id: 'p' + i, title: 'T' + i, xmlPrice: 20 + i * 2, price: 20 + i * 2, vatRate: 20 });
+  const s = E.summarizeCoverage(products, 30, { ...base, shippingTiers: SHIP });
+  assert.ok(s.bands.length >= 3);
+  assert.equal(s.bands.reduce((t, b) => t + b.count, 0), s.priced);                       // every product is in exactly one band
+  near(s.bands.reduce((t, b) => t + b.avgProfit * b.count, 0), s.totalProfit, 'profit') ;
+  assert.equal(s.bands[0].from, 0); assert.equal(s.bands[s.bands.length - 1].to, null);
+  assert.ok(s.bands[0].shippingTier === 1 && s.bands[s.bands.length - 1].shippingTier >= 2);
+  assert.ok(s.marginOnPricePct > 0);
+});
+
+test('coverage lists the worst losing products first', () => {
+  const products = [{ id: 'a', title: 'A', xmlPrice: 100, price: 100, vatRate: 20 }, { id: 'b', title: 'B', xmlPrice: 100, price: 100, vatRate: 20 }];
+  const s = E.summarizeCoverage(products, 30, { ...base, minPrice: 50, maxPrice: 60 });   // price clamped below cost => loss
+  assert.equal(s.losing, 2); assert.equal(s.losingSamples.length, 2); assert.ok(s.losingSamples[0].profit < 0);
+});

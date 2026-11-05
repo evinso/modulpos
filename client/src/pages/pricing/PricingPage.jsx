@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, Trash2, Tags, ToggleLeft, ToggleRight, Edit2, TrendingUp, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, Tags, ToggleLeft, ToggleRight, Edit2, AlertTriangle } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 
@@ -22,6 +22,7 @@ const MODE_LABELS = {
   margin_on_price: 'Satış fiyatı marjı',
 };
 
+import CoveragePanel from './CoveragePanel';
 import TierTable, { emptyTiers, rowsToTiers, tiersToRows } from './TierTable';
 
 const EMPTY_FORM = {
@@ -106,7 +107,9 @@ export default function PricingPage() {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [xmlSources, setXmlSources] = useState([]);
   const [connections, setConnections] = useState([]);
-  const [samplePrice, setSamplePrice] = useState('100');
+  const [samplePrice, setSamplePrice] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [ruleSummaries, setRuleSummaries] = useState(null);
   const [preview, setPreview] = useState(null);
   const [previewError, setPreviewError] = useState('');
   const [summary, setSummary] = useState(null);
@@ -126,6 +129,7 @@ export default function PricingPage() {
     try { setRules((await api.get('/pricing')).data); }
     catch { toast.error('Şablonlar yüklenemedi'); }
     finally { setLoading(false); }
+    api.get('/pricing/summaries').then((r) => setRuleSummaries(r.data)).catch(() => setRuleSummaries(null));
   };
 
   const payload = useMemo(() => formToPayload(form), [form]);
@@ -143,7 +147,7 @@ export default function PricingPage() {
     const t = setTimeout(async () => {
       if (form.value === '' && !profitTiersOn) { setPreview(null); setSummary(null); setPreviewError(''); return; }
       const purchase = num(samplePrice);
-      if (purchase && purchase > 0) {
+      if (purchase && purchase > 0 && form.value !== '') {
         try {
           const res = await api.post('/pricing/calculate', { purchasePrice: purchase, value: payload.value, conditions: { ...payload.conditions, vatRate: previewVat } });
           if (my === reqId.current) { setPreview(res.data); setPreviewError(''); }
@@ -160,8 +164,11 @@ export default function PricingPage() {
   }, [payload, samplePrice, showModal, previewVat]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openModal = (rule = null) => {
-    if (rule) { setEditingId(rule.id); setForm(ruleToForm(rule)); }
-    else { setEditingId(null); setForm({ ...EMPTY_FORM }); }
+    if (rule) {
+      const f = ruleToForm(rule);
+      setEditingId(rule.id); setForm(f);
+      setShowAdvanced(f.minPurchasePrice !== '' || f.maxPurchasePrice !== '' || f.rounding !== 'none' || f.shippingRows.length > 0 || f.profitRows.length > 0);
+    } else { setEditingId(null); setForm({ ...EMPTY_FORM }); setShowAdvanced(false); }
     setPreview(null); setSummary(null); setPreviewError('');
     setShowModal(true);
   };
@@ -236,12 +243,22 @@ export default function PricingPage() {
 
   const earnClass = (n) => (n > 0 ? 'var(--success)' : n < 0 ? 'var(--danger)' : 'var(--text-muted)');
 
+  const sum = (id) => ruleSummaries?.rules?.[id];
+
+  const linkBtn = { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', fontSize: 12, padding: 0, fontFamily: 'inherit' };
+  const sectionTitle = (n, t) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '18px 0 8px' }}>
+      <span style={{ width: 22, height: 22, borderRadius: 11, background: 'var(--accent-primary)', color: '#fff', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{n}</span>
+      <strong style={{ fontSize: 14 }}>{t}</strong>
+    </div>
+  );
+
   return (
     <div>
       <div className="page-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1>Fiyat Şablonları</h1>
-          <p>Alış fiyatından satış fiyatını hesaplar ve ne kadar kazanacağınızı gösterir. Ürünlerin gönderilebilmesi için en az bir şablon gerekir.</p>
+          <p>Alış fiyatından satış fiyatını hesaplar ve tüm ürünlerinizde ne kadar kazanacağınızı gösterir. Ürünlerin gönderilebilmesi için en az bir şablon gerekir.</p>
         </div>
         <button className="btn btn-primary" onClick={() => openModal()}><Plus size={16} /> Şablon Ekle</button>
       </div>
@@ -253,37 +270,47 @@ export default function PricingPage() {
           <div className="empty-state">
             <Tags size={48} className="empty-icon" />
             <h3>Henüz fiyat şablonu yok</h3>
-            <p>Giderlerinizi ve istediğiniz kârı girin, satış fiyatını ve kazancınızı görün.</p>
+            <p>Giderlerinizi ve istediğiniz kârı girin, tüm ürünlerinizde satış fiyatını ve kazancınızı görün.</p>
             <button className="btn btn-primary" onClick={() => openModal()}><Plus size={16} /> İlk Şablonu Ekle</button>
           </div>
         </div>
       ) : (
         <div className="table-container">
           <table>
-            <thead><tr><th>Şablon</th><th>Kâr</th><th>Giderler</th><th>Kapsam</th><th>Durum</th><th>İşlem</th></tr></thead>
+            <thead><tr><th>Şablon</th><th>Uygulandığı yer</th><th style={{ textAlign: 'right' }}>Ürün</th><th style={{ textAlign: 'right' }}>Net marj</th><th style={{ textAlign: 'right' }}>Toplam kazanç</th><th>Durum</th><th>İşlem</th></tr></thead>
             <tbody>
-              {rules.map((r) => (
-                <tr key={r.id}>
-                  <td style={{ fontWeight: 500 }}>
-                    {r.name}
-                    {r.applyTo === 'marketplace_xml' && (
-                      <span className="badge badge-warning" style={{ marginLeft: 8, fontSize: 10, verticalAlign: 'middle' }} title="Eski tip kural. Düzenleyip kaydederseniz yeni şablona dönüşür.">Eski tip</span>
-                    )}
-                  </td>
-                  <td style={{ fontWeight: 600 }}>{profitLabel(r)}</td>
-                  <td>{renderCosts(r)}</td>
-                  <td>{renderScope(r)}</td>
-                  <td>
-                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: r.isActive ? 'var(--success)' : 'var(--text-muted)' }} onClick={() => toggleActive(r.id, r.isActive)}>
-                      {r.isActive ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
-                    </button>
-                  </td>
-                  <td style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn btn-secondary btn-sm" onClick={() => openModal(r)}><Edit2 size={14} /></button>
-                    <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(r.id)}><Trash2 size={14} /></button>
-                  </td>
-                </tr>
-              ))}
+              {rules.map((r) => {
+                const sm = sum(r.id);
+                return (
+                  <tr key={r.id}>
+                    <td>
+                      <div style={{ fontWeight: 500 }}>
+                        {r.name}
+                        {r.applyTo === 'marketplace_xml' && (
+                          <span className="badge badge-warning" style={{ marginLeft: 8, fontSize: 10, verticalAlign: 'middle' }} title="Eski tip kural. Düzenleyip kaydederseniz yeni şablona dönüşür.">Eski tip</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Kâr {profitLabel(r)} · giderler {renderCosts(r)}</div>
+                    </td>
+                    <td>{renderScope(r)}</td>
+                    <td style={{ textAlign: 'right' }}>{r.applyTo === 'marketplace_xml' ? '—' : sm ? sm.covered : '…'}</td>
+                    <td style={{ textAlign: 'right' }}>{sm ? `%${sm.marginOnPricePct}` : '—'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600, color: sm ? earnClass(sm.totalProfit) : undefined }}>
+                      {sm ? `₺${money(sm.totalProfit)}` : '—'}
+                      {sm && sm.losing > 0 && <div style={{ fontSize: 11, color: 'var(--danger)', fontWeight: 400 }}>{sm.losing} üründe zarar</div>}
+                    </td>
+                    <td>
+                      <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: r.isActive ? 'var(--success)' : 'var(--text-muted)' }} onClick={() => toggleActive(r.id, r.isActive)}>
+                        {r.isActive ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
+                      </button>
+                    </td>
+                    <td style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => openModal(r)}><Edit2 size={14} /></button>
+                      <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(r.id)}><Trash2 size={14} /></button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -291,20 +318,19 @@ export default function PricingPage() {
 
       {showModal && (
         <div className="modal-overlay" onClick={closeModal}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 900, width: '95%' }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 980, width: '95vw' }}>
             <div className="modal-header">
               <h3>{editingId ? 'Şablonu Düzenle' : 'Fiyat Şablonu Ekle'}</h3>
               <button className="modal-close" onClick={closeModal}>×</button>
             </div>
             <form onSubmit={handleSave}>
-              <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.2fr) minmax(300px,1fr)', gap: 24, maxHeight: '75vh', overflowY: 'auto' }}>
-                {/* ---------- form ---------- */}
+              <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(340px,1.1fr)', gap: 24, maxHeight: '75vh', overflowY: 'auto' }}>
+                {/* ---------- form: name + where, then 2 steps, rest under "Gelişmiş" ---------- */}
                 <div>
                   <div className="form-group">
                     <label className="form-label">Şablon adı *</label>
                     <input className="form-input" placeholder="ör: Genel fiyat" value={form.name} onChange={(e) => set({ name: e.target.value })} required />
                   </div>
-
                   <div className="grid grid-2">
                     <div className="form-group">
                       <label className="form-label">Pazaryeri</label>
@@ -323,51 +349,22 @@ export default function PricingPage() {
                     </div>
                   </div>
 
-                  <div className="form-group">
-                    <label className="form-label">Alış fiyatı aralığı (₺) <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>— boşsa tüm fiyatlar</span></label>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <input type="number" min="0" step="0.01" className="form-input" placeholder="en az" value={form.minPurchasePrice} onChange={(e) => set({ minPurchasePrice: e.target.value })} />
-                      <span style={{ color: 'var(--text-muted)' }}>–</span>
-                      <input type="number" min="0" step="0.01" className="form-input" placeholder="en çok" value={form.maxPurchasePrice} onChange={(e) => set({ maxPurchasePrice: e.target.value })} />
-                    </div>
-                  </div>
-
-                  <div style={{ fontSize: 13, fontWeight: 700, margin: '18px 0 8px' }}>Giderleriniz</div>
+                  {sectionTitle(1, 'Giderleriniz')}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                     <div className="form-group"><label className="form-label">Kargo (₺)</label>
-                      <input type="number" min="0" step="0.01" className="form-input" value={form.shippingCost} disabled={form.shippingRows.length > 0} onChange={(e) => set({ shippingCost: e.target.value })} />
-                      <small style={{ color: 'var(--text-muted)', fontSize: 11 }}>Faturada ödediğiniz tutar (KDV dahil)</small></div>
+                      <input type="number" min="0" step="0.01" className="form-input" value={form.shippingCost} disabled={form.shippingRows.length > 0} onChange={(e) => set({ shippingCost: e.target.value })} /></div>
                     <div className="form-group"><label className="form-label">Paketleme/diğer (₺)</label>
                       <input type="number" min="0" step="0.01" className="form-input" value={form.otherCost} onChange={(e) => set({ otherCost: e.target.value })} /></div>
                     <div className="form-group"><label className="form-label">Komisyon (%)</label>
                       <input type="number" min="0" max="90" step="0.1" className="form-input" value={form.commissionPct} onChange={(e) => set({ commissionPct: e.target.value })} /></div>
                   </div>
+                  <small style={{ color: 'var(--text-muted)', fontSize: 11 }}>Tutarları faturada ödediğiniz gibi (KDV dahil) yazın.{form.shippingRows.length > 0 ? ' Kargo, Gelişmiş bölümündeki tablodan alınıyor.' : ''}</small>
 
-                  <div style={{ marginBottom: 6 }}>
-                    {form.shippingRows.length === 0 ? (
-                      <button type="button" data-testid="open-shipping-tiers" onClick={() => set({ shippingRows: emptyTiers() })}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', fontSize: 12, padding: 0, fontFamily: 'inherit' }}>
-                        Kargo, satış fiyatına göre değişiyor mu? (ör. barem)
-                      </button>
-                    ) : (
-                      <>
-                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                          Kargonuzu satış fiyatına göre yazın. Sistem, ürünün satış fiyatına uyan satırı kendisi seçer.
-                        </div>
-                        <TierTable testId="shipping-tiers" rows={form.shippingRows} onChange={(rows) => set({ shippingRows: rows })}
-                          limitLabel="Satış fiyatı (KDV dahil)" valueLabel="Kargo ücretim" valueUnit="₺" />
-                        <button type="button" onClick={() => set({ shippingRows: [] })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12, padding: 0, fontFamily: 'inherit' }}>
-                          Tabloyu kapat, tek tutar kullan
-                        </button>
-                      </>
-                    )}
-                  </div>
-
-                  <div style={{ fontSize: 13, fontWeight: 700, margin: '18px 0 8px' }}>Kârınız</div>
+                  {sectionTitle(2, 'Kârınız')}
                   <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                     {modes.map((m) => (
                       <button key={m.key} type="button" onClick={() => set({ profitMode: m.key })}
-                        style={{ flex: 1, textAlign: 'left', padding: '10px 12px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit',
+                        style={{ flex: 1, textAlign: 'left', padding: '8px 12px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit',
                           border: form.profitMode === m.key ? '2px solid var(--accent-primary)' : '2px solid var(--border-color)',
                           background: form.profitMode === m.key ? 'rgba(99,102,241,0.08)' : 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
                         <div style={{ fontWeight: 600, fontSize: 13 }}>{m.title}</div>
@@ -378,118 +375,72 @@ export default function PricingPage() {
                   <div className="form-group">
                     <label className="form-label">{form.profitMode === 'fixed' ? 'Ürün başına kâr (₺) *' : 'Kâr oranı (%) *'}</label>
                     <input type="number" min="0" step="0.01" className="form-input" value={form.value} disabled={form.profitRows.length > 0} onChange={(e) => set({ value: e.target.value })} required={form.profitRows.length === 0} />
+                    {form.profitRows.length > 0 && <small style={{ color: 'var(--text-muted)', fontSize: 11 }}>Kâr, Gelişmiş bölümündeki tablodan alınıyor.</small>}
                   </div>
-                  {form.profitRows.length === 0 ? (
-                    <button type="button" data-testid="open-profit-tiers" onClick={() => set({ profitRows: emptyTiers() })}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', fontSize: 12, padding: 0, marginBottom: 12, fontFamily: 'inherit' }}>
-                      Kâr, alış fiyatına göre değişsin
-                    </button>
-                  ) : (
-                    <div style={{ marginBottom: 12 }}>
-                      <TierTable testId="profit-tiers" rows={form.profitRows} onChange={(rows) => set({ profitRows: rows })}
-                        limitLabel="Alış fiyatı" valueLabel={form.profitMode === 'fixed' ? 'Kâr (₺)' : 'Kâr oranı'} valueUnit={form.profitMode === 'fixed' ? '₺' : '%'} />
-                      <button type="button" onClick={() => set({ profitRows: [] })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12, padding: 0, fontFamily: 'inherit' }}>
-                        Tabloyu kapat, tek oran kullan
-                      </button>
-                    </div>
-                  )}
 
-                  <div className="form-group">
-                    <label className="form-label">Fiyat sonu</label>
-                    <select className="form-select" value={form.rounding} onChange={(e) => set({ rounding: e.target.value })}>
-                      {ROUNDINGS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
-                    </select>
+                  <div style={{ marginTop: 14, borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
+                    <button type="button" data-testid="toggle-advanced" onClick={() => setShowAdvanced(!showAdvanced)} style={{ ...linkBtn, fontSize: 13, fontWeight: 600 }}>
+                      {showAdvanced ? '▾' : '▸'} Gelişmiş (isteğe bağlı)
+                    </button>
+                    {!showAdvanced && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Kademeli kargo (barem), kademeli kâr, alış fiyatı aralığı, fiyat sonu</div>}
+                    {showAdvanced && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Kargo satış fiyatına göre değişiyorsa</div>
+                        {form.shippingRows.length === 0 ? (
+                          <button type="button" data-testid="open-shipping-tiers" onClick={() => set({ shippingRows: emptyTiers() })} style={linkBtn}>
+                            Kargo tablosu ekle (ör. Trendyol barem)
+                          </button>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Ürünün satış fiyatına uyan satırı sistem kendisi seçer.</div>
+                            <TierTable testId="shipping-tiers" rows={form.shippingRows} onChange={(rows) => set({ shippingRows: rows })}
+                              limitLabel="Satış fiyatı (KDV dahil)" valueLabel="Kargo ücretim" valueUnit="₺" />
+                            <button type="button" onClick={() => set({ shippingRows: [] })} style={{ ...linkBtn, color: 'var(--text-muted)' }}>Tabloyu kapat, tek tutar kullan</button>
+                          </>
+                        )}
+
+                        <div style={{ fontSize: 12, fontWeight: 700, margin: '16px 0 6px' }}>Kâr alış fiyatına göre değişiyorsa</div>
+                        {form.profitRows.length === 0 ? (
+                          <button type="button" data-testid="open-profit-tiers" onClick={() => set({ profitRows: emptyTiers() })} style={linkBtn}>Kâr tablosu ekle</button>
+                        ) : (
+                          <>
+                            <TierTable testId="profit-tiers" rows={form.profitRows} onChange={(rows) => set({ profitRows: rows })}
+                              limitLabel="Alış fiyatı" valueLabel={form.profitMode === 'fixed' ? 'Kâr (₺)' : 'Kâr oranı'} valueUnit={form.profitMode === 'fixed' ? '₺' : '%'} />
+                            <button type="button" onClick={() => set({ profitRows: [] })} style={{ ...linkBtn, color: 'var(--text-muted)' }}>Tabloyu kapat, tek oran kullan</button>
+                          </>
+                        )}
+
+                        <div className="form-group" style={{ marginTop: 16 }}>
+                          <label className="form-label">Yalnızca şu alış fiyatındaki ürünlere uygula (₺) <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>— boşsa hepsi</span></label>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <input type="number" min="0" step="0.01" className="form-input" placeholder="en az" value={form.minPurchasePrice} onChange={(e) => set({ minPurchasePrice: e.target.value })} />
+                            <span style={{ color: 'var(--text-muted)' }}>–</span>
+                            <input type="number" min="0" step="0.01" className="form-input" placeholder="en çok" value={form.maxPurchasePrice} onChange={(e) => set({ maxPurchasePrice: e.target.value })} />
+                          </div>
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">Fiyat sonu</label>
+                          <select className="form-select" value={form.rounding} onChange={(e) => set({ rounding: e.target.value })}>
+                            {ROUNDINGS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {editingId && form._keep?.hadFilters && (
-                    <div style={{ fontSize: 12, color: 'var(--warning)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                    <div style={{ fontSize: 12, color: 'var(--warning)', display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 10 }}>
                       <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
                       Bu şablonda eski bir kategori/marka filtresi vardı. Kaydedince kaldırılır ve şablon seçtiğiniz tüm ürünlere uygulanır.
                     </div>
                   )}
                 </div>
 
-                {/* ---------- earnings ---------- */}
+                {/* ---------- result over the real products ---------- */}
                 <div>
-                  <div style={{ position: 'sticky', top: 0, background: 'var(--bg-secondary)', borderRadius: 12, padding: 16 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                      <TrendingUp size={18} style={{ color: 'var(--success)' }} />
-                      <strong style={{ fontSize: 14 }}>Ne kadar kazanırsınız?</strong>
-                    </div>
-
-                    <label className="form-label">Örnek ürün — alış fiyatı (₺)</label>
-                    <input type="number" min="0" step="0.01" className="form-input" value={samplePrice} onChange={(e) => setSamplePrice(e.target.value)} />
-
-                    {rowsIncomplete && <p style={{ color: 'var(--warning)', fontSize: 12, marginTop: 10 }}>Kademe tablosunu tamamlayınca hesap buna göre güncellenir.</p>}
-                    {previewError && <p style={{ color: 'var(--danger)', fontSize: 12, marginTop: 10 }}>{previewError}</p>}
-                    {!preview && !previewError && <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 10 }}>Kâr değerini girince satış fiyatı ve kazancınız burada görünür.</p>}
-
-                    {preview && (
-                      <div style={{ marginTop: 14 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-                          <div style={{ background: 'var(--bg-tertiary)', borderRadius: 10, padding: '10px 12px' }}>
-                            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Satış fiyatı</div>
-                            <div style={{ fontSize: 22, fontWeight: 800 }}>₺{money(preview.price)}</div>
-                          </div>
-                          <div style={{ background: 'var(--bg-tertiary)', borderRadius: 10, padding: '10px 12px' }}>
-                            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Net kazancınız</div>
-                            <div style={{ fontSize: 22, fontWeight: 800, color: earnClass(preview.profit) }}>₺{money(preview.profit)}</div>
-                            <div style={{ fontSize: 11, color: earnClass(preview.profit) }}>alışın %{preview.profitPct}’i · satış fiyatının %{preview.marginOnPricePct}’i</div>
-                          </div>
-                        </div>
-                        {[
-                          ['Satış fiyatı (KDV dahil)', `₺${money(preview.price)}`],
-                          [`KDV (%${previewVat})`, `−₺${money(preview.vatAmount)}`],
-                          ['Komisyon', `−₺${money(preview.commissionAmount)}`],
-                          ['Kargo ve diğer giderler', `−₺${money(preview.fixedCosts)}`],
-                          ['Alış fiyatı', `−₺${money(preview.purchase)}`],
-                        ].map(([k, v]) => (
-                          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0' }}>
-                            <span style={{ color: 'var(--text-secondary)' }}>{k}</span><span>{v}</span>
-                          </div>
-                        ))}
-                        {(preview.shippingTier || preview.profitTier) && (
-                          <div data-testid="tier-used" style={{ fontSize: 11, color: 'var(--text-muted)', padding: '4px 0' }}>
-                            {preview.shippingTier ? `Uygulanan kargo: ${preview.shippingTier}. satır (₺${money(preview.shippingCost)})` : ''}
-                            {preview.shippingTier && preview.profitTier ? ' · ' : ''}
-                            {preview.profitTier ? `Uygulanan kâr: ${preview.profitTier}. satır` : ''}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 700, padding: '8px 0 0', marginTop: 6, borderTop: '1px solid var(--border-color)' }}>
-                          <span>Elinize kalan</span><span style={{ color: earnClass(preview.profit) }}>₺{money(preview.profit)}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {summary && (
-                      <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border-color)', fontSize: 13 }}>
-                        {summary.covered === 0 ? (
-                          <span style={{ color: 'var(--text-muted)' }}>
-                            {summary.total === 0 ? 'Henüz ürününüz yok; ürün ekleyince toplam kazanç burada görünür.' : 'Bu ayarlarla eşleşen ürün yok.'}
-                          </span>
-                        ) : (
-                          <>
-                            <div style={{ color: 'var(--text-secondary)' }}>Ürünlerinizden <strong>{summary.covered}</strong> / {summary.total} tanesine uygulanır. Hepsi satılırsa:</div>
-                            <div style={{ fontSize: 20, fontWeight: 800, color: earnClass(summary.totalProfit), margin: '4px 0' }}>₺{money(summary.totalProfit)} toplam kazanç</div>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                              Ürün başına ortalama ₺{money(summary.avgProfit)} (en az ₺{money(summary.minProfit)}, en çok ₺{money(summary.maxProfit)}) · ortalama satış fiyatı ₺{money(summary.avgPrice)}
-                            </div>
-                            {summary.losing > 0 && (
-                              <div style={{ marginTop: 8, color: 'var(--danger)', display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 12 }}>
-                                <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                                {summary.losing} üründe zarar edersiniz (giderler kârı aşıyor).
-                              </div>
-                            )}
-                            {summary.unpriced > 0 && (
-                              <div style={{ marginTop: 6, color: 'var(--warning)', fontSize: 12 }}>{summary.unpriced} ürün için fiyat hesaplanamadı (komisyon çok yüksek olabilir).</div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )}
-                    <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '12px 0 0' }}>
-                      Satış KDV’si ürünün XML kaynağındaki orandan alınır; komisyon KDV dahil satış fiyatı üzerinden hesaplanır. Rakamlar tahmindir (iade, indirim ve kampanyalar dahil değil).
-                    </p>
+                  <div style={{ position: 'sticky', top: 0 }}>
+                    <CoveragePanel summary={summary} preview={preview} previewError={previewError} samplePrice={samplePrice}
+                      setSamplePrice={setSamplePrice} previewVat={previewVat} rowsIncomplete={rowsIncomplete} />
                   </div>
                 </div>
               </div>

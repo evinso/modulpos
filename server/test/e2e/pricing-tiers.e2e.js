@@ -63,6 +63,15 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     const row = list.d.products.find((x) => x.sku === 'T-1');
     ok('real product is priced with the shipping table (row 2)', row && near(row.salePrice, (await a('POST', '/pricing/calculate', { purchasePrice: 100, value: 30, conditions: conds })).d.price), row && String(row.salePrice));
     ok('coverage uses the table and shows no loss', (await a('POST', '/pricing/coverage', { value: 30, conditions: conds })).d.losing === 0);
+    // bands + per-template summaries over several products
+    for (let i = 0; i < 12; i++) await a('POST', '/products', { sku: 'B-' + i, barcode: '86900000100' + i, title: 'Band ' + i, price: 20 + i * 25, vatRate: 20, stock: 1 });
+    await c.query(`update app."Product" set "xmlPrice"=price,"vatRate"=20 where "storeId"=$1`, [store.id]);
+    const cov = (await a('POST', '/pricing/coverage', { value: 30, conditions: conds })).d;
+    ok('coverage returns auto bands that add up to the products', cov.bands.length >= 3 && cov.bands.reduce((t, x) => t + x.count, 0) === cov.priced && cov.bands[0].from === 0 && cov.bands[cov.bands.length - 1].to === null, JSON.stringify(cov.bands.map((x) => [x.from, x.to, x.count])));
+    ok('bands show the shipping row and it rises with the price', cov.bands[0].shippingTier <= cov.bands[cov.bands.length - 1].shippingTier && cov.bands[cov.bands.length - 1].shippingTier >= 2);
+    const sums = (await a('GET', '/pricing/summaries')).d;
+    ok('template list summary: products, margin, total', sums.rules[ruleId] && sums.rules[ruleId].covered === cov.covered && near(sums.rules[ruleId].totalProfit, cov.totalProfit), JSON.stringify(sums.rules[ruleId]));
+    ok('other store sees no summaries of mine', Object.keys((await b('GET', '/pricing/summaries')).d.rules).length === 0);
   } catch (e) { console.log('ERROR', e); fails++; }
   finally {
     for (const u of [A, B]) await c.query(`delete from app."User" where id=$1`, [u.user.id]).catch((e) => console.log('cleanup:', e.message));

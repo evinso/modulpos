@@ -325,14 +325,38 @@ function explainTemplatePrice(purchasePrice, value, c) {
   };
 }
 
+/** A readable edge for a band boundary: 47.3 -> 50, 183 -> 200 (<100: nearest 10, <500: nearest 50, else nearest 100). */
+function niceEdge(x) {
+  const step = x < 100 ? 10 : x < 500 ? 50 : 100;
+  return Math.max(step, Math.round(x / step) * step);
+}
+
+/**
+ * Splits the purchase prices into up to `maxBands` bands of roughly equal product counts, with round boundaries.
+ * Returns ascending upper edges (the last band is open-ended), [] when there is nothing to split.
+ */
+function autoBandEdges(prices, maxBands = 5) {
+  const xs = prices.filter((x) => x > 0).sort((p, q) => p - q);
+  if (xs.length < 2) return [];
+  const edges = [];
+  for (let i = 1; i < maxBands; i++) {
+    const e = niceEdge(xs[Math.min(xs.length - 1, Math.floor((xs.length * i) / maxBands))]);
+    if ((edges.length === 0 || e > edges[edges.length - 1]) && e < xs[xs.length - 1]) edges.push(e);
+  }
+  return edges;
+}
+
 /**
  * "How much will I earn?" – runs the template over the products it would apply to and sums the net profit.
  * Uses each product's own purchase price and sale VAT, exactly like real pricing does.
- * products: [{ xmlSourceId, category, brand, xmlPrice, price, vatRate }]
+ * products: [{ id, title, xmlSourceId, category, brand, xmlPrice, price, vatRate }]
+ * Besides the totals it returns `bands` (results per purchase-price band, boundaries chosen automatically from
+ * the products themselves) and `losingSamples` (the worst money-losing products).
  */
 function summarizeCoverage(products, value, conds) {
   const hasOwnVat = conds.vatRate !== null && conds.vatRate !== undefined && conds.vatRate !== '';
   let covered = 0, priced = 0, totalProfit = 0, totalRevenue = 0, totalPurchase = 0, minProfit = Infinity, maxProfit = -Infinity, losing = 0;
+  const rows = [];
   for (const p of products) {
     if (!matches({ applyTo: 'price_template' }, conds, p, conds.connectionId || null)) continue;
     covered++;
@@ -344,7 +368,33 @@ function summarizeCoverage(products, value, conds) {
     if (e.profit < minProfit) minProfit = e.profit;
     if (e.profit > maxProfit) maxProfit = e.profit;
     if (e.profit < 0) losing++;
+    rows.push({ id: p.id, title: p.title, purchase: e.purchase, price: e.price, profit: e.profit, tier: e.shippingTier });
   }
+
+  const edges = autoBandEdges(rows.map((r) => r.purchase));
+  const bands = [];
+  const bounds = [0, ...edges, Infinity];
+  for (let i = 0; i < bounds.length - 1; i++) {
+    const lo = bounds[i], hi = bounds[i + 1];
+    const inBand = rows.filter((r) => r.purchase > lo - (i === 0 ? 1 : 0) && r.purchase <= hi && (i === 0 || r.purchase > lo));
+    if (!inBand.length) continue;
+    const sum = (k) => inBand.reduce((t, r) => t + r[k], 0);
+    const tiers = {};
+    for (const r of inBand) if (r.tier) tiers[r.tier] = (tiers[r.tier] || 0) + 1;
+    const mainTier = Object.keys(tiers).sort((x, y) => tiers[y] - tiers[x])[0];
+    bands.push({
+      from: lo, to: hi === Infinity ? null : hi, count: inBand.length,
+      avgPurchase: round2(sum('purchase') / inBand.length), avgPrice: round2(sum('price') / inBand.length),
+      avgProfit: round2(sum('profit') / inBand.length),
+      marginOnPricePct: sum('price') > 0 ? round2(sum('profit') / sum('price') * 100) : 0,
+      shippingTier: mainTier ? Number(mainTier) : null,
+      mixedTiers: Object.keys(tiers).length > 1,
+      losing: inBand.filter((r) => r.profit < 0).length,
+    });
+  }
+  const losingSamples = rows.filter((r) => r.profit < 0).sort((x, y) => x.profit - y.profit).slice(0, 20)
+    .map((r) => ({ id: r.id, title: r.title, purchase: round2(r.purchase), price: r.price, profit: r.profit }));
+
   return {
     covered, priced, unpriced: covered - priced, losing,
     totalProfit: round2(totalProfit),
@@ -353,7 +403,9 @@ function summarizeCoverage(products, value, conds) {
     avgPurchase: priced ? round2(totalPurchase / priced) : 0,
     minProfit: priced ? round2(minProfit) : 0,
     maxProfit: priced ? round2(maxProfit) : 0,
+    marginOnPricePct: totalRevenue > 0 ? round2(totalProfit / totalRevenue * 100) : 0,
+    bands, losingSamples,
   };
 }
 
-module.exports = { PricingContext, loadPricingContext, computeTemplatePrice, resolveTemplate, validateTiers, MAX_TIERS, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };
+module.exports = { autoBandEdges, PricingContext, loadPricingContext, computeTemplatePrice, resolveTemplate, validateTiers, MAX_TIERS, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };

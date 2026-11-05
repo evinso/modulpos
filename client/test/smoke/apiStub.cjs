@@ -33,12 +33,19 @@ const get = async (url, cfg = {}) => {
   if (/^\/products\/[^/]+\/detail$/.test(url)) return { data: detail };
   if (/^\/products\/[^/]+$/.test(url)) return { data: { ...mk(1), description: 'Tam açıklama' } };
   if (url === '/pricing') return { data: [] };
+  if (url === '/pricing/summaries') return { data: { total: 0, rules: {} } };
   throw new Error('unmocked GET ' + url);
 };
 const post = async (url, body) => {
   calls.push({ m: 'POST', url, body });
   if (url === '/pricing/calculate') return { data: { price: 314, purchase: 100, fixedCosts: 84, cost: 184, commissionAmount: 47.1, profit: 30, profitPct: 30, vatAmount: 52.33, marginOnPricePct: 9.55, shippingTier: body.conditions.shippingTiers && body.conditions.shippingTiers.length ? 2 : null, shippingCost: 84, profitTier: null } };
-  if (url === '/pricing/coverage') return { data: { total: 0, covered: 0, priced: 0, unpriced: 0, losing: 0, totalProfit: 0, avgProfit: 0, avgPrice: 0, avgPurchase: 0, minProfit: 0, maxProfit: 0 } };
+  if (url === '/pricing/coverage') return { data: { total: 4098, covered: 4098, priced: 4098, unpriced: 0, losing: 2, totalProfit: 285400.5, avgProfit: 69.6, avgPrice: 250, avgPurchase: 100, minProfit: -3, maxProfit: 210, marginOnPricePct: 14.2,
+    bands: [
+      { from: 0, to: 60, count: 410, avgPurchase: 40, avgPrice: 112, avgProfit: 14, marginOnPricePct: 12, shippingTier: 1, mixedTiers: false, losing: 0 },
+      { from: 60, to: 100, count: 1835, avgPurchase: 80, avgPrice: 205, avgProfit: 31, marginOnPricePct: 15, shippingTier: 2, mixedTiers: true, losing: 2 },
+      { from: 100, to: null, count: 1853, avgPurchase: 150, avgPrice: 540, avgProfit: 96, marginOnPricePct: 18, shippingTier: 3, mixedTiers: false, losing: 0 },
+    ],
+    losingSamples: [{ id: 'x1', title: 'Zarar eden ürün', purchase: 90, price: 150, profit: -3 }] } };
   return { data: { message: 'ok', updated: 0, errors: [] } }; };
 const put = async (url, body) => { calls.push({ m: 'PUT', url, body }); return { data: {} }; };
 const del = async (url) => { calls.push({ m: 'DELETE', url }); return { data: {} }; };

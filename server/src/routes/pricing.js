@@ -52,9 +52,28 @@ router.post('/coverage', async (req, res, next) => {
     await assertConditionsOwned(store.id, conds);
     const products = await prisma.product.findMany({
       where: { storeId: store.id },
-      select: { xmlSourceId: true, category: true, brand: true, xmlPrice: true, price: true, vatRate: true },
+      select: { id: true, title: true, xmlSourceId: true, category: true, brand: true, xmlPrice: true, price: true, vatRate: true },
     });
     res.json({ total: products.length, ...summarizeCoverage(products, req.body.value, conds) });
+  } catch (error) { next(error); }
+});
+
+// One line per template for the list: how many products it applies to and what it earns in total.
+router.get('/summaries', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const [rules, products] = await Promise.all([
+      prisma.pricingRule.findMany({ where: { storeId: store.id, applyTo: 'price_template' } }),
+      prisma.product.findMany({ where: { storeId: store.id }, select: { xmlSourceId: true, category: true, brand: true, xmlPrice: true, price: true, vatRate: true } }),
+    ]);
+    const out = {};
+    for (const r of rules) {
+      let conds = {}; try { conds = r.conditions ? JSON.parse(r.conditions) : {}; } catch { /* ignore */ }
+      const s = summarizeCoverage(products, r.value, conds);
+      out[r.id] = { covered: s.covered, priced: s.priced, losing: s.losing, totalProfit: s.totalProfit, marginOnPricePct: s.marginOnPricePct };
+    }
+    res.json({ total: products.length, rules: out });
   } catch (error) { next(error); }
 });
 
