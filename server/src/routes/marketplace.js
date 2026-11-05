@@ -10,6 +10,7 @@ const whatsappService = require('../services/whatsappService');
 const { loadPricingContext, PricingContext } = require('../services/pricingEngine');
 const { buildReadinessContext } = require('../services/readiness');
 const SS = require('../services/sendSettings');
+const { classifyBatchItem, healAlreadyListed } = require('../services/marketplaceStatus');
 
 const parseConfig = (conn) => { try { return conn && conn.config ? JSON.parse(conn.config) : {}; } catch { return {}; } };
 const productListCache = require('../services/productListCache');
@@ -1260,9 +1261,12 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     // Format products for Trendyol
     const formatted = [];
     const errors = [];
+    let alreadyListed = 0;
+    const sentIds = new Set();
     for (const p of products) {
       // Single validator shared with the product list: never send a product it flags
       const ev = readiness.evaluate(p);
+      if (ev.listed) { alreadyListed++; continue; } // already on the marketplace: creating it again would only be refused
       if (!ev.ready) {
         errors.push(`${p.sku}: ${ev.issues.map((i) => i.message).join('; ')}`);
         continue;
@@ -1325,10 +1329,15 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
 
       const item = TrendyolService.formatProduct(p, mapping.marketplaceCategoryId, brandId, attributes);
       formatted.push(item);
+      sentIds.add(p.id);
     }
 
     if (formatted.length === 0) {
-      return res.status(400).json({ error: 'Gönderilebilir ürün yok', details: errors });
+      const onlyListed = alreadyListed > 0 && errors.length === 0;
+      return res.status(400).json({
+        error: onlyListed ? 'Seçili ürünler zaten Trendyol\'da; yeniden gönderilmedi' : 'Gönderilebilir ürün yok',
+        details: errors, alreadyListed,
+      });
     }
 
     // Debug: Log payload being sent
@@ -1339,8 +1348,9 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     
     const result = await service.createProducts(formatted);
 
-    // Create MarketplaceProduct records
+    // Create MarketplaceProduct records – only for products that were really sent
     for (const p of products) {
+      if (!sentIds.has(p.id)) continue;
       const mapping = resolveCatMapping(p.category, catMap, p.xmlSourceId, globalCatMap);
       if (!mapping || !p.barcode) continue;
 
@@ -1383,8 +1393,9 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     });
 
     res.json({
-      message: `${formatted.length} ürün Trendyol'a gönderildi`,
+      message: `${formatted.length} ürün Trendyol'a gönderildi${alreadyListed ? `, ${alreadyListed} ürün zaten Trendyol'da olduğu için atlandı` : ''}`,
       sent: formatted.length,
+      alreadyListed,
       errors: errors.length,
       errorDetails: errors,
       batchId: result?.batchRequestId || null
@@ -1535,6 +1546,7 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
     for (const p of products) {
       if (minStock > 0 && (p.stock ?? 0) < minStock) { skipped++; skipReasons.low_stock = (skipReasons.low_stock || 0) + 1; continue; }
       const ev = readiness.evaluate(p);
+      if (ev.listed) { skipped++; skipReasons.already_listed = (skipReasons.already_listed || 0) + 1; continue; } // already on the marketplace
       if (!ev.ready) {
         skipped++;
         for (const iss of ev.issues) skipReasons[iss.code] = (skipReasons[iss.code] || 0) + 1;
@@ -2159,14 +2171,17 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
       const TrendyolService = require('../services/trendyol/trendyolService');
       const service = new TrendyolService(connection);
       
+      // Listings an earlier sync marked "rejected" only because the marketplace said "same barcode already exists"
+      const healed = await healAlreadyListed(connection.id);
+
       // Get all pending products
       const allPendingProducts = await prisma.marketplaceProduct.findMany({
         where: { connectionId: connection.id, status: 'pending' },
         include: { product: true }
       });
 
-      let updatedCount = 0;
-      let activated = 0;
+      let updatedCount = healed;
+      let activated = healed;
       let rejected = 0;
       let batchChecked = 0;
       let fallbackChecked = 0;
@@ -2236,19 +2251,12 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
 
               if (!matchingMp) continue;
 
-              let newStatus = matchingMp.status;
-              let newError = matchingMp.errorMessage;
-
-              if (item.status === 'SUCCESS' && isOnboarding) {
-                // Only onboarding SUCCESS means the product listing was approved
-                newStatus = 'active';
-                newError = null;
-              } else if (item.status === 'FAILED') {
-                // Any batch type can FAIL — record the rejection reason
-                newStatus = 'rejected';
-                newError = (item.failureReasons || []).join(', ') || 'Trendyol tarafından reddedildi';
-              }
-              // Non-onboarding SUCCESS = update accepted, listing status unchanged
+              // Onboarding SUCCESS = approved; "same barcode already exists" = already listed (active);
+              // any other FAILED = rejected with the marketplace's reasons; update-batch SUCCESS leaves the listing as it is
+              const { status: newStatus, error: newError } = classifyBatchItem({
+                itemStatus: item.status, isOnboarding, failureReasons: item.failureReasons,
+                current: { status: matchingMp.status, error: matchingMp.errorMessage },
+              });
 
               if (newStatus !== matchingMp.status) {
                 await prisma.marketplaceProduct.update({

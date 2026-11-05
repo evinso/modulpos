@@ -1,6 +1,7 @@
 const prisma = require('../config/database');
 const { loadPricingContext } = require('./pricingEngine');
 const SS = require('./sendSettings');
+const { isAlreadyListedMessage } = require('./marketplaceStatus');
 
 /**
  * "Is this product safe to send to the marketplace?"
@@ -221,12 +222,16 @@ class ReadinessContext {
 
     // A product the marketplace already rejected is not re-sent until it has changed
     const mp = this.mpByProduct.get(p.id);
-    if (mp && mp.status === 'rejected' && p.updatedAt && mp.updatedAt && new Date(p.updatedAt) <= new Date(mp.updatedAt)) {
+    // "Same barcode already exists" means the product IS on the marketplace: it is not a rejection and must not be sent again
+    const listedByMessage = !!(mp && mp.status === 'rejected' && isAlreadyListedMessage(mp.errorMessage));
+    const listed = !!(mp && (mp.status === 'active' || mp.status === 'pending')) || listedByMessage;
+    if (mp && mp.status === 'rejected' && !listedByMessage && p.updatedAt && mp.updatedAt && new Date(p.updatedAt) <= new Date(mp.updatedAt)) {
       add(ISSUE.REJECTED, `Pazaryeri reddetti${mp.errorMessage ? `: ${String(mp.errorMessage).slice(0, 200)}` : ''} — ürünü düzeltmeden tekrar gönderilmez`);
     }
 
     return {
       ready: issues.length === 0,
+      listed,                    // already on the marketplace (or being created there): a create request would only fail
       issues,
       salePrice,
       priceRule: priced ? { id: priced.ruleId, name: priced.ruleName } : null,

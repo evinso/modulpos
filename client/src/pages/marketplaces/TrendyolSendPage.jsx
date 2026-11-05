@@ -35,6 +35,7 @@ const ISSUE_LABELS = {
   low_stock: 'Stok eşiğinin altında',
   no_brand: 'Marka yok',
   excluded_by_settings: 'Gönderim ayarlarına takıldı',
+  already_listed: 'Trendyol’da zaten var (yeniden gönderilmedi)',
 };
 
 export default function TrendyolSendPage() {
@@ -172,7 +173,7 @@ export default function TrendyolSendPage() {
       const res = await api.post(`/marketplace/connections/${selectedConn.id}/send-products`, {
         productIds: Array.from(selectedIds), minStock,
       });
-      setSendResult({ type: 'selected', sent: selectedIds.size, batches: res.data.batches || 1, skipped: 0, sentAt: new Date().toLocaleString('tr-TR'), message: res.data.message });
+      setSendResult({ type: 'selected', sent: res.data.sent ?? selectedIds.size, batches: res.data.batches || 1, skipped: res.data.alreadyListed || 0, skipReasons: res.data.alreadyListed ? { already_listed: res.data.alreadyListed } : undefined, sentAt: new Date().toLocaleString('tr-TR'), message: res.data.message });
       toast.success(res.data.message || `${selectedIds.size} ürün gönderildi`);
       setSelectedIds(new Set());
       fetchProducts(true);
@@ -616,7 +617,7 @@ export default function TrendyolSendPage() {
                 </div>
               </div>
               <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 12 }}>
-                Ürünler 100'lük partiler halinde gönderilir. Doğrulamadan geçemeyen (kategori, barkod, fiyat şablonu, başlık, açıklama, görsel vb.) ürünler hiçbir zaman gönderilmez ve atlanma nedenleri gösterilir.
+                Trendyol’da zaten bulunan ürünler yeniden gönderilmez; yalnızca yeni ürünler gönderilir. Ürünler 100'lük partiler halinde gönderilir. Doğrulamadan geçemeyen (kategori, barkod, fiyat şablonu, başlık, açıklama, görsel vb.) ürünler hiçbir zaman gönderilmez ve atlanma nedenleri gösterilir.
               </p>
             </div>
             <div className="modal-footer">
