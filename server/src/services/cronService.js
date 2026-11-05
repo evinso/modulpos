@@ -10,6 +10,7 @@ const whatsappService = require('./whatsappService');
 const { startXmlSync, failStaleSyncs, failAbandonedSyncs, isRunning } = require('./xml/syncService');
 const { runRetention } = require('./retentionService');
 const SS = require('./sendSettings');
+const { pushInBatches } = require('./batchPush');
 
 class CronService {
   constructor() { this.staleAlerted = new Map(); }
@@ -157,23 +158,33 @@ class CronService {
           }
 
           if (items.length > 0) {
-            await service.updatePriceAndInventory(items);
-            // Record the new state only after Trendyol accepted the update
-            for (let i = 0; i < dbUpdates.length; i += 50) {
-              const part = dbUpdates.slice(i, i + 50);
-              await prisma.$transaction(part.map((u) => prisma.marketplaceProduct.update({ where: { id: u.id }, data: u.data })));
+            // In batches of 500: one huge request can be refused as a whole. Each accepted batch is recorded at once,
+            // so a failure part-way only postpones the rest to the next run.
+            const r = await pushInBatches(
+              items,
+              (part) => service.updatePriceAndInventory(part),
+              async (start, part) => {
+                // Record the new state only after Trendyol accepted the update
+                const updates = dbUpdates.slice(start, start + part.length);
+                for (let i = 0; i < updates.length; i += 50) {
+                  await prisma.$transaction(updates.slice(i, i + 50).map((u) => prisma.marketplaceProduct.update({ where: { id: u.id }, data: u.data })));
+                }
+              },
+            );
+            if (r.error) console.error(`[CRON] Trendyol price/stock push stopped after ${r.sent} of ${items.length} products (connection ${conn.id}):`, r.error.response?.data?.message || r.error.message);
+            if (r.sent > 0) {
+              console.log(`[CRON] Updated ${r.sent} products on Trendyol (connection ${conn.id})`);
+              await notificationService.create({
+                storeId,
+                title: 'Otomatik Trendyol Güncelleme',
+                message: `${r.sent} ürünün fiyat ve stoğu Trendyol'da otomatik güncellendi.${r.failed > 0 ? ` ${r.failed} ürün sonraki turda tekrar denenecek.` : ''}`,
+                type: r.failed > 0 ? 'warning' : 'success',
+                link: '/products',
+                noWhatsapp: true,
+              });
+              const storeObj = await prisma.store.findUnique({ where: { id: storeId }, select: { name: true, user: { select: { phone: true } } } }).catch(() => null);
+              whatsappService.notifyTrendyolUpdate(storeObj?.name || storeId, r.sent, storeObj?.user?.phone || null).catch(() => {});
             }
-            console.log(`[CRON] Updated ${items.length} products on Trendyol (connection ${conn.id})`);
-            await notificationService.create({
-              storeId,
-              title: 'Otomatik Trendyol Güncelleme',
-              message: `${items.length} ürünün fiyat ve stoğu Trendyol'da otomatik güncellendi.`,
-              type: 'success',
-              link: '/products',
-              noWhatsapp: true,
-            });
-            const storeObj = await prisma.store.findUnique({ where: { id: storeId }, select: { name: true, user: { select: { phone: true } } } }).catch(() => null);
-            whatsappService.notifyTrendyolUpdate(storeObj?.name || storeId, items.length, storeObj?.user?.phone || null).catch(() => {});
           }
         } catch (connErr) {
           console.error(`[CRON] Trendyol sync failed for connection ${conn.id}:`, connErr.message);

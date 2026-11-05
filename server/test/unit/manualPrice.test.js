@@ -84,3 +84,23 @@ test('previewAt reports the template price next to the typed one', () => {
   assert.equal(pv.price, 300); assert.ok(pv.templatePrice > 0); assert.ok(pv.breakdown && typeof pv.breakdown.profit === 'number');
   assert.equal(new E.PricingContext([], 'C').previewAt(prod(), 300).breakdown, null);
 });
+
+test('the template can change and the purchase price can rise: a hand-typed price stays exactly as typed', () => {
+  const overrides = new Map([['p1', 250.5]]);
+  const cheap = new E.PricingContext([rule], 'C', overrides);
+  const richer = new E.PricingContext([R({ value: 80, conditions: JSON.stringify({ ...conds, commissionPct: 20 }) })], 'C', overrides);
+  assert.equal(cheap.priceFor(prod()).price, 250.5);
+  assert.equal(richer.priceFor(prod()).price, 250.5);                       // template changed -> same hand-typed price
+  assert.equal(cheap.priceFor(prod({ xmlPrice: 180, price: 180 })).price, 250.5);   // purchase price rose -> same hand-typed price
+  // ...while a product without a hand-typed price follows both changes
+  const plainBefore = new E.PricingContext([rule], 'C').priceFor(prod({ id: 'p9' })).price;
+  assert.ok(new E.PricingContext([rule], 'C').priceFor(prod({ id: 'p9', xmlPrice: 180, price: 180 })).price > plainBefore + 50);
+  assert.ok(new E.PricingContext([R({ value: 80, conditions: JSON.stringify(conds) })], 'C').priceFor(prod({ id: 'p9' })).price > plainBefore + 30);
+});
+
+test('after a purchase price rise the profit at the hand-typed price shrinks, and turns into a loss when it is no longer enough', () => {
+  const ctx = new E.PricingContext([rule], 'C', new Map([['p1', 160]]));
+  const before = ctx.explainFor(prod()).breakdown.profit;
+  const after = ctx.explainFor(prod({ xmlPrice: 150, price: 150 })).breakdown.profit;
+  assert.ok(before > 0 && after < before - 40 && after < 0, `${before} -> ${after}`);
+});
