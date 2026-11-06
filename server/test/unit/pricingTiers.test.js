@@ -92,9 +92,53 @@ test('validation: good tables, empty tables, and each kind of bad input', () => 
     [{ upTo: 100, cost: 5 }, { upTo: 200, cost: 7 }],                  // last row must be "and above"
     [{ upTo: 100, cost: -1 }, { upTo: null, cost: 7 }],                // negative
     [{ upTo: 100, cost: 'abc' }, { upTo: null, cost: 7 }],
-    [{}, {}, {}, {}],                                                  // too many
     [{ upTo: null, cost: 5 }, { upTo: null, cost: 7 }],                // "and above" not last
   ]) assert.ok(E.validateTiers(bad, 'cost').error, JSON.stringify(bad));
+});
+
+// A table with N rows: upTo 1..N-1, then "and above"
+const table = (n, key) => Array.from({ length: n - 1 }, (_, i) => ({ upTo: i + 1, [key]: 5 })).concat([{ upTo: null, [key]: 5 }]);
+
+test('there is no small row limit: 4, 40 and the safety ceiling are valid, one more is refused', () => {
+  assert.equal(E.validateTiers(table(4, 'value'), 'value').error, null);               // four rows used to be refused
+  assert.equal(E.validateTiers(table(40, 'value'), 'value').tiers.length, 40);
+  assert.equal(E.validateTiers(table(E.MAX_TIERS, 'cost'), 'cost').error, null);
+  assert.match(E.validateTiers(table(E.MAX_TIERS + 1, 'cost'), 'cost').error, new RegExp(`En fazla ${E.MAX_TIERS} kademe`));
+  assert.ok(E.MAX_TIERS >= 1000, 'the ceiling is only a safety net, far above real use');
+});
+
+test('a long profit table picks the right row at every boundary (limits are inclusive)', () => {
+  const rows = Array.from({ length: 29 }, (_, i) => ({ upTo: (i + 1) * 10, value: 60 - i })).concat([{ upTo: null, value: 20 }]);
+  const c = { ...base, profitTiers: rows };
+  for (const [P, tier, pct] of [[5, 1, 60], [10, 1, 60], [10.01, 2, 59], [145, 15, 46], [290, 29, 32], [290.01, 30, 20], [900, 30, 20]]) {
+    const r = E.resolveTemplate(P, 0, c);
+    assert.equal(r.profitTier, tier, `P=${P}`); assert.equal(r.profitValue, pct, `P=${P}`);
+    near(r.price, E.computeTemplatePrice(P, pct, { ...base }), `P=${P}`);                     // same as a single profit value of that row
+  }
+});
+
+test('a long shipping table (12 rows) keeps the planned profit for every product', () => {
+  const rows = Array.from({ length: 11 }, (_, i) => ({ upTo: 100 + i * 50, cost: 40 + i * 6 })).concat([{ upTo: null, cost: 120 }]);
+  const c = { ...base, shippingTiers: rows };
+  for (const P of [10, 60, 100, 250, 400, 900]) {
+    const r = E.resolveTemplate(P, 30, c);
+    assert.ok(r.shippingTier >= 1 && r.shippingTier <= 12, `P=${P} row ${r.shippingTier}`);
+    const row = rows[r.shippingTier - 1], prev = r.shippingTier > 1 ? rows[r.shippingTier - 2].upTo : 0;
+    assert.ok(row.upTo === null || r.price <= row.upTo + 0.011, `P=${P}: ${r.price} fits under the row limit`);
+    assert.ok(r.price > prev - 0.011, `P=${P}: ${r.price} is above the previous limit`);
+    near(profitOf(r.price, P, row.cost), P * 0.3, `P=${P}`);
+  }
+});
+
+test('a table of the safety-ceiling size still prices a whole catalogue quickly', () => {
+  const tiers = Array.from({ length: E.MAX_TIERS - 1 }, (_, i) => ({ upTo: (i + 1) * 5, value: 40 })).concat([{ upTo: null, value: 20 }]);
+  const rule = { id: 'r', name: 'n', isActive: true, priority: 0, createdAt: new Date(0), type: 'percentage', value: 0, applyTo: 'price_template', conditions: JSON.stringify({ ...base, profitTiers: tiers }) };
+  const ctx = new E.PricingContext([rule], 'C');
+  const t0 = Date.now();
+  let priced = 0;
+  for (let i = 0; i < 4100; i++) if (ctx.priceFor({ id: 'p' + i, xmlPrice: 5 + (i * 7919) % 4900, price: 100, vatRate: 20, xmlSourceId: null, category: 'x' })) priced++;
+  assert.equal(priced, 4100);
+  assert.ok(Date.now() - t0 < 3000, `took ${Date.now() - t0} ms`);                       // ~0.1 s in practice; the bound only catches an accidental O(n^2)
 });
 
 test('a broken table that slipped in is ignored when pricing (feature off, no crash)', () => {

@@ -53,7 +53,7 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
       ['not ascending', { shippingTiers: [{ upTo: 300, cost: 1 }, { upTo: 200, cost: 2 }, { upTo: null, cost: 3 }] }],
       ['last row has a limit', { shippingTiers: [{ upTo: 100, cost: 1 }, { upTo: 200, cost: 2 }] }],
       ['negative amount', { shippingTiers: [{ upTo: 100, cost: -5 }, { upTo: null, cost: 2 }] }],
-      ['too many rows', { profitTiers: [{ upTo: 1, value: 1 }, { upTo: 2, value: 1 }, { upTo: 3, value: 1 }, { upTo: null, value: 1 }] }],
+      ['over the safety ceiling (1001 rows)', { profitTiers: Array.from({ length: 1000 }, (_, i) => ({ upTo: i + 1, value: 1 })).concat([{ upTo: null, value: 1 }]) }],
       ['single row', { profitTiers: [{ upTo: null, value: 5 }] }],
     ]) {
       const x = await a('POST', '/pricing', { name: 'bad', type: 'percentage', value: 30, applyTo: 'price_template', conditions: { ...conds, ...bad } });
@@ -88,6 +88,28 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     const sums = (await a('GET', '/pricing/summaries')).d;
     ok('template list summary: products, margin, total', sums.rules[ruleId] && sums.rules[ruleId].covered === cov.covered && near(sums.rules[ruleId].totalProfit, cov.totalProfit), JSON.stringify(sums.rules[ruleId]));
     ok('other store sees no summaries of mine', Object.keys((await b('GET', '/pricing/summaries')).d.rules).length === 0);
+
+    // ── any number of rows (the old limit was 3): a 30-row profit table, then the safety ceiling itself
+    const many = Array.from({ length: 29 }, (_, i) => ({ upTo: (i + 1) * 10, value: 60 - i })).concat([{ upTo: null, value: 20 }]);   // 10 -> 60%, 20 -> 59% ... 290 -> 32%, above -> 20%
+    const manyConds = { connectionId: conn, commissionPct: 15, commissionBasis: 'gross', vatRate: 20, packagingCost: 0, shippingCost: 0, profitTiers: many };
+    for (const [P, tier, pct] of [[5, 1, 60], [10, 1, 60], [10.01, 2, 59], [145, 15, 46], [290, 29, 32], [290.01, 30, 20], [900, 30, 20]]) {
+      const x = await a('POST', '/pricing/calculate', { purchasePrice: P, value: 0, conditions: manyConds });
+      ok(`30-row profit table: purchase ${P} uses row ${tier} (${pct}%)`, x.s === 200 && x.d.profitTier === tier && near(x.d.profit, P * pct / 100), x.d && JSON.stringify([x.d.profitTier, x.d.profit]));
+    }
+    const m1 = await a('POST', '/pricing', { name: 'Otuz kademe', type: 'percentage', value: 0, applyTo: 'price_template', conditions: manyConds });
+    ok('a 30-row template saves', m1.s === 201, m1.d && m1.d.error);
+    const stored = JSON.parse((await a('GET', '/pricing')).d.find((x) => x.name === 'Otuz kademe').conditions);
+    ok('all 30 rows are stored and read back in order', stored.profitTiers.length === 30 && stored.profitTiers[14].upTo === 150 && stored.profitTiers[14].value === 46 && stored.profitTiers[29].upTo === null);
+    const mc = (await a('POST', '/pricing/coverage', { value: 0, conditions: manyConds }));
+    ok('coverage works with the long table', mc.s === 200 && mc.d.priced > 0 && mc.d.losing === 0, mc.d && JSON.stringify([mc.d.priced, mc.d.losing]));
+    ok('editing it to 31 rows is accepted too', (await a('PUT', '/pricing/' + m1.d.id, { conditions: { ...manyConds, profitTiers: [...many.slice(0, 29), { upTo: 300, value: 25 }, { upTo: null, value: 20 }] } })).s === 200);
+    const big = Array.from({ length: 999 }, (_, i) => ({ upTo: i + 1, value: 10 })).concat([{ upTo: null, value: 5 }]);   // exactly the ceiling: 1000 rows
+    const bigRes = await a('PUT', '/pricing/' + m1.d.id, { conditions: { ...manyConds, profitTiers: big } });
+    const bigCalc = async (P) => (await a('POST', '/pricing/calculate', { purchasePrice: P, value: 0, conditions: { ...manyConds, profitTiers: big } })).d;
+    const [midRow, topRow] = [await bigCalc(500.5), await bigCalc(1500)];
+    ok('a 1000-row table (the ceiling) is accepted and prices products by the right row', bigRes.s === 200 && midRow.profitTier === 501 && near(midRow.profit, 500.5 * 0.10) && topRow.profitTier === 1000 && near(topRow.profit, 1500 * 0.05), JSON.stringify([bigRes.s, midRow.profitTier, topRow.profitTier]));
+    ok('another store cannot touch the long template', (await b('PUT', '/pricing/' + m1.d.id, { name: 'x' })).s === 404);
+    ok('the long template is removed again', (await a('DELETE', '/pricing/' + m1.d.id)).s === 200 && (await a('GET', '/pricing')).d.length === 1);
   } catch (e) { console.log('ERROR', e); fails++; }
   finally {
     for (const u of [A, B]) await c.query(`delete from app."User" where id=$1`, [u.user.id]).catch((e) => console.log('cleanup:', e.message));

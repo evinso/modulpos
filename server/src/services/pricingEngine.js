@@ -49,7 +49,9 @@ function scopeSize(c) {
     + ((c.categories || []).length ? 1 : 0) + ((c.brands || []).length ? 1 : 0);
 }
 
-const MAX_TIERS = 3;
+// Safety ceiling only: a tier table is read for every product on every price calculation, so a pathological table must not
+// be able to stall the server. Far beyond any real use; the screen itself has no row limit below this.
+const MAX_TIERS = 1000;
 const CARRIER_VAT = 0.2; // VAT on carrier invoices
 
 /** Turns a tariff-style (VAT-exclusive) table into the VAT-inclusive one the solver works with. */
@@ -61,7 +63,7 @@ function grossTiers(tiers, c) {
 
 /**
  * Validates tier rows coming from the UI. Returns { tiers, error }.
- * Rows: upTo ascending and > 0, only the last row may (and must) have upTo = null, value >= 0, at most MAX_TIERS rows.
+ * Rows: upTo ascending and > 0, only the last row may (and must) have upTo = null, value >= 0. Any number of rows up to the safety ceiling MAX_TIERS.
  * An empty / missing list is valid (feature off).
  */
 function validateTiers(raw, valueKey) {

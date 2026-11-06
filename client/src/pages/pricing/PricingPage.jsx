@@ -8,7 +8,7 @@ import TierTable, { emptyTiers, rowsToTiers, tiersToRows } from './TierTable';
 /**
  * Fiyat şablonları – tek ekran, iki şablon türü:
  *   Tek kâr       : tüm ürünlere aynı kâr (yüzde ya da tutar)
- *   Kademeli kâr  : alış fiyatına göre farklı kâr (yüzde ya da tutar, en çok 3 kademe)
+ *   Kademeli kâr  : alış fiyatına göre farklı kâr (yüzde ya da tutar, istediğiniz kadar kademe)
  * Maliyetler her ikisinde de aynı ve tek değerlidir: kargo, diğer gider, komisyon.
  * Hesabın tamamı sunucudaki fiyat motorunda yapılır (ürünler gönderilirken kullanılan aynı motor).
  */
@@ -422,7 +422,7 @@ export default function PricingPage() {
                   ) : (
                     <div data-testid="tiered-profit">
                       <div style={{ ...hintStyle, marginBottom: 8 }}>
-                        Ürünün alış fiyatına uyan satır uygulanır. Her satıra alış fiyatının üst sınırını ve kârı yazın; son satır “üstü”dür (en çok 3 satır).
+                        Ürünün alış fiyatına uyan satır uygulanır. Her satıra alış fiyatının üst sınırını ve kârı yazın; son satır “üstü”dür. İstediğiniz kadar satır ekleyebilirsiniz.
                         Örnek: 100 ₺’ye kadar %40 · 300 ₺’ye kadar %30 · üstü %20.
                       </div>
                       <TierTable testId="profit-tiers" rows={form.profitRows} onChange={(rows) => set({ profitRows: rows })}

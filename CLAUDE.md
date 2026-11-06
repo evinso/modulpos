@@ -22,7 +22,7 @@ cd client && npm run test:smoke                 # renders the products screen in
 * **One pricing engine** (`server/src/services/pricingEngine.js`) prices products for the list, the send routes and the cron.
   Sale VAT comes from the product (chosen when the XML source is added), never from the pricing template.
   The template screen (`client/src/pages/pricing/`) is ONE screen with two template types: **Tek kâr** (one profit,
-  percent of purchase or fixed TL) and **Kademeli kâr** (`profitTiers`, up to 3 rows by purchase price). Costs are single values
+  percent of purchase or fixed TL) and **Kademeli kâr** (`profitTiers`, any number of rows by purchase price; `MAX_TIERS` = 1000 is only a safety ceiling). Costs are single values
   (shipping, other, commission). Keep it that way: no VAT options and no marketplace names/tariffs in this screen.
   The engine can still evaluate older stored rules that use `shippingTiers` (+`shippingTiersExVat`) or `margin_on_gross`,
   but no screen creates them; editing such a rule warns and drops them on save.
