@@ -16,7 +16,9 @@
 const DERIVED_SKU = /^xml-[0-9a-f]{12}$/;
 
 const HELD_ABOVE_COUNT = 25;   // up to this many vanished products are always processed
-const HELD_ABOVE_SHARE = 0.3;  // more than this share of the live catalog (and more than the count above) is held back
+const HELD_ABOVE_SHARE = 0.1;  // more than this share of the live catalog (and more than the count above) is held back:
+                               // normal churn is a few products per sync, while the stream parser silently accepts a
+                               // cut-off download, which loses a large part of the catalog at once
 
 /**
  * @param existingRows rows stored for the source ({ id, sku, stock })

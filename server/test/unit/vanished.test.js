@@ -44,18 +44,34 @@ test('a few vanished products out of many are processed (up to 25 are always fin
   assert.equal(plan.zero.length, 25); assert.equal(plan.reason, null);
 });
 
-test('more than 25 AND more than 30% of the live catalog vanished -> held back (wrong URL / cut-off download)', () => {
+test('more than 25 AND more than 10% of the live catalog vanished -> held back (wrong URL / cut-off download)', () => {
   const all = rows(100);
   const seen = feedOf(all.slice(40));                          // 40 of 100 gone
   const plan = planVanished(all, seen, seen.size, 0);
   assert.deepEqual(plan.zero, []); assert.equal(plan.held, 40); assert.equal(plan.reason, 'too_many');
 });
 
-test('many vanished but a small share of a big catalog is processed', () => {
+test('many vanished but a small share of a big catalog is processed; just above 10% is held', () => {
   const all = rows(1000);
-  const seen = feedOf(all.slice(100));                         // 100 of 1000 = 10%
-  const plan = planVanished(all, seen, seen.size, 0);
+  let seen = feedOf(all.slice(100));                           // 100 of 1000 = exactly 10%: still processed
+  let plan = planVanished(all, seen, seen.size, 0);
   assert.equal(plan.zero.length, 100); assert.equal(plan.reason, null);
+  seen = feedOf(all.slice(101));                               // 101 of 1000: held
+  plan = planVanished(all, seen, seen.size, 0);
+  assert.deepEqual(plan.zero, []); assert.equal(plan.held, 101); assert.equal(plan.reason, 'too_many');
+});
+
+test('a feed cut off at 85% of the catalog is held (the stream parser accepts truncated XML without an error)', () => {
+  const all = rows(4100);
+  const seen = feedOf(all.slice(0, 3485));
+  const plan = planVanished(all, seen, seen.size, 0);
+  assert.equal(plan.reason, 'too_many'); assert.deepEqual(plan.zero, []);
+});
+
+test('normal churn on a real-sized catalog is processed (6 missing of 4100)', () => {
+  const all = rows(4100);
+  const seen = feedOf(all.slice(6));
+  assert.equal(planVanished(all, seen, seen.size, 0).zero.length, 6);
 });
 
 test('long-gone products (already 0) do not make the guard drift: the share is measured on the live catalog', () => {

@@ -37,8 +37,8 @@ cd client && npm run test:smoke                 # renders the products screen in
 * **XML sync** (`services/xml/syncService.js`) is shared by the manual button and cron: diff in memory, batch writes,
   background job tracked in `SyncLog`, one sync per source.
   Products that are no longer in the feed get stock 0 (`services/xml/vanished.js`; they are not deleted and come back with
-  the feed). A feed that looks broken is never acted on: empty feed, unreadable rows, or more than 25 products AND 30% of the
-  live catalog missing at once -> nothing is zeroed and the sync notification says so. The 0 reaches Trendyol with the cron's
+  the feed). A feed that looks broken is never acted on: empty feed, unreadable rows, or more than 25 products AND 10% of the
+  live catalog missing at once (the stream parser silently accepts a cut-off download) -> nothing is zeroed and the sync notification says so. The 0 reaches Trendyol with the cron's
   automatic update (`autoSendToMarketplaces`); a manual sync does not push.
   After a sync that raised purchase prices, `services/manualPriceAlerts.js` reports hand-priced products that crossed into
   loss (notification `manual_price_loss`, only at the moment it happens); the product list/detail flag the state at any time
