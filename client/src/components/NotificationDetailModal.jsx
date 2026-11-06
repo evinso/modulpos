@@ -198,6 +198,57 @@ function renderData(data) {
           <StatBadge label="Güncellendi" value={data.updated} color="var(--accent-primary)" />
           {data.skipped > 0 && <StatBadge label="Atlandı" value={data.skipped} color="#eab308" />}
           {data.errors > 0  && <StatBadge label="Hata" value={data.errors} color="#ef4444" />}
+          {data.removed > 0 && <StatBadge label="Stoğu sıfırlandı" value={data.removed} color="#f97316" />}
+          {data.removedHeld > 0 && <StatBadge label="Sıfırlanmadı" value={data.removedHeld} color="#eab308" />}
+        </div>
+        {data.removed > 0 && (
+          <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)' }}>
+            XML’den kalkan ürünlerin stoğu 0 yapıldı; Trendyol’da satışta olanlar bir sonraki otomatik güncellemede stoksuz görünür.
+          </div>
+        )}
+        {data.removedHeld > 0 && (
+          <div style={{ marginTop: 10, fontSize: 12, color: '#eab308' }}>
+            XML’de görünmeyen {data.removedHeld} ürünün stoğu değiştirilmedi (XML yanlış veya yarım gelmiş olabilir). Kaynağı kontrol edin.
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  /* Elle fiyatlı ürünlerde zarar */
+  if (notifType === 'manual_price_loss') {
+    const items = data.items || [];
+    return (
+      <div>
+        <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+          Kaynak: <strong style={{ color: 'var(--text-primary)' }}>{data.sourceName}</strong>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <StatBadge label="Zarara düşen ürün" value={data.total ?? items.length} color="#ef4444" />
+        </div>
+        <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr><Th>Ürün</Th><Th>Pazaryeri</Th><Th right>Alış</Th><Th right>Sizin fiyatınız</Th><Th right>Kâr</Th></tr>
+            </thead>
+            <tbody>
+              {items.map((p, i) => (
+                <tr key={i}>
+                  <Td>{p.title}</Td>
+                  <Td>{p.marketplace}</Td>
+                  <Td right>{fmt(p.purchaseOld)}₺ → <strong style={{ color: '#ef4444' }}>{fmt(p.purchaseNew)}₺</strong></Td>
+                  <Td right>{fmt(p.price)}₺</Td>
+                  <Td right color="#ef4444">{p.profit == null ? '—' : `${fmt(p.profit)}₺`}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {(data.total ?? items.length) > items.length && (
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>…ve {(data.total ?? items.length) - items.length} ürün daha (en çok zarar edenler gösteriliyor)</div>
+        )}
+        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)' }}>
+          Ürünler sayfasında “Elle fiyatlı” sekmesinden bu ürünlerin fiyatını güncelleyebilir veya şablon fiyatına döndürebilirsiniz.
         </div>
       </div>
     );

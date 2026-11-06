@@ -216,6 +216,11 @@ function PriceTab({ data }) {
                   Bu fiyatı siz elle girdiniz{m.pricing.templatePrice != null ? `; şablon fiyatı ₺${money(m.pricing.templatePrice)}` : ''}. Ürünler sayfasında “Şablon fiyatına dön” ile kaldırabilirsiniz.
                 </div>
               )}
+              {m.pricing.loss && (
+                <div data-testid="loss-note" style={{ marginBottom: 10, fontSize: 12, color: 'var(--danger)', fontWeight: 600 }}>
+                  Bu fiyatta zarar ediyorsunuz (alış fiyatı arttıysa elle girdiğiniz fiyat buna uymuyor olabilir). Fiyatı güncelleyin veya şablon fiyatına dönün.
+                </div>
+              )}
               {m.pricing.breakdown && (
                 <div>
                   {[

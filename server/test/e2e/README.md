@@ -11,6 +11,7 @@ E2E_DB_URL="postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres" 
 * `tenant-pricing-readiness` – data isolation between stores, per-connection send settings, pricing templates, the server-side
   readiness list, send-time validation, rejected products.
 * `manual-price` – a sale price typed in by hand for one product and marketplace: preview, loss confirmation, list/readiness/detail honour it, back to template, isolation.
+* `feed-changes` – products that leave the XML get stock 0 and return with it, a broken/cut-off feed is never acted on, loss alert for hand-priced products after a purchase price rise, giving hand-typed prices back to the template (fixtures `feed-stock-*.xml` must be pushed first).
 * `already-listed` – products the marketplace says exist (“same barcode already exists”) are treated as listed: skipped by the send routes, healed to active by the status update.
 * `pricing-tiers` – shipping / profit tier tables in price templates: calculator, validation, storage, isolation, real product price.
 * `xml-scoped-mapping` – category mappings belong to one XML source and disappear with it; earnings summary of the price template.

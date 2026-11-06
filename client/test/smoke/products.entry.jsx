@@ -115,6 +115,35 @@ last = calls.filter((c) => c.url === '/products').pop();
 ok('"not sent" tab maps to notSentConnectionId', last.params.notSentConnectionId === 'c1');
 await click([...document.querySelectorAll('button')].find((b) => b.textContent.startsWith('Hepsi')));
 
+// hand-priced products: row warning, tab, and giving them back to the template
+ok('a hand-priced product that loses money is marked on its row (and only that one)', !!q('loss-p3') && !q('loss-p0') && !q('loss-p1'));
+const manualTab = [...document.querySelectorAll('button')].find((b) => b.textContent.startsWith('Elle fiyatlı'));
+ok('the "Elle fiyatlı" tab appears (with its count) because there is a hand-priced product', !!manualTab && manualTab.textContent.includes('1'));
+await click(manualTab);
+last = calls.filter((c) => c.url === '/products').pop();
+ok('the tab asks only for products with a hand-typed price on this marketplace', last.params.manualPriceConnectionId === 'c1' && !last.params.marketplaceStatus && !last.params.connectionId && !last.params.notSentConnectionId, JSON.stringify(last.params));
+ok('the tab explains itself and offers to reset them all', !!q('manual-banner') && !!q('reset-all-manual') && text().includes('Elle fiyatlı ürünler'));
+await click(q('reset-all-manual'));
+ok('resetting asks first; nothing is sent to the marketplace unless asked', !!q('reset-dialog') && q('reset-send').checked === false && !calls.some((c) => c.url === '/products/reset-manual-prices'));
+await click(q('reset-confirm'));
+const resetAll = calls.find((c) => c.url === '/products/reset-manual-prices');
+ok('"reset all" posts the marketplace and XML source and NO product list (the server decides which)', resetAll && resetAll.body.connectionId === 'c1' && resetAll.body.xmlSourceId === 's1' && !('productIds' in resetAll.body), JSON.stringify(resetAll && resetAll.body));
+ok('the dialog closes and the list leaves the hand-priced tab', !q('reset-dialog') && !q('manual-banner'));
+const sendsBefore = calls.filter((c) => c.m === 'POST' && /sync-price-stock$/.test(c.url)).length;
+ok('without the checkbox nothing was sent to Trendyol', sendsBefore === updatesBefore + 1);
+
+const picks = [...document.querySelectorAll('tbody button[aria-label="Seç"]')];
+await click(picks[1]); await click(picks[3]);
+ok('with a selection the bar offers "Şablon fiyatına döndür"', !!q('reset-selected-manual'));
+await click(q('reset-selected-manual'));
+await click(q('reset-send'));
+await click(q('reset-confirm'));
+const resetSel = calls.filter((c) => c.url === '/products/reset-manual-prices').pop();
+ok('the selected ids are posted', resetSel.body.productIds.length === 2 && resetSel.body.productIds.includes('p1') && resetSel.body.productIds.includes('p3'), JSON.stringify(resetSel.body));
+const sentAfter = calls.filter((c) => c.m === 'POST' && /sync-price-stock$/.test(c.url));
+ok('with the checkbox ONLY the products that are on sale are sent, in the existing update route', sentAfter.length === sendsBefore + 1 && JSON.stringify(sentAfter.pop().body.productIds) === '["p1"]');
+ok('the selection is cleared afterwards', !text().includes('ürün seçili'));
+
 // selection + bar
 const checkboxes = [...document.querySelectorAll('tbody button[aria-label="Seç"]')];
 await click(checkboxes[0]); await click(checkboxes[1]);

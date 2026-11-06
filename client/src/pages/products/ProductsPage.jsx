@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Plus, Search, Trash2, Edit, Package, CheckSquare, Square, X, AlertTriangle, RefreshCw,
-  ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Eye, Send, Power, CheckCircle2, Pencil,
+  ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Eye, Send, Power, CheckCircle2, Pencil, Undo2,
 } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
@@ -58,6 +58,9 @@ export default function ProductsPage() {
   const [formProduct, setFormProduct] = useState(undefined); // undefined = closed, null = new, object = edit
   const [deleteTarget, setDeleteTarget] = useState(null);   // product | 'bulk'
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [resetTarget, setResetTarget] = useState(null);       // null | 'selected' | 'all': hand-typed prices going back to the template
+  const [resetSend, setResetSend] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
   const [syncingStatus, setSyncingStatus] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
   const reqSeq = useRef(0);
@@ -110,6 +113,7 @@ export default function ProductsPage() {
     if (priceConn) {
       p.priceFor = priceConn;
       if (filters.mpStatus === 'not_sent') p.notSentConnectionId = priceConn;
+      else if (filters.mpStatus === 'manual') p.manualPriceConnectionId = priceConn;
       else if (filters.mpStatus) { p.connectionId = priceConn; p.marketplaceStatus = filters.mpStatus; }
     }
     return p;
@@ -163,7 +167,7 @@ export default function ProductsPage() {
     if (filters.stockFilter) chips.push({ k: 'stockFilter', label: { out: 'Stokta yok', low: 'Düşük stok', in: 'Stokta var' }[filters.stockFilter] });
     if (filters.noImage) chips.push({ k: 'noImage', label: 'Görseli olmayanlar' });
     if (filters.noBarcode) chips.push({ k: 'noBarcode', label: 'Barkodu olmayanlar' });
-    if (filters.mpStatus) chips.push({ k: 'mpStatus', label: `Pazaryeri: ${filters.mpStatus === 'not_sent' ? 'Gönderilmemiş' : MP_STATUS[filters.mpStatus]?.label}` });
+    if (filters.mpStatus) chips.push({ k: 'mpStatus', label: filters.mpStatus === 'manual' ? 'Elle fiyatlı ürünler' : `Pazaryeri: ${filters.mpStatus === 'not_sent' ? 'Gönderilmemiş' : MP_STATUS[filters.mpStatus]?.label}` });
     return chips;
   }, [filters]);
 
@@ -180,6 +184,39 @@ export default function ProductsPage() {
     } catch { toast.error('Tüm ürünler seçilemedi'); }
   };
   const clearSelection = () => { setSelectedIds(new Set()); setAllPagesSelected(false); };
+
+  // Hand-typed prices go back to the price template (the selected products, or every hand-priced product of this view)
+  const openReset = (mode) => { setResetSend(false); setResetTarget(mode); };
+  const doReset = async () => {
+    if (!resetTarget || !priceConn) return;
+    setResetBusy(true);
+    try {
+      const body = { connectionId: priceConn, xmlSourceId: gate.xmlId };
+      if (resetTarget === 'selected') body.productIds = [...selectedIds];
+      const r = (await api.post('/products/reset-manual-prices', body)).data;
+      const notes = [];
+      if (r.skippedNoTemplate > 0) notes.push(`${r.skippedNoTemplate} ürüne uyan fiyat şablonu olmadığı için elle fiyatı korundu`);
+      if (r.removed === 0) {
+        toast(r.skippedNoTemplate > 0 ? `Şablon fiyatına döndürülecek ürün yok: ${notes[0]}.` : 'Seçilenler arasında elle fiyatlı ürün yoktu.', { icon: 'ℹ️', duration: 7000 });
+      } else {
+        let sentNote = '';
+        if (resetSend && priceConnection && priceConnection.marketplaceType === 'trendyol' && r.activeProductIds.length > 0) {
+          let sent = 0, failed = 0;
+          for (let i = 0; i < r.activeProductIds.length; i += 500) {
+            const part = r.activeProductIds.slice(i, i + 500);
+            try { await api.post(`/marketplace/connections/${priceConn}/sync-price-stock`, { productIds: part }); sent += part.length; }
+            catch { failed += part.length; }
+          }
+          sentNote = failed ? ` ${sent} ürünün fiyatı Trendyol’a gönderildi, ${failed} ürün gönderilemedi (otomatik güncelleme tekrar dener).` : ` ${sent} ürünün yeni fiyatı Trendyol’a gönderildi.`;
+        } else if (!resetSend) {
+          sentNote = ' Trendyol’daki fiyatlar bir sonraki otomatik güncellemede şablon fiyatına geçer.';
+        }
+        toast.success(`${r.removed} ürün şablon fiyatına döndü.${sentNote}${notes.length ? ` (${notes[0]})` : ''}`, { duration: 9000 });
+      }
+      setResetTarget(null); clearSelection(); setFilters((f) => (f.mpStatus === 'manual' ? { ...f, mpStatus: '' } : f)); setPage(1); refreshAll();
+    } catch (err) { toast.error(errorText(err, 'Şablon fiyatına döndürülemedi')); }
+    finally { setResetBusy(false); }
+  };
 
   const bulk = async (action) => {
     if (selectedIds.size === 0) return;
@@ -257,6 +294,7 @@ export default function ProductsPage() {
     { key: 'rejected', label: 'Reddedildi', count: mpStats?.mpStatus?.rejected, color: MP_STATUS.rejected.color },
     { key: 'passive', label: 'Kaldırıldı', count: mpStats?.mpStatus?.passive, color: MP_STATUS.passive.color },
     { key: 'not_sent', label: 'Gönderilmemiş', count: mpStats?.mpStatus?.not_sent, color: 'var(--text-muted)' },
+    ...((mpStats?.manual > 0 || filters.mpStatus === 'manual') ? [{ key: 'manual', label: 'Elle fiyatlı', count: mpStats?.manual ?? 0, color: 'var(--warning)' }] : []),
   ];
 
   const from = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.limit + 1;
@@ -399,6 +437,17 @@ export default function ProductsPage() {
               </div>
             )}
 
+            {hasPrice && filters.mpStatus === 'manual' && (
+              <div data-testid="manual-banner" style={{ padding: '10px 16px', fontSize: 13, background: 'rgba(245,158,11,0.08)', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ flex: 1, minWidth: 240 }}>Bu ürünlerin satış fiyatını siz elle girdiniz; şablon veya alış fiyatı değişse de fiyatları değişmez.</span>
+                {(mpStats?.manual ?? 0) > 0 && (
+                  <button type="button" className="btn btn-secondary btn-sm" data-testid="reset-all-manual" onClick={() => openReset('all')}>
+                    <Undo2 size={14} /> Hepsini şablon fiyatına döndür ({mpStats.manual})
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* selection notice */}
             {allOnPage && !allPagesSelected && pagination.total > products.length && (
               <div style={{ padding: '9px 16px', textAlign: 'center', fontSize: 13, background: 'rgba(59,130,246,0.08)', borderBottom: '1px solid var(--border-color)' }}>
@@ -483,6 +532,7 @@ export default function ProductsPage() {
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                     <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent-primary)' }}>₺{moneyShort(pr.salePrice)}</span>
                                     {pr.manual && <Pill color="var(--warning)" title={`Elle girildi. Şablon fiyatı: ${pr.templatePrice != null ? '₺' + moneyShort(pr.templatePrice) : 'yok'}`}>Elle</Pill>}
+                                    {pr.loss && <span data-testid={`loss-${p.id}`}><Pill color="var(--danger)" title="Elle girdiğiniz fiyatta zarar ediyorsunuz (alış fiyatı değişmiş olabilir). Fiyatı güncelleyin veya şablon fiyatına döndürün."><AlertTriangle size={11} /> Zarar</Pill></span>}
                                     <button type="button" className="btn btn-secondary btn-sm" data-testid={`edit-price-${p.id}`} title="Satış fiyatını değiştir" aria-label="Satış fiyatını değiştir" onClick={() => setPriceTarget(p)} style={{ padding: '2px 6px' }}><Pencil size={12} /></button>
                                   </div>
                                   {pr.profit != null && <div style={{ fontSize: 11, color: pr.profit >= 0 ? 'var(--success)' : 'var(--danger)' }}>{pr.profit >= 0 ? '+' : ''}₺{moneyShort(pr.profit)} kâr</div>}
@@ -569,6 +619,11 @@ export default function ProductsPage() {
               <Send size={14} /> Pazaryerinde fiyat/stok güncelle
             </button>
           )}
+          {hasPrice && (
+            <button className="btn btn-secondary btn-sm" data-testid="reset-selected-manual" disabled={bulkBusy} onClick={() => openReset('selected')} title="Elle fiyat girilmiş olanları fiyat şablonuna geri bağlar">
+              <Undo2 size={14} /> Şablon fiyatına döndür
+            </button>
+          )}
           <button className="btn btn-danger btn-sm" disabled={bulkBusy} onClick={() => setDeleteTarget('bulk')}><Trash2 size={14} /> Sil</button>
           <button onClick={clearSelection} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>Seçimi temizle</button>
         </div>
@@ -590,6 +645,38 @@ export default function ProductsPage() {
 
       {formProduct !== undefined && (
         <ProductFormModal product={formProduct} onClose={() => setFormProduct(undefined)} onSaved={() => { const wasNew = formProduct === null; setFormProduct(undefined); refreshAll(); if (wasNew && gate.xmlId !== 'none') toast('Ürün kaydedildi. XML kaynağı olmadığı için “Elle eklenen ürünler” grubunda görünür.', { icon: 'ℹ️', duration: 7000 }); if (detailId) { const id = detailId; setDetailId(null); setTimeout(() => setDetailId(id), 0); } }} />
+      )}
+
+      {resetTarget && (
+        <div className="modal-overlay" onClick={() => !resetBusy && setResetTarget(null)} style={{ zIndex: 1100 }}>
+          <div className="modal" data-testid="reset-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+            <div className="modal-header">
+              <h3 style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Undo2 size={20} /> Şablon fiyatına döndür</h3>
+              <button className="modal-close" onClick={() => setResetTarget(null)}>×</button>
+            </div>
+            <div className="modal-body" style={{ fontSize: 14 }}>
+              <p style={{ marginTop: 0 }}>
+                {resetTarget === 'all'
+                  ? <><strong>{mpStats?.manual ?? 0}</strong> elle fiyatlı ürünün (<strong>{gateXmlName}</strong>, {connName}) fiyatı şablona bağlanır.</>
+                  : <>Seçili <strong>{selectedIds.size}</strong> ürün arasında elle fiyat girilmiş olanlar şablona bağlanır; diğerleri etkilenmez.</>}
+              </p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+                Bundan sonra bu ürünlerin satış fiyatı, alış fiyatı ve şablon değiştikçe otomatik hesaplanır. Elle girdiğiniz fiyatlar silinir.
+                Uyan şablonu olmayan ürünlerin elle fiyatı korunur.
+              </p>
+              {priceConnection && priceConnection.marketplaceType === 'trendyol' && (
+                <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
+                  <input type="checkbox" data-testid="reset-send" checked={resetSend} onChange={(e) => setResetSend(e.target.checked)} style={{ marginTop: 3 }} />
+                  <span>Satıştaki ürünlerin yeni fiyatını hemen Trendyol’a da gönder<br /><span style={{ color: 'var(--text-muted)', fontSize: 12 }}>İşaretlemezseniz Trendyol’daki fiyat bir sonraki otomatik güncellemede (saatlik) değişir.</span></span>
+                </label>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setResetTarget(null)} disabled={resetBusy}>Vazgeç</button>
+              <button className="btn btn-primary" data-testid="reset-confirm" onClick={doReset} disabled={resetBusy}>{resetBusy ? 'Döndürülüyor…' : 'Evet, şablona döndür'}</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {deleteTarget && (

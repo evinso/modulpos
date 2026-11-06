@@ -3,7 +3,7 @@ const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const { checkProductLimit } = require('../utils/quotaHelper');
 const { getReadinessContext } = require('../services/readiness');
-const { loadPricingContext } = require('../services/pricingEngine');
+const { loadPricingContext, sellsAtLoss } = require('../services/pricingEngine');
 const productListCache = require('../services/productListCache');
 const SS = require('../services/sendSettings');
 const { ownedParam, userStoreIds } = require('../middleware/ownership');
@@ -53,7 +53,7 @@ function buildWhere(storeId, q = {}) {
   const and = [];
   const {
     search, status, brand, category, categories, xmlSourceId, globalXmlOnly,
-    stockFilter, noImage, noBarcode, connectionId, marketplaceStatus, notSentConnectionId,
+    stockFilter, noImage, noBarcode, connectionId, marketplaceStatus, notSentConnectionId, manualPriceConnectionId,
   } = q;
 
   if (search) {
@@ -89,6 +89,8 @@ function buildWhere(storeId, q = {}) {
     if (connectionId) where.marketplaceProducts.some.connectionId = String(connectionId);
     if (marketplaceStatus) where.marketplaceProducts.some.status = String(marketplaceStatus);
   }
+  // Products whose sale price on this marketplace was typed in by hand
+  if (manualPriceConnectionId) where.priceOverrides = { some: { connectionId: String(manualPriceConnectionId) } };
   if (and.length) where.AND = and;
   return where;
 }
@@ -152,6 +154,7 @@ router.get('/', async (req, res, next) => {
         if (ex && ex.breakdown) out.pricing.profit = ex.breakdown.profit;
         out.pricing.manual = !!(ex && ex.manual);                       // a price typed in by hand wins over the template
         out.pricing.templatePrice = ex && ex.manual ? ex.templatePrice : null;
+        out.pricing.loss = !!(ex && ex.manual && sellsAtLoss(ex));       // a hand-typed price does not follow the purchase price: it can start to lose money
       }
       return out;
     });
@@ -226,7 +229,12 @@ router.get('/stats', async (req, res, next) => {
       const sent = mpRows.reduce((s, r) => s + r._count.status, 0);
       mpStatus.not_sent = Math.max(0, total - sent);
     }
-    res.json({ total, mpStatus });
+    // Hand-priced products in this view (never lets the other numbers fail)
+    let manual = 0;
+    if (connectionId) {
+      manual = await prisma.productPriceOverride.count({ where: { connectionId, product: { storeId: store.id, ...xmlScope(xmlSourceId) } } }).catch(() => 0);
+    }
+    res.json({ total, mpStatus, manual });
   } catch (error) {
     next(error);
   }
@@ -279,7 +287,7 @@ router.get('/:id/detail', async (req, res, next) => {
         ready: ev.ready,
         issues: ev.issues,
         categoryMapping: ev.mapping ? (ev.mapping.marketplaceCategoryName || String(ev.mapping.marketplaceCategoryId)) : null,
-        pricing: ex ? { salePrice: ex.price, rule: ex.ruleName, kind: ex.kind, vatRate: ex.vatRate, breakdown: ex.breakdown, manual: !!ex.manual, templatePrice: ex.manual ? ex.templatePrice : null } : null,
+        pricing: ex ? { salePrice: ex.price, rule: ex.ruleName, kind: ex.kind, vatRate: ex.vatRate, breakdown: ex.breakdown, manual: !!ex.manual, templatePrice: ex.manual ? ex.templatePrice : null, loss: !!(ex.manual && sellsAtLoss(ex)) } : null,
         listing: mp,
       });
     }
@@ -316,8 +324,7 @@ async function ownConnection(storeId, connectionId) {
 // What a given price would earn, without saving anything (the editor shows it while typing)
 function describePrice(pv, price) {
   const b = pv.breakdown;
-  const vat = Number(pv.vatRate) || 0;
-  const loss = b ? b.profit < 0 : (pv.purchase > 0 && price / (1 + vat / 100) < pv.purchase);
+  const loss = sellsAtLoss({ ...pv, price });
   return {
     salePrice: pv.price,
     templatePrice: pv.templatePrice,
@@ -397,6 +404,86 @@ router.delete('/:id/sale-price', async (req, res, next) => {
       } }).catch(() => {});
     }
     res.json({ ok: true, removed: count, pricing: ex ? { salePrice: ex.price, manual: false, templatePrice: null, profit: ex.breakdown ? ex.breakdown.profit : null, rule: ex.ruleName } : null });
+  } catch (error) { next(error); }
+});
+
+// Gives hand-typed sale prices back to the price template: "these products follow the template again".
+//   { connectionId, productIds?: [...], xmlSourceId? }  — the given products, or (no productIds) every hand-priced product of that XML source
+//   ('none' = products added by hand).
+// A product that no template can price is left as it is (without its hand-typed price it would have NO price at all).
+// Answers with the ids that were reset, and which of them are on sale there, so the screen can offer to send the new prices.
+router.post('/reset-manual-prices', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const body = req.body || {};
+    const connection = await ownConnection(store.id, body.connectionId);
+    if (!connection) return res.status(404).json({ error: 'Pazaryeri bağlantısı bulunamadı' });
+
+    const ids = Array.isArray(body.productIds) ? [...new Set(body.productIds.filter((x) => typeof x === 'string' && x))] : null;
+    if (!ids && !body.xmlSourceId) return res.status(400).json({ error: 'Hangi ürünlerin şablon fiyatına döneceğini belirtin' });
+    const none = { ok: true, removed: 0, skippedNoTemplate: 0, productIds: [], activeProductIds: [] };
+    if (ids && ids.length === 0) return res.json(none);
+
+    // Only this store's products, only this marketplace's hand-typed prices
+    const product = { storeId: store.id, ...(ids ? {} : xmlScope(body.xmlSourceId)) };
+    const select = { id: true, productId: true, price: true };
+    const found = [];
+    if (ids) {
+      for (let i = 0; i < ids.length; i += 1000) {
+        found.push(...await prisma.productPriceOverride.findMany({ where: { connectionId: connection.id, productId: { in: ids.slice(i, i + 1000) }, product }, select }));
+      }
+    } else {
+      found.push(...await prisma.productPriceOverride.findMany({ where: { connectionId: connection.id, product }, select }));
+    }
+    if (found.length === 0) return res.json(none);
+
+    // What would each product cost on the template? (none -> it stays as it is)
+    const { priceCtx } = await getReadinessContext(connection);
+    const rows = new Map();
+    for (let i = 0; i < found.length; i += 1000) {
+      const part = await prisma.product.findMany({
+        where: { id: { in: found.slice(i, i + 1000).map((o) => o.productId) } },
+        select: { id: true, xmlSourceId: true, category: true, brand: true, xmlPrice: true, price: true, vatRate: true },
+      });
+      for (const r of part) rows.set(r.id, r);
+    }
+    const eligible = [];
+    let skippedNoTemplate = 0;
+    for (const o of found) {
+      const p = rows.get(o.productId);
+      const tpl = p ? priceCtx.previewAt(p, o.price).templatePrice : null;
+      if (tpl === null || tpl === undefined) { skippedNoTemplate++; continue; }
+      eligible.push({ ...o, templatePrice: tpl });
+    }
+    if (eligible.length === 0) return res.json({ ...none, skippedNoTemplate });
+
+    let removed = 0;
+    for (let i = 0; i < eligible.length; i += 1000) {
+      const r = await prisma.productPriceOverride.deleteMany({ where: { id: { in: eligible.slice(i, i + 1000).map((o) => o.id) }, connectionId: connection.id } });
+      removed += r.count;
+    }
+    productListCache.invalidate(store.id); // before answering, so the very next list already shows the template prices
+
+    // History (best-effort, never fails the request)
+    const label = connection.supplierName || connection.marketplaceType;
+    for (let i = 0; i < eligible.length; i += 500) {
+      await prisma.productLog.createMany({ data: eligible.slice(i, i + 500).map((o) => ({
+        productId: o.productId, type: 'manual', source: 'manual', oldPrice: o.price, newPrice: o.templatePrice,
+        notes: `${label}: elle girilen satış fiyatı kaldırıldı (toplu), şablon fiyatına dönüldü`,
+      })) }).catch(() => {});
+    }
+
+    // Which of them are on sale on the marketplace (their new price can be sent right away)
+    const resetIds = eligible.map((o) => o.productId);
+    const active = [];
+    for (let i = 0; i < resetIds.length; i += 1000) {
+      const part = await prisma.marketplaceProduct.findMany({
+        where: { connectionId: connection.id, status: 'active', productId: { in: resetIds.slice(i, i + 1000) } }, select: { productId: true },
+      }).catch(() => []);
+      active.push(...part.map((m) => m.productId));
+    }
+    res.json({ ok: true, removed, skippedNoTemplate, productIds: resetIds, activeProductIds: active });
   } catch (error) { next(error); }
 });
 

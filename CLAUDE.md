@@ -36,6 +36,14 @@ cd client && npm run test:smoke                 # renders the products screen in
   and the send routes refuse what it blocks. Add new send-time rules there, not in the routes.
 * **XML sync** (`services/xml/syncService.js`) is shared by the manual button and cron: diff in memory, batch writes,
   background job tracked in `SyncLog`, one sync per source.
+  Products that are no longer in the feed get stock 0 (`services/xml/vanished.js`; they are not deleted and come back with
+  the feed). A feed that looks broken is never acted on: empty feed, unreadable rows, or more than 25 products AND 30% of the
+  live catalog missing at once -> nothing is zeroed and the sync notification says so. The 0 reaches Trendyol with the cron's
+  automatic update (`autoSendToMarketplaces`); a manual sync does not push.
+  After a sync that raised purchase prices, `services/manualPriceAlerts.js` reports hand-priced products that crossed into
+  loss (notification `manual_price_loss`, only at the moment it happens); the product list/detail flag the state at any time
+  (`pricing.loss`). `POST /products/reset-manual-prices` gives hand-typed prices back to the template (products no template
+  covers keep theirs).
 * **Field mapping**: `xml/autoMapping.js` guesses the mapping for new feeds; the user's saved mapping always wins.
 * **Tenant isolation**: every route that takes an `:id` must verify the record belongs to the caller's store
   (`middleware/ownership.js` → `router.param`). Never look records up by `id` alone.

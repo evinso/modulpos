@@ -5,6 +5,8 @@ const notificationService = require('../notificationService');
 const whatsappService = require('../whatsappService');
 const { getUserQuota } = require('../../utils/quotaHelper');
 const productListCache = require('../productListCache');
+const { planVanished, describeVanished } = require('./vanished');
+const { checkManualPriceLosses } = require('../manualPriceAlerts');
 
 /**
  * Single XML -> products sync implementation, used by both the manual
@@ -153,6 +155,7 @@ async function execute(source, syncLog, trigger, ctl = { aborted: false }) {
   const creates = [];
   const updates = [];
   const logs = [];
+  const priceRises = []; // products whose purchase price went up (hand-priced ones among them may start to lose money)
   const seen = new Set();
   let skipped = 0, unchanged = 0, errors = 0;
 
@@ -187,6 +190,7 @@ async function execute(source, syncLog, trigger, ctl = { aborted: false }) {
 
         const priceChanged = Math.abs((ex.xmlPrice || 0) - f.xmlPrice) > 0.001;
         const stockChanged = (ex.stock ?? 0) !== (next.stock ?? 0);
+        if (priceChanged && f.xmlPrice > (ex.xmlPrice || 0)) priceRises.push({ id: ex.id, oldXmlPrice: ex.xmlPrice, oldPrice: ex.price });
         if (priceChanged || stockChanged) {
           logs.push({
             productId: ex.id, type: 'synced',
@@ -211,7 +215,10 @@ async function execute(source, syncLog, trigger, ctl = { aborted: false }) {
     } catch { errors++; }
   }
 
-  let created = 0, updated = 0;
+  // Products of this source that are no longer in the feed (decided now, written after the other changes)
+  const gone = planVanished(existingRows, seen, feed.length, errors);
+
+  let created = 0, updated = 0, removed = 0;
   const progress = async () => {
     await prisma.syncLog.update({
       where: { id: syncLog.id },
@@ -265,16 +272,40 @@ async function execute(source, syncLog, trigger, ctl = { aborted: false }) {
     await progress();
   }
 
+  // Gone from the feed -> stock 0 (the automatic marketplace update then shows them as out of stock)
+  for (const part of chunk(gone.zero, 1000)) {
+    checkAbort();
+    const failed = await writeResilient(
+      part,
+      (items) => prisma.product.updateMany({ where: { id: { in: items.map((r) => r.id) } }, data: { stock: 0 } }),
+      (r) => prisma.product.update({ where: { id: r.id }, data: { stock: 0 } }),
+    );
+    errors += failed; removed += part.length - failed;
+    if (failed === 0) {
+      for (const r of part) {
+        logs.push({ productId: r.id, type: 'synced', oldStock: r.stock, newStock: 0, source: 'xml_sync', notes: "XML'den kalktı, stok sıfırlandı" });
+      }
+    }
+    await progress();
+  }
+
   // Logs are best-effort; a logging failure must never fail the sync
   for (const part of chunk(logs, 500)) {
     await prisma.productLog.createMany({ data: part }).catch(() => {});
+  }
+
+  // Hand-priced products whose purchase price just rose: tell the owner if one of them now loses money (best-effort too)
+  let manualLoss = 0;
+  if (priceRises.length > 0) {
+    try { manualLoss = await checkManualPriceLosses({ storeId, source, moves: priceRises }); }
+    catch (e) { console.error(`[XML Sync] ${source.name}: elle fiyat zarar kontrolü yapılamadı:`, e.message); }
   }
 
   await prisma.syncLog.update({
     where: { id: syncLog.id },
     data: {
       status: 'completed', itemCount: created + updated, created, updated, skipped, errorCount: errors,
-      completedAt: new Date(), details: JSON.stringify({ total: feed.length, unchanged, trigger }),
+      completedAt: new Date(), details: JSON.stringify({ total: feed.length, unchanged, trigger, removed, removedHeld: gone.held, manualLoss }),
     },
   });
   await prisma.xmlSource.update({
@@ -282,14 +313,15 @@ async function execute(source, syncLog, trigger, ctl = { aborted: false }) {
   });
 
   productListCache.invalidate(storeId);
-  const result = { total: feed.length, created, updated, unchanged, skipped, errors };
+  const result = { total: feed.length, created, updated, unchanged, skipped, errors, removed, removedHeld: gone.held };
 
-  const skippedNote = skipped > 0 ? ` ${skipped} ürün atlandı (limit/tekrar).` : '';
+  const skippedNote = (skipped > 0 ? ` ${skipped} ürün atlandı (limit/tekrar).` : '')
+    + (removed > 0 || gone.held > 0 ? ` ${describeVanished(removed, gone.held, gone.reason)}` : '');
   await notificationService.create({
     storeId,
     title: trigger === 'cron' ? 'Otomatik XML Senkronizasyonu' : 'XML Senkronizasyon Tamamlandı',
     message: `"${source.name}": ${created} yeni, ${updated} güncellendi, ${unchanged} değişmedi.${skippedNote}`,
-    type: errors > 0 || skipped > 0 ? 'warning' : 'success',
+    type: errors > 0 || skipped > 0 || gone.held > 0 ? 'warning' : 'success',
     link: trigger === 'cron' ? '/products' : '/xml-sources',
     data: { notifType: 'xml_sync', sourceName: source.name, ...result },
   }).catch(() => {});

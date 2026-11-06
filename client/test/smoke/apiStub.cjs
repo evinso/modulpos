@@ -6,7 +6,7 @@ const mk = (i, over = {}) => ({
   xmlSource: { name: 'Tedarikçi A', globalProviderId: null },
   marketplaceProducts: i === 1 ? [{ id: 'm1', connectionId: 'c1', status: 'active', marketplacePrice: 240, connection: { marketplaceType: 'trendyol', supplierName: 'Mağazam' } }] : [],
   pricing: i === 2 ? { salePrice: null, rule: null, profit: null, ready: false, issues: [{ code: 'no_price_rule', message: 'x' }], mapName: null }
-    : { salePrice: 250.9 + i, rule: i === 3 ? 'Elle girilen fiyat' : 'genel', manual: i === 3, templatePrice: i === 3 ? 300 : null, profit: 50 + i, ready: i % 2 === 1, issues: i % 2 ? [] : [{ code: 'no_category_mapping', message: 'Kategori eşleştirmesi yok' }], mapName: 'Aksesuar > Elbise' },
+    : { salePrice: 250.9 + i, rule: i === 3 ? 'Elle girilen fiyat' : 'genel', manual: i === 3, loss: i === 3, templatePrice: i === 3 ? 300 : null, profit: i === 3 ? -8 : 50 + i, ready: i % 2 === 1, issues: i % 2 ? [] : [{ code: 'no_category_mapping', message: 'Kategori eşleştirmesi yok' }], mapName: 'Aksesuar > Elbise' },
   ...over,
 });
 const calls = [];
@@ -30,7 +30,7 @@ const get = async (url, cfg = {}) => {
   if (url === '/products/summary' && cfg.params && cfg.params.xmlSourceId === 'none') return { data: { total: 0 } };
   if (url === '/products/summary') return { data: { total: 8, active: 7, passive: 1, outOfStock: 3, lowStock: 2, noImage: 1, noBarcode: 0, lowStockMax: 5 } };
   if (url === '/products/facets') return { data: { categories: [{ name: 'Giyim|Kadın|Elbise', count: 8 }], brands: [{ name: 'ModaX', count: 4 }] } };
-  if (url === '/products/stats') return { data: { total: 8, mpStatus: { active: 1, pending: 0, rejected: 0, passive: 0, not_sent: 7 } } };
+  if (url === '/products/stats') return { data: { total: 8, manual: 1, mpStatus: { active: 1, pending: 0, rejected: 0, passive: 0, not_sent: 7 } } };
   if (url === '/products') { const rows = [0, 1, 2, 3, 4].map((i) => mk(i)); return { data: { products: rows, pagination: { total: 8, page: cfg.params?.page || 1, limit: cfg.params?.limit || 20, totalPages: 1 } } }; }
   if (url === '/products/ids') return { data: { ids: ['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'], total: 8 } };
   if (/^\/products\/[^/]+\/detail$/.test(url)) return { data: detail };
@@ -47,6 +47,7 @@ const post = async (url, body) => {
   calls.push({ m: 'POST', url, body });
   if (/sync-price-stock$/.test(url)) return { data: { message: '1 ürün pazaryerlerinde güncellendi', count: 1 } };
   if (/send-products$/.test(url)) return { data: { message: '1 ürün Trendyol’a gönderildi', sent: 1 } };
+  if (url === '/products/reset-manual-prices') return { data: { ok: true, removed: body.productIds ? body.productIds.length : 1, skippedNoTemplate: 0, productIds: body.productIds || ['p3'], activeProductIds: ['p1'] } };
   if (url === '/pricing/calculate') return { data: { price: 314, purchase: 100, fixedCosts: 84, cost: 184, commissionAmount: 47.1, profit: 30, profitPct: 30, vatAmount: 52.33, marginOnPricePct: 9.55, shippingTier: body.conditions.shippingTiers && body.conditions.shippingTiers.length ? 2 : null, shippingCost: 84, profitTier: null } };
   if (url === '/pricing/coverage') return { data: { total: 4098, covered: 4098, priced: 4098, unpriced: 0, losing: 2, totalProfit: 285400.5, avgProfit: 69.6, avgPrice: 250, avgPurchase: 100, minProfit: -3, maxProfit: 210, marginOnPricePct: 14.2,
     bands: [

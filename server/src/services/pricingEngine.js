@@ -243,6 +243,17 @@ function matches(rule, c, product, connectionId) {
 const MANUAL_RULE_NAME = 'Elle girilen fiyat';
 
 /**
+ * Does selling at pv.price lose money? pv is a previewAt() / explainFor() result.
+ * With a template the whole profit is known; without one all that can be said is "price (ex VAT) is below the purchase price".
+ */
+function sellsAtLoss(pv) {
+  if (!pv) return false;
+  if (pv.breakdown) return pv.breakdown.profit < 0;
+  const vat = Number(pv.vatRate) || 0;
+  return pv.purchase > 0 && pv.price / (1 + vat / 100) < pv.purchase;
+}
+
+/**
  * Profit at a GIVEN sale price (the opposite direction of the template solver): used for prices typed in by hand.
  * Costs and VAT come from the template that normally prices the product. Same fields as explainTemplatePrice.
  */
@@ -345,7 +356,7 @@ class PricingContext {
     const pv = this.previewAt(product, manual);
     return {
       price: manual, ruleId: base ? base.ruleId : null, ruleName: MANUAL_RULE_NAME, kind: 'manual',
-      vatRate: pv.vatRate, breakdown: pv.breakdown, manual: true, templatePrice: pv.templatePrice,
+      vatRate: pv.vatRate, breakdown: pv.breakdown, manual: true, templatePrice: pv.templatePrice, purchase: pv.purchase,
     };
   }
 
@@ -511,4 +522,4 @@ function summarizeCoverage(products, value, conds) {
   };
 }
 
-module.exports = { autoBandEdges, explainAtPrice, MANUAL_RULE_NAME, PricingContext, loadPricingContext, computeTemplatePrice, resolveTemplate, validateTiers, MAX_TIERS, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };
+module.exports = { autoBandEdges, explainAtPrice, sellsAtLoss, MANUAL_RULE_NAME, PricingContext, loadPricingContext, computeTemplatePrice, resolveTemplate, validateTiers, MAX_TIERS, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };
