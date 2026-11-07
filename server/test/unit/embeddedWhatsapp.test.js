@@ -15,7 +15,8 @@ const R = { loggedOut: 401, badSession: 500, restartRequired: 515, connectionRep
 const closeWith = (sock, statusCode) => sock.ev.emit('connection.update', { connection: 'close', lastDisconnect: { error: Object.assign(new Error('closed ' + statusCode), { output: { statusCode } }) } });
 const open = (sock) => sock.ev.emit('connection.update', { connection: 'open' });
 const settle = async (n = 12) => { for (let i = 0; i < n; i++) await new Promise((r) => setImmediate(r)); };
-const LINKED = JSON.stringify({ registered: true, me: { id: '905321234567:7@s.whatsapp.net' } });
+// what a QR pairing really leaves behind: `me` is filled, `registered` stays false (checked in the Baileys source and on the live API)
+const LINKED = JSON.stringify({ registered: false, me: { id: '905321234567:7@s.whatsapp.net' } });
 
 function makeEngine({ onSocket, linked = false, loadFails = false, store = createMemoryStore() } = {}) {
   const sockets = []; const scheduled = []; const delays = []; let clock = 1_000_000;
@@ -96,7 +97,7 @@ test('after the scan WhatsApp asks for a restart: the connection is reopened wit
   await t.engine.getQR();
   const first = t.sockets[0];
   // the phone scanned: WhatsApp hands over the account, then drops the socket with "restart required"
-  first.config.auth.creds.registered = true; first.config.auth.creds.me = { id: '905321234567:9@s.whatsapp.net' };
+  first.config.auth.creds.me = { id: '905321234567:9@s.whatsapp.net' };      // registered is NOT touched: a QR pairing does not set it
   first.ev.emit('creds.update', {});
   closeWith(first, R.restartRequired);
   await settle();
@@ -279,7 +280,7 @@ test('stored login: credentials and keys survive a restart, Buffers included', a
   const store = createMemoryStore();
   const a = await useStoreAuthState(store, real);
   assert.equal(a.isLinked(), false);
-  a.state.creds.registered = true; a.state.creds.me = { id: '905321234567:1@s.whatsapp.net' };
+  a.state.creds.me = { id: '905321234567:1@s.whatsapp.net' };
   await a.saveCreds();
   await a.state.keys.set({
     session: { x: Buffer.from([1, 2, 3]) },
@@ -300,4 +301,17 @@ test('stored login: credentials and keys survive a restart, Buffers included', a
   const pre = await b.state.keys.get('pre-key', ['7', '8']);
   assert.equal(pre['7'], null); assert.deepEqual(Buffer.from(pre['8'].private), Buffer.from([6]));
   await b.state.keys.clear(); assert.equal(store.m.size, 0);
+});
+
+test('"linked" means a paired account (me) is stored, whatever `registered` says', async () => {
+  const store = createMemoryStore();
+  assert.equal(await storeIsLinked(store), false);
+  store.m.set('creds', JSON.stringify({ registered: false }));                                    // QR shown, nobody scanned
+  assert.equal(await storeIsLinked(store), false);
+  store.m.set('creds', JSON.stringify({ registered: true }));                                     // not paired either
+  assert.equal(await storeIsLinked(store), false);
+  store.m.set('creds', JSON.stringify({ registered: false, me: { id: '905321234567:7@s.whatsapp.net' } }));   // what a QR scan leaves
+  assert.equal(await storeIsLinked(store), true);
+  assert.equal((await useStoreAuthState(store, real)).isLinked(), true);
+  store.m.set('creds', 'not json'); assert.equal(await storeIsLinked(store), false);
 });

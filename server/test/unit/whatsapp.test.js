@@ -276,3 +276,14 @@ test('"Test Gönder" says why when it cannot send, and sends to the admin when i
     assert.deepEqual(sentTo(waha), [`${ADMIN}@c.us`]);
   });
 });
+
+test('users with a reserved ".invalid" address (the automated tests) never cause a WhatsApp message', async () => {
+  useSettings({ ...base, waha_events: JSON.stringify(['new_user', 'credit_topup', 'user_login']) });
+  await withWaha({ 'POST /api/sendText': json({ id: 'x' }) }, async (waha) => {
+    const fake = { name: 'T', email: 'tmp-abc@example.invalid', phone: '05321234567' };
+    await wa.notifyNewUser(fake); await wa.notifyCreditTopup(fake, 5); await wa.notifyUserLogin(fake, '1.2.3.4');
+    assert.equal(waha.requests.length, 0);
+    await wa.notifyNewUser({ name: 'Ali', email: 'ali@example.com' });                            // a real address still does
+    assert.deepEqual(sentTo(waha), [`${ADMIN}@c.us`]);
+  });
+});

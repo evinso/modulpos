@@ -19,6 +19,9 @@ function invalidateCache() {
   cacheExpiry = 0;
 }
 
+// RFC 2606: ".invalid" can never be a real address. The automated tests register such users; they must not message the owner.
+const isTestUser = (u) => /@[^@\s]+\.invalid$/i.test(String((u && u.email) || ''));
+
 async function isEventEnabled(eventKey) {
   const s = await getSettings();
   if (s.waha_enabled !== 'true') return false;
@@ -60,27 +63,32 @@ async function sendToAdminAndUser(message, userPhone = null) {
 }
 
 async function notifyNewUser(user) {
+  if (isTestUser(user)) return;
   if (!await isEventEnabled('new_user')) return;
   await sendWhatsApp(`🆕 *Yeni Üye Kaydı*\n\n👤 ${user.name}\n📧 ${user.email}\n📅 ${new Date().toLocaleString('tr-TR')}`);
 }
 
 async function notifySubscriptionUpdated(user, plan, endDate) {
+  if (isTestUser(user)) return;
   if (!await isEventEnabled('subscription')) return;
   await sendToAdminAndUser(`💳 *Abonelik Güncellendi*\n\n👤 ${user.name || user.email}\n📦 Plan: ${plan}\n📅 Bitiş: ${new Date(endDate).toLocaleDateString('tr-TR')}`, user.phone);
 }
 
 async function notifyCreditTopup(user, amount) {
+  if (isTestUser(user)) return;
   if (!await isEventEnabled('credit_topup')) return;
   await sendToAdminAndUser(`💰 *Kredi Yüklendi*\n\n👤 ${user.name || user.email}\n💵 Miktar: ${amount} kredi\n📅 ${new Date().toLocaleString('tr-TR')}`, user.phone);
 }
 
 async function notifyNewSupportTicket(user, subject, priority) {
+  if (isTestUser(user)) return;
   if (!await isEventEnabled('new_support_ticket')) return;
   const priorityLabel = { low: 'Düşük', normal: 'Normal', high: 'Yüksek', urgent: 'Acil' }[priority] || priority;
   await sendToAdminAndUser(`🎫 *Yeni Destek Talebi*\n\n👤 ${user.name || user.email}\n📋 Konu: ${subject}\n⚡ Öncelik: ${priorityLabel}\n📅 ${new Date().toLocaleString('tr-TR')}`, user.phone);
 }
 
 async function notifySubscriptionExpired(user) {
+  if (isTestUser(user)) return;
   if (!await isEventEnabled('subscription_expired')) return;
   await sendToAdminAndUser(`⏰ *Abonelik Süresi Doldu*\n\n👤 ${user.name || user.email}\n📧 ${user.email}\n📅 ${new Date().toLocaleString('tr-TR')}`, user.phone);
 }
@@ -105,6 +113,7 @@ async function notifyOrderStatusChange(storeName, orderNumber, status, userPhone
 }
 
 async function notifySupportReply(user, subject) {
+  if (isTestUser(user)) return;
   if (!await isEventEnabled('support_reply')) return;
   await sendToAdminAndUser(
     `💬 *Destek Talebiniz Yanıtlandı*\n\n👤 ${user?.name || user?.email || 'Kullanıcı'}\n📋 Konu: ${subject}\n📅 ${new Date().toLocaleString('tr-TR')}\n\nYanıtı görmek için destek sayfasını açın.`,
@@ -118,6 +127,7 @@ async function notifyXmlError(sourceName, errorMsg) {
 }
 
 async function notifyPaymentFailed(user, amount, reason) {
+  if (isTestUser(user)) return;
   if (!await isEventEnabled('payment_failed')) return;
   await sendToAdminAndUser(
     `❌ *Ödeme Başarısız*\n\n👤 ${user?.name || user?.email || 'Kullanıcı'}\n💵 Tutar: ₺${parseFloat(amount || 0).toFixed(2)}\n📋 ${reason || 'Ödeme tamamlanamadı'}\n📅 ${new Date().toLocaleString('tr-TR')}`,
@@ -126,6 +136,7 @@ async function notifyPaymentFailed(user, amount, reason) {
 }
 
 async function notifyUserLogin(user, ip) {
+  if (isTestUser(user)) return;
   if (!await isEventEnabled('user_login')) return;
   await sendWhatsApp(`🔑 *Yeni Giriş*\n\n👤 ${user.name || user.email}\n📧 ${user.email}\n🌐 IP: ${ip}\n📅 ${new Date().toLocaleString('tr-TR')}`);
 }
@@ -154,6 +165,7 @@ async function notifyNewMarketplace(storeName, marketplaceType, userPhone = null
 }
 
 async function notifyLowCredit(user, balance) {
+  if (isTestUser(user)) return;
   if (!await isEventEnabled('low_credit')) return;
   await sendToAdminAndUser(
     `⚠️ *Düşük Kredi Uyarısı*\n\n👤 ${user.name || user.email}\n💰 Kalan Kredi: ${balance}\n📅 ${new Date().toLocaleString('tr-TR')}\n\nKredi yüklemek için panele giriş yapın.`,

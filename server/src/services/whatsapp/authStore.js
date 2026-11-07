@@ -90,8 +90,11 @@ async function useStoreAuthState(store, mod) {
   return {
     state: { creds, keys },
     saveCreds: () => store.set('creds', dump(creds)),
-    /** true once a phone has been linked (not just a QR shown) */
-    isLinked: () => !!(creds && creds.registered && creds.me),
+    /**
+     * true once a phone has been linked (not just a QR shown). Baileys fills `me` when the pairing succeeds; `registered` is only
+     * set by the phone-number pairing flow and stays false after a QR scan, so it must not be used here.
+     */
+    isLinked: () => !!(creds && creds.me && creds.me.id),
   };
 }
 
@@ -99,7 +102,7 @@ async function useStoreAuthState(store, mod) {
 async function storeIsLinked(store) {
   const text = await store.get('creds');
   if (!text) return false;
-  try { const c = JSON.parse(text); return !!(c && c.registered && c.me); } catch { return false; }
+  try { const c = JSON.parse(text); return !!(c && c.me && c.me.id); } catch { return false; }
 }
 
 module.exports = { createDbStore, createMemoryStore, useStoreAuthState, storeIsLinked };
