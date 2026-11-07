@@ -326,9 +326,7 @@ async function execute(source, syncLog, trigger, ctl = { aborted: false }) {
     data: { notifType: 'xml_sync', sourceName: source.name, ...result },
     noWhatsapp: true,   // one of these every sync: the bell is enough (the optional "product_sync" event covers WhatsApp)
   }).catch(() => {});
-  if (trigger === 'cron') {
-    whatsappService.notifyProductSync(source.store?.name || storeId, source.name, created, updated).catch(() => {});
-  }
+  whatsappService.notifyProductSync(source.store?.name || storeId, source.name, created, updated, removed, source.store?.user?.phone || null).catch(() => {});
   return result;
 }
 
@@ -344,7 +342,7 @@ async function startXmlSync(xmlSourceId, { trigger = 'manual', userId = null } =
     e.code = 'SYNC_RUNNING'; e.status = 409; e.syncLogId = current.syncLogId;
     throw e;
   }
-  const source = await prisma.xmlSource.findUnique({ where: { id: xmlSourceId }, include: { store: true } });
+  const source = await prisma.xmlSource.findUnique({ where: { id: xmlSourceId }, include: { store: { include: { user: { select: { phone: true } } } } } });
   if (!source) { const e = new Error('XML kaynağı bulunamadı'); e.status = 404; throw e; }
 
   // The in-memory lock only knows this process; also honour a sync another instance has started recently
@@ -390,7 +388,7 @@ async function startXmlSync(xmlSourceId, { trigger = 'manual', userId = null } =
       prisma.auditLog.create({
         data: { userId, action: trigger === 'cron' ? 'CRON_XML_SYNC_ERROR' : 'XML_SYNC_ERROR', details: JSON.stringify({ xmlSourceId, error: error.message }), level: 'ERROR' },
       }).catch(() => {});
-      if (trigger === 'cron') whatsappService.notifyXmlError(source.name, error.message).catch(() => {});
+      whatsappService.notifyXmlError(source.name, error.message, trigger !== 'cron').catch(() => {});
       return { error: error.message };
     } finally {
       running.delete(xmlSourceId);

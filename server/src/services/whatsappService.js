@@ -121,9 +121,9 @@ async function notifySupportReply(user, subject) {
   );
 }
 
-async function notifyXmlError(sourceName, errorMsg) {
+async function notifyXmlError(sourceName, errorMsg, manual = false) {
   if (!await isEventEnabled('xml_error')) return;
-  await sendWhatsApp(`⚠️ *XML Senkron Hatası*\n\n📡 Kaynak: ${sourceName}\n❗ Hata: ${String(errorMsg).slice(0, 200)}\n📅 ${new Date().toLocaleString('tr-TR')}`);
+  await sendWhatsApp(`⚠️ *XML Senkron Hatası*${manual ? ' (elle başlatıldı)' : ''}\n\n📡 Kaynak: ${sourceName}\n❗ Hata: ${String(errorMsg).slice(0, 200)}\n📅 ${new Date().toLocaleString('tr-TR')}`);
 }
 
 async function notifyPaymentFailed(user, amount, reason) {
@@ -141,9 +141,32 @@ async function notifyUserLogin(user, ip) {
   await sendWhatsApp(`🔑 *Yeni Giriş*\n\n👤 ${user.name || user.email}\n📧 ${user.email}\n🌐 IP: ${ip}\n📅 ${new Date().toLocaleString('tr-TR')}`);
 }
 
-async function notifyProductSync(storeName, sourceName, created, updated) {
+// Sent only when the feed really changed something (new / updated / gone products); `removed` = products that left the feed.
+async function notifyProductSync(storeName, sourceName, created, updated, removed = 0, userPhone = null) {
+  if (!(created > 0 || updated > 0 || removed > 0)) return;
   if (!await isEventEnabled('product_sync')) return;
-  await sendWhatsApp(`✅ *XML Senkronizasyon Tamamlandı*\n\n🏪 Mağaza: ${storeName}\n📡 Kaynak: ${sourceName}\n➕ Yeni: ${created} ürün\n🔄 Güncellenen: ${updated} ürün\n📅 ${new Date().toLocaleString('tr-TR')}`);
+  await sendToAdminAndUser(`✅ *XML Güncellendi*\n\n🏪 Mağaza: ${storeName}\n📡 Kaynak: ${sourceName}\n➕ Yeni: ${created} ürün\n🔄 Güncellenen: ${updated} ürün${removed > 0 ? `\n📉 XML'den kalkan: ${removed} ürün (stoğu sıfırlandı)` : ''}\n📅 ${new Date().toLocaleString('tr-TR')}`, userPhone);
+}
+
+const TICKET_STATUS = { open: 'Açık', in_progress: 'İşlemde', resolved: 'Çözüldü', closed: 'Kapalı' };
+const ticketStatus = (s) => TICKET_STATUS[s] || s;
+
+async function notifySupportUserReply(user, subject, text) {
+  if (isTestUser(user)) return;
+  if (!await isEventEnabled('support_user_reply')) return;
+  await sendWhatsApp(`💬 *Destek Talebine Yeni Mesaj*\n\n👤 ${user?.name || user?.email || 'Kullanıcı'}\n📋 Konu: ${subject}\n✉️ ${String(text || '').slice(0, 200)}\n📅 ${new Date().toLocaleString('tr-TR')}`);
+}
+
+async function notifySupportStatus(user, subject, status) {
+  if (isTestUser(user)) return;
+  if (!await isEventEnabled('support_status')) return;
+  await sendToAdminAndUser(`🔄 *Destek Talebi Durumu Değişti*\n\n👤 ${user?.name || user?.email || 'Kullanıcı'}\n📋 Konu: ${subject}\n📌 Yeni durum: ${ticketStatus(status)}\n📅 ${new Date().toLocaleString('tr-TR')}`, user?.phone);
+}
+
+async function notifySubscriptionExpiring(user, endDate, days) {
+  if (isTestUser(user)) return;
+  if (!await isEventEnabled('subscription_expiring')) return;
+  await sendToAdminAndUser(`⏳ *Abonelik Bitmek Üzere*\n\n👤 ${user.name || user.email}\n📅 Bitiş: ${new Date(endDate).toLocaleDateString('tr-TR')} (${days <= 0 ? 'bugün' : `${days} gün kaldı`})`, user.phone);
 }
 
 async function notifyTrendyolUpdate(storeName, count, userPhone = null) {
@@ -192,13 +215,14 @@ async function sendAdminTest() {
 }
 
 // Generic in-app notification forwarder — checks waha_enabled, sends to user's phone
-async function forwardInAppNotification(userPhone, title, message) {
-  if (!userPhone) return;
+// Only notifications that carry an event key are forwarded, and only when that event is ticked (the checklist is the single authority).
+async function forwardInAppNotification(userPhone, title, message, eventKey) {
+  if (!userPhone || !eventKey) return;
+  if (!await isEventEnabled(eventKey)) return;
   const s = await getSettings();
-  if (s.waha_enabled !== 'true') return;
   const waha = whatsapp.createClient(s.waha_session || 'default');
   const text = `🔔 *${title}*\n\n${message}\n\n📅 ${new Date().toLocaleString('tr-TR')}`;
   await waha.sendMessage(userPhone, text).catch(e => console.error('[WhatsApp] forwardInApp failed:', e.message));
 }
 
-module.exports = { sendWhatsApp, sendWhatsAppTo, sendAdminTest, forwardInAppNotification, isOtpEnabled, notifyNewUser, notifySubscriptionUpdated, notifyCreditTopup, notifyNewSupportTicket, notifySubscriptionExpired, notifyNewOrder, notifyOrderStatusChange, notifySupportReply, notifyXmlError, notifyPaymentFailed, notifyUserLogin, notifyProductSync, notifyTrendyolUpdate, notifyNewMarketplace, notifyLowCredit, invalidateCache };
+module.exports = { sendWhatsApp, sendWhatsAppTo, sendAdminTest, notifySupportUserReply, notifySupportStatus, notifySubscriptionExpiring, forwardInAppNotification, isOtpEnabled, notifyNewUser, notifySubscriptionUpdated, notifyCreditTopup, notifyNewSupportTicket, notifySubscriptionExpired, notifyNewOrder, notifyOrderStatusChange, notifySupportReply, notifyXmlError, notifyPaymentFailed, notifyUserLogin, notifyProductSync, notifyTrendyolUpdate, notifyNewMarketplace, notifyLowCredit, invalidateCache };

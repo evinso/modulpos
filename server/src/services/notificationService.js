@@ -3,16 +3,16 @@ const sseService = require('./sseService');
 const whatsappService = require('./whatsappService');
 
 class NotificationService {
-  async create({ storeId, title, message, type = 'info', link = null, data = null, noWhatsapp = false }) {
+  async create({ storeId, title, message, type = 'info', link = null, data = null, noWhatsapp = false, waEvent = null }) {
     try {
       const notification = await prisma.notification.create({
         data: { storeId, title, message, type, link, data },
       });
       sseService.pushToStore(storeId, notification);
 
-      if (!noWhatsapp) {
+      if (!noWhatsapp && waEvent) {   // forwarded to the user's WhatsApp only for a ticked event
         prisma.store.findUnique({ where: { id: storeId }, select: { user: { select: { phone: true } } } })
-          .then(store => whatsappService.forwardInAppNotification(store?.user?.phone, title, message))
+          .then(store => whatsappService.forwardInAppNotification(store?.user?.phone, title, message, waEvent))
           .catch(() => {});
       }
 
@@ -47,11 +47,11 @@ class NotificationService {
     }
   }
 
-  async createForUser(userId, { title, message, type = 'info', link = null, data = null, noWhatsapp = false }) {
+  async createForUser(userId, { title, message, type = 'info', link = null, data = null, noWhatsapp = false, waEvent = null }) {
     try {
       const store = await prisma.store.findFirst({ where: { userId } });
       if (!store) return null;
-      return await this.create({ storeId: store.id, title, message, type, link, data, noWhatsapp });
+      return await this.create({ storeId: store.id, title, message, type, link, data, noWhatsapp, waEvent });
     } catch (error) {
       console.error('Notification createForUser failed:', error);
       return null;

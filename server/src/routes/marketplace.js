@@ -122,7 +122,10 @@ router.post('/connections', async (req, res, next) => {
       noWhatsapp: true,
     });
 
-    whatsappService.notifyNewMarketplace(store.name, marketplaceType, req.user.phone || null).catch(() => {});
+    // the token carries no phone number: look it up, otherwise only the admin would ever be told
+    prisma.user.findUnique({ where: { id: req.user.id }, select: { phone: true } })
+      .then(u => whatsappService.notifyNewMarketplace(store.name, marketplaceType, u?.phone || null))
+      .catch(() => {});
 
     res.status(201).json(publicConnection(connection));
   } catch (error) { next(error); }
@@ -1380,6 +1383,7 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     await notificationService.create({
       storeId: connection.storeId,
       title: 'Ürün Gönderimi',
+      waEvent: 'product_send',
       message: `${formatted.length} ürün Trendyol'a gönderildi.${errors.length > 0 ? ` ${errors.length} hata var.` : ''}`,
       type: errors.length > 0 ? 'warning' : 'success',
       link: '/trendyol-send',
@@ -1631,6 +1635,7 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
     await notificationService.create({
       storeId: connection.storeId,
       title: 'Toplu Ürün Gönderimi',
+      waEvent: 'product_send',
       message: `${formatted.length} ürün ${batches} parti halinde Trendyol'a gönderildi. ${skipped > 0 ? `${skipped} ürün atlandı.` : ''}`,
       type: 'success',
       link: '/trendyol-send',
@@ -1910,6 +1915,7 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
       await notificationService.create({
         storeId: connection.storeId,
         title: 'BuyBox Uyarısı',
+        waEvent: 'buybox',
         message: `${losing.length} üründe BuyBox kazanılamıyor. ${winning.length} ürün kazanıyor.`,
         type: 'warning',
         link: '/buybox',
@@ -1965,6 +1971,7 @@ router.post('/connections/:id/buybox-price-adjust', async (req, res, next) => {
     notificationService.create({
       storeId: connection.storeId,
       title: 'BuyBox Fiyat Güncellendi',
+      waEvent: 'buybox',
       message: `${result.updated} ürünün fiyatı BuyBox'a göre güncellendi.`,
       type: 'success',
       link: '/buybox',

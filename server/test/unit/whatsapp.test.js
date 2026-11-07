@@ -256,7 +256,7 @@ test('nothing is sent when notifications are off or the event is not ticked', as
 test('in-app notifications are forwarded to the user from the same session', async () => {
   useSettings(base);
   await withWaha({ 'POST /api/sendText': json({ id: 'x' }) }, async (waha) => {
-    await wa.forwardInAppNotification('05321234567', 'Başlık', 'Mesaj');
+    await wa.forwardInAppNotification('05321234567', 'Başlık', 'Mesaj', 'credit_topup');
     const r = waha.requests.find((x) => x.path === '/api/sendText');
     assert.equal(r.body.chatId, '905321234567@c.us'); assert.equal(r.body.session, 'default'); assert.match(r.body.text, /Başlık/);
   });

@@ -43,6 +43,7 @@ const get = async (url, cfg = {}) => {
     { id: 'r2', name: 'Eski taslak', value: 10, type: 'percentage', applyTo: 'price_template', isActive: false, priority: 0, conditions: JSON.stringify({ shippingTiers: [{ upTo: 199.99, cost: 48.33 }, { upTo: null, cost: 88.96 }], shippingTiersExVat: true, profitMode: 'margin_on_gross', commissionPct: 22.37, packagingCost: 16.39, commissionBasis: 'gross', minPurchasePrice: 10, maxPurchasePrice: 500 }) },
   ] };
   if (url === '/pricing/summaries') return { data: { total: 0, rules: {} } };
+  if (url === '/whatsapp/events') return { data: [{ group: 'Destek', key: 'support_status', to: 'both', label: 'Destek talebinin durumu değişti' }, { group: 'XML ve ürün', key: 'product_sync', to: 'both', label: 'XML güncellendi' }] };
   if (url === '/whatsapp/engine') return { data: { engine: wa.engine, node: 'v22.0.0' } };
   if (url === '/whatsapp/connections') return { data: [{ id: 'w1', name: 'wp', instanceId: 'default' }] };
   if (url === '/whatsapp/connections/w1/status') return { data: wa.status };

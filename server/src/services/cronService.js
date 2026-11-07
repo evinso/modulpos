@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const prisma = require('../config/database');
 const { parseXml } = require('./xml/xmlParser');
 const notificationService = require('./notificationService');
+const { runSubscriptionAlerts } = require('./subscriptionAlerts');
 const TrendyolService = require('./trendyol/trendyolService');
 const { loadPricingContext } = require('./pricingEngine');
 const { processAutoAnswerForCron } = require('../routes/questions');
@@ -34,6 +35,9 @@ class CronService {
       await this.syncXmlSources();
     });
 
+    // Subscription about to end / just ended (once per end date, see services/subscriptionAlerts.js)
+    cron.schedule('0 */6 * * *', () => { runSubscriptionAlerts().catch((e) => console.error('[CRON/Subscriptions]', e.message)); });
+
     // Run every 30 minutes to sync & auto-answer Trendyol questions
     cron.schedule('*/30 * * * *', async () => {
       console.log('[CRON] Syncing Trendyol customer questions...');
@@ -48,6 +52,11 @@ class CronService {
         const { synced, autoAnswered } = await processAutoAnswerForCron(store.id);
         if (synced > 0) {
           console.log(`[CRON/Questions] Store ${store.id}: ${synced} yeni soru, ${autoAnswered} otomatik yanıtlandı`);
+          notificationService.create({
+            storeId: store.id, title: 'Yeni Müşteri Soruları',
+            message: `${synced} yeni soru alındı.${autoAnswered > 0 ? ` ${autoAnswered} tanesi otomatik yanıtlandı.` : ''}`,
+            type: 'info', link: '/questions', waEvent: 'new_question',
+          }).catch(() => {});
         }
       }
     } catch (err) {
@@ -84,6 +93,7 @@ class CronService {
             notificationService.create({
               storeId: source.storeId,
               title: 'XML senkronizasyonu gecikti',
+              waEvent: 'xml_stale',
               message: `"${source.name}" kaynağı ${Math.round((Date.now() - lastOk) / 3600000)} saattir başarıyla senkronize edilemedi. Kaynağı ve bağlantıyı kontrol edin.`,
               type: 'warning',
               link: '/xml-sources',

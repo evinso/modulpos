@@ -403,6 +403,7 @@ router.post('/:id/import', auth, async (req, res, next) => {
     notificationService.create({
       storeId: store.id,
       title: 'XML Kaynağı Eklendi',
+      waEvent: 'new_xml_source',
       message: `"${provider.name}" mağazanıza başarıyla eklendi.`,
       type: 'success',
       link: '/xml-sources'

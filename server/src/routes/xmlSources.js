@@ -125,6 +125,7 @@ router.post('/', async (req, res, next) => {
     await notificationService.create({
       storeId: store.id,
       title: 'Yeni XML Kaynağı',
+      waEvent: 'new_xml_source',
       message: `"${name}" isimli XML kaynağı başarıyla eklendi.`,
       type: 'success',
       link: '/xml-sources'

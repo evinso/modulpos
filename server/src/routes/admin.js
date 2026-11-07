@@ -977,10 +977,17 @@ router.put('/support-tickets/:id', auth, isAdmin, async (req, res) => {
     if (status) updateData.status = status;
     if (priority) updateData.priority = priority;
 
+    const before = await prisma.supportTicket.findUnique({ where: { id: req.params.id }, select: { status: true, userId: true, subject: true } });
     const updated = await prisma.supportTicket.update({
       where: { id: req.params.id },
       data: updateData
     });
+    if (before && status && status !== before.status) {
+      notificationService.createForUser(before.userId, { title: 'Destek Talebinizin Durumu Değişti', message: `"${before.subject}" talebi: ${status}`, type: 'info', link: '/support', noWhatsapp: true });
+      prisma.user.findUnique({ where: { id: before.userId }, select: { name: true, email: true, phone: true } })
+        .then(u => whatsappService.notifySupportStatus(u, before.subject, status).catch(() => {}))
+        .catch(() => {});
+    }
     res.json(updated);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1100,7 +1107,7 @@ router.post('/notify', auth, isAdmin, async (req, res) => {
     }
 
     const notificationService = require('../services/notificationService');
-    await Promise.all(stores.map(s => notificationService.create({ storeId: s.id, title, message, type, link: link || null })));
+    await Promise.all(stores.map(s => notificationService.create({ storeId: s.id, title, message, type, link: link || null, waEvent: 'announcement' })));
 
     res.json({ sent: stores.length });
   } catch (error) { res.status(500).json({ error: error.message }); }

@@ -60,6 +60,7 @@ await wait(150);
 ok('built-in: the page says no separate server is needed', text().includes('ayrı sunucu gerekmez'));
 ok('built-in: the linked number is shown on the connected card', document.querySelector('[data-testid="status-msg"]')?.textContent.includes('••••4567'));
 ok('built-in: there is no WAHA session-name field in the settings', !text().includes('WAHA Oturum Adı'));
+ok('the event checklist comes from the server, grouped, with who gets each', text().includes('Destek talebinin durumu değişti') && text().includes('DESTEK') || text().includes('Destek') && text().includes('(yönetici + kullanıcı)'));
 ok('built-in: the reset button is there', !!document.querySelector('button[title*="sıfırla"]'));
 await act(async () => { rootE.unmount(); });
 wa.engine = 'waha';

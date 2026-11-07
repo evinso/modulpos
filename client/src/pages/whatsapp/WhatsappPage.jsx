@@ -28,6 +28,7 @@ export default function WhatsappPage() {
   const [statuses, setStatuses] = useState({});
   const [statusMsgs, setStatusMsgs] = useState({});   // connId → why the state is what it is (e.g. WAHA unreachable)
   const [qrActive, setQrActive] = useState(null);     // connId whose QR is kept fresh until it is scanned
+  const [eventList, setEventList] = useState([]);   // the events the server can send (one list, GET /whatsapp/events)
   const [engine, setEngine] = useState(null);          // 'embedded' (built into the API, free) | 'waha' (separate server)
   const [statusLoading, setStatusLoading] = useState({});
   const [qrData, setQrData] = useState({}); // connId → { type, message }
@@ -43,7 +44,7 @@ export default function WhatsappPage() {
   const [wahaLoading, setWahaLoading] = useState(false);
   const [wahaTesting, setWahaTesting] = useState(false);
 
-  useEffect(() => { if (isAdmin) { fetchConnections(); loadWahaSettings(); api.get('/whatsapp/engine').then(r => setEngine(r.data.engine)).catch(() => {}); } }, []);   // a normal user requests nothing
+  useEffect(() => { if (isAdmin) { fetchConnections(); loadWahaSettings(); api.get('/whatsapp/engine').then(r => setEngine(r.data.engine)).catch(() => {}); api.get('/whatsapp/events').then(r => setEventList(r.data)).catch(() => {}); } }, []);   // a normal user requests nothing
 
   const fetchConnections = async () => {
     try {
@@ -385,30 +386,18 @@ export default function WhatsappPage() {
           </div>
           <div>
             <label className="form-label" style={{ marginBottom: 10 }}>Bildirim Olayları</label>
-            {[
-              { key: 'new_order',          label: '🛒 Yeni sipariş (admin + kullanıcı)' },
-              { key: 'order_status',       label: '📦 Sipariş durumu değişti (admin + kullanıcı)' },
-              { key: 'new_user',           label: '🆕 Yeni üye kaydı (admin)' },
-              { key: 'subscription',       label: '💳 Abonelik güncellemesi (admin + kullanıcı)' },
-              { key: 'subscription_expired', label: '⏰ Abonelik süresi doldu (admin + kullanıcı)' },
-              { key: 'credit_topup',       label: '💰 Kredi yükleme (admin + kullanıcı)' },
-              { key: 'payment_failed',     label: '❌ Ödeme başarısız (admin + kullanıcı)' },
-              { key: 'new_support_ticket', label: '🎫 Yeni destek talebi (admin)' },
-              { key: 'support_reply',      label: '💬 Destek yanıtlandı (kullanıcı)' },
-              { key: 'xml_error',          label: '⚠️ XML senkron hatası (admin)' },
-              { key: 'user_login',         label: '🔑 Yeni cihazdan giriş (admin)' },
-              { key: 'product_sync',       label: '✅ XML senkronizasyon tamamlandı (admin)' },
-              { key: 'trendyol_update',    label: '🟠 Trendyol stok/fiyat güncellendi (admin + kullanıcı)' },
-              { key: 'new_marketplace',    label: '🔗 Yeni pazaryeri bağlandı (admin + kullanıcı)' },
-              { key: 'low_credit',         label: '⚠️ Düşük kredi uyarısı (admin + kullanıcı)' },
-            ].map(ev => {
+            {(eventList.length ? eventList : []).map((ev, i, all) => {
               let events = [];
               try { events = JSON.parse(wahaSettings.waha_events || '[]'); } catch { events = []; }
+              const who = { admin: 'yönetici', user: 'kullanıcı', both: 'yönetici + kullanıcı' }[ev.to];
               return (
-                <label key={ev.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer', fontSize: 14 }}>
-                  <input type="checkbox" checked={events.includes(ev.key)} onChange={() => toggleWahaEvent(ev.key)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
-                  {ev.label}
-                </label>
+                <div key={ev.key}>
+                  {(i === 0 || all[i - 1].group !== ev.group) && <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', margin: '12px 0 6px', textTransform: 'uppercase' }}>{ev.group}</div>}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer', fontSize: 14 }}>
+                    <input type="checkbox" checked={events.includes(ev.key)} onChange={() => toggleWahaEvent(ev.key)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                    {ev.label} <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>({who})</span>
+                  </label>
+                </div>
               );
             })}
           </div>

@@ -12,6 +12,9 @@ router.use((req, res, next) => {
   next();
 });
 
+// The events the checklist offers (one list, shared with the notifiers)
+router.get('/events', (_req, res) => res.json(require('../services/whatsapp/events').EVENTS));
+
 // Which connection method is in use (the page words its hints accordingly)
 router.get('/engine', (_req, res) => {
   res.json({ engine: wa.engineName(), node: process.version });

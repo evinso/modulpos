@@ -90,6 +90,7 @@ async function checkManualPriceLosses({ storeId, source, moves }) {
   await notificationService.create({
     storeId,
     title: 'Elle fiyatlı ürünlerde zarar',
+    waEvent: 'manual_price_loss',
     message: `"${source.name}" güncellemesinde alış fiyatı artan ${found.length} elle fiyatlı ürün zarara düştü. Satış fiyatlarını güncelleyin veya şablon fiyatına döndürün.`,
     type: 'warning',
     link: '/products',
