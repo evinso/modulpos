@@ -21,9 +21,30 @@ Everything is described in `render.yaml` (Blueprint, auto-sync on push to `main`
 | `RETURN_TOKEN_IN_BODY` | `0` (current): login/register no longer put the JWT in the JSON body; the session is the httpOnly cookie `mp_session` only |
 | `CORS_ORIGIN` | comma separated allowed origins |
 | `RETENTION_*_DAYS` | optional log retention (defaults: product logs 30, API logs 30, sync logs 60, webhooks 30) |
+| `WAHA_BASE_URL`, `WAHA_API_KEY` | address and key of the WAHA server that sends the WhatsApp messages (see *WhatsApp*); without them the WhatsApp page reports "WAHA sunucu adresi tanımlı değil" |
 | `ALLOW_UNSIGNED_PROXY` | `1` re-opens `/api/xml-converter/proxy` for unsigned URLs (not recommended) |
 
 PayTR credentials are stored in the admin settings (or `PAYTR_MERCHANT_ID/KEY/SALT`); payments stay disabled until all three exist.
+
+## WhatsApp (WAHA)
+Admin only (the **WhatsApp** page under *Sistem Yönetimi*; normal users cannot see or change anything there). There is **one** WhatsApp
+number for the whole platform, the one the admin links with a QR code, and every message (to the admin, to users, login codes) goes out
+through it. Users only give their phone number.
+
+WAHA is a **separate server** that keeps the logged-in WhatsApp session; ModulPOS just calls its HTTP API. It cannot run inside the API
+service, and not on Render's free plan either (it sleeps and has no persistent disk, so the QR would have to be scanned again after every
+restart). Set it up once:
+1. Run WAHA on an always-on machine with a persistent disk, reachable over HTTPS (docker compose: image `devlikeapro/waha`, port 3000,
+   volume `./.sessions:/app/.sessions`, env `WAHA_API_KEY=<long random secret>`, `WHATSAPP_DEFAULT_ENGINE=NOWEB` (no browser, lighter),
+   `WAHA_DASHBOARD_USERNAME` / `WAHA_DASHBOARD_PASSWORD`).
+2. Render → `modulpos-api` → Environment: `WAHA_BASE_URL=https://<waha host>` and the same `WAHA_API_KEY`; then deploy (env changes need a manual deploy).
+3. WhatsApp page: *Bağlantı Ekle* (session name `default`) → *QR Kodu Göster* (it renews itself about every 20 s) → on the phone:
+   WhatsApp → Bağlı cihazlar → Cihaz bağla. The card turns *Bağlı*. If something is wrong, the card / QR box says what (address missing,
+   server down, key refused …).
+4. *Bildirim Ayarları*: admin phone as `905XXXXXXXXX`, tick the events, *Kaydet*, *Test Gönder*. Switch *WhatsApp OTP* on **last**: with WAHA down
+   or a wrong phone nobody can log in from a browser that has no open session.
+
+Use a dedicated SIM: WAHA is not an official WhatsApp API, and many automated messages can get a number restricted.
 
 ## Sessions
 The browser session is an **httpOnly, Secure, SameSite=Lax cookie** (`mp_session`, host-only on `api.modulpos.com`), so page scripts can

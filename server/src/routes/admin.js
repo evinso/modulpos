@@ -672,10 +672,10 @@ router.post('/system-settings', auth, isAdmin, async (req, res) => {
  */
 router.post('/whatsapp-test', auth, isAdmin, async (_req, res) => {
   try {
-    await whatsappService.sendWhatsApp('✅ *ModulPOS Test Mesajı*\n\nWhatsApp bildirimleri başarıyla çalışıyor!');
+    await whatsappService.sendAdminTest();   // throws a readable reason (disabled / no phone / WAHA unreachable) instead of pretending
     res.json({ message: 'Test mesajı gönderildi' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message });
   }
 });
 

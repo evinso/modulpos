@@ -44,6 +44,11 @@ cd client && npm run test:smoke                 # renders the products screen in
   loss (notification `manual_price_loss`, only at the moment it happens); the product list/detail flag the state at any time
   (`pricing.loss`). `POST /products/reset-manual-prices` gives hand-typed prices back to the template (products no template
   covers keep theirs).
+* **WhatsApp** (`services/whatsappService.js`, `services/whatsapp/wahaService.js`, page `/whatsapp`): admin only, page and API. ONE platform-wide
+  WAHA session (setting `waha_session`, linked by the admin's QR) sends everything, to the admin phone and to the users' phones; users never configure
+  anything. WAHA is a separate server reached through `WAHA_BASE_URL` / `WAHA_API_KEY` (DEPLOY_RENDER.md). Phones typed the local way (05XX…) are completed
+  to 90… when sending (`normalizePhone`). Failures are reported on the WhatsApp page (`WahaService.describeError`); the notification senders stay silent on
+  purpose. In-app notifications are also forwarded to the user's phone unless created with `noWhatsapp: true` (the event checklist does not filter those).
 * **Field mapping**: `xml/autoMapping.js` guesses the mapping for new feeds; the user's saved mapping always wins.
 * **Tenant isolation**: every route that takes an `:id` must verify the record belongs to the caller's store
   (`middleware/ownership.js` → `router.param`). Never look records up by `id` alone.

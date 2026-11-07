@@ -52,7 +52,8 @@ async function sendToAdminAndUser(message, userPhone = null) {
   const waha = new WahaService(s.waha_session || 'default');
   const targets = [];
   if (s.waha_admin_phone) targets.push(s.waha_admin_phone);
-  if (userPhone && userPhone !== s.waha_admin_phone) targets.push(userPhone);
+  // Same person typed two ways (05XX… / 905XX…) must not get the message twice
+  if (userPhone && WahaService.normalizePhone(userPhone) !== WahaService.normalizePhone(s.waha_admin_phone)) targets.push(userPhone);
   await Promise.all(targets.map(phone =>
     waha.sendMessage(phone, message).catch(e => console.error(`[WhatsApp] Send to ${phone} failed:`, e.message))
   ));
@@ -165,6 +166,19 @@ async function isOtpEnabled() {
   return s.waha_otp_enabled === 'true';
 }
 
+// The "Test Gönder" button: unlike the notification senders (which stay silent on purpose) this one must say why nothing was sent.
+async function sendAdminTest() {
+  const fail = (status, message) => Object.assign(new Error(message), { status });
+  const s = await getSettings();
+  if (s.waha_enabled !== 'true') throw fail(400, 'Bildirimler kapalı ya da açıldığı henüz kaydedilmedi. Anahtarı açıp “Kaydet”e basın.');
+  if (!s.waha_admin_phone) throw fail(400, 'Yönetici telefon numarası kayıtlı değil. Numarayı yazıp “Kaydet”e basın.');
+  try {
+    await new WahaService(s.waha_session || 'default').sendMessage(s.waha_admin_phone, '✅ *ModulPOS Test Mesajı*\n\nWhatsApp bildirimleri başarıyla çalışıyor!');
+  } catch (err) {
+    throw fail(502, WahaService.describeError(err));
+  }
+}
+
 // Generic in-app notification forwarder — checks waha_enabled, sends to user's phone
 async function forwardInAppNotification(userPhone, title, message) {
   if (!userPhone) return;
@@ -175,4 +189,4 @@ async function forwardInAppNotification(userPhone, title, message) {
   await waha.sendMessage(userPhone, text).catch(e => console.error('[WhatsApp] forwardInApp failed:', e.message));
 }
 
-module.exports = { sendWhatsApp, sendWhatsAppTo, forwardInAppNotification, isOtpEnabled, notifyNewUser, notifySubscriptionUpdated, notifyCreditTopup, notifyNewSupportTicket, notifySubscriptionExpired, notifyNewOrder, notifyOrderStatusChange, notifySupportReply, notifyXmlError, notifyPaymentFailed, notifyUserLogin, notifyProductSync, notifyTrendyolUpdate, notifyNewMarketplace, notifyLowCredit, invalidateCache };
+module.exports = { sendWhatsApp, sendWhatsAppTo, sendAdminTest, forwardInAppNotification, isOtpEnabled, notifyNewUser, notifySubscriptionUpdated, notifyCreditTopup, notifyNewSupportTicket, notifySubscriptionExpired, notifyNewOrder, notifyOrderStatusChange, notifySupportReply, notifyXmlError, notifyPaymentFailed, notifyUserLogin, notifyProductSync, notifyTrendyolUpdate, notifyNewMarketplace, notifyLowCredit, invalidateCache };

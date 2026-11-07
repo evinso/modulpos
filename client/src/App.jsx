@@ -113,7 +113,7 @@ function App() {
             <Route path="/credit-admin"       element={<AdminRoute><CreditAdminPage /></AdminRoute>} />
             <Route path="/questions-admin"  element={<AdminRoute><QuestionsAdminPage /></AdminRoute>} />
             <Route path="/guide"            element={<GuidePage />} />
-            <Route path="/whatsapp"         element={<WhatsappPage />} />
+            <Route path="/whatsapp"         element={<AdminRoute><WhatsappPage /></AdminRoute>} />
           </Route>
         </Routes>
       </Suspense>

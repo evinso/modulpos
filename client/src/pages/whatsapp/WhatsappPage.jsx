@@ -1,12 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, MessageSquare, Wifi, WifiOff, QrCode, RefreshCw, Send, LogOut, RotateCcw, X, Pencil, Bell } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../store/authStore';
+import { QR_TIMING } from './qrTiming';
 
 const STATE_MAP = {
   authorized:    { label: 'Bağlı',      color: 'var(--success)',  bg: 'rgba(16,185,129,0.12)',  icon: <Wifi size={13} /> },
   notAuthorized: { label: 'Bağlı Değil', color: 'var(--danger)',  bg: 'rgba(239,68,68,0.12)',   icon: <WifiOff size={13} /> },
+  unreachable:   { label: "WAHA'ya ulaşılamıyor", color: 'var(--danger)', bg: 'rgba(239,68,68,0.12)', icon: <WifiOff size={13} /> },
+  error:         { label: 'WAHA hatası', color: 'var(--danger)',  bg: 'rgba(239,68,68,0.12)',   icon: <WifiOff size={13} /> },
   blocked:       { label: 'Engellendi', color: 'var(--danger)',   bg: 'rgba(239,68,68,0.12)',   icon: <WifiOff size={13} /> },
   starting:      { label: 'Başlatılıyor', color: 'var(--warning)', bg: 'rgba(245,158,11,0.12)', icon: <RefreshCw size={13} /> },
 };
@@ -23,6 +26,8 @@ export default function WhatsappPage() {
   const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState({});
   const [statuses, setStatuses] = useState({});
+  const [statusMsgs, setStatusMsgs] = useState({});   // connId → why the state is what it is (e.g. WAHA unreachable)
+  const [qrActive, setQrActive] = useState(null);     // connId whose QR is kept fresh until it is scanned
   const [statusLoading, setStatusLoading] = useState({});
   const [qrData, setQrData] = useState({}); // connId → { type, message }
   const [qrLoading, setQrLoading] = useState({});
@@ -37,7 +42,7 @@ export default function WhatsappPage() {
   const [wahaLoading, setWahaLoading] = useState(false);
   const [wahaTesting, setWahaTesting] = useState(false);
 
-  useEffect(() => { fetchConnections(); loadWahaSettings(); }, []);
+  useEffect(() => { if (isAdmin) { fetchConnections(); loadWahaSettings(); } }, []);   // a normal user requests nothing
 
   const fetchConnections = async () => {
     try {
@@ -51,25 +56,57 @@ export default function WhatsappPage() {
 
   const checkStatus = async (id) => {
     setStatusLoading(p => ({ ...p, [id]: true }));
+    let state;
     try {
       const res = await api.get(`/whatsapp/connections/${id}/status`);
-      setStatuses(p => ({ ...p, [id]: res.data.stateInstance }));
+      state = res.data.stateInstance;
+      setStatusMsgs(p => ({ ...p, [id]: res.data.message || '' }));
     } catch {
-      setStatuses(p => ({ ...p, [id]: 'error' }));
+      state = 'error';
+      setStatusMsgs(p => ({ ...p, [id]: 'Durum alınamadı.' }));
     } finally {
       setStatusLoading(p => ({ ...p, [id]: false }));
     }
+    setStatuses(p => ({ ...p, [id]: state }));
+    return state;
   };
 
-  const fetchQR = async (id) => {
-    setQrLoading(p => ({ ...p, [id]: true }));
-    setQrData(p => ({ ...p, [id]: null }));
+  const fetchQR = async (id, silent = false) => {
+    if (!silent) { setQrLoading(p => ({ ...p, [id]: true })); setQrData(p => ({ ...p, [id]: null })); }
     try {
       const res = await api.get(`/whatsapp/connections/${id}/qr`);
       setQrData(p => ({ ...p, [id]: res.data }));
-    } catch { toast.error('QR kod alınamadı'); }
-    finally { setQrLoading(p => ({ ...p, [id]: false })); }
+      // A QR lives only ~20 s: keep renewing it until it is scanned, but stop when there is nothing to wait for
+      if (res.data.type === 'error' || res.data.type === 'alreadyLogged') setQrActive(null);
+      else if (!silent) setQrActive(id);
+      if (res.data.type === 'alreadyLogged') checkStatus(id);
+    } catch {
+      if (!silent) toast.error('QR kod alınamadı');
+      setQrActive(null);
+    } finally { if (!silent) setQrLoading(p => ({ ...p, [id]: false })); }
   };
+
+  // While a QR is on screen: renew it (WAHA replaces it every ~20 s) and watch for the scan
+  const live = useRef({});
+  useEffect(() => { live.current = { checkStatus, fetchQR }; });
+  useEffect(() => {
+    if (!qrActive) return undefined;
+    const id = qrActive;
+    let stopped = false;
+    const started = Date.now();
+    const stop = (message) => {
+      stopped = true; setQrActive(null);
+      if (message) setQrData(p => ({ ...p, [id]: { type: 'error', message } }));
+    };
+    const statusTimer = setInterval(async () => {
+      if (stopped) return;
+      if (Date.now() - started > QR_TIMING.maxMs) return stop('QR süresi doldu. Yeniden denemek için “QR Kodu Göster”e basın.');
+      const state = await live.current.checkStatus(id);
+      if (!stopped && state === 'authorized') { stop(); setQrData(p => ({ ...p, [id]: null })); toast.success('WhatsApp bağlandı'); }
+    }, QR_TIMING.statusMs);
+    const qrTimer = setInterval(() => { if (!stopped) live.current.fetchQR(id, true); }, QR_TIMING.qrMs);
+    return () => { stopped = true; clearInterval(statusTimer); clearInterval(qrTimer); };
+  }, [qrActive]);
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -176,7 +213,7 @@ export default function WhatsappPage() {
     setShowModal(true);
   };
 
-  if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
+  if (loading && isAdmin) return <div className="loading-spinner"><div className="spinner"></div></div>;
 
   if (!isAdmin) {
     return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Bu sayfaya erişim yetkiniz yok.</div>;
@@ -241,6 +278,9 @@ export default function WhatsappPage() {
                     <RefreshCw size={13} className={statusLoading[c.id] ? 'spinning' : ''} />
                   </button>
                 </div>
+                {statusMsgs[c.id] && !isAuthorized && (
+                  <div data-testid="status-msg" style={{ fontSize: 12, color: state === 'unreachable' || state === 'error' ? 'var(--danger)' : 'var(--text-muted)', marginTop: -6, marginBottom: 14 }}>{statusMsgs[c.id]}</div>
+                )}
 
                 {/* Session info */}
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
@@ -257,13 +297,13 @@ export default function WhatsappPage() {
                       <div style={{ marginTop: 10, textAlign: 'center' }}>
                         {qr.type === 'qrCode' ? (
                           <>
-                            <img src={`data:image/png;base64,${qr.message}`} alt="QR Code" style={{ width: 180, height: 180, borderRadius: 8, border: '1px solid var(--border-color)' }} />
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>WhatsApp ile QR kodu tarayın</div>
+                            <img src={`data:${qr.mimetype || 'image/png'};base64,${qr.message}`} alt="QR Code" style={{ width: 180, height: 180, borderRadius: 8, border: '1px solid var(--border-color)' }} />
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>Telefonda WhatsApp &gt; Bağlı cihazlar &gt; Cihaz bağla ile okutun. QR yaklaşık 20 saniyede bir kendiliğinden yenilenir.</div>
                           </>
                         ) : qr.type === 'alreadyLogged' ? (
                           <div style={{ fontSize: 13, color: 'var(--success)', fontWeight: 600 }}>✓ Zaten giriş yapılmış</div>
                         ) : (
-                          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{qr.message}</div>
+                          <div data-testid="qr-msg" style={{ fontSize: 13, color: qr.type === 'error' ? 'var(--danger)' : 'var(--text-muted)' }}>{qr.message}</div>
                         )}
                       </div>
                     )}
@@ -394,7 +434,7 @@ export default function WhatsappPage() {
               <div>
                 <label className="form-label">Oturum Adı</label>
                 <input className="form-input" placeholder="default" value={form.instanceId} onChange={e => setForm(p => ({ ...p, instanceId: e.target.value }))} required />
-                <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 4 }}>⚠️ WAHA ücretsiz sürümde oturum adı mutlaka <strong>default</strong> olmalıdır.</div>
+                <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 4 }}>⚠️ Emin değilseniz <strong>default</strong> yazın (eski WAHA sürümlerinde yalnızca bu ad çalışır). Aşağıdaki “WAHA Oturum Adı” ile aynı olmalı.</div>
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>İptal</button>

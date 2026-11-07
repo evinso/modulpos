@@ -10,6 +10,8 @@ const mk = (i, over = {}) => ({
   ...over,
 });
 const calls = [];
+// WhatsApp page: tests change `wa.status` / `wa.qr` (a value, or a function of the call number) to play different WAHA situations
+const wa = { status: { stateInstance: 'notAuthorized' }, qr: { type: 'loading', message: '' }, qrCalls: 0 };
 const detail = {
   product: { ...mk(1), description: 'Uzun bir açıklama metni '.repeat(20), images: ['https://img.example.com/a.jpg', 'https://img.example.com/b.jpg'], createdAt: '2026-11-01T10:00:00Z', updatedAt: '2026-11-02T10:00:00Z', xmlSource: { id: 's1', name: 'Tedarikçi A', globalProviderId: null, purchaseVatRate: 20, lastSyncedAt: '2026-11-04T10:00:00Z' } },
   feed: { sku: 'SKU-1', barcode: '8690000000001', title: 'Test ürünü 1 (XML)', price: 90, stock: 3, brand: 'ModaX', category: 'Giyim|Kadın|Elbise', images: ['a', 'b'] },
@@ -41,6 +43,10 @@ const get = async (url, cfg = {}) => {
     { id: 'r2', name: 'Eski taslak', value: 10, type: 'percentage', applyTo: 'price_template', isActive: false, priority: 0, conditions: JSON.stringify({ shippingTiers: [{ upTo: 199.99, cost: 48.33 }, { upTo: null, cost: 88.96 }], shippingTiersExVat: true, profitMode: 'margin_on_gross', commissionPct: 22.37, packagingCost: 16.39, commissionBasis: 'gross', minPurchasePrice: 10, maxPurchasePrice: 500 }) },
   ] };
   if (url === '/pricing/summaries') return { data: { total: 0, rules: {} } };
+  if (url === '/whatsapp/connections') return { data: [{ id: 'w1', name: 'wp', instanceId: 'default' }] };
+  if (url === '/whatsapp/connections/w1/status') return { data: wa.status };
+  if (url === '/whatsapp/connections/w1/qr') { wa.qrCalls++; return { data: typeof wa.qr === 'function' ? wa.qr(wa.qrCalls) : wa.qr }; }
+  if (url.startsWith('/admin/system-settings')) return { data: { waha_enabled: 'false', waha_session: 'default', waha_admin_phone: '905551112233', waha_events: '["new_order"]', waha_otp_enabled: 'false' } };
   throw new Error('unmocked GET ' + url);
 };
 const post = async (url, body) => {
@@ -65,5 +71,5 @@ const put = async (url, body) => {
   }
   if (/send-settings$/.test(url)) return { data: { settings: body.settings, summary: [] } }; return { data: {} }; };
 const del = async (url, cfg) => { calls.push({ m: 'DELETE', url, params: cfg && cfg.params }); return { data: /sale-price$/.test(url) ? { ok: true, removed: 1 } : {} }; };
-module.exports = { get, post, put, delete: del, calls };
+module.exports = { get, post, put, delete: del, calls, wa };
 module.exports.default = module.exports;

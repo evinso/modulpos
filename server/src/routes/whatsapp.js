@@ -110,7 +110,9 @@ router.post('/connections/:id/send', async (req, res, next) => {
     const { phone, message } = req.body;
     if (!phone || !message) return res.status(400).json({ error: 'Telefon ve mesaj zorunludur' });
     const svc = new WahaService(conn.instanceId);
-    const data = await svc.sendMessage(phone, message);
+    let data;
+    try { data = await svc.sendMessage(phone, message); }
+    catch (err) { return res.status(502).json({ error: WahaService.describeError(err) }); }   // say why, instead of a bare 500
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -134,7 +136,9 @@ router.post('/connections/:id/reboot', async (req, res, next) => {
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
     const conn = await getConn(req.params.id, store.id);
     const svc = new WahaService(conn.instanceId);
-    const data = await svc.reboot();
+    let data;
+    try { data = await svc.reboot(); }
+    catch (err) { return res.status(502).json({ error: WahaService.describeError(err) }); }
     res.json(data);
   } catch (err) { next(err); }
 });
