@@ -28,6 +28,7 @@ export default function WhatsappPage() {
   const [statuses, setStatuses] = useState({});
   const [statusMsgs, setStatusMsgs] = useState({});   // connId → why the state is what it is (e.g. WAHA unreachable)
   const [qrActive, setQrActive] = useState(null);     // connId whose QR is kept fresh until it is scanned
+  const [engine, setEngine] = useState(null);          // 'embedded' (built into the API, free) | 'waha' (separate server)
   const [statusLoading, setStatusLoading] = useState({});
   const [qrData, setQrData] = useState({}); // connId → { type, message }
   const [qrLoading, setQrLoading] = useState({});
@@ -42,7 +43,7 @@ export default function WhatsappPage() {
   const [wahaLoading, setWahaLoading] = useState(false);
   const [wahaTesting, setWahaTesting] = useState(false);
 
-  useEffect(() => { if (isAdmin) { fetchConnections(); loadWahaSettings(); } }, []);   // a normal user requests nothing
+  useEffect(() => { if (isAdmin) { fetchConnections(); loadWahaSettings(); api.get('/whatsapp/engine').then(r => setEngine(r.data.engine)).catch(() => {}); } }, []);   // a normal user requests nothing
 
   const fetchConnections = async () => {
     try {
@@ -224,7 +225,9 @@ export default function WhatsappPage() {
       <div className="page-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1>WhatsApp Entegrasyonu</h1>
-          <p>WAHA üzerinden WhatsApp hesaplarınızı yönetin</p>
+          <p>{engine === 'embedded'
+            ? 'WhatsApp doğrudan ModulPOS içinden bağlanır (ayrı sunucu gerekmez). Tek bir numara bağlanır; tüm bildirimler bu numaradan çıkar.'
+            : 'WAHA üzerinden WhatsApp hesaplarınızı yönetin'}</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setEditConn(null); setForm({ name: '', instanceId: '' }); setShowModal(true); }}>
           <Plus size={16} /> Bağlantı Ekle
@@ -278,7 +281,7 @@ export default function WhatsappPage() {
                     <RefreshCw size={13} className={statusLoading[c.id] ? 'spinning' : ''} />
                   </button>
                 </div>
-                {statusMsgs[c.id] && !isAuthorized && (
+                {statusMsgs[c.id] && (
                   <div data-testid="status-msg" style={{ fontSize: 12, color: state === 'unreachable' || state === 'error' ? 'var(--danger)' : 'var(--text-muted)', marginTop: -6, marginBottom: 14 }}>{statusMsgs[c.id]}</div>
                 )}
 
@@ -318,8 +321,8 @@ export default function WhatsappPage() {
                   <button className="btn btn-secondary btn-sm" onClick={() => handleReboot(c.id)} title="Yeniden Başlat">
                     <RotateCcw size={13} />
                   </button>
-                  {isAuthorized && (
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleLogout(c.id)} title="Oturumu Kapat">
+                  {(isAuthorized || engine === 'embedded') && (
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleLogout(c.id)} title={engine === 'embedded' ? 'Oturumu kapat / sıfırla (yeniden QR gerekir)' : 'Oturumu Kapat'}>
                       <LogOut size={13} />
                     </button>
                   )}
@@ -348,6 +351,7 @@ export default function WhatsappPage() {
               <span style={{ position: 'absolute', top: 3, left: wahaSettings.waha_enabled === 'true' ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
             </button>
           </div>
+          {engine !== 'embedded' && (
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">WAHA Oturum Adı</label>
             <input type="text" className="form-input" placeholder="default"
@@ -356,6 +360,7 @@ export default function WhatsappPage() {
             />
             <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>Yukarıda oluşturduğunuz oturumun adıyla aynı olmalı</span>
           </div>
+          )}
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">Yönetici Telefon Numarası</label>
             <input type="text" className="form-input" placeholder="905XXXXXXXXX"
@@ -434,7 +439,9 @@ export default function WhatsappPage() {
               <div>
                 <label className="form-label">Oturum Adı</label>
                 <input className="form-input" placeholder="default" value={form.instanceId} onChange={e => setForm(p => ({ ...p, instanceId: e.target.value }))} required />
-                <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 4 }}>⚠️ Emin değilseniz <strong>default</strong> yazın (eski WAHA sürümlerinde yalnızca bu ad çalışır). Aşağıdaki “WAHA Oturum Adı” ile aynı olmalı.</div>
+                {engine === 'embedded'
+                  ? <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Dahili bağlantıda yalnızca bir etikettir; <strong>default</strong> yazabilirsiniz.</div>
+                  : <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 4 }}>⚠️ Emin değilseniz <strong>default</strong> yazın (eski WAHA sürümlerinde yalnızca bu ad çalışır). Aşağıdaki “WAHA Oturum Adı” ile aynı olmalı.</div>}
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>İptal</button>

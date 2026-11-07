@@ -1,5 +1,5 @@
 const prisma = require('../config/database');
-const WahaService = require('./whatsapp/wahaService');
+const whatsapp = require('./whatsapp');   // picks the built-in connection or WAHA
 
 let cachedSettings = null;
 let cacheExpiry = 0;
@@ -29,7 +29,7 @@ async function isEventEnabled(eventKey) {
 // Send to a specific phone number
 async function sendWhatsAppTo(phone, message) {
   const s = await getSettings();
-  const waha = new WahaService(s.waha_session || 'default');
+  const waha = whatsapp.createClient(s.waha_session || 'default');
   await waha.sendMessage(phone, message);
 }
 
@@ -38,7 +38,7 @@ async function sendWhatsApp(message) {
   try {
     const s = await getSettings();
     if (s.waha_enabled !== 'true' || !s.waha_admin_phone) return;
-    const waha = new WahaService(s.waha_session || 'default');
+    const waha = whatsapp.createClient(s.waha_session || 'default');
     await waha.sendMessage(s.waha_admin_phone, message);
   } catch (err) {
     console.error('[WhatsApp] Admin send failed:', err.message);
@@ -49,11 +49,11 @@ async function sendWhatsApp(message) {
 async function sendToAdminAndUser(message, userPhone = null) {
   const s = await getSettings();
   if (s.waha_enabled !== 'true') return;
-  const waha = new WahaService(s.waha_session || 'default');
+  const waha = whatsapp.createClient(s.waha_session || 'default');
   const targets = [];
   if (s.waha_admin_phone) targets.push(s.waha_admin_phone);
   // Same person typed two ways (05XX… / 905XX…) must not get the message twice
-  if (userPhone && WahaService.normalizePhone(userPhone) !== WahaService.normalizePhone(s.waha_admin_phone)) targets.push(userPhone);
+  if (userPhone && whatsapp.normalizePhone(userPhone) !== whatsapp.normalizePhone(s.waha_admin_phone)) targets.push(userPhone);
   await Promise.all(targets.map(phone =>
     waha.sendMessage(phone, message).catch(e => console.error(`[WhatsApp] Send to ${phone} failed:`, e.message))
   ));
@@ -173,9 +173,9 @@ async function sendAdminTest() {
   if (s.waha_enabled !== 'true') throw fail(400, 'Bildirimler kapalı ya da açıldığı henüz kaydedilmedi. Anahtarı açıp “Kaydet”e basın.');
   if (!s.waha_admin_phone) throw fail(400, 'Yönetici telefon numarası kayıtlı değil. Numarayı yazıp “Kaydet”e basın.');
   try {
-    await new WahaService(s.waha_session || 'default').sendMessage(s.waha_admin_phone, '✅ *ModulPOS Test Mesajı*\n\nWhatsApp bildirimleri başarıyla çalışıyor!');
+    await whatsapp.createClient(s.waha_session || 'default').sendMessage(s.waha_admin_phone, '✅ *ModulPOS Test Mesajı*\n\nWhatsApp bildirimleri başarıyla çalışıyor!');
   } catch (err) {
-    throw fail(502, WahaService.describeError(err));
+    throw fail(502, whatsapp.describeError(err));
   }
 }
 
@@ -184,7 +184,7 @@ async function forwardInAppNotification(userPhone, title, message) {
   if (!userPhone) return;
   const s = await getSettings();
   if (s.waha_enabled !== 'true') return;
-  const waha = new WahaService(s.waha_session || 'default');
+  const waha = whatsapp.createClient(s.waha_session || 'default');
   const text = `🔔 *${title}*\n\n${message}\n\n📅 ${new Date().toLocaleString('tr-TR')}`;
   await waha.sendMessage(userPhone, text).catch(e => console.error('[WhatsApp] forwardInApp failed:', e.message));
 }

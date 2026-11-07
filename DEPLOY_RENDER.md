@@ -21,30 +21,35 @@ Everything is described in `render.yaml` (Blueprint, auto-sync on push to `main`
 | `RETURN_TOKEN_IN_BODY` | `0` (current): login/register no longer put the JWT in the JSON body; the session is the httpOnly cookie `mp_session` only |
 | `CORS_ORIGIN` | comma separated allowed origins |
 | `RETENTION_*_DAYS` | optional log retention (defaults: product logs 30, API logs 30, sync logs 60, webhooks 30) |
-| `WAHA_BASE_URL`, `WAHA_API_KEY` | address and key of the WAHA server that sends the WhatsApp messages (see *WhatsApp*); without them the WhatsApp page reports "WAHA sunucu adresi tanımlı değil" |
+| `WAHA_BASE_URL`, `WAHA_API_KEY` | only when WhatsApp should go through a separate WAHA server (see *WhatsApp*); without them the built-in connection is used |
+| `WHATSAPP_ENGINE` | optional: `embedded` or `waha` forces one of the two |
 | `ALLOW_UNSIGNED_PROXY` | `1` re-opens `/api/xml-converter/proxy` for unsigned URLs (not recommended) |
 
 PayTR credentials are stored in the admin settings (or `PAYTR_MERCHANT_ID/KEY/SALT`); payments stay disabled until all three exist.
 
-## WhatsApp (WAHA)
+## WhatsApp
 Admin only (the **WhatsApp** page under *Sistem Yönetimi*; normal users cannot see or change anything there). There is **one** WhatsApp
 number for the whole platform, the one the admin links with a QR code, and every message (to the admin, to users, login codes) goes out
 through it. Users only give their phone number.
 
-WAHA is a **separate server** that keeps the logged-in WhatsApp session; ModulPOS just calls its HTTP API. It cannot run inside the API
-service, and not on Render's free plan either (it sleeps and has no persistent disk, so the QR would have to be scanned again after every
-restart). Set it up once:
-1. Run WAHA on an always-on machine with a persistent disk, reachable over HTTPS (docker compose: image `devlikeapro/waha`, port 3000,
-   volume `./.sessions:/app/.sessions`, env `WAHA_API_KEY=<long random secret>`, `WHATSAPP_DEFAULT_ENGINE=NOWEB` (no browser, lighter),
-   `WAHA_DASHBOARD_USERNAME` / `WAHA_DASHBOARD_PASSWORD`).
-2. Render → `modulpos-api` → Environment: `WAHA_BASE_URL=https://<waha host>` and the same `WAHA_API_KEY`; then deploy (env changes need a manual deploy).
-3. WhatsApp page: *Bağlantı Ekle* (session name `default`) → *QR Kodu Göster* (it renews itself about every 20 s) → on the phone:
-   WhatsApp → Bağlı cihazlar → Cihaz bağla. The card turns *Bağlı*. If something is wrong, the card / QR box says what (address missing,
-   server down, key refused …).
-4. *Bildirim Ayarları*: admin phone as `905XXXXXXXXX`, tick the events, *Kaydet*, *Test Gönder*. Switch *WhatsApp OTP* on **last**: with WAHA down
-   or a wrong phone nobody can log in from a browser that has no open session.
+**Built-in connection (default, free, nothing to install).** The API itself is the linked device (Baileys). The login is stored encrypted in the
+database (table `WhatsappAuthState`), so a sleep or a deploy does not unlink the phone; the connection is opened when something needs it.
+1. WhatsApp page: *Bağlantı Ekle* (any session name, e.g. `default`) → *QR Kodu Göster* (it renews itself about every 20 s) → on the phone:
+   WhatsApp → Bağlı cihazlar → Cihaz bağla. The card turns *Bağlı* and shows the last digits of the linked number.
+2. *Bildirim Ayarları*: admin phone as `905XXXXXXXXX`, tick the events, *Kaydet*, *Test Gönder*. Switch *WhatsApp OTP* on **last**: if the
+   connection is down or a user's phone is wrong, nobody can log in from a browser that has no open session.
+3. *Oturumu kapat / sıfırla* (the exit icon) unlinks the phone and deletes the stored login; the next QR starts clean.
+Limits and behaviour: messages go out one at a time with a short pause, at most 120 an hour; the first message after the API woke up waits a few
+seconds for the connection. Incoming chats are never read. Baileys is pinned to an exact version: WhatsApp changes can break such libraries, so after
+a bump (or if the QR stops appearing) check *QR Kodu Göster* first. Only one process may use the linked number at a time: during a deploy two instances
+overlap for a moment and WhatsApp keeps one of them.
 
-Use a dedicated SIM: WAHA is not an official WhatsApp API, and many automated messages can get a number restricted.
+**WAHA (optional, separate server).** Set `WAHA_BASE_URL=https://<waha host>` and `WAHA_API_KEY` (the same key WAHA runs with) and deploy; the page
+then talks to WAHA instead. WAHA must run on an always-on machine with a persistent disk (docker compose: image `devlikeapro/waha`, port 3000, volume
+`./.sessions:/app/.sessions`, `WAHA_API_KEY=<long random secret>`, `WHATSAPP_DEFAULT_ENGINE=NOWEB`); it cannot run on Render's free plan (it sleeps, has no
+persistent disk, and a second always-on free service would use up the shared 750 free hours of the workspace).
+
+Either way: use a dedicated SIM. Both are unofficial ways to use WhatsApp, and many automated messages can get a number restricted.
 
 ## Sessions
 The browser session is an **httpOnly, Secure, SameSite=Lax cookie** (`mp_session`, host-only on `api.modulpos.com`), so page scripts can

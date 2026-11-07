@@ -20,6 +20,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.2",
     "@prisma/client": "^5.22.0",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "axios": "^1.15.2",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
@@ -33,6 +34,7 @@
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.1",
     "node-cron": "^4.2.1",
+    "qrcode": "^1.5.4",
     "uuid": "^14.0.0",
     "xml2js": "^0.6.2"
   },

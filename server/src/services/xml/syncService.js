@@ -324,6 +324,7 @@ async function execute(source, syncLog, trigger, ctl = { aborted: false }) {
     type: errors > 0 || skipped > 0 || gone.held > 0 ? 'warning' : 'success',
     link: trigger === 'cron' ? '/products' : '/xml-sources',
     data: { notifType: 'xml_sync', sourceName: source.name, ...result },
+    noWhatsapp: true,   // one of these every sync: the bell is enough (the optional "product_sync" event covers WhatsApp)
   }).catch(() => {});
   if (trigger === 'cron') {
     whatsappService.notifyProductSync(source.store?.name || storeId, source.name, created, updated).catch(() => {});

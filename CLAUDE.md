@@ -44,11 +44,14 @@ cd client && npm run test:smoke                 # renders the products screen in
   loss (notification `manual_price_loss`, only at the moment it happens); the product list/detail flag the state at any time
   (`pricing.loss`). `POST /products/reset-manual-prices` gives hand-typed prices back to the template (products no template
   covers keep theirs).
-* **WhatsApp** (`services/whatsappService.js`, `services/whatsapp/wahaService.js`, page `/whatsapp`): admin only, page and API. ONE platform-wide
-  WAHA session (setting `waha_session`, linked by the admin's QR) sends everything, to the admin phone and to the users' phones; users never configure
-  anything. WAHA is a separate server reached through `WAHA_BASE_URL` / `WAHA_API_KEY` (DEPLOY_RENDER.md). Phones typed the local way (05XX…) are completed
-  to 90… when sending (`normalizePhone`). Failures are reported on the WhatsApp page (`WahaService.describeError`); the notification senders stay silent on
-  purpose. In-app notifications are also forwarded to the user's phone unless created with `noWhatsapp: true` (the event checklist does not filter those).
+* **WhatsApp** (`services/whatsapp/`, `services/whatsappService.js`, page `/whatsapp`): admin only, page and API. ONE linked number for the whole platform
+  (the admin scans the QR) sends everything, to the admin phone and to the users' phones; users never configure anything. Two engines behind `createClient()`
+  (`whatsapp/index.js`): the **built-in connection** (Baileys, `embeddedService.js`: default when no `WAHA_BASE_URL`; the login is kept encrypted in table
+  `WhatsappAuthState` because the free hosting has no disk; opened lazily, one message at a time with a pause, max 120 an hour) and **WAHA** (a separate
+  server, `wahaService.js`: used when `WAHA_BASE_URL` is set or `WHATSAPP_ENGINE=waha`). Baileys is pinned to an exact version on purpose: WhatsApp changes
+  can break it, so bump it deliberately and check that the QR still appears. Phones typed the local way (05XX…) are completed to 90… when sending
+  (`normalizePhone`). Failures are reported on the WhatsApp page (`describeError`); the notification senders stay silent on purpose. In-app notifications are
+  also forwarded to the user's phone unless created with `noWhatsapp: true` (the event checklist does not filter those; the XML sync notice opts out).
 * **Field mapping**: `xml/autoMapping.js` guesses the mapping for new feeds; the user's saved mapping always wins.
 * **Tenant isolation**: every route that takes an `:id` must verify the record belongs to the caller's store
   (`middleware/ownership.js` → `router.param`). Never look records up by `id` alone.

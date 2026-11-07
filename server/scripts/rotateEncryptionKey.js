@@ -26,4 +26,14 @@ const raw = new PrismaClient(); // plain client: reads/writes the stored (encryp
     n++;
   }
   console.log(`Re-encrypted ${n} connection(s).`);
+  // the built-in WhatsApp connection's login (a value that cannot be read any more simply means "link the phone again")
+  const wrows = await raw.whatsappAuthState.findMany();
+  let w = 0;
+  for (const r of wrows) {
+    let plain;
+    try { plain = decrypt(r.value); } catch { continue; }
+    await raw.whatsappAuthState.update({ where: { key: r.key }, data: { value: encrypt(plain) } });
+    w++;
+  }
+  console.log(`Re-encrypted ${w} WhatsApp login item(s).`);
 })().catch((e) => { console.error(e.message); process.exit(1); }).finally(() => raw.$disconnect());

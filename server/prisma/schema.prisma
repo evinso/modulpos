@@ -624,6 +624,14 @@ model TrendyolApiLog {
   @@index([createdAt])
 }
 
+// Login state of the built-in WhatsApp connection (Baileys): credentials and signal keys, one row each. The free hosting has no disk
+// that survives a sleep, so it lives here. `value` is JSON encrypted with ENCRYPTION_KEY (see services/whatsapp/authStore.js).
+model WhatsappAuthState {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 model WhatsappConnection {
   id         String   @id @default(uuid())
   storeId    String

@@ -1,7 +1,7 @@
 const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
-const WahaService = require('../services/whatsapp/wahaService');
+const wa = require('../services/whatsapp');   // built-in connection or WAHA
 
 const router = express.Router();
 router.use(auth);
@@ -10,6 +10,11 @@ router.use((req, res, next) => {
     return res.status(403).json({ error: 'Bu işlem için yetkiniz yok' });
   }
   next();
+});
+
+// Which connection method is in use (the page words its hints accordingly)
+router.get('/engine', (_req, res) => {
+  res.json({ engine: wa.engineName(), node: process.version });
 });
 
 async function getUserStore(userId) {
@@ -81,7 +86,7 @@ router.get('/connections/:id/status', async (req, res, next) => {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
     const conn = await getConn(req.params.id, store.id);
-    const svc = new WahaService(conn.instanceId);
+    const svc = wa.createClient(conn.instanceId);
     const data = await svc.getStatus();
     res.json(data);
   } catch (err) { next(err); }
@@ -93,7 +98,7 @@ router.get('/connections/:id/qr', async (req, res, next) => {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
     const conn = await getConn(req.params.id, store.id);
-    const svc = new WahaService(conn.instanceId);
+    const svc = wa.createClient(conn.instanceId);
     const data = await svc.getQR();
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.set('Pragma', 'no-cache');
@@ -109,10 +114,10 @@ router.post('/connections/:id/send', async (req, res, next) => {
     const conn = await getConn(req.params.id, store.id);
     const { phone, message } = req.body;
     if (!phone || !message) return res.status(400).json({ error: 'Telefon ve mesaj zorunludur' });
-    const svc = new WahaService(conn.instanceId);
+    const svc = wa.createClient(conn.instanceId);
     let data;
     try { data = await svc.sendMessage(phone, message); }
-    catch (err) { return res.status(502).json({ error: WahaService.describeError(err) }); }   // say why, instead of a bare 500
+    catch (err) { return res.status(502).json({ error: wa.describeError(err) }); }   // say why, instead of a bare 500
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -123,8 +128,10 @@ router.post('/connections/:id/logout', async (req, res, next) => {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
     const conn = await getConn(req.params.id, store.id);
-    const svc = new WahaService(conn.instanceId);
-    const data = await svc.logout();
+    const svc = wa.createClient(conn.instanceId);
+    let data;
+    try { data = await svc.logout(); }
+    catch (err) { return res.status(502).json({ error: wa.describeError(err) }); }
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -135,10 +142,10 @@ router.post('/connections/:id/reboot', async (req, res, next) => {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
     const conn = await getConn(req.params.id, store.id);
-    const svc = new WahaService(conn.instanceId);
+    const svc = wa.createClient(conn.instanceId);
     let data;
     try { data = await svc.reboot(); }
-    catch (err) { return res.status(502).json({ error: WahaService.describeError(err) }); }
+    catch (err) { return res.status(502).json({ error: wa.describeError(err) }); }
     res.json(data);
   } catch (err) { next(err); }
 });
