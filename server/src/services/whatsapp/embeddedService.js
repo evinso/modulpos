@@ -17,6 +17,7 @@ const BACKOFF_MS = [1000, 3000, 8000, 20000, 45000, 90000];   // reconnect attem
 const MIN_GAP_MS = 1500;          // between two messages (looks less like a bot, gentler on the number)
 const MAX_PER_HOUR = 120;         // safety valve: a runaway loop must not get the number blocked
 const CONNECT_WAIT_MS = 25000;    // how long a send waits for the connection to come up
+const { installQuietSignal } = require('./quietSignal');
 const QR_WAIT_MS = 12000;
 const POLL_MS = 250;
 const VERSION_TTL_MS = 6 * 60 * 60 * 1000;
@@ -76,6 +77,7 @@ class EmbeddedWhatsapp {
       let m;
       try { m = await this.loadBaileys(); }
       catch (err) { throw new WhatsappError(`WhatsApp bileşeni yüklenemedi: ${String(err && err.message || err).slice(0, 120)}`, 500); }
+      installQuietSignal();
       this.mod = { ...m, makeWASocket: (m.default && m.default.default) || m.default || m.makeWASocket };
     }
     return this.mod;
