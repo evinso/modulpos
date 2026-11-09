@@ -48,6 +48,17 @@ const posts2 = calls.filter((c) => c.m === 'POST' && /send-products$/.test(c.url
 ok('a refusal by Trendyol stops the run after the failing part', posts2.length === 2, String(posts2.length));
 ok('what was already sent is still reported', text().includes('Gönderim Tamamlandı') && document.querySelector('.modal-body').textContent.includes('100'));
 
+// ── nothing passes the minimum stock: the run must not end silently ──
+sendBehaviour.failAt150 = false; sendBehaviour.allBelowStock = true;
+await click(btn('Kapat'));
+await click(btn('Filtredeki Tümünü Seç'), 120);
+await click(btn('Seçilenleri Gönder'));
+const minInput = document.querySelector('.modal-body input[type="number"]');
+await act(async () => { const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; set.call(minInput, '3'); minInput.dispatchEvent(new window.Event('input', { bubbles: true })); });
+await click([...document.querySelectorAll('.modal-footer button')].find((b) => b.textContent.includes('Gönder')), 400);
+ok('when every part is refused for low stock, a result is still shown (not silence)', text().includes('Hiçbir Ürün Gönderilmedi'));
+ok('and it names the reason and the count', text().includes('Stoğu 3 adedin altında') && document.querySelector('.modal-body').textContent.includes('250'), document.querySelector('.modal-body')?.textContent.slice(0, 160));
+
 console.error = () => {};
 const real = errors.filter((e) => !/not wrapped in act|Warning: An update|ReactDOMTestUtils|act\(/.test(e));
 ok('no React errors/warnings while rendering', real.length === 0, real.slice(0, 3).join(' | '));

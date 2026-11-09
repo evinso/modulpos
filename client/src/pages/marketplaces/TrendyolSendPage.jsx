@@ -200,20 +200,20 @@ export default function TrendyolSendPage() {
     setSending(true);
     stopRef.current = false;
     const ids = Array.from(selectedIds);
-    const sum = { sent: 0, alreadyListed: 0, offSale: 0, errors: 0, batches: 0, stopped: false, failure: null };
+    const sum = { sent: 0, alreadyListed: 0, offSale: 0, errors: 0, belowMinStock: 0, batches: 0, stopped: false, failure: null };
     try {
       for (let i = 0; i < ids.length; i += SEND_PART) {
         if (stopRef.current) { sum.stopped = true; break; }
         setProgress(ids.length > SEND_PART ? { done: i, total: ids.length } : null);
         try {
           const res = await api.post(`/marketplace/connections/${selectedConn.id}/send-products`, { productIds: ids.slice(i, i + SEND_PART), minStock });
-          sum.sent += res.data.sent ?? 0; sum.alreadyListed += res.data.alreadyListed || 0; sum.offSale += res.data.offSale || 0; sum.errors += res.data.errors || 0; sum.batches++;
+          sum.sent += res.data.sent ?? 0; sum.alreadyListed += res.data.alreadyListed || 0; sum.offSale += res.data.offSale || 0; sum.errors += res.data.errors || 0; sum.belowMinStock += res.data.belowMinStock || 0; sum.batches++;
         } catch (err) {
           const d = err.response?.data;
           // "nothing in this part can be sent" is not a reason to stop; a refusal by Trendyol or a broken connection is
           if (d && d.error !== 'Trendyol API hatası' && !(err.response.status >= 500)) {
-            sum.alreadyListed += d.alreadyListed || 0; sum.offSale += d.offSale || 0; sum.errors += Array.isArray(d.details) ? d.details.length : 0;
-            if (ids.length <= SEND_PART) sum.failure = d.message || d.error || 'Gönderme hatası';
+            sum.alreadyListed += d.alreadyListed || 0; sum.offSale += d.offSale || 0; sum.belowMinStock += d.belowMinStock || 0; sum.errors += Array.isArray(d.details) ? d.details.length : 0;
+            sum.lastRefusal = d.error || d.message || 'Gönderme hatası';
             continue;
           }
           sum.failure = d?.message || d?.error || 'Gönderme hatası'; break;
@@ -223,10 +223,14 @@ export default function TrendyolSendPage() {
         ...(sum.alreadyListed ? { already_listed: sum.alreadyListed } : {}),
         ...(sum.offSale ? { off_sale: sum.offSale } : {}),
         ...(sum.errors ? { 'Doğrulamadan geçemeyen': sum.errors } : {}),
+        ...(sum.belowMinStock ? { [`Stoğu ${minStock} adedin altında`]: sum.belowMinStock } : {}),
       };
-      const skipped = sum.alreadyListed + sum.offSale + sum.errors;
+      const skipped = sum.alreadyListed + sum.offSale + sum.errors + sum.belowMinStock;
+      // Always say what happened: a run that sent nothing must not end silently
       if (sum.sent > 0 || skipped > 0) {
-        setSendResult({ type: 'selected', sent: sum.sent, batches: sum.batches || 1, skipped, skipReasons: skipped ? skipReasons : undefined, sentAt: new Date().toLocaleString('tr-TR') });
+        setSendResult({ type: 'selected', sent: sum.sent, batches: sum.batches, skipped, skipReasons: skipped ? skipReasons : undefined, sentAt: new Date().toLocaleString('tr-TR') });
+      } else if (!sum.failure && !sum.stopped) {
+        toast.error(sum.lastRefusal || 'Hiçbir ürün gönderilmedi', { duration: 8000 });
       }
       if (sum.failure && sum.sent === 0) toast.error(sum.failure, { duration: 8000 });
       else if (sum.failure) toast.error(`${sum.sent} ürün gönderildi, sonra durdu: ${sum.failure}`, { duration: 10000 });
@@ -628,7 +632,7 @@ export default function TrendyolSendPage() {
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
             <div className="modal-header">
               <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Send size={17} style={{ color: 'var(--accent-primary)' }} /> Gönderim Tamamlandı
+                <Send size={17} style={{ color: 'var(--accent-primary)' }} /> {sendResult.sent > 0 ? 'Gönderim Tamamlandı' : 'Hiçbir Ürün Gönderilmedi'}
               </h3>
               <button className="modal-close" onClick={() => setSendResult(null)}>×</button>
             </div>

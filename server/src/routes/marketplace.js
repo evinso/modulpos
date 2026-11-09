@@ -1170,8 +1170,19 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
 
     // Fetch products
     let products = await prisma.product.findMany({ where: { id: { in: productIds }, storeId: connection.storeId } });
-    if (minStock > 0) products = products.filter(p => (p.stock ?? 0) >= minStock);
-    if (products.length === 0) return res.status(400).json({ error: 'Ürün bulunamadı' });
+    // Products under the minimum stock typed in the send dialog are left out – and counted, so the page can say so
+    let belowMinStock = 0;
+    if (minStock > 0) {
+      const before = products.length;
+      products = products.filter(p => (p.stock ?? 0) >= minStock);
+      belowMinStock = before - products.length;
+    }
+    if (products.length === 0) {
+      return res.status(400).json({
+        error: belowMinStock > 0 ? `Seçili ${belowMinStock} ürünün stoğu minimum stok eşiğinin (${minStock}) altında olduğu için hiçbiri gönderilmedi` : 'Ürün bulunamadı',
+        belowMinStock,
+      });
+    }
 
     const readiness = await buildReadinessContext(connection, { xmlSourceIds: [...new Set(products.map((x) => x.xmlSourceId).filter(Boolean))] });
 
@@ -1344,7 +1355,7 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
       const onlyThere = (alreadyListed + offSale) > 0 && errors.length === 0;
       const msg = !onlyThere ? 'Gönderilebilir ürün yok'
         : (offSale > 0 && alreadyListed === 0 ? 'Seçili ürünler Trendyol\'da var ama satışta değil; Trendyol panelinden düzeltin' : 'Seçili ürünler zaten Trendyol\'da; yeniden gönderilmedi');
-      return res.status(400).json({ error: msg, details: errors, alreadyListed, offSale });
+      return res.status(400).json({ error: msg, details: errors, alreadyListed, offSale, belowMinStock });
     }
 
     // Debug: Log payload being sent
@@ -1401,10 +1412,11 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     });
 
     res.json({
-      message: `${formatted.length} ürün Trendyol'a gönderildi${alreadyListed ? `, ${alreadyListed} ürün zaten Trendyol'da olduğu için atlandı` : ''}${offSale ? `, ${offSale} ürün Trendyol'da satışta olmadığı için atlandı` : ''}`,
+      message: `${formatted.length} ürün Trendyol'a gönderildi${alreadyListed ? `, ${alreadyListed} ürün zaten Trendyol'da olduğu için atlandı` : ''}${offSale ? `, ${offSale} ürün Trendyol'da satışta olmadığı için atlandı` : ''}${belowMinStock ? `, ${belowMinStock} ürün stoğu eşiğin (${minStock}) altında olduğu için atlandı` : ''}`,
       sent: formatted.length,
       alreadyListed,
       offSale,
+      belowMinStock,
       errors: errors.length,
       errorDetails: errors,
       batchId: result?.batchRequestId || null

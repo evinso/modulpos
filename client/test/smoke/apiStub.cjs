@@ -10,7 +10,7 @@ const mk = (i, over = {}) => ({
   ...over,
 });
 const calls = [];
-const sendBehaviour = { failAt150: false };
+const sendBehaviour = { failAt150: false, allBelowStock: false };
 // WhatsApp page: tests change `wa.status` / `wa.qr` (a value, or a function of the call number) to play different WAHA situations
 const wa = { engine: 'waha', status: { stateInstance: 'notAuthorized' }, qr: { type: 'loading', message: '' }, qrCalls: 0 };
 const detail = {
@@ -71,6 +71,7 @@ const get = async (url, cfg = {}) => {
 const post = async (url, body) => {
   calls.push({ m: 'POST', url, body });
   if (/send-products$/.test(url)) {
+    if (sendBehaviour.allBelowStock) { const e = new Error('x'); e.response = { status: 400, data: { error: `Seçili ${body.productIds.length} ürünün stoğu minimum stok eşiğinin (${body.minStock}) altında olduğu için hiçbiri gönderilmedi`, belowMinStock: body.productIds.length } }; throw e; }
     if (body.productIds.includes('id150') && sendBehaviour.failAt150) { const e = new Error('x'); e.response = { status: 400, data: { error: 'Trendyol API hatası', message: 'Trendyol reddetti' } }; throw e; }
     return { data: { message: 'ok', sent: body.productIds.length, alreadyListed: 0, offSale: 0, errors: 0 } };
   }
