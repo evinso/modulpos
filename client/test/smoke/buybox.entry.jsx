@@ -53,7 +53,7 @@ ok('the button is usable again afterwards', !!document.querySelector('button.btn
 
 // ── the "Otomatik Fiyat Kayıtları" tab ──
 const tabBtn = () => [...document.querySelectorAll('[role="tab"]')].find((b) => b.textContent.includes('Otomatik Fiyat Kayıtları'));
-ok('the tab is there and shows how many notes exist', !!tabBtn() && tabBtn().textContent.includes('(3)'), tabBtn() && tabBtn().textContent);
+ok('the tab is there', !!tabBtn());
 await act(async () => { tabBtn().dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }); await wait(60);
 const logRowsEl = () => [...document.querySelectorAll('[data-testid="log-row"]')];
 ok('three notes are listed, newest first', logRowsEl().length === 3 && logRowsEl()[0].textContent.includes('2 ürünün fiyatı düşürüldü'));

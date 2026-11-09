@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import api from '../../services/api';
 import { CheckCircle2, AlertTriangle, MinusCircle, Info, RefreshCw } from 'lucide-react';
 
 const KIND = { auto: 'Otomatik', manual: 'Elle', settings: 'Ayar' };
@@ -13,8 +14,19 @@ const price = (n) => (n == null ? '—' : `${Number(n).toFixed(2)}₺`);
 const when = (d) => new Date(d).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 /** Notes written each time the automatic (or manual) BuyBox price adjustment runs, and when its settings change. */
-export default function AutoLogTab({ rows, onRefresh }) {
+export default function AutoLogTab({ connectionId, version = 0 }) {
   const [open, setOpen] = useState(null);
+  const [rows, setRows] = useState(null);          // null = loading
+  const [reload, setReload] = useState(0);
+
+  // (re)load when the connection changes, a new note may exist (version) or "Yenile" is pressed
+  useEffect(() => {
+    let alive = true;
+    api.get(`/marketplace/connections/${connectionId}/buybox-auto-log`)
+      .then((res) => { if (alive) setRows(res.data); })
+      .catch(() => { if (alive) setRows((r) => r || []); });
+    return () => { alive = false; };
+  }, [connectionId, version, reload]);
 
   if (rows === null) return <div className="loading-spinner"><div className="spinner"></div></div>;
 
@@ -27,7 +39,7 @@ export default function AutoLogTab({ rows, onRefresh }) {
             Otomatik fiyat ayarı her çalıştığında ve ayarı değiştirdiğinizde buraya not düşer
           </span>
         </h3>
-        <button className="btn btn-secondary" style={{ fontSize: 13, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6 }} onClick={onRefresh}>
+        <button className="btn btn-secondary" style={{ fontSize: 13, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setReload((n) => n + 1)}>
           <RefreshCw size={14} /> Yenile
         </button>
       </div>
