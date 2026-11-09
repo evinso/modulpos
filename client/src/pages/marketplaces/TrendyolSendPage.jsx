@@ -64,6 +64,9 @@ export default function TrendyolSendPage() {
   const [filterXmlSource, setFilterXmlSource] = useState('');
   const [filterCategories, setFilterCategories] = useState(new Set());
   const requestSeq = useRef(0);
+  const stopRef = useRef(false);
+  const [selectingAll, setSelectingAll] = useState(false);
+  const [progress, setProgress] = useState(null);   // { done, total } while a multi-part send runs
 
   useEffect(() => { fetchConnections(); fetchXmlSources(); }, []);
 
@@ -167,21 +170,71 @@ export default function TrendyolSendPage() {
     } finally { setSendingAll(false); }
   };
 
+  // Selects EVERY product the current filters match that can be sent now (ready, never sent), not just the 20 on this page.
+  const selectAllMatching = async () => {
+    if (!selectedConn) return;
+    setSelectingAll(true);
+    try {
+      const params = { fresh: 1 };
+      if (debouncedSearch) params.search = debouncedSearch;
+      if (filterXmlSource) params.xmlSourceId = filterXmlSource;
+      if (filterCategories.size > 0) params.categories = [...filterCategories].join(',');
+      if (filterReadiness !== 'all') params.readiness = filterReadiness;
+      if (filterIssue) params.issue = filterIssue;
+      if (filterMpStatus !== 'all') params.mpStatus = filterMpStatus;
+      const res = await api.get(`/marketplace/connections/${selectedConn.id}/product-list/ids`, { params });
+      const { ids, sendable, matching, truncated } = res.data;
+      setSelectedIds(new Set(ids));
+      if (ids.length === 0) toast('Filtreye uyan gönderilebilir ürün yok (hazır ve Trendyol\'a hiç gönderilmemiş olanlar seçilir)', { duration: 6000 });
+      else toast.success(`${ids.length} ürün seçildi${matching > sendable ? ` (filtreye uyan ${matching} üründen ${matching - sendable}'i hazır değil veya zaten gönderilmiş)` : ''}${truncated ? `. En fazla ${ids.length} ürün seçilebilir` : ''}`, { duration: 6000 });
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Ürünler seçilemedi');
+    } finally { setSelectingAll(false); }
+  };
+
+  // Sent in parts of SEND_PART products: one request with thousands of products would outlast the browser's time limit
+  // while the server kept going, and the page would show an error for a send that actually happened.
+  const SEND_PART = 100;
   const handleSendSelected = async () => {
     setShowSendModal(null);
     setSending(true);
+    stopRef.current = false;
+    const ids = Array.from(selectedIds);
+    const sum = { sent: 0, alreadyListed: 0, offSale: 0, errors: 0, batches: 0, stopped: false, failure: null };
     try {
-      const res = await api.post(`/marketplace/connections/${selectedConn.id}/send-products`, {
-        productIds: Array.from(selectedIds), minStock,
-      });
-      setSendResult({ type: 'selected', sent: res.data.sent ?? selectedIds.size, batches: res.data.batches || 1, skipped: (res.data.alreadyListed || 0) + (res.data.offSale || 0), skipReasons: (res.data.alreadyListed || res.data.offSale) ? { ...(res.data.alreadyListed ? { already_listed: res.data.alreadyListed } : {}), ...(res.data.offSale ? { off_sale: res.data.offSale } : {}) } : undefined, sentAt: new Date().toLocaleString('tr-TR'), message: res.data.message });
-      toast.success(res.data.message || `${selectedIds.size} ürün gönderildi`);
+      for (let i = 0; i < ids.length; i += SEND_PART) {
+        if (stopRef.current) { sum.stopped = true; break; }
+        setProgress(ids.length > SEND_PART ? { done: i, total: ids.length } : null);
+        try {
+          const res = await api.post(`/marketplace/connections/${selectedConn.id}/send-products`, { productIds: ids.slice(i, i + SEND_PART), minStock });
+          sum.sent += res.data.sent ?? 0; sum.alreadyListed += res.data.alreadyListed || 0; sum.offSale += res.data.offSale || 0; sum.errors += res.data.errors || 0; sum.batches++;
+        } catch (err) {
+          const d = err.response?.data;
+          // "nothing in this part can be sent" is not a reason to stop; a refusal by Trendyol or a broken connection is
+          if (d && d.error !== 'Trendyol API hatası' && !(err.response.status >= 500)) {
+            sum.alreadyListed += d.alreadyListed || 0; sum.offSale += d.offSale || 0; sum.errors += Array.isArray(d.details) ? d.details.length : 0;
+            if (ids.length <= SEND_PART) sum.failure = d.message || d.error || 'Gönderme hatası';
+            continue;
+          }
+          sum.failure = d?.message || d?.error || 'Gönderme hatası'; break;
+        }
+      }
+      const skipReasons = {
+        ...(sum.alreadyListed ? { already_listed: sum.alreadyListed } : {}),
+        ...(sum.offSale ? { off_sale: sum.offSale } : {}),
+        ...(sum.errors ? { 'Doğrulamadan geçemeyen': sum.errors } : {}),
+      };
+      const skipped = sum.alreadyListed + sum.offSale + sum.errors;
+      if (sum.sent > 0 || skipped > 0) {
+        setSendResult({ type: 'selected', sent: sum.sent, batches: sum.batches || 1, skipped, skipReasons: skipped ? skipReasons : undefined, sentAt: new Date().toLocaleString('tr-TR') });
+      }
+      if (sum.failure && sum.sent === 0) toast.error(sum.failure, { duration: 8000 });
+      else if (sum.failure) toast.error(`${sum.sent} ürün gönderildi, sonra durdu: ${sum.failure}`, { duration: 10000 });
+      else if (sum.stopped) toast(`${sum.sent} ürün gönderildi, gönderim durduruldu`, { duration: 8000 });
+      else if (sum.sent > 0) toast.success(`${sum.sent} ürün Trendyol'a gönderildi`);
       setSelectedIds(new Set());
       fetchProducts(true);
-    } catch (err) {
-      const d = err.response?.data;
-      toast.error(d?.message || d?.error || 'Gönderme hatası', { duration: 8000 });
-    } finally { setSending(false); }
+    } finally { setSending(false); setProgress(null); }
   };
 
   const syncMarketplaceStatus = async () => {
@@ -243,7 +296,17 @@ export default function TrendyolSendPage() {
 
   return (
     <div>
-      <LoadingOverlay visible={sending} message="Ürünler Gönderiliyor..." submessage="Trendyol'a toplu istek gönderiliyor, lütfen bekleyin." />
+      <LoadingOverlay visible={sending} message={progress ? `Ürünler Gönderiliyor… ${progress.done} / ${progress.total}` : 'Ürünler Gönderiliyor...'}
+        submessage={progress ? "100'lük partiler halinde gönderiliyor. Bu sayfayı kapatmayın." : "Trendyol'a toplu istek gönderiliyor, lütfen bekleyin."}>
+        {progress && (
+          <>
+            <div style={{ width: 260, height: 8, borderRadius: 4, background: 'var(--border-color)', overflow: 'hidden' }}>
+              <div style={{ width: `${Math.round((progress.done / progress.total) * 100)}%`, height: '100%', background: 'var(--accent-primary)', transition: 'width 0.3s' }} />
+            </div>
+            <button className="btn btn-secondary" onClick={() => { stopRef.current = true; }}>Durdur</button>
+          </>
+        )}
+      </LoadingOverlay>
       <LoadingOverlay visible={sendingAll} message="Tüm Ürünler Gönderiliyor..." submessage="Gönderilebilir tüm ürünler işleniyor, lütfen bekleyin." />
 
       {/* Header */}
@@ -269,7 +332,7 @@ export default function TrendyolSendPage() {
             <Send size={15} /> Tümünü Gönder
           </button>
           <button className="btn btn-primary" onClick={() => setShowSendModal('selected')} disabled={sending || sendingAll || selectedIds.size === 0}>
-            <Send size={15} /> Seçilenleri Gönder ({selectedIds.size})
+            <Send size={15} /> {sending && progress ? `Gönderiliyor… ${progress.done}/${progress.total}` : `Seçilenleri Gönder (${selectedIds.size})`}
           </button>
         </div>
       </div>
@@ -407,6 +470,12 @@ export default function TrendyolSendPage() {
               <Search size={14} className="search-icon" />
               <input type="text" placeholder="Ürün ara..." value={search} onChange={e => setSearch(e.target.value)} />
             </div>
+            {pagination.totalPages > 1 && (
+              <button className="btn btn-secondary btn-sm" onClick={selectAllMatching} disabled={selectingAll}
+                title="Filtreye uyan, hazır ve Trendyol'a hiç gönderilmemiş tüm ürünleri seçer (yalnızca bu sayfadakileri değil)">
+                <CheckSquare size={14} /> {selectingAll ? 'Seçiliyor…' : `Filtredeki Tümünü Seç (${pagination.total})`}
+              </button>
+            )}
             <button className="btn btn-secondary btn-sm" onClick={toggleAll}>
               {products.filter(p => p.ready).length > 0 && products.filter(p => p.ready).every(p => selectedIds.has(p.id))
                 ? <><CheckSquare size={14} /> Seçimi Kaldır</>
@@ -414,6 +483,14 @@ export default function TrendyolSendPage() {
             </button>
           </div>
         </div>
+
+        {selectedIds.size > 0 && (
+          <div data-testid="selection-bar" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', background: 'rgba(99,102,241,0.08)', borderBottom: '1px solid var(--border-color)', fontSize: 13 }}>
+            <strong>{selectedIds.size} ürün seçili</strong>
+            <span style={{ color: 'var(--text-secondary)' }}>(sayfalar arası; gönderirken 100'lük partiler halinde gider)</span>
+            <button className="text-btn" onClick={() => setSelectedIds(new Set())}>Seçimi temizle</button>
+          </div>
+        )}
 
         {products.length === 0 ? (
           <div className="empty-state" style={{ padding: '40px 0' }}>
@@ -605,7 +682,7 @@ export default function TrendyolSendPage() {
               <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 14 }}>
                 {showSendModal === 'all'
                   ? <><strong>Tüm gönderilebilir ürünler</strong> Trendyol'a toplu olarak gönderilecek.</>
-                  : <><strong>{selectedIds.size} seçili ürün</strong> Trendyol'a gönderilecek.</>}
+                  : <><strong>{selectedIds.size} seçili ürün</strong> Trendyol'a gönderilecek.{selectedIds.size > 100 && <> 100'lük partiler halinde gönderilir, yaklaşık {Math.max(1, Math.round(selectedIds.size / 100 * 8 / 60))} dakika sürebilir; bu sürede sayfayı kapatmayın. İsterseniz <strong>Durdur</strong> ile yarıda kesebilirsiniz (gönderilenler geri alınmaz).</>}</>}
               </p>
               <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '14px 16px', border: '1px solid var(--border-color)' }}>
                 <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Minimum Stok Eşiği</label>

@@ -43,55 +43,70 @@ function categoryClauses(list) {
   return clauses;
 }
 
+// Evaluated rows of the catalogue for this search / XML source / category scope (cached for a short time).
+async function getRows(connection, { search = '', xmlSourceId = '', categories = '' }, fresh) {
+  const key = [connection.id, version(connection.storeId), search, xmlSourceId, categories].join('|');
+  let entry = cache.get(key);
+  if (fresh || !entry || Date.now() - entry.at > CACHE_TTL_MS) {
+    const and = [{ storeId: connection.storeId }];
+    if (search) and.push({ OR: [{ title: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }, { barcode: { contains: search, mode: 'insensitive' } }] });
+    if (xmlSourceId) and.push({ xmlSourceId });
+    const catList = String(categories).split(',').map((c) => c.trim()).filter(Boolean);
+    if (catList.length) and.push({ OR: categoryClauses(catList) });
+
+    // Evaluate in batches: memory is bounded by the batch size, not by the catalogue size
+    const ctx = await buildReadinessContext(connection);
+    const rows = [];
+    const BATCH = 1500;
+    let cursor = null;
+    for (;;) {
+      const batch = await prisma.product.findMany({
+        where: { AND: and },
+        select: {
+          id: true, sku: true, barcode: true, title: true, description: true, images: true, category: true, brand: true,
+          xmlSourceId: true, xmlPrice: true, price: true, stock: true, vatRate: true, updatedAt: true, createdAt: true,
+        },
+        orderBy: { id: 'asc' },
+        take: BATCH,
+        ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      });
+      if (batch.length === 0) break;
+      for (const p of batch) {
+        const ev = ctx.evaluate(p);
+        const mp = ctx.mpByProduct.get(p.id) || null;
+        rows.push({ id: p.id, t: new Date(p.createdAt).getTime(), ready: ev.ready, issues: ev.issues, salePrice: ev.salePrice, priceRule: ev.priceRule, mapName: ev.mapping ? (ev.mapping.marketplaceCategoryName || String(ev.mapping.marketplaceCategoryId)) : null, mpStatus: mp ? mp.status : null });
+      }
+      cursor = batch[batch.length - 1].id;
+      if (batch.length < BATCH) break;
+    }
+    rows.sort((x, y) => (y.t - x.t) || (x.id < y.id ? -1 : 1)); // newest first
+    entry = { at: Date.now(), rows };
+    if (cache.size > 30) cache.clear();
+    cache.set(key, entry);
+  }
+  return entry.rows;
+}
+
+/** The readiness / issue / marketplace-status filters of the page, applied to evaluated rows. */
+function applyFilters(rows, { readiness = 'all', issue = '', mpStatus = 'all' }) {
+  let filtered = rows;
+  if (readiness === 'ready') filtered = filtered.filter((r) => r.ready);
+  else if (readiness === 'blocked') filtered = filtered.filter((r) => !r.ready);
+  if (issue) filtered = filtered.filter((r) => r.issues.some((i) => i.code === issue));
+  if (mpStatus === 'not_sent') filtered = filtered.filter((r) => !r.mpStatus);
+  else if (mpStatus !== 'all') filtered = filtered.filter((r) => r.mpStatus === mpStatus);
+  return filtered;
+}
+
+/** Rows that can be sent right now: pass the validator and were never sent to this marketplace. */
+const pickSendable = (rows) => rows.filter((r) => r.ready && !r.mpStatus);
+
 router.get('/connections/:id/product-list', async (req, res, next) => {
   try {
     const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
-    const { search = '', xmlSourceId = '', categories = '', readiness = 'all', issue = '', mpStatus = 'all' } = req.query;
-    const fresh = req.query.fresh === '1';
-
-    const key = [connection.id, version(connection.storeId), search, xmlSourceId, categories].join('|');
-    let entry = cache.get(key);
-    if (fresh || !entry || Date.now() - entry.at > CACHE_TTL_MS) {
-      const and = [{ storeId: connection.storeId }];
-      if (search) and.push({ OR: [{ title: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }, { barcode: { contains: search, mode: 'insensitive' } }] });
-      if (xmlSourceId) and.push({ xmlSourceId });
-      const catList = String(categories).split(',').map((c) => c.trim()).filter(Boolean);
-      if (catList.length) and.push({ OR: categoryClauses(catList) });
-
-      // Evaluate in batches: memory is bounded by the batch size, not by the catalogue size
-      const ctx = await buildReadinessContext(connection);
-      const rows = [];
-      const BATCH = 1500;
-      let cursor = null;
-      for (;;) {
-        const batch = await prisma.product.findMany({
-          where: { AND: and },
-          select: {
-            id: true, sku: true, barcode: true, title: true, description: true, images: true, category: true, brand: true,
-            xmlSourceId: true, xmlPrice: true, price: true, stock: true, vatRate: true, updatedAt: true, createdAt: true,
-          },
-          orderBy: { id: 'asc' },
-          take: BATCH,
-          ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-        });
-        if (batch.length === 0) break;
-        for (const p of batch) {
-          const ev = ctx.evaluate(p);
-          const mp = ctx.mpByProduct.get(p.id) || null;
-          rows.push({ id: p.id, t: new Date(p.createdAt).getTime(), ready: ev.ready, issues: ev.issues, salePrice: ev.salePrice, priceRule: ev.priceRule, mapName: ev.mapping ? (ev.mapping.marketplaceCategoryName || String(ev.mapping.marketplaceCategoryId)) : null, mpStatus: mp ? mp.status : null });
-        }
-        cursor = batch[batch.length - 1].id;
-        if (batch.length < BATCH) break;
-      }
-      rows.sort((x, y) => (y.t - x.t) || (x.id < y.id ? -1 : 1)); // newest first
-      entry = { at: Date.now(), rows };
-      if (cache.size > 30) cache.clear();
-      cache.set(key, entry);
-    }
-
-    const rows = entry.rows;
+    const rows = await getRows(connection, req.query, req.query.fresh === '1');
 
     // Stats over the search/source/category scope (before readiness & marketplace-status filters)
     const stats = { total: rows.length, ready: 0, blocked: 0, byIssue: {}, mp: { not_sent: 0, pending: 0, active: 0, rejected: 0, passive: 0 } };
@@ -102,13 +117,7 @@ router.get('/connections/:id/product-list', async (req, res, next) => {
       stats.mp[k] = (stats.mp[k] || 0) + 1;
     }
 
-    let filtered = rows;
-    if (readiness === 'ready') filtered = filtered.filter((r) => r.ready);
-    else if (readiness === 'blocked') filtered = filtered.filter((r) => !r.ready);
-    if (issue) filtered = filtered.filter((r) => r.issues.some((i) => i.code === issue));
-    if (mpStatus === 'not_sent') filtered = filtered.filter((r) => !r.mpStatus);
-    else if (mpStatus !== 'all') filtered = filtered.filter((r) => r.mpStatus === mpStatus);
-
+    const filtered = applyFilters(rows, req.query);
     const total = filtered.length;
     const slice = filtered.slice((page - 1) * limit, page * limit);
     const byId = Object.fromEntries(slice.map((r) => [r.id, r]));
@@ -140,4 +149,27 @@ router.get('/connections/:id/product-list', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+/**
+ * GET /api/marketplace/connections/:id/product-list/ids  (same query as product-list, without paging)
+ * Ids of EVERY product the current filters match that can be sent now: ready and never sent to this marketplace.
+ * Lets the page "select all N" instead of one page of 20. Newest first, at most MAX_IDS (`truncated` says so).
+ */
+const MAX_IDS = 10000;
+router.get('/connections/:id/product-list/ids', async (req, res, next) => {
+  try {
+    const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
+    const rows = await getRows(connection, req.query, req.query.fresh === '1');
+    const filtered = applyFilters(rows, req.query);
+    const sendable = pickSendable(filtered);
+    res.json({
+      ids: sendable.slice(0, MAX_IDS).map((r) => r.id),
+      sendable: sendable.length,
+      matching: filtered.length,
+      truncated: sendable.length > MAX_IDS,
+    });
+  } catch (error) { next(error); }
+});
+
 module.exports = router;
+module.exports.applyFilters = applyFilters;
+module.exports.pickSendable = pickSendable;

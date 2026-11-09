@@ -1,4 +1,4 @@
-export default function LoadingOverlay({ visible, message = 'Yükleniyor...', submessage }) {
+export default function LoadingOverlay({ visible, message = 'Yükleniyor...', submessage, children }) {
   if (!visible) return null;
   return (
     <div style={{
@@ -26,6 +26,7 @@ export default function LoadingOverlay({ visible, message = 'Yükleniyor...', su
             <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{submessage}</div>
           )}
         </div>
+        {children}
       </div>
     </div>
   );

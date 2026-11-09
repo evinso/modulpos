@@ -10,6 +10,7 @@ const mk = (i, over = {}) => ({
   ...over,
 });
 const calls = [];
+const sendBehaviour = { failAt150: false };
 // WhatsApp page: tests change `wa.status` / `wa.qr` (a value, or a function of the call number) to play different WAHA situations
 const wa = { engine: 'waha', status: { stateInstance: 'notAuthorized' }, qr: { type: 'loading', message: '' }, qrCalls: 0 };
 const detail = {
@@ -48,6 +49,11 @@ const get = async (url, cfg = {}) => {
     { id: 'l2', kind: 'settings', status: 'info', createdAt: '2026-11-09T18:00:00Z', note: 'Otomatik fiyat ayarı açıldı: BuyBox fiyatına eşit.', updated: 0, skippedNotLower: 0, skippedLoss: 0, skippedOther: 0, items: [] },
     { id: 'l3', kind: 'auto', status: 'error', createdAt: '2026-11-08T10:00:00Z', note: 'Otomatik fiyat: fiyatlar güncellenemedi. Yetersiz kredi.', updated: 0, skippedNotLower: 0, skippedLoss: 0, skippedOther: 0, items: [] },
   ] };
+  if (url === '/marketplace/connections/c1/product-list') {
+    const total = 250; const page = cfg.params?.page || 1;
+    return { data: { products: Array.from({ length: 20 }, (_, i) => ({ ...mk((page - 1) * 20 + i + 10), ready: true, issues: [], salePrice: 150, mapName: 'Aksesuar', marketplaceProducts: [] })), pagination: { total, page, limit: 20, totalPages: 13 }, stats: { total, ready: 250, blocked: 0, byIssue: {}, mp: { not_sent: 250, pending: 0, active: 0, rejected: 0, passive: 0 } } } };
+  }
+  if (url === '/marketplace/connections/c1/product-list/ids') return { data: { ids: Array.from({ length: 250 }, (_, i) => 'id' + i), sendable: 250, matching: 250, truncated: false } };
   if (url === '/credits/balance') return { data: { balance: 25 } };
   if (url === '/credits/prices') return { data: { buyboxCheckCost: 1, buyboxAdjustCost: 0.1 } };
   if (url === '/marketplace/connections/c1/buybox-history') {
@@ -64,6 +70,10 @@ const get = async (url, cfg = {}) => {
 };
 const post = async (url, body) => {
   calls.push({ m: 'POST', url, body });
+  if (/send-products$/.test(url)) {
+    if (body.productIds.includes('id150') && sendBehaviour.failAt150) { const e = new Error('x'); e.response = { status: 400, data: { error: 'Trendyol API hatası', message: 'Trendyol reddetti' } }; throw e; }
+    return { data: { message: 'ok', sent: body.productIds.length, alreadyListed: 0, offSale: 0, errors: 0 } };
+  }
   if (/buybox-check$/.test(url)) {
     const total = 450; const off = body.offset ?? 0; const n = body.offset === undefined ? (body.batchSize || total) : Math.max(0, Math.min(body.batchSize, total - off));
     return { data: { checked: n, totalEligible: total, winning: n - 1 > 0 ? n - 1 : 0, losing: n > 0 ? 1 : 0, creditUsed: Math.ceil(n / 10), autoAdjusted: 0, autoSkipped: null, autoError: null, results: Array.from({ length: n }, (_, i) => ({ barcode: 'b' + (off + i), buyboxOrder: i ? 1 : 2 })) } };
@@ -88,5 +98,5 @@ const put = async (url, body) => {
   }
   if (/send-settings$/.test(url)) return { data: { settings: body.settings, summary: [] } }; return { data: {} }; };
 const del = async (url, cfg) => { calls.push({ m: 'DELETE', url, params: cfg && cfg.params }); return { data: /sale-price$/.test(url) ? { ok: true, removed: 1 } : {} }; };
-module.exports = { get, post, put, delete: del, calls, wa };
+module.exports = { get, post, put, delete: del, calls, wa, sendBehaviour };
 module.exports.default = module.exports;
