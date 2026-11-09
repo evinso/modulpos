@@ -265,6 +265,14 @@ async function deductCredits(userId, amount, type, description, referenceId = nu
   return newBalance;
 }
 
+/** Gives credits back after a charged operation did not happen (e.g. the marketplace refused the update). */
+async function refundCredits(userId, amount, description, referenceId = null) {
+  if (!(amount > 0)) return;
+  const balance = await getOrCreateBalance(userId);
+  await prisma.creditBalance.update({ where: { id: balance.id }, data: { balance: { increment: amount } } });
+  await prisma.creditTransaction.create({ data: { balanceId: balance.id, amount, type: 'refund', description, referenceId } });
+}
+
 // GET /api/credits/admin/paytr-logs
 router.get('/admin/paytr-logs', auth, requireAdmin, async (req, res, next) => {
   try {
@@ -280,5 +288,6 @@ router.get('/admin/paytr-logs', auth, requireAdmin, async (req, res, next) => {
 
 module.exports = router;
 module.exports.deductCredits = deductCredits;
+module.exports.refundCredits = refundCredits;
 module.exports.getSetting = getSetting;
 module.exports.getOrCreateBalance = getOrCreateBalance;

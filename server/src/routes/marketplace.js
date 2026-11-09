@@ -14,7 +14,9 @@ const { classifyBatchItem, healAlreadyListed, rejectReasonOf, classifyRemoved, r
 
 const parseConfig = (conn) => { try { return conn && conn.config ? JSON.parse(conn.config) : {}; } catch { return {}; } };
 const productListCache = require('../services/productListCache');
-const { deductCredits, getSetting } = require('./credits');
+const { deductCredits, refundCredits, getSetting } = require('./credits');
+const { planBuyboxAdjust } = require('../services/buyboxPlanner');
+const { pushInBatches } = require('../services/batchPush');
 const { ownedParam, userStoreIds } = require('../middleware/ownership');
 const { publicConnection } = require('../utils/sanitize');
 
@@ -1662,7 +1664,10 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
   }
 });
 
-// Adjust prices for losing buybox products and send to Trendyol
+// Adjust prices for losing buybox products and send to Trendyol.
+// The new price is stored as the product's hand-typed price for this marketplace (ProductPriceOverride), the one place
+// every price flow reads (list, sends, the automatic update after each XML sync). Without it the next automatic update
+// would put the template price back. Prices are only ever lowered and never below cost (see buyboxPlanner).
 async function adjustBuyboxPrices(connection, barcodes, mode, amount, userId) {
   const where = { connectionId: connection.id };
   if (barcodes && barcodes.length > 0) {
@@ -1673,52 +1678,73 @@ async function adjustBuyboxPrices(connection, barcodes, mode, amount, userId) {
   }
 
   const records = await prisma.buyboxRecord.findMany({ where });
-  if (records.length === 0) return { updated: 0 };
+  const none = { updated: 0, creditUsed: 0, skipped: { noProduct: 0, notLower: 0, loss: 0 } };
+  if (records.length === 0) return none;
 
   const productIds = [...new Set(records.map(r => r.productId).filter(Boolean))];
-  const products = await prisma.product.findMany({
-    where: { id: { in: productIds } },
-    select: { id: true, stock: true, listPrice: true }
-  });
+  const [products, mps, priceCtx] = await Promise.all([
+    prisma.product.findMany({ where: { id: { in: productIds } } }),
+    prisma.marketplaceProduct.findMany({ where: { connectionId: connection.id, productId: { in: productIds } }, select: { productId: true, marketplacePrice: true } }),
+    loadPricingContext(connection.storeId, connection.id),
+  ]);
   const productMap = new Map(products.map(p => [p.id, p]));
+  const currentPrices = new Map(mps.filter(m => m.marketplacePrice != null).map(m => [m.productId, m.marketplacePrice]));
+
+  const { items: plan, skipped } = planBuyboxAdjust({ records, products: productMap, currentPrices, priceCtx, mode, amount });
+  if (plan.length === 0) return { ...none, skipped };
 
   const sendCfg = SS.normalizeSendSettings(parseConfig(connection).sendSettings);
-  const items = records.map(r => {
-    const p = productMap.get(r.productId);
-    if (!p || !r.buyboxPrice) return null;
-    let newPrice = r.buyboxPrice;
-    if (mode === 'undercut') newPrice = Math.max(0.01, newPrice - parseFloat(amount || 0));
-    newPrice = Math.round(newPrice * 100) / 100;
+  const items = plan.map(it => {
+    const p = productMap.get(it.productId);
     return {
-      barcode: r.barcode,
+      barcode: it.barcode,
       quantity: SS.sendStock(p.stock, sendCfg),
-      salePrice: newPrice,
-      listPrice: Math.max(p.listPrice || 0, newPrice),
-      _productId: r.productId,
+      salePrice: it.newPrice,
+      listPrice: Math.max(p.listPrice || 0, it.newPrice),
     };
-  }).filter(Boolean);
+  });
 
-  if (items.length === 0) return { updated: 0, creditUsed: 0 };
-
-  // Credit deduction: configurable per-product cost
-  const costPerProduct = parseFloat(await getSetting('credit_buybox_adjust', '0.1'));
-  const totalCost = Math.round(items.length * costPerProduct * 100) / 100;
-  if (totalCost > 0 && userId) {
-    await deductCredits(userId, totalCost, 'buybox_adjust', `BuyBox fiyat güncelleme: ${items.length} ürün`, connection.id);
+  // Credit deduction: configurable per-product cost; whatever is not actually sent is given back below
+  const costPerProduct = parseFloat(await getSetting('credit_buybox_adjust', '0.1')) || 0;
+  const chargeFor = (n) => Math.round(n * costPerProduct * 100) / 100;
+  const charged = chargeFor(items.length);
+  if (charged > 0 && userId) {
+    await deductCredits(userId, charged, 'buybox_adjust', `BuyBox fiyat güncelleme: ${items.length} ürün`, connection.id);
   }
 
   const service = new TrendyolService(connection);
-  const result = await service.updatePriceAndInventory(items.map(({ _productId, ...i }) => i));
+  const r = await pushInBatches(
+    items,
+    (part) => service.updatePriceAndInventory(part),
+    async (start, part) => {
+      // Recorded only after Trendyol accepted this batch
+      const done = plan.slice(start, start + part.length);
+      for (let i = 0; i < done.length; i += 50) {
+        await prisma.$transaction(done.slice(i, i + 50).flatMap(it => [
+          prisma.productPriceOverride.upsert({
+            where: { productId_connectionId: { productId: it.productId, connectionId: connection.id } },
+            update: { price: it.newPrice },
+            create: { productId: it.productId, connectionId: connection.id, price: it.newPrice },
+          }),
+          prisma.marketplaceProduct.updateMany({
+            where: { connectionId: connection.id, productId: it.productId },
+            data: { marketplacePrice: it.newPrice, lastSyncedAt: new Date() },
+          }),
+          prisma.productLog.create({ data: {
+            productId: it.productId, type: 'manual', source: 'buybox', oldPrice: it.oldPrice, newPrice: it.newPrice,
+            notes: `BuyBox: satış fiyatı ${it.newPrice} TL yapıldı`,
+          } }),
+        ]));
+      }
+    },
+  );
+  productListCache.invalidate(connection.storeId);
 
-  for (const item of items) {
-    if (!item._productId) continue;
-    await prisma.marketplaceProduct.updateMany({
-      where: { connectionId: connection.id, productId: item._productId },
-      data: { marketplacePrice: item.salePrice, lastSyncedAt: new Date() }
-    });
+  if (r.failed > 0 && userId) {
+    await refundCredits(userId, chargeFor(items.length) - chargeFor(r.sent), `BuyBox fiyat güncelleme iadesi: ${r.failed} ürün gönderilemedi`, connection.id).catch(() => {});
   }
-
-  return { updated: items.length, batchId: result?.batchRequestId, creditUsed: totalCost };
+  const error = r.error ? (r.error.response?.data?.message || r.error.message || 'Trendyol güncellemeyi kabul etmedi') : null;
+  return { updated: r.sent, creditUsed: chargeFor(r.sent), skipped, ...(error ? { error } : {}) };
 }
 
 // Update or create a single BuyboxRecord, cleaning up any duplicates for the same (connectionId, barcode)
@@ -1857,9 +1883,9 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
 
     for (let i = 0; i < barcodes.length; i += 10) {
       const batch = barcodes.slice(i, i + 10);
-      for (const b of batch) checkedBarcodes.add(b);
       try {
         const data = await service.getBuyboxInfo(batch);
+        for (const b of batch) checkedBarcodes.add(b);   // only a batch Trendyol really answered may delete old records below
         const buyboxInfoList = data?.buyboxInfo || [];
 
         for (const info of buyboxInfoList) {
@@ -1933,15 +1959,16 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
       });
     }
 
-    let autoAdjusted = 0;
+    let autoAdjusted = 0; let autoSkipped = null; let autoError = null;
     try {
-      const cfg = connection.config ? JSON.parse(connection.config) : {};
+      const cfg = parseConfig(connection);
       if (cfg.buyboxAutoAdjust && losing.length > 0) {
         const ar = await adjustBuyboxPrices(connection, losing.map(r => r.barcode), cfg.buyboxAutoMode || 'equal', cfg.buyboxAutoAmount || 0, req.user.id);
-        autoAdjusted = ar.updated;
+        autoAdjusted = ar.updated; autoSkipped = ar.skipped; autoError = ar.error || null;
       }
     } catch (e) {
       console.error('[BuyBox] Auto price adjust failed:', e.message);
+      autoError = e.statusCode === 402 ? e.message : 'Otomatik fiyat güncellenemedi';
     }
 
     res.json({
@@ -1951,6 +1978,8 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
       losing: losing.length,
       creditUsed: totalCost,
       autoAdjusted,
+      autoSkipped,
+      autoError,
       results,
     });
   } catch (error) {
@@ -1965,10 +1994,15 @@ router.post('/connections/:id/buybox-price-adjust', async (req, res, next) => {
     const connection = await prisma.marketplaceConnection.findUnique({ where: { id: req.params.id } });
     if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
 
-    const { barcodes, mode = 'equal', amount = 0 } = req.body;
-    const result = await adjustBuyboxPrices(connection, barcodes, mode, parseFloat(amount), req.user.id);
+    const { barcodes, mode = 'equal' } = req.body;
+    const amount = parseFloat(req.body.amount ?? 0);
+    if (!['equal', 'undercut'].includes(mode)) return res.status(400).json({ error: 'Geçersiz fiyat modu' });
+    if (!Number.isFinite(amount) || amount < 0) return res.status(400).json({ error: 'Fark tutarı 0 veya daha büyük olmalı' });
+    if (barcodes !== undefined && (!Array.isArray(barcodes) || barcodes.some(b => typeof b !== 'string'))) return res.status(400).json({ error: 'Geçersiz barkod listesi' });
+    const result = await adjustBuyboxPrices(connection, barcodes, mode, amount, req.user.id);
+    if (result.error && result.updated === 0) return res.status(502).json({ error: `Trendyol fiyat güncellemesini kabul etmedi: ${String(result.error).slice(0, 200)}` });
 
-    notificationService.create({
+    if (result.updated > 0) notificationService.create({
       storeId: connection.storeId,
       title: 'BuyBox Fiyat Güncellendi',
       waEvent: 'buybox',
@@ -1978,7 +2012,11 @@ router.post('/connections/:id/buybox-price-adjust', async (req, res, next) => {
       data: { notifType: 'buybox_price_adjust', updated: result.updated, mode, amount }
     }).catch(() => {});
 
-    res.json({ message: `${result.updated} ürünün fiyatı güncellendi`, ...result });
+    const sk = result.skipped || {};
+    const parts = [];
+    if (sk.notLower) parts.push(`${sk.notLower} ürün zaten BuyBox fiyatının altında/eşit olduğu için atlandı`);
+    if (sk.loss) parts.push(`${sk.loss} ürün zarara düşeceği için atlandı`);
+    res.json({ message: `${result.updated} ürünün fiyatı güncellendi${parts.length ? ` (${parts.join(', ')})` : ''}`, ...result });
   } catch (error) {
     next(error);
   }
@@ -1991,12 +2029,15 @@ router.put('/connections/:id/buybox-auto-settings', async (req, res, next) => {
     if (!connection) return res.status(404).json({ error: 'Bağlantı bulunamadı' });
 
     const { enabled, mode, amount } = req.body;
-    const existing = connection.config ? JSON.parse(connection.config) : {};
+    if (mode !== undefined && !['equal', 'undercut'].includes(mode)) return res.status(400).json({ error: 'Geçersiz fiyat modu' });
+    const amt = parseFloat(amount) || 0;
+    if (amt < 0) return res.status(400).json({ error: 'Fark tutarı 0 veya daha büyük olmalı' });
+    const existing = parseConfig(connection);
     const updated = {
       ...existing,
       buyboxAutoAdjust: !!enabled,
       buyboxAutoMode: mode || 'equal',
-      buyboxAutoAmount: parseFloat(amount) || 0,
+      buyboxAutoAmount: amt,
     };
 
     await prisma.marketplaceConnection.update({

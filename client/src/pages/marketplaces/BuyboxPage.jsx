@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, RefreshCw, AlertCircle, Wallet, Clock, Zap, ChevronDown, ChevronUp, ArrowDownCircle } from 'lucide-react';
+import { TrendingUp, TrendingDown, RefreshCw, AlertCircle, Wallet, Clock, Zap, ChevronDown, ChevronUp, ArrowDownCircle, Search } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+import { matchesQuery } from './buyboxSearch';
 
 function timeAgo(date) {
   if (!date) return null;
@@ -25,6 +26,7 @@ export default function BuyboxPage() {
   const [adjustCostPerProduct, setAdjustCostPerProduct] = useState(0.1);
   const [sortField, setSortField] = useState('buyboxOrder');
   const [batchSize, setBatchSize] = useState(50);
+  const [query, setQuery] = useState('');
 
   // Adjust modal
   const [adjustModal, setAdjustModal] = useState(null); // { barcodes?: string[], title?: string }
@@ -110,6 +112,11 @@ export default function BuyboxPage() {
         ? `${res.data.checked} ürün kontrol edildi, ${res.data.autoAdjusted} fiyat otomatik güncellendi`
         : `${res.data.checked} ürün kontrol edildi`;
       toast.success(msg);
+      const sk = res.data.autoSkipped;
+      if (sk && (sk.notLower || sk.loss)) {
+        toast(`Otomatik fiyat: ${sk.notLower ? `${sk.notLower} ürün zaten daha ucuz/eşit olduğu için` : ''}${sk.notLower && sk.loss ? ', ' : ''}${sk.loss ? `${sk.loss} ürün zarara düşeceği için` : ''} atlandı`, { duration: 7000 });
+      }
+      if (res.data.autoError) toast.error(`Otomatik fiyat güncellenemedi: ${res.data.autoError}`, { duration: 8000 });
     } catch (err) {
       const msg = err.response?.data?.error || 'BuyBox kontrol hatası';
       toast.error(msg, { duration: 6000 });
@@ -169,7 +176,7 @@ export default function BuyboxPage() {
 
   const losingRows = history.filter(r => r.buyboxOrder != null && r.buyboxOrder > 1 && r.buyboxPrice != null);
 
-  const displayRows = [...history].sort((a, b) => {
+  const displayRows = history.filter(r => matchesQuery(r, query)).sort((a, b) => {
     if (sortField === 'buyboxOrder') {
       return (a.buyboxOrder ?? 999) - (b.buyboxOrder ?? 999);
     }
@@ -313,7 +320,9 @@ export default function BuyboxPage() {
         {showAutoPanel && (
           <div style={{ padding: '0 20px 20px', borderTop: '1px solid var(--border-color)' }}>
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '14px 0 16px' }}>
-              BuyBox kontrolü yapıldığında kaybeden ürünlerin fiyatı otomatik olarak güncellenir.
+              "BuyBox Kontrol Et" yapıldığında kaybeden ürünlerin fiyatı Trendyol'da güncellenir (kontrol kendiliğinden çalışmaz, butonla başlar).
+              Fiyat yalnızca düşürülür; zarara düşecek ya da BuyBox fiyatı zaten bizden yüksek olan ürünler atlanır.
+              Güncellenen fiyat o ürün için "elle fiyat" olur, sonraki XML güncellemeleri onu şablon fiyatına geri çevirmez.
             </p>
             <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -373,16 +382,28 @@ export default function BuyboxPage() {
       {/* Results table */}
       {historyLoading ? (
         <div className="loading-spinner"><div className="spinner"></div></div>
-      ) : displayRows.length > 0 ? (
+      ) : history.length > 0 ? (
         <div className="table-container">
           <div className="table-header">
             <h3>
               BuyBox Durumu
               <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 10 }}>
-                {history.length} ürün kayıtlı
+                {query.trim() ? `${displayRows.length} / ${history.length} ürün` : `${history.length} ürün kayıtlı`}
               </span>
             </h3>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative' }}>
+                <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input
+                  type="search"
+                  className="form-input"
+                  placeholder="Ürün adı, barkod veya SKU ara"
+                  aria-label="Ürün ara"
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  style={{ width: 250, fontSize: 13, padding: '7px 10px 7px 30px' }}
+                />
+              </div>
               {losingRows.length > 0 && (
                 <button
                   className="btn btn-secondary"
@@ -423,6 +444,11 @@ export default function BuyboxPage() {
               </tr>
             </thead>
             <tbody>
+              {displayRows.length === 0 && (
+                <tr><td colSpan={9} style={{ textAlign: 'center', padding: 28, color: 'var(--text-muted)', fontSize: 13 }}>
+                  "{query}" ile eşleşen ürün yok
+                </td></tr>
+              )}
               {displayRows.map((r, i) => {
                 const ourPrice = r.ourPrice ?? r.marketplacePrice ?? null;
                 const diff = (ourPrice != null && r.buyboxPrice != null) ? ourPrice - r.buyboxPrice : null;
@@ -542,7 +568,7 @@ export default function BuyboxPage() {
                 const cost = Math.round(count * adjustCostPerProduct * 100) / 100;
                 return (
                   <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: 'var(--text-secondary)' }}>
-                    <strong>{count} ürün</strong> güncellenecek
+                    <strong>En fazla {count} ürün</strong> güncellenecek (zarara düşenler ve zaten daha ucuz olanlar atlanır)
                     {adjustMode === 'equal' ? ' — BuyBox fiyatına eşitlenecek' : ` — BuyBox fiyatından ${adjustAmount}₺ düşük olacak`}
                     {cost > 0 && <span style={{ marginLeft: 8, color: 'var(--accent-primary)', fontWeight: 600 }}>· {cost} kredi kesilecek</span>}
                   </div>

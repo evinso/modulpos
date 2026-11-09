@@ -28,7 +28,7 @@ const get = async (url, cfg = {}) => {
   if (url === '/xml-sources') return { data: [{ id: 's1', name: 'Tedarikçi A', totalProducts: 8 }] };
   if (url === '/marketplace/connections/c1/category-mappings') return { data: [{ id: 'cm1', xmlSourceId: 's1', localCategory: 'Giyim' }, { id: 'cm2', xmlSourceId: 's1', localCategory: 'Aksesuar' }] };
   if (/^\/products\/[^/]+\/price-preview$/.test(url)) { const price = Number(cfg.params.price); return { data: { salePrice: price, templatePrice: 251.9, hasTemplate: true, ruleName: 'genel', purchase: 101, profit: Math.round((price * 0.5 - 120) * 100) / 100, profitPct: 30, marginOnPricePct: 12, commissionAmount: 20, fixedCosts: 10, vatAmount: 40, loss: price < 120 } }; }
-  if (url === '/marketplace/connections') return { data: [{ id: 'c1', marketplaceType: 'trendyol', supplierName: 'Mağazam' }] };
+  if (url === '/marketplace/connections') return { data: [{ id: 'c1', marketplaceType: 'trendyol', status: 'active', supplierName: 'Mağazam', config: JSON.stringify({ buyboxAutoAdjust: true, buyboxAutoMode: 'undercut', buyboxAutoAmount: 2 }) }] };
   if (url === '/products/summary' && cfg.params && cfg.params.xmlSourceId === 'none') return { data: { total: 0 } };
   if (url === '/products/summary') return { data: { total: 8, active: 7, passive: 1, outOfStock: 3, lowStock: 2, noImage: 1, noBarcode: 0, lowStockMax: 5 } };
   if (url === '/products/facets') return { data: { categories: [{ name: 'Giyim|Kadın|Elbise', count: 8 }], brands: [{ name: 'ModaX', count: 4 }] } };
@@ -43,6 +43,12 @@ const get = async (url, cfg = {}) => {
     { id: 'r2', name: 'Eski taslak', value: 10, type: 'percentage', applyTo: 'price_template', isActive: false, priority: 0, conditions: JSON.stringify({ shippingTiers: [{ upTo: 199.99, cost: 48.33 }, { upTo: null, cost: 88.96 }], shippingTiersExVat: true, profitMode: 'margin_on_gross', commissionPct: 22.37, packagingCost: 16.39, commissionBasis: 'gross', minPurchasePrice: 10, maxPurchasePrice: 500 }) },
   ] };
   if (url === '/pricing/summaries') return { data: { total: 0, rules: {} } };
+  if (url === '/credits/balance') return { data: { balance: 25 } };
+  if (url === '/credits/prices') return { data: { buyboxCheckCost: 1, buyboxAdjustCost: 0.1 } };
+  if (url === '/marketplace/connections/c1/buybox-history') {
+    const row = (barcode, title, sku, order, bbp, our) => ({ barcode, title, sku, buyboxOrder: order, buyboxPrice: bbp, ourPrice: our, hasMultipleSeller: order > 1, checkedAt: '2026-11-08T10:00:00Z', productId: 'p' + barcode });
+    return { data: [row('869001', 'Gümüş Kolye İnci', 'KLY-1', 1, 100, 100), row('869002', 'Altın Yüzük Taşlı', 'YZK-2', 2, 90, 100), row('869003', 'Çelik Bileklik', 'BLK-3', 3, 50, 80)] };
+  }
   if (url === '/whatsapp/events') return { data: [{ group: 'Destek', key: 'support_status', to: 'both', label: 'Destek talebinin durumu değişti' }, { group: 'XML ve ürün', key: 'product_sync', to: 'both', label: 'XML güncellendi' }] };
   if (url === '/whatsapp/engine') return { data: { engine: wa.engine, node: 'v22.0.0' } };
   if (url === '/whatsapp/connections') return { data: [{ id: 'w1', name: 'wp', instanceId: 'default' }] };
