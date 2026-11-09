@@ -42,6 +42,14 @@ export default function BuyboxPage() {
   const [autoSettings, setAutoSettings] = useState({ enabled: false, mode: 'equal', amount: '1' });
   const [autoSaving, setAutoSaving] = useState(false);
 
+  const fetchLog = async () => {
+    if (!selectedConn) return;
+    try {
+      const res = await api.get(`/marketplace/connections/${selectedConn.id}/buybox-auto-log`);
+      setLogRows(res.data);
+    } catch { setLogRows(r => r || []); }
+  };
+
   useEffect(() => {
     fetchConnections();
     fetchCreditInfo();
@@ -85,14 +93,6 @@ export default function BuyboxPage() {
       setHistory(res.data);
     } catch {}
     finally { setHistoryLoading(false); }
-  };
-
-  const fetchLog = async () => {
-    if (!selectedConn) return;
-    try {
-      const res = await api.get(`/marketplace/connections/${selectedConn.id}/buybox-auto-log`);
-      setLogRows(res.data);
-    } catch { setLogRows(r => r || []); }
   };
 
   const loadAutoSettings = () => {
