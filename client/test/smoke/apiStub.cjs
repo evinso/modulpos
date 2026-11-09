@@ -43,6 +43,11 @@ const get = async (url, cfg = {}) => {
     { id: 'r2', name: 'Eski taslak', value: 10, type: 'percentage', applyTo: 'price_template', isActive: false, priority: 0, conditions: JSON.stringify({ shippingTiers: [{ upTo: 199.99, cost: 48.33 }, { upTo: null, cost: 88.96 }], shippingTiersExVat: true, profitMode: 'margin_on_gross', commissionPct: 22.37, packagingCost: 16.39, commissionBasis: 'gross', minPurchasePrice: 10, maxPurchasePrice: 500 }) },
   ] };
   if (url === '/pricing/summaries') return { data: { total: 0, rules: {} } };
+  if (url === '/marketplace/connections/c1/buybox-auto-log') return { data: [
+    { id: 'l1', kind: 'auto', status: 'ok', createdAt: '2026-11-09T19:00:00Z', note: 'Otomatik fiyat: 2 ürünün fiyatı düşürüldü (BuyBox fiyatına eşit). 1 ürün zarara düşeceği için atlandı. 0,2 kredi kullanıldı.', updated: 2, skippedNotLower: 0, skippedLoss: 1, skippedOther: 0, items: [{ barcode: 'bx1', title: 'Gümüş Yüzük', oldPrice: 120, newPrice: 110.5 }, { barcode: 'bx2', title: 'Çelik Kolye', oldPrice: 99, newPrice: 95 }] },
+    { id: 'l2', kind: 'settings', status: 'info', createdAt: '2026-11-09T18:00:00Z', note: 'Otomatik fiyat ayarı açıldı: BuyBox fiyatına eşit.', updated: 0, skippedNotLower: 0, skippedLoss: 0, skippedOther: 0, items: [] },
+    { id: 'l3', kind: 'auto', status: 'error', createdAt: '2026-11-08T10:00:00Z', note: 'Otomatik fiyat: fiyatlar güncellenemedi. Yetersiz kredi.', updated: 0, skippedNotLower: 0, skippedLoss: 0, skippedOther: 0, items: [] },
+  ] };
   if (url === '/credits/balance') return { data: { balance: 25 } };
   if (url === '/credits/prices') return { data: { buyboxCheckCost: 1, buyboxAdjustCost: 0.1 } };
   if (url === '/marketplace/connections/c1/buybox-history') {

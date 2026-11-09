@@ -51,6 +51,20 @@ ok('every window is at most 200 products', posts.every((c) => c.body.batchSize =
 ok('the summary adds the windows up (450 checked)', text().includes('Bu seferki: 450'));
 ok('the button is usable again afterwards', !!document.querySelector('button.btn-primary') && !document.querySelector('button.btn-primary').disabled);
 
+// ── the "Otomatik Fiyat Kayıtları" tab ──
+const tabBtn = () => [...document.querySelectorAll('[role="tab"]')].find((b) => b.textContent.includes('Otomatik Fiyat Kayıtları'));
+ok('the tab is there and shows how many notes exist', !!tabBtn() && tabBtn().textContent.includes('(3)'), tabBtn() && tabBtn().textContent);
+await act(async () => { tabBtn().dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }); await wait(60);
+const logRowsEl = () => [...document.querySelectorAll('[data-testid="log-row"]')];
+ok('three notes are listed, newest first', logRowsEl().length === 3 && logRowsEl()[0].textContent.includes('2 ürünün fiyatı düşürüldü'));
+ok('each note shows kind and result', logRowsEl()[0].textContent.includes('Otomatik') && logRowsEl()[0].textContent.includes('Güncellendi') && logRowsEl()[1].textContent.includes('Ayar') && logRowsEl()[2].textContent.includes('Hata'));
+ok('the status table is hidden on this tab', !text().includes('BuyBox Sırası'));
+const show = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Ürünleri göster'));
+await act(async () => { show.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }); await wait(30);
+ok('the products of a note can be opened with old and new price', text().includes('Gümüş Yüzük') && text().includes('120.00₺') && text().includes('110.50₺'));
+await act(async () => { [...document.querySelectorAll('[role="tab"]')].find((b) => b.textContent.includes('BuyBox Durumu')).dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }); await wait(30);
+ok('back on the first tab the status table is shown again', text().includes('BuyBox Sırası') && !!input());
+
 console.error = () => {};
 const real = errors.filter((e) => !/not wrapped in act|Warning: An update|ReactDOMTestUtils|act\(/.test(e));
 ok('no React errors/warnings while rendering', real.length === 0, real.slice(0, 3).join(' | '));

@@ -16,6 +16,7 @@ const parseConfig = (conn) => { try { return conn && conn.config ? JSON.parse(co
 const productListCache = require('../services/productListCache');
 const { deductCredits, refundCredits, getSetting } = require('./credits');
 const { planBuyboxAdjust, pickCheckWindow } = require('../services/buyboxPlanner');
+const buyboxLog = require('../services/buyboxLog');
 const { pushInBatches } = require('../services/batchPush');
 const { ownedParam, userStoreIds } = require('../middleware/ownership');
 const { publicConnection } = require('../utils/sanitize');
@@ -1668,7 +1669,7 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
 // The new price is stored as the product's hand-typed price for this marketplace (ProductPriceOverride), the one place
 // every price flow reads (list, sends, the automatic update after each XML sync). Without it the next automatic update
 // would put the template price back. Prices are only ever lowered and never below cost (see buyboxPlanner).
-async function adjustBuyboxPrices(connection, barcodes, mode, amount, userId) {
+async function adjustBuyboxPricesCore(connection, barcodes, mode, amount, userId) {
   const where = { connectionId: connection.id };
   if (barcodes && barcodes.length > 0) {
     where.barcode = { in: barcodes };
@@ -1678,7 +1679,7 @@ async function adjustBuyboxPrices(connection, barcodes, mode, amount, userId) {
   }
 
   const records = await prisma.buyboxRecord.findMany({ where });
-  const none = { updated: 0, creditUsed: 0, skipped: { noProduct: 0, notLower: 0, loss: 0 } };
+  const none = { updated: 0, creditUsed: 0, considered: records.length, planned: 0, changes: [], skipped: { noProduct: 0, notLower: 0, loss: 0 } };
   if (records.length === 0) return none;
 
   const productIds = [...new Set(records.map(r => r.productId).filter(Boolean))];
@@ -1744,7 +1745,22 @@ async function adjustBuyboxPrices(connection, barcodes, mode, amount, userId) {
     await refundCredits(userId, chargeFor(items.length) - chargeFor(r.sent), `BuyBox fiyat güncelleme iadesi: ${r.failed} ürün gönderilemedi`, connection.id).catch(() => {});
   }
   const error = r.error ? (r.error.response?.data?.message || r.error.message || 'Trendyol güncellemeyi kabul etmedi') : null;
-  return { updated: r.sent, creditUsed: chargeFor(r.sent), skipped, ...(error ? { error } : {}) };
+  const changes = plan.slice(0, r.sent).map(it => ({ barcode: it.barcode, title: productMap.get(it.productId)?.title, oldPrice: it.oldPrice, newPrice: it.newPrice }));
+  return { updated: r.sent, creditUsed: chargeFor(r.sent), considered: records.length, planned: plan.length, changes, skipped, ...(error ? { error } : {}) };
+}
+
+// Runs the adjustment and leaves a note about it (tab "Otomatik Fiyat" on the BuyBox page). kind: 'auto' | 'manual'
+async function adjustBuyboxPrices(connection, barcodes, mode, amount, userId, kind = 'manual') {
+  const base = { connectionId: connection.id, kind, mode, amount };
+  let result;
+  try {
+    result = await adjustBuyboxPricesCore(connection, barcodes, mode, amount, userId);
+  } catch (e) {
+    await buyboxLog.logRun({ ...base, error: e.statusCode === 402 ? e.message : (e.message || 'Beklenmeyen hata') });
+    throw e;
+  }
+  if (result.considered > 0) await buyboxLog.logRun({ ...base, ...result });
+  return result;
 }
 
 // Update or create a single BuyboxRecord, cleaning up any duplicates for the same (connectionId, barcode)
@@ -1962,7 +1978,7 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
     try {
       const cfg = parseConfig(connection);
       if (cfg.buyboxAutoAdjust && losing.length > 0) {
-        const ar = await adjustBuyboxPrices(connection, losing.map(r => r.barcode), cfg.buyboxAutoMode || 'equal', cfg.buyboxAutoAmount || 0, req.user.id);
+        const ar = await adjustBuyboxPrices(connection, losing.map(r => r.barcode), cfg.buyboxAutoMode || 'equal', cfg.buyboxAutoAmount || 0, req.user.id, 'auto');
         autoAdjusted = ar.updated; autoSkipped = ar.skipped; autoError = ar.error || null;
       }
     } catch (e) {
@@ -1998,7 +2014,7 @@ router.post('/connections/:id/buybox-price-adjust', async (req, res, next) => {
     if (!['equal', 'undercut'].includes(mode)) return res.status(400).json({ error: 'Geçersiz fiyat modu' });
     if (!Number.isFinite(amount) || amount < 0) return res.status(400).json({ error: 'Fark tutarı 0 veya daha büyük olmalı' });
     if (barcodes !== undefined && (!Array.isArray(barcodes) || barcodes.some(b => typeof b !== 'string'))) return res.status(400).json({ error: 'Geçersiz barkod listesi' });
-    const result = await adjustBuyboxPrices(connection, barcodes, mode, amount, req.user.id);
+    const result = await adjustBuyboxPrices(connection, barcodes, mode, amount, req.user.id, 'manual');
     if (result.error && result.updated === 0) return res.status(502).json({ error: `Trendyol fiyat güncellemesini kabul etmedi: ${String(result.error).slice(0, 200)}` });
 
     if (result.updated > 0) notificationService.create({
@@ -2044,10 +2060,28 @@ router.put('/connections/:id/buybox-auto-settings', async (req, res, next) => {
       data: { config: JSON.stringify(updated) }
     });
 
+    const settingsNote = buyboxLog.describeSettingsChange(
+      { enabled: existing.buyboxAutoAdjust, mode: existing.buyboxAutoMode, amount: existing.buyboxAutoAmount },
+      { enabled: updated.buyboxAutoAdjust, mode: updated.buyboxAutoMode, amount: updated.buyboxAutoAmount });
+    if (settingsNote) await buyboxLog.logRun({ connectionId: connection.id, kind: 'settings', note: settingsNote, mode: updated.buyboxAutoMode, amount: updated.buyboxAutoAmount });
+
     res.json({ message: 'Otomatik ayarlar kaydedildi', config: updated });
   } catch (error) {
     next(error);
   }
+});
+
+// GET the notes of the automatic / manual BuyBox price adjustment, newest first
+router.get('/connections/:id/buybox-auto-log', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 100, 1), 300);
+    const rows = await prisma.buyboxAutoLog.findMany({ where: { connectionId: req.params.id }, orderBy: { createdAt: 'desc' }, take: limit });
+    res.json(rows.map(r => {
+      let items = [];
+      try { items = r.items ? JSON.parse(r.items) : []; } catch { /* unreadable list: show the note only */ }
+      return { ...r, items };
+    }));
+  } catch (error) { next(error); }
 });
 
 // GET all current buybox records for a connection (deduplicated, with current marketplace price)

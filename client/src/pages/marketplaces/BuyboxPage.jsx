@@ -3,6 +3,7 @@ import { TrendingUp, TrendingDown, RefreshCw, AlertCircle, Wallet, Clock, Zap, C
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 import { matchesQuery } from './buyboxSearch';
+import AutoLogTab from './AutoLogTab';
 
 function timeAgo(date) {
   if (!date) return null;
@@ -27,6 +28,8 @@ export default function BuyboxPage() {
   const [sortField, setSortField] = useState('buyboxOrder');
   const [batchSize, setBatchSize] = useState(50);
   const [query, setQuery] = useState('');
+  const [tab, setTab] = useState('status');          // 'status' | 'log'
+  const [logRows, setLogRows] = useState(null);       // notes of the automatic price adjustment (null = not loaded yet)
 
   // Adjust modal
   const [adjustModal, setAdjustModal] = useState(null); // { barcodes?: string[], title?: string }
@@ -48,6 +51,7 @@ export default function BuyboxPage() {
     if (selectedConn) {
       fetchHistory();
       loadAutoSettings();
+      fetchLog();
     }
   }, [selectedConn]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -81,6 +85,14 @@ export default function BuyboxPage() {
       setHistory(res.data);
     } catch {}
     finally { setHistoryLoading(false); }
+  };
+
+  const fetchLog = async () => {
+    if (!selectedConn) return;
+    try {
+      const res = await api.get(`/marketplace/connections/${selectedConn.id}/buybox-auto-log`);
+      setLogRows(res.data);
+    } catch { setLogRows(r => r || []); }
   };
 
   const loadAutoSettings = () => {
@@ -142,6 +154,7 @@ export default function BuyboxPage() {
       setResults(data);
       await fetchCreditInfo();
       await fetchHistory();
+      fetchLog();
       const msg = data.autoAdjusted > 0
         ? `${data.checked} ürün kontrol edildi, ${data.autoAdjusted} fiyat otomatik güncellendi`
         : `${data.checked} ürün kontrol edildi`;
@@ -170,7 +183,7 @@ export default function BuyboxPage() {
       const res = await api.post(`/marketplace/connections/${selectedConn.id}/buybox-price-adjust`, payload);
       toast.success(res.data.message + (res.data.creditUsed > 0 ? ` (${res.data.creditUsed} kredi kesildi)` : ''));
       setAdjustModal(null);
-      await Promise.all([fetchHistory(), fetchCreditInfo()]);
+      await Promise.all([fetchHistory(), fetchCreditInfo(), fetchLog()]);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Fiyat güncellenemedi');
     } finally { setAdjusting(false); }
@@ -189,6 +202,7 @@ export default function BuyboxPage() {
       setSelectedConn(c => ({ ...c, config: JSON.stringify(res.data.config) }));
       setConnections(cs => cs.map(c => c.id === selectedConn.id ? { ...c, config: JSON.stringify(res.data.config) } : c));
       toast.success('Otomatik ayarlar kaydedildi');
+      fetchLog();
     } catch {
       toast.error('Kaydedilemedi');
     } finally { setAutoSaving(false); }
@@ -318,6 +332,21 @@ export default function BuyboxPage() {
         )}
       </div>
 
+      {/* Tabs */}
+      <div role="tablist" style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-color)', marginBottom: 16 }}>
+        {[['status', 'BuyBox Durumu'], ['log', `Otomatik Fiyat Kayıtları${logRows && logRows.length ? ` (${logRows.length})` : ''}`]].map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
+            style={{ padding: '10px 18px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: tab === id ? 700 : 500,
+              color: tab === id ? 'var(--accent-primary)' : 'var(--text-secondary)', borderBottom: tab === id ? '2px solid var(--accent-primary)' : '2px solid transparent', marginBottom: -1 }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'log' && <AutoLogTab rows={logRows} onRefresh={fetchLog} />}
+
+      {tab === 'status' && (
+        <>
       {/* Summary cards */}
       <div className="grid grid-4" style={{ marginBottom: 20, gap: 12 }}>
         <div className="card" style={{ padding: 16 }}>
@@ -562,6 +591,9 @@ export default function BuyboxPage() {
             <p>"BuyBox Kontrol Et" butonuna basarak ürünlerinizin durumunu öğrenin.</p>
           </div>
         </div>
+      )}
+
+        </>
       )}
 
       {/* Adjust Modal */}

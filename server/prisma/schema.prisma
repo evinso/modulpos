@@ -243,6 +243,7 @@ model MarketplaceConnection {
   categoryMappings    CategoryMapping[]
   buyboxRecords       BuyboxRecord[]
   priceOverrides      ProductPriceOverride[]
+  buyboxAutoLogs      BuyboxAutoLog[]
 }
 
 model MarketplaceProduct {
@@ -626,6 +627,30 @@ model TrendyolApiLog {
 
 // Login state of the built-in WhatsApp connection (Baileys): credentials and signal keys, one row each. The free hosting has no disk
 // that survives a sleep, so it lives here. `value` is JSON encrypted with ENCRYPTION_KEY (see services/whatsapp/authStore.js).
+// One note per run of the BuyBox price adjustment (automatic after a check, or the manual button) and per change of its settings.
+// `note` is the sentence shown to the user; `items` is JSON [{barcode,title,oldPrice,newPrice}] (at most 100). See services/buyboxLog.js.
+model BuyboxAutoLog {
+  id              String   @id @default(uuid())
+  connectionId    String
+  kind            String   // 'auto' | 'manual' | 'settings'
+  status          String   // 'ok' | 'partial' | 'nothing' | 'error' | 'info'
+  mode            String?
+  amount          Float?
+  considered      Int      @default(0)
+  updated         Int      @default(0)
+  skippedNotLower Int      @default(0)
+  skippedLoss     Int      @default(0)
+  skippedOther    Int      @default(0)
+  creditUsed      Float    @default(0)
+  note            String?
+  items           String?
+  createdAt       DateTime @default(now())
+
+  connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId, createdAt])
+}
+
 model WhatsappAuthState {
   key       String   @id
   value     String
