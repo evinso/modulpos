@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { TrendingUp, TrendingDown, RefreshCw, AlertCircle, Wallet, Clock, Zap, ChevronDown, ChevronUp, ArrowDownCircle, Search } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
@@ -99,28 +99,63 @@ export default function BuyboxPage() {
     return (Math.ceil(count / 10) * buyboxCostPerBatch).toFixed(1);
   };
 
+  // "Tümünü kontrol et" would be ONE request of several minutes (the browser gives up after 3 minutes while the server keeps
+  // working and charges the credits), so it is sent in windows of CHUNK products with a progress counter.
+  const CHUNK = 200;
+  const stopRef = useRef(false);
+  const [progress, setProgress] = useState(null);   // { done, total }
+
+  const runCheck = async () => {
+    if (batchSize > 0) {
+      const res = await api.post(`/marketplace/connections/${selectedConn.id}/buybox-check`, { batchSize });
+      return res.data;
+    }
+    const sum = { checked: 0, totalEligible: 0, winning: 0, losing: 0, creditUsed: 0, autoAdjusted: 0, autoSkipped: null, autoError: null, results: [], stopped: false };
+    for (let offset = 0; ; offset += CHUNK) {
+      if (stopRef.current) { sum.stopped = true; break; }
+      let d;
+      try {
+        d = (await api.post(`/marketplace/connections/${selectedConn.id}/buybox-check`, { batchSize: CHUNK, offset })).data;
+      } catch (err) {
+        if (sum.checked === 0) throw err;                 // nothing done yet: show the real error
+        sum.error = err.response?.data?.error || err.message; sum.stopped = true; break;   // keep what was checked
+      }
+      sum.totalEligible = d.totalEligible;
+      for (const k of ['checked', 'winning', 'losing', 'creditUsed', 'autoAdjusted']) sum[k] += d[k] || 0;
+      sum.results.push(...d.results);
+      if (d.autoSkipped) sum.autoSkipped = { notLower: (sum.autoSkipped?.notLower || 0) + (d.autoSkipped.notLower || 0), loss: (sum.autoSkipped?.loss || 0) + (d.autoSkipped.loss || 0) };
+      if (d.autoError) sum.autoError = d.autoError;
+      setProgress({ done: Math.min(offset + CHUNK, d.totalEligible), total: d.totalEligible });
+      if (offset + CHUNK >= d.totalEligible) break;
+    }
+    return sum;
+  };
+
   const handleCheck = async () => {
     if (!selectedConn) return;
     setChecking(true);
     setResults(null);
+    stopRef.current = false;
+    setProgress(null);
     try {
-      const res = await api.post(`/marketplace/connections/${selectedConn.id}/buybox-check`, { batchSize });
-      setResults(res.data);
+      const data = await runCheck();
+      setResults(data);
       await fetchCreditInfo();
       await fetchHistory();
-      const msg = res.data.autoAdjusted > 0
-        ? `${res.data.checked} ürün kontrol edildi, ${res.data.autoAdjusted} fiyat otomatik güncellendi`
-        : `${res.data.checked} ürün kontrol edildi`;
-      toast.success(msg);
-      const sk = res.data.autoSkipped;
+      const msg = data.autoAdjusted > 0
+        ? `${data.checked} ürün kontrol edildi, ${data.autoAdjusted} fiyat otomatik güncellendi`
+        : `${data.checked} ürün kontrol edildi`;
+      if (data.stopped) toast(`${msg}. Kontrol ${data.error ? `yarıda kaldı: ${data.error}` : 'durduruldu'}`, { duration: 8000 });
+      else toast.success(msg);
+      const sk = data.autoSkipped;
       if (sk && (sk.notLower || sk.loss)) {
         toast(`Otomatik fiyat: ${sk.notLower ? `${sk.notLower} ürün zaten daha ucuz/eşit olduğu için` : ''}${sk.notLower && sk.loss ? ', ' : ''}${sk.loss ? `${sk.loss} ürün zarara düşeceği için` : ''} atlandı`, { duration: 7000 });
       }
-      if (res.data.autoError) toast.error(`Otomatik fiyat güncellenemedi: ${res.data.autoError}`, { duration: 8000 });
+      if (data.autoError) toast.error(`Otomatik fiyat güncellenemedi: ${data.autoError}`, { duration: 8000 });
     } catch (err) {
-      const msg = err.response?.data?.error || 'BuyBox kontrol hatası';
+      const msg = err.response?.data?.error || (err.code === 'ECONNABORTED' ? 'İstek zaman aşımına uğradı, daha az ürünle deneyin' : 'BuyBox kontrol hatası');
       toast.error(msg, { duration: 6000 });
-    } finally { setChecking(false); }
+    } finally { setChecking(false); setProgress(null); }
   };
 
   const handleAdjust = async () => {
@@ -251,8 +286,11 @@ export default function BuyboxPage() {
           </select>
           <button className="btn btn-primary" onClick={handleCheck} disabled={checking} style={{ padding: '10px 24px' }}>
             <RefreshCw size={16} className={checking ? 'spin' : ''} />
-            {checking ? 'Kontrol ediliyor...' : 'BuyBox Kontrol Et'}
+            {checking ? (progress ? `Kontrol ediliyor… ${progress.done}/${progress.total}` : 'Kontrol ediliyor...') : 'BuyBox Kontrol Et'}
           </button>
+          {checking && batchSize === 0 && (
+            <button className="btn btn-secondary" onClick={() => { stopRef.current = true; }} style={{ padding: '10px 16px' }}>Durdur</button>
+          )}
         </div>
       </div>
 

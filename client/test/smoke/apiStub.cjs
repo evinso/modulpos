@@ -59,6 +59,10 @@ const get = async (url, cfg = {}) => {
 };
 const post = async (url, body) => {
   calls.push({ m: 'POST', url, body });
+  if (/buybox-check$/.test(url)) {
+    const total = 450; const off = body.offset ?? 0; const n = body.offset === undefined ? (body.batchSize || total) : Math.max(0, Math.min(body.batchSize, total - off));
+    return { data: { checked: n, totalEligible: total, winning: n - 1 > 0 ? n - 1 : 0, losing: n > 0 ? 1 : 0, creditUsed: Math.ceil(n / 10), autoAdjusted: 0, autoSkipped: null, autoError: null, results: Array.from({ length: n }, (_, i) => ({ barcode: 'b' + (off + i), buyboxOrder: i ? 1 : 2 })) } };
+  }
   if (/sync-price-stock$/.test(url)) return { data: { message: '1 ürün pazaryerlerinde güncellendi', count: 1 } };
   if (/send-products$/.test(url)) return { data: { message: '1 ürün Trendyol’a gönderildi', sent: 1 } };
   if (url === '/products/reset-manual-prices') return { data: { ok: true, removed: body.productIds ? body.productIds.length : 1, skippedNoTemplate: 0, productIds: body.productIds || ['p3'], activeProductIds: ['p1'] } };

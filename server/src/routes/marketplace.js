@@ -15,7 +15,7 @@ const { classifyBatchItem, healAlreadyListed, rejectReasonOf, classifyRemoved, r
 const parseConfig = (conn) => { try { return conn && conn.config ? JSON.parse(conn.config) : {}; } catch { return {}; } };
 const productListCache = require('../services/productListCache');
 const { deductCredits, refundCredits, getSetting } = require('./credits');
-const { planBuyboxAdjust } = require('../services/buyboxPlanner');
+const { planBuyboxAdjust, pickCheckWindow } = require('../services/buyboxPlanner');
 const { pushInBatches } = require('../services/batchPush');
 const { ownedParam, userStoreIds } = require('../middleware/ownership');
 const { publicConnection } = require('../utils/sanitize');
@@ -1856,11 +1856,10 @@ router.post('/connections/:id/buybox-check', async (req, res, next) => {
     });
     const lastCheckedMap = new Map(existingRecords.map(r => [r.barcode, r.checkedAt]));
 
-    eligibleItems.sort((a, b) =>
-      (lastCheckedMap.get(a.barcode)?.getTime() ?? 0) - (lastCheckedMap.get(b.barcode)?.getTime() ?? 0)
-    );
-
-    const eligible = batchSize > 0 ? eligibleItems.slice(0, batchSize) : eligibleItems;
+    // Rotation (default) or a fixed window when `offset` is given – see pickCheckWindow. The page uses windows for "check all"
+    // so no single request has to outlast the browser's time limit (3746 products take ~4 minutes in one go).
+    const offset = Number.isInteger(req.body?.offset) && req.body.offset >= 0 ? req.body.offset : null;
+    const eligible = pickCheckWindow(eligibleItems, { offset, batchSize, lastChecked: lastCheckedMap });
 
     // ── Credit deduction ──────────────────────────────────────────────────
     const creditCostPerBatch = parseFloat(await getSetting('credit_buybox_check', '1'));

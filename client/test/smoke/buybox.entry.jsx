@@ -37,6 +37,20 @@ await type('');
 ok('clearing the box brings everything back', rows().length === 3 && text().includes('3 ürün kayıtlı'));
 ok('the automatic price panel shows it is active', text().includes('Otomatik Fiyat Ayarı') && text().includes('Aktif'));
 
+// ── "Tümünü kontrol et" is sent in windows, never as one long request ──
+const { calls } = await import('./apiStub.cjs').then((m) => m.default || m);
+const sel = [...document.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.textContent.includes('Tümünü')));
+await act(async () => { const set = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; set.call(sel, '0'); sel.dispatchEvent(new window.Event('change', { bubbles: true })); });
+calls.length = 0;
+const check = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('BuyBox Kontrol Et'));
+await act(async () => { check.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
+await wait(300);
+const posts = calls.filter((c) => c.m === 'POST' && /buybox-check$/.test(c.url));
+ok('check-all makes 3 windowed requests for 450 products', posts.length === 3 && posts.map((c) => c.body.offset).join() === '0,200,400', JSON.stringify(posts.map((c) => c.body)));
+ok('every window is at most 200 products', posts.every((c) => c.body.batchSize === 200));
+ok('the summary adds the windows up (450 checked)', text().includes('Bu seferki: 450'));
+ok('the button is usable again afterwards', !!document.querySelector('button.btn-primary') && !document.querySelector('button.btn-primary').disabled);
+
 console.error = () => {};
 const real = errors.filter((e) => !/not wrapped in act|Warning: An update|ReactDOMTestUtils|act\(/.test(e));
 ok('no React errors/warnings while rendering', real.length === 0, real.slice(0, 3).join(' | '));

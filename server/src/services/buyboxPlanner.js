@@ -36,4 +36,21 @@ function planBuyboxAdjust({ records, products, currentPrices, priceCtx, mode, am
   return { items, skipped };
 }
 
-module.exports = { planBuyboxAdjust };
+/**
+ * Which products one BuyBox check looks at.
+ *  * offset given: a fixed order by barcode, the slice [offset, offset + size) (size 10..500). Walking offset 0, size, 2*size ...
+ *    visits every product exactly once, whatever has or has not been checked before.
+ *  * no offset (rotation): least recently checked first (never checked = first), `batchSize` of them; 0 = all.
+ * `lastChecked` is barcode -> Date. Returns a new array, the input is not reordered.
+ */
+function pickCheckWindow(items, { offset = null, batchSize = 0, lastChecked = new Map() } = {}) {
+  if (Number.isInteger(offset) && offset >= 0) {
+    const size = Math.min(Math.max(batchSize, 10), 500);
+    return [...items].sort((a, b) => (a.barcode < b.barcode ? -1 : a.barcode > b.barcode ? 1 : 0)).slice(offset, offset + size);
+  }
+  const ts = (b) => (lastChecked.get(b) ? lastChecked.get(b).getTime() : 0);
+  const sorted = [...items].sort((a, b) => ts(a.barcode) - ts(b.barcode));
+  return batchSize > 0 ? sorted.slice(0, batchSize) : sorted;
+}
+
+module.exports = { planBuyboxAdjust, pickCheckWindow };

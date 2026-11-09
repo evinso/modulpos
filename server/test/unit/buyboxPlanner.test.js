@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const E = require('../../src/services/pricingEngine');
-const { planBuyboxAdjust } = require('../../src/services/buyboxPlanner');
+const { planBuyboxAdjust, pickCheckWindow } = require('../../src/services/buyboxPlanner');
 
 const rule = {
   id: 'r1', name: 'Genel', isActive: true, priority: 0, createdAt: new Date(0), type: 'percentage', value: 30, applyTo: 'price_template',
@@ -46,4 +46,34 @@ test('without a stored marketplace price the price engine price is the reference
   const tpl = ctx.priceFor(P.get('a')).price;
   assert.equal(none([rec('1', 'a', tpl + 20)]).items.length, 0);
   assert.equal(none([rec('1', 'a', tpl - 1)]).items[0].oldPrice, tpl);
+});
+
+const many = (n) => Array.from({ length: n }, (_, i) => ({ barcode: 'bc-' + String((i * 7919) % n).padStart(5, '0') }));   // scrambled order
+
+test('windows by offset visit every product exactly once, in a fixed order', () => {
+  const items = many(450); const seen = [];
+  for (let off = 0; off < items.length; off += 200) seen.push(...pickCheckWindow(items, { offset: off, batchSize: 200 }));
+  assert.equal(seen.length, 450); assert.equal(new Set(seen.map(i => i.barcode)).size, 450);
+  assert.deepEqual(seen.map(i => i.barcode), [...seen.map(i => i.barcode)].sort());
+});
+
+test('windows ignore what was checked before (products without a record cannot block the walk)', () => {
+  const items = many(30); const lastChecked = new Map(items.slice(0, 10).map(i => [i.barcode, new Date()]));
+  const a = pickCheckWindow(items, { offset: 0, batchSize: 10, lastChecked }).map(i => i.barcode);
+  const b = pickCheckWindow(items, { offset: 10, batchSize: 10, lastChecked }).map(i => i.barcode);
+  assert.equal(new Set([...a, ...b]).size, 20);
+});
+
+test('a window past the end is empty; the size is kept between 10 and 500', () => {
+  assert.equal(pickCheckWindow(many(30), { offset: 40, batchSize: 10 }).length, 0);
+  assert.equal(pickCheckWindow(many(600), { offset: 0, batchSize: 5000 }).length, 500);
+  assert.equal(pickCheckWindow(many(600), { offset: 0, batchSize: 1 }).length, 10);
+});
+
+test('rotation: never-checked first, oldest next, batchSize 0 means all; input untouched', () => {
+  const items = [{ barcode: 'a' }, { barcode: 'b' }, { barcode: 'c' }];
+  const lastChecked = new Map([['a', new Date(3000)], ['b', new Date(1000)]]);
+  assert.deepEqual(pickCheckWindow(items, { batchSize: 2, lastChecked }).map(i => i.barcode), ['c', 'b']);
+  assert.equal(pickCheckWindow(items, { batchSize: 0, lastChecked }).length, 3);
+  assert.deepEqual(items.map(i => i.barcode), ['a', 'b', 'c']);
 });
