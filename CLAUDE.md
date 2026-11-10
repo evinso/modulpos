@@ -52,6 +52,13 @@ cd client && npm run test:smoke                 # renders the products screen in
   can break it, so bump it deliberately and check that the QR still appears. Phones typed the local way (05XX…) are completed to 90… when sending
   (`normalizePhone`). Failures are reported on the WhatsApp page (`describeError`); the notification senders stay silent on purpose. In-app notifications are
   also forwarded to the user's phone unless created with `noWhatsapp: true` (the event checklist does not filter those; the XML sync notice opts out).
+* **Order profit panel** (`/orders` tab "Kârlılık", `services/orderProfit.js`, `orderCosts.js`, `orderFinanceSync.js`): Trendyol sales with list price,
+  discounted price, what the customer paid, commission, platform fee, shipping, our cost and profit. Same profit method as the price template
+  (VAT-exclusive revenue minus charged amounts). Commission and shipping are Trendyol's REAL figures once read from the current account statement
+  (`settlements` Sale rows) and the cargo invoices (`otherfinancials` DeductionInvoices -> `cargo-invoice/{id}/items`), matched by order number into
+  `OrderFinance` (button on the tab + a daily cron); until then they are estimates (line commission rate, average known shipping) and shown with `~`.
+  The platform fee ("Platform Hizmet Bedeli") only exists as a periodic invoice, so it is a setting (default 13.19). The purchase cost is saved on the order
+  (`Order.lineCosts`) when it arrives; costs typed on the panel live in SystemSettings `order_cost:<storeId>`. Never invent a profit when a cost is unknown.
 * **Field mapping**: `xml/autoMapping.js` guesses the mapping for new feeds; the user's saved mapping always wins.
 * **Tenant isolation**: every route that takes an `:id` must verify the record belongs to the caller's store
   (`middleware/ownership.js` → `router.param`). Never look records up by `id` alone.

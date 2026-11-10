@@ -7,6 +7,7 @@ const TrendyolService = require('./trendyol/trendyolService');
 const { loadPricingContext } = require('./pricingEngine');
 const { processAutoAnswerForCron } = require('../routes/questions');
 const { syncAllOrders } = require('./orderSyncService');
+const { syncStoreFinance } = require('./orderFinanceSync');
 const whatsappService = require('./whatsappService');
 const { startXmlSync, failStaleSyncs, failAbandonedSyncs, isRunning } = require('./xml/syncService');
 const { runRetention } = require('./retentionService');
@@ -33,6 +34,17 @@ class CronService {
     cron.schedule('*/10 * * * *', async () => {
       console.log('[CRON] Checking for XML sources that need synchronization...');
       await this.syncXmlSources();
+    });
+
+    // Once a day: read the real commission / shipping of delivered orders from Trendyol (profit panel). Only matters while awake.
+    cron.schedule('40 4 * * *', async () => {
+      try {
+        const stores = await prisma.store.findMany({ select: { id: true } });
+        for (const st of stores) {
+          const r = await syncStoreFinance(st.id);
+          if (r.saved > 0) console.log(`[CRON/OrderFinance] store ${st.id}: ${r.saved} sipariş için Trendyol komisyon/kargo bilgisi alındı`);
+        }
+      } catch (e) { console.error('[CRON/OrderFinance]', e.message); }
     });
 
     // Subscription about to end / just ended (once per end date, see services/subscriptionAlerts.js)

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { RefreshCw, ShoppingCart, X, User, MapPin, Package } from 'lucide-react';
 import api from '../../services/api';
+import ProfitTab from './ProfitTab';
 import toast from 'react-hot-toast';
 
 const statusLabels = { new: 'Yeni', processing: 'Hazırlanıyor', shipped: 'Kargoda', delivered: 'Teslim Edildi', cancelled: 'İptal', returned: 'İade' };
@@ -165,6 +166,7 @@ export default function OrdersPage() {
   const [syncing, setSyncing] = useState(false);
   const [pagination, setPagination] = useState({ total: 0, page: 1, totalPages: 1 });
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [tab, setTab] = useState('orders');   // 'orders' | 'profit'
 
   useEffect(() => { fetchOrders(); }, [pagination.page]);
 
@@ -197,6 +199,19 @@ export default function OrdersPage() {
         </button>
       </div>
 
+      <div role="tablist" style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-color)', marginBottom: 16 }}>
+        {[['orders', 'Siparişler'], ['profit', 'Kârlılık (Trendyol)']].map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
+            style={{ padding: '10px 18px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: tab === id ? 700 : 500,
+              color: tab === id ? 'var(--accent-primary)' : 'var(--text-secondary)', borderBottom: tab === id ? '2px solid var(--accent-primary)' : '2px solid transparent', marginBottom: -1 }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'profit' && <ProfitTab />}
+
+      {tab === 'orders' && (
       <div className="table-container">
         <div className="table-header">
           <h3>Siparişler ({pagination.total})</h3>
@@ -243,6 +258,7 @@ export default function OrdersPage() {
           </>
         )}
       </div>
+      )}
 
       <OrderDetailModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />
     </div>

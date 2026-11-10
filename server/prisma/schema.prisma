@@ -304,14 +304,32 @@ model Order {
   orderDate          DateTime @default(now())
   shippedAt          DateTime?
   deliveredAt        DateTime?
+  lineCosts          String?  // JSON {barcode: unit purchase cost} as it was when the order arrived (profit panel)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
   store      Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
   connection MarketplaceConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  finance    OrderFinance?
 
   @@index([storeId])
   @@index([storeId, status])
+}
+
+// What the marketplace really charged for an order, read from Trendyol's current account statement (commission) and
+// cargo invoices (shipping). Filled by services/orderFinanceSync.js some days after delivery; until then the profit panel estimates.
+model OrderFinance {
+  id               String    @id @default(uuid())
+  orderId          String    @unique
+  commissionAmount Float?
+  commissionRate   Float?
+  sellerRevenue    Float?
+  cargoAmount      Float?
+  cargoDesi        Int?
+  settledAt        DateTime?
+  fetchedAt        DateTime  @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
 
 model PricingRule {

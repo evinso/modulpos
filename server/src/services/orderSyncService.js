@@ -2,6 +2,7 @@ const prisma = require('../config/database');
 const TrendyolService = require('./trendyol/trendyolService');
 const notificationService = require('./notificationService');
 const whatsappService = require('./whatsappService');
+const orderCosts = require('./orderCosts');
 
 function mapTrendyolStatus(status) {
   const map = {
@@ -40,8 +41,17 @@ async function syncOrdersForStore(store, connections) {
             : `${pkg.shipmentAddress?.firstName || ''} ${pkg.shipmentAddress?.lastName || ''}`.trim();
           const totalAmount = pkg.packageTotalPrice || 0;
 
+          // what the items cost us right now: kept on the order for the profit panel
+          let lineCosts = null;
+          try {
+            const products = await orderCosts.loadProducts(prisma, store.id, (pkg.lines || []).flatMap(orderCosts.lineKeys));
+            const snap = orderCosts.snapshotFor(pkg.lines || [], products);
+            lineCosts = snap ? JSON.stringify(snap) : null;
+          } catch { /* the panel falls back to the product's cost */ }
+
           await prisma.order.create({
             data: {
+              lineCosts,
               storeId: store.id,
               connectionId: conn.id,
               marketplaceOrderId: String(pkg.orderNumber),

@@ -54,6 +54,21 @@ const get = async (url, cfg = {}) => {
     return { data: { products: Array.from({ length: 20 }, (_, i) => ({ ...mk((page - 1) * 20 + i + 10), ready: true, issues: [], salePrice: 150, mapName: 'Aksesuar', marketplaceProducts: [] })), pagination: { total, page, limit: 20, totalPages: 13 }, stats: { total, ready: 250, blocked: 0, byIssue: {}, mp: { not_sent: 250, pending: 0, active: 0, rejected: 0, passive: 0 } } } };
   }
   if (url === '/marketplace/connections/c1/product-list/ids') return { data: { ids: Array.from({ length: 250 }, (_, i) => 'id' + i), sendable: 250, matching: 250, truncated: false } };
+  if (url === '/orders') return { data: { orders: [], pagination: { total: 0, page: 1, totalPages: 1 } } };
+  if (url === '/orders/profit') {
+    const L = (o) => ({ name: 'Gümüş Kolye', barcode: 'bc1', sku: 'bc1', qty: 1, gross: 200, sellerDisc: 0, tyDisc: 0, revenue: 200, paid: 200, vatRate: 20, commissionRate: 21, unitCost: 60, costSource: 'manual', ...o });
+    const base = { gross: 200, sellerDiscount: 0, tyDiscount: 0, discounted: 200, customerPaid: 200, vat: 33.33, netRevenue: 166.67, commissionRate: 21, serviceFee: 13.19, serviceFeeSource: 'estimate', excluded: false, mismatch: false };
+    return { data: {
+      rows: [
+        { id: 'o1', orderNumber: 'TY-1', marketplaceOrderId: '1', orderDate: '2026-10-01T10:00:00Z', status: 'delivered', ...base, lines: [L({})], commission: 42, commissionSource: 'trendyol', cargo: 103.49, cargoSource: 'trendyol', cost: 60, costMissing: false, profit: -52.01, profitPct: -31.2, exact: true },
+        { id: 'o2', orderNumber: 'TY-2', marketplaceOrderId: '2', orderDate: '2026-11-08T10:00:00Z', status: 'shipped', ...base, gross: 938.1, sellerDiscount: 56.34, discounted: 881.76, customerPaid: 881.76, lines: [L({ barcode: 'bc2', name: 'Bluetooth Kulaklık', gross: 938.1, revenue: 881.76, unitCost: null, costSource: null })], commission: 141.08, commissionSource: 'estimate', cargo: 95.99, cargoSource: 'estimate', cost: null, costMissing: true, profit: null, profitPct: null, exact: false },
+        { id: 'o3', orderNumber: 'TY-3', marketplaceOrderId: '3', orderDate: '2026-11-07T10:00:00Z', status: 'shipped', ...base, lines: [L({})], commission: 42, commissionSource: 'estimate', cargo: 95.99, cargoSource: 'estimate', cost: 60, costMissing: false, profit: -40.01, profitPct: -24, exact: false },
+      ],
+      summary: { orders: 3, excluded: 0, gross: 1338.1, discounted: 1281.76, customerPaid: 1281.76, commission: 225.08, serviceFee: 39.57, cargo: 295.47, cost: 120, vat: 100, profit: -92.02, profitOrders: 2, unknownProfit: 1, estimated: 2 },
+      settings: { serviceFee: 13.19, cargoEstimate: 95.99, cargoEstimateSaved: null, cargoAverage: 95.99, serviceFeeDefault: 13.19 },
+      pagination: { total: 3, page: 1, limit: 25, totalPages: 1 },
+    } };
+  }
   if (url === '/credits/balance') return { data: { balance: 25 } };
   if (url === '/credits/prices') return { data: { buyboxCheckCost: 1, buyboxAdjustCost: 0.1 } };
   if (url === '/marketplace/connections/c1/buybox-history') {
@@ -70,6 +85,7 @@ const get = async (url, cfg = {}) => {
 };
 const post = async (url, body) => {
   calls.push({ m: 'POST', url, body });
+  if (url === '/orders/profit/refresh') return { data: { message: '5 siparişten 0 komisyon, 0 kargo bilgisi Trendyol\'dan alındı', pending: 5 } };
   if (/send-products$/.test(url)) {
     if (sendBehaviour.allBelowStock) { const e = new Error('x'); e.response = { status: 400, data: { error: `Seçili ${body.productIds.length} ürünün stoğu minimum stok eşiğinin (${body.minStock}) altında olduğu için hiçbiri gönderilmedi`, belowMinStock: body.productIds.length } }; throw e; }
     if (body.productIds.includes('id150') && sendBehaviour.failAt150) { const e = new Error('x'); e.response = { status: 400, data: { error: 'Trendyol API hatası', message: 'Trendyol reddetti' } }; throw e; }
@@ -93,6 +109,7 @@ const post = async (url, body) => {
   return { data: { message: 'ok', updated: 0, errors: [] } }; };
 const put = async (url, body) => {
   calls.push({ m: 'PUT', url, body });
+  if (url === '/orders/profit/cost' || url === '/orders/profit/settings') return { data: { ok: true } };
   if (/\/sale-price$/.test(url)) {
     if (body.price < 120 && body.confirmLoss !== true) { const e = new Error('409'); e.response = { status: 409, data: { error: 'Bu fiyatta zarar edersiniz', loss: true } }; throw e; }
     return { data: { ok: true, pricing: { salePrice: body.price, manual: true } } };
