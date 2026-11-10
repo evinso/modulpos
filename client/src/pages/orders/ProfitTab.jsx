@@ -60,6 +60,7 @@ function Breakdown({ row, onSaved }) {
         {line('Satış KDV\'si', `− ${tl(row.vat)}`)}
         {line('Komisyon', `− ${tl(row.commission)}`, row.commissionSource === 'trendyol' ? 'Trendyol\'dan' : `tahmini (%${row.commissionRate})`)}
         {line('Platform hizmet bedeli', `− ${tl(row.serviceFee)}`, 'tahmini (ayarlardan)')}
+        {row.supplierFee > 0 && line('Tedarikçi hizmet bedeli', `− ${tl(row.supplierFee)}`, 'XML kaynağı ayarı, ürün başına')}
         {line('Kargo', row.cargo === null ? '—' : `− ${tl(row.cargo)}`, row.cargoSource === 'trendyol' ? 'Trendyol faturasından' : row.cargoSource === 'estimate' ? 'tahmini' : 'bilinmiyor')}
         {line('Alış maliyeti', row.cost === null ? '—' : `− ${tl(row.cost)}`)}
         {line('Net kâr', row.profit === null ? 'hesaplanamadı' : tl(row.profit), row.profitPct !== null ? `net satışın %${row.profitPct}'i` : '', true)}
@@ -71,7 +72,7 @@ function Breakdown({ row, onSaved }) {
         {row.lines.map((l) => (
           <div key={l.barcode} style={{ padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}>
             <div style={{ fontWeight: 500 }}>{l.name}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace', marginBottom: 6 }}>{l.barcode} · {l.qty} adet · satış {tl(l.revenue)} · KDV %{l.vatRate} · komisyon %{l.commissionRate}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace', marginBottom: 6 }}>{l.barcode} · {l.qty} adet · satış {tl(l.revenue)} · KDV %{l.vatRate} · komisyon %{l.commissionRate}{l.unitFee > 0 ? ` · tedarikçi hizmeti ${tl(l.unitFee)}/adet` : ''}</div>
             <CostEditor line={l} onSaved={onSaved} />
           </div>
         ))}
@@ -130,6 +131,7 @@ export default function ProfitTab() {
 
   if (loading && !data) return <div className="loading-spinner"><div className="spinner"></div></div>;
   const s = data?.summary; const rows = data?.rows || []; const pg = data?.pagination;
+  const showSupplier = !!(s && s.supplierFee > 0) || rows.some((r) => r.supplierFee > 0);
 
   return (
     <div>
@@ -172,7 +174,8 @@ export default function ProfitTab() {
           <Card label="Sipariş" value={s.orders} sub={s.excluded ? `${s.excluded} iptal/iade hariç` : undefined} />
           <Card label="Müşterinin ödediği" value={tl(s.customerPaid)} sub={`liste ${tl(s.gross)}`} />
           <Card label="Komisyon" value={tl(s.commission)} />
-          <Card label="Hizmet bedeli" value={tl(s.serviceFee)} />
+          <Card label="Hizmet bedeli" value={tl(s.serviceFee)} sub="Trendyol platform" />
+          {s.supplierFee > 0 && <Card label="Tedarikçi hizmeti" value={tl(s.supplierFee)} sub="XML kaynağı, ürün başına" />}
           <Card label="Kargo" value={tl(s.cargo)} />
           <Card label="Alış maliyeti" value={tl(s.cost)} />
           <Card label="Net kâr" value={tl(s.profit)} color={s.profit >= 0 ? 'var(--success)' : 'var(--danger)'} sub={s.unknownProfit ? `${s.profitOrders} siparişin toplamı` : undefined} />
@@ -197,7 +200,7 @@ export default function ProfitTab() {
               <tr>
                 <th>Tarih</th><th>Sipariş</th><th>Ürün</th>
                 <th style={{ textAlign: 'right' }}>Satış fiyatı</th><th style={{ textAlign: 'right' }}>İndirimli satış</th><th style={{ textAlign: 'right' }}>Müşteri ödedi</th>
-                <th style={{ textAlign: 'right' }}>Komisyon</th><th style={{ textAlign: 'right' }}>Hizmet bedeli</th><th style={{ textAlign: 'right' }}>Kargo</th>
+                <th style={{ textAlign: 'right' }}>Komisyon</th><th style={{ textAlign: 'right' }}>Hizmet bedeli</th>{showSupplier && <th style={{ textAlign: 'right' }}>Tedarikçi hizmeti</th>}<th style={{ textAlign: 'right' }}>Kargo</th>
                 <th style={{ textAlign: 'right' }}>Alış maliyeti</th><th style={{ textAlign: 'right' }}>Net kâr</th><th></th>
               </tr>
             </thead>
@@ -218,6 +221,7 @@ export default function ProfitTab() {
                   <td style={{ textAlign: 'right', fontSize: 13, fontWeight: 600 }}>{tl(r.customerPaid)}</td>
                   <td style={{ textAlign: 'right', fontSize: 13, color: r.commissionSource === 'trendyol' ? undefined : 'var(--text-secondary)' }}>{approx(r.commission, r.commissionSource)}</td>
                   <td style={{ textAlign: 'right', fontSize: 13, color: 'var(--text-secondary)' }}>{approx(r.serviceFee, r.serviceFeeSource)}</td>
+                  {showSupplier && <td style={{ textAlign: 'right', fontSize: 13 }}>{r.supplierFee > 0 ? tl(r.supplierFee) : '—'}</td>}
                   <td style={{ textAlign: 'right', fontSize: 13, color: r.cargoSource === 'trendyol' ? undefined : 'var(--text-secondary)' }}>{approx(r.cargo, r.cargoSource)}</td>
                   <td style={{ textAlign: 'right', fontSize: 13 }}>{r.costMissing ? <span style={{ color: 'var(--warning)' }}>maliyet gir</span> : tl(r.cost)}</td>
                   <td style={{ textAlign: 'right', fontSize: 13, fontWeight: 700, color: r.profit === null ? 'var(--text-muted)' : r.profit >= 0 ? 'var(--success)' : 'var(--danger)' }}>
@@ -226,7 +230,7 @@ export default function ProfitTab() {
                   <td>{open === r.id ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</td>
                 </tr>,
                 open === r.id && (
-                  <tr key={r.id + '-d'} data-testid="profit-detail"><td colSpan={12} style={{ background: 'var(--bg-secondary)' }}><Breakdown row={r} onSaved={load} /></td></tr>
+                  <tr key={r.id + '-d'} data-testid="profit-detail"><td colSpan={showSupplier ? 13 : 12} style={{ background: 'var(--bg-secondary)' }}><Breakdown row={r} onSaved={load} /></td></tr>
                 ),
               ])}
             </tbody>

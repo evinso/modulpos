@@ -94,13 +94,23 @@ router.post('/:id/analyze', async (req, res, next) => {
   }
 });
 
+/** Supplier service fee per product (₺): undefined = not given, false = invalid, otherwise a number >= 0. */
+function parseServiceFee(v) {
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return 0;
+  const n = Number(String(v).replace(',', '.'));
+  return Number.isFinite(n) && n >= 0 && n <= 100000 ? Math.round(n * 100) / 100 : false;
+}
+
 // Add XML source (with mapping)
 router.post('/', async (req, res, next) => {
   try {
     const store = await getUserStore(req.user.id);
     if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
-    const { name, url, format, syncIntervalMin, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate, purchaseVatRate } = req.body;
+    const { name, url, format, syncIntervalMin, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate, purchaseVatRate, orderServiceFee } = req.body;
     if (!name || !url) return res.status(400).json({ error: 'İsim ve URL zorunludur' });
+    const fee = parseServiceFee(orderServiceFee);
+    if (fee === false) return res.status(400).json({ error: 'Hizmet bedeli 0 veya daha büyük bir tutar olmalı' });
 
     await checkXmlSourceLimit(req.user.id, store.id);
 
@@ -119,6 +129,7 @@ router.post('/', async (req, res, next) => {
         priceMarkupPct: priceMarkupPct || 0,
         defaultVatRate: defaultVatRate !== undefined ? parseInt(defaultVatRate) : 10,
         purchaseVatRate: purchaseVatRate !== undefined ? parseInt(purchaseVatRate) : 0,
+        orderServiceFee: fee === undefined ? 0 : fee,
       }
     });
 
@@ -138,8 +149,11 @@ router.post('/', async (req, res, next) => {
 // Update XML source (including mapping)
 router.put('/:id', async (req, res, next) => {
   try {
-    const { name, url, format, syncIntervalMin, status, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate, purchaseVatRate } = req.body;
+    const { name, url, format, syncIntervalMin, status, mappingConfig, barcodePrefix, defaultCategoryId, defaultBrandId, priceMarkup, priceMarkupPct, defaultVatRate, purchaseVatRate, orderServiceFee } = req.body;
     const data = {};
+    const fee = parseServiceFee(orderServiceFee);
+    if (fee === false) return res.status(400).json({ error: 'Hizmet bedeli 0 veya daha büyük bir tutar olmalı' });
+    if (fee !== undefined) data.orderServiceFee = fee;
     if (name !== undefined) data.name = name;
     if (url !== undefined) data.url = url;
     if (format !== undefined) data.format = format;

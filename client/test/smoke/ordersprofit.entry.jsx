@@ -33,6 +33,7 @@ ok('a settled order shows Trendyol\'s commission and cargo without "~"', t0.incl
 ok('an unsettled order shows commission and cargo as estimates with "~"', rows()[1].textContent.includes('~141,08 ₺') && rows()[1].textContent.includes('~95,99 ₺'));
 ok('the platform fee is always an estimate', t0.includes('~13,19 ₺'));
 ok('a missing purchase cost is called out and no profit is invented', rows()[1].textContent.includes('maliyet gir') && rows()[1].textContent.includes('—'));
+ok('the supplier service fee gets its own column and card because some order has one', text().includes('Tedarikçi hizmeti') && rows()[0].textContent.includes('30,00 ₺') && rows()[1].textContent.includes('—'));
 ok('summary cards: customer paid, commission, cargo, cost and net profit', text().includes('Müşterinin ödediği') && text().includes('1.281,76 ₺') && text().includes('Net kâr') && text().includes('-92,02 ₺'));
 ok('it says how many orders are not in the profit total', text().includes('1 sipariş') && text().includes('kâr toplamına katılmadı'));
 

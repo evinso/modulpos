@@ -37,7 +37,7 @@ async function loadProducts(db, storeId, keys) {
   const map = new Map();
   for (let i = 0; i < list.length; i += 500) {
     const part = list.slice(i, i + 500);
-    const rows = await db.product.findMany({ where: { storeId, OR: [{ barcode: { in: part } }, { sku: { in: part } }] }, select: { id: true, barcode: true, sku: true, xmlPrice: true, price: true } });
+    const rows = await db.product.findMany({ where: { storeId, OR: [{ barcode: { in: part } }, { sku: { in: part } }] }, select: { id: true, barcode: true, sku: true, xmlPrice: true, price: true, xmlSourceId: true } });
     for (const p of rows) { if (p.barcode) map.set(String(p.barcode), p); if (p.sku && !map.has(String(p.sku))) map.set(String(p.sku), p); }
   }
   return map;
@@ -52,6 +52,48 @@ function snapshotFor(lines, products) {
   return Object.keys(out).length ? out : null;
 }
 
+/**
+ * Supplier service fee per unit for each line: the fee set on the XML source the sold product belongs to.
+ * snapshot: { barcode: fee } saved on the order when it arrived (wins), otherwise the source's CURRENT fee.
+ * feeBySource: Map xmlSourceId -> fee.  Returns Map barcode -> { unit, source: 'snapshot' | 'source' } (only fees > 0).
+ */
+function feeMapFor(lines, { snapshot = null, products = new Map(), feeBySource = new Map() } = {}) {
+  const out = new Map();
+  for (const line of lines) {
+    const keys = lineKeys(line);
+    const main = String(line.barcode || keys[0] || '');
+    if (!main || out.has(main)) continue;
+    if (snapshot) {                                   // saved at arrival, even when it was "none"
+      for (const k of keys) if (num(snapshot[k]) > 0) { out.set(main, { unit: num(snapshot[k]), source: 'snapshot' }); break; }
+      continue;
+    }
+    for (const k of keys) {
+      const p = products.get(k);
+      const fee = p && p.xmlSourceId ? num(feeBySource.get(p.xmlSourceId)) : 0;
+      if (fee > 0) { out.set(main, { unit: fee, source: 'source' }); break; }
+    }
+  }
+  return out;
+}
+
+/** {barcode: fee} of the lines whose product's XML source charges a service fee; '{}' text means "checked, none". */
+function feeSnapshotFor(lines, products, feeBySource) {
+  const out = {};
+  for (const line of lines) {
+    for (const k of lineKeys(line)) {
+      const p = products.get(k);
+      const fee = p && p.xmlSourceId ? num(feeBySource.get(p.xmlSourceId)) : 0;
+      if (fee > 0) { out[String(line.barcode || k)] = fee; break; }
+    }
+  }
+  return out;
+}
+
+async function loadFeeBySource(db, storeId) {
+  const rows = await db.xmlSource.findMany({ where: { storeId, orderServiceFee: { gt: 0 } }, select: { id: true, orderServiceFee: true } });
+  return new Map(rows.map((r) => [r.id, r.orderServiceFee]));
+}
+
 const keyFor = (storeId) => `order_cost:${storeId}`;
 async function loadManual(db, storeId) {
   const row = await db.systemSettings.findUnique({ where: { key: keyFor(storeId) } });
@@ -64,4 +106,4 @@ async function saveManual(db, storeId, barcode, unitCost) {
   return map;
 }
 
-module.exports = { costMapFor, loadProducts, snapshotFor, loadManual, saveManual, lineKeys, costOf, parseJson };
+module.exports = { feeMapFor, feeSnapshotFor, loadFeeBySource, costMapFor, loadProducts, snapshotFor, loadManual, saveManual, lineKeys, costOf, parseJson };

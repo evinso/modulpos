@@ -5,7 +5,8 @@
 //   revenue (KDV dahil)  = gross - seller discount          (Trendyol's own discount is paid back to the seller)
 //   customer paid        = gross - seller discount - Trendyol discount
 //   net revenue          = revenue / (1 + VAT)
-//   profit               = net revenue - commission - platform fee - shipping - purchase cost
+//   profit               = net revenue - commission - platform fee - supplier service fee - shipping - purchase cost
+//   supplier service fee = what the supplier (XML source) charges per unit after the order is placed, set on the XML source
 
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -40,9 +41,10 @@ function lineFigures(line) {
 /**
  * costs: Map barcode -> { unit, source }   (source: 'snapshot' | 'product' | 'manual')
  * finance: { commissionAmount, cargoAmount, ... } from Trendyol, or null
+ * fees: Map barcode -> { unit, source }  supplier service fee per unit (XML source setting); missing = no fee
  * settings: { serviceFee, cargoEstimate }  (cargoEstimate may be null = unknown)
  */
-function computeOrderProfit(order, { finance = null, costs = new Map(), settings = {} } = {}) {
+function computeOrderProfit(order, { finance = null, costs = new Map(), fees = new Map(), settings = {} } = {}) {
   const lines = parseLines(order.items).map(lineFigures);
   const sum = (f) => lines.reduce((a, l) => a + f(l), 0);
 
@@ -63,17 +65,20 @@ function computeOrderProfit(order, { finance = null, costs = new Map(), settings
   const cargoReal = finance && has(finance.cargoAmount);
   const cargo = cargoReal ? num(finance.cargoAmount) : (has(settings.cargoEstimate) ? num(settings.cargoEstimate) : null);
 
-  let cost = 0; let costMissing = lines.length === 0;
+  let cost = 0; let costMissing = lines.length === 0; let supplierFee = 0;
   const lineRows = lines.map((l) => {
+    const f = fees.get(l.barcode) || (l.sku ? fees.get(l.sku) : undefined);
+    const unitFee = f && f.unit > 0 ? f.unit : 0;
+    supplierFee += unitFee * l.qty;
     const c = costs.get(l.barcode) || (l.sku ? costs.get(l.sku) : undefined);
-    if (!c || !(c.unit > 0)) { costMissing = true; return { ...l, unitCost: null, costSource: null }; }
+    if (!c || !(c.unit > 0)) { costMissing = true; return { ...l, unitCost: null, costSource: null, unitFee }; }
     cost += c.unit * l.qty;
-    return { ...l, unitCost: c.unit, costSource: c.source };
+    return { ...l, unitCost: c.unit, costSource: c.source, unitFee };
   });
 
   const excluded = EXCLUDED.has(order.status);
   const complete = !costMissing && cargo !== null;
-  const profit = complete ? netRevenue - commission - serviceFee - cargo - cost : null;
+  const profit = complete ? netRevenue - commission - serviceFee - supplierFee - cargo - cost : null;
 
   return {
     excluded,
@@ -84,6 +89,7 @@ function computeOrderProfit(order, { finance = null, costs = new Map(), settings
     commission: round2(commission), commissionSource: commissionReal ? 'trendyol' : 'estimate',
     commissionRate: lines.length ? round2(lines.reduce((a, l) => a + l.commissionRate * l.revenue, 0) / (revenue || 1)) : 0,
     serviceFee: round2(serviceFee), serviceFeeSource: 'estimate',
+    supplierFee: round2(supplierFee),
     cargo: cargo === null ? null : round2(cargo), cargoSource: cargoReal ? 'trendyol' : (cargo === null ? null : 'estimate'),
     cost: costMissing ? null : round2(cost), costMissing,
     profit: profit === null ? null : round2(profit),
@@ -101,7 +107,7 @@ function summarize(results) {
   return {
     orders: live.length, excluded: results.length - live.length,
     gross: add((r) => r.gross), discounted: add((r) => r.discounted), customerPaid: add((r) => r.customerPaid),
-    commission: add((r) => r.commission), serviceFee: add((r) => r.serviceFee), cargo: add((r) => r.cargo),
+    commission: add((r) => r.commission), serviceFee: add((r) => r.serviceFee), supplierFee: add((r) => r.supplierFee), cargo: add((r) => r.cargo),
     cost: add((r) => r.cost), vat: add((r) => r.vat),
     profit: add((r) => r.profit),
     profitOrders: withProfit.length,

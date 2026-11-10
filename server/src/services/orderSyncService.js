@@ -42,16 +42,19 @@ async function syncOrdersForStore(store, connections) {
           const totalAmount = pkg.packageTotalPrice || 0;
 
           // what the items cost us right now: kept on the order for the profit panel
-          let lineCosts = null;
+          let lineCosts = null; let lineFees = null;
           try {
             const products = await orderCosts.loadProducts(prisma, store.id, (pkg.lines || []).flatMap(orderCosts.lineKeys));
             const snap = orderCosts.snapshotFor(pkg.lines || [], products);
             lineCosts = snap ? JSON.stringify(snap) : null;
-          } catch { /* the panel falls back to the product's cost */ }
+            // the supplier's per-unit service fee at this moment ('{}' = checked, none)
+            lineFees = JSON.stringify(orderCosts.feeSnapshotFor(pkg.lines || [], products, await orderCosts.loadFeeBySource(prisma, store.id)));
+          } catch { /* the panel falls back to the product's cost / the source's current fee */ }
 
           await prisma.order.create({
             data: {
               lineCosts,
+              lineFees,
               storeId: store.id,
               connectionId: conn.id,
               marketplaceOrderId: String(pkg.orderNumber),

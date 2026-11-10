@@ -112,3 +112,46 @@ test('costs: manual beats the snapshot, which beats today\'s product; the snapsh
   assert.deepEqual(snapshotFor(lines, products), { x: 90 });
   assert.equal(snapshotFor([{ barcode: 'nope' }], products), null);
 });
+
+// ── supplier service fee (set on the XML source, paid per unit after the order is placed) ──
+const { feeMapFor, feeSnapshotFor } = require('../../src/services/orderCosts');
+
+test('the supplier fee is taken per unit and lowers the profit', () => {
+  const base = computeOrderProfit(realOrder(), { finance: { commissionAmount: 42, cargoAmount: 103.49 }, costs: costs(60), settings });
+  const withFee = computeOrderProfit(realOrder(), { finance: { commissionAmount: 42, cargoAmount: 103.49 }, costs: costs(60), fees: new Map([['160800001', { unit: 30, source: 'source' }]]), settings });
+  assert.equal(base.supplierFee, 0); assert.equal(withFee.supplierFee, 30);
+  assert.equal(withFee.profit, Math.round((base.profit - 30) * 100) / 100);
+  assert.equal(withFee.lines[0].unitFee, 30);
+});
+
+test('quantity multiplies the supplier fee', () => {
+  const items = JSON.stringify([{ quantity: 3, barcode: 'a', lineGrossAmount: 600, vatRate: 20, commission: 10 }]);
+  const r = computeOrderProfit({ status: 'delivered', totalAmount: 600, items }, { costs: new Map([['a', { unit: 50, source: 'manual' }]]), fees: new Map([['a', { unit: 30, source: 'source' }]]), settings: { serviceFee: 0, cargoEstimate: 0 } });
+  assert.equal(r.supplierFee, 90);
+});
+
+test('a product that is not from a fee-charging source pays nothing; the totals add the fee up', () => {
+  const only = computeOrderProfit(realOrder(), { costs: costs(60), fees: new Map([['other', { unit: 30, source: 'source' }]]), settings });
+  assert.equal(only.supplierFee, 0);
+  const a = computeOrderProfit(realOrder(), { finance: { commissionAmount: 42, cargoAmount: 103.49 }, costs: costs(60), fees: new Map([['160800001', { unit: 30, source: 'source' }]]), settings });
+  const b = computeOrderProfit(realOrder(), { finance: { commissionAmount: 42, cargoAmount: 103.49 }, costs: costs(60), fees: new Map([['160800001', { unit: 30, source: 'source' }]]), settings });
+  assert.equal(summarize([a, b]).supplierFee, 60);
+});
+
+test('fee per line: the fee of the XML source of the sold product; other sources and unknown products pay none', () => {
+  const lines = [{ barcode: 'x1' }, { barcode: 'y1' }, { barcode: 'z1' }];
+  const products = new Map([['x1', { xmlSourceId: 'biii' }], ['y1', { xmlSourceId: 'other' }]]);   // z1 is not a known product
+  const feeBySource = new Map([['biii', 30]]);
+  const m = feeMapFor(lines, { products, feeBySource });
+  assert.deepEqual([...m.keys()], ['x1']); assert.deepEqual(m.get('x1'), { unit: 30, source: 'source' });
+  assert.deepEqual(feeSnapshotFor(lines, products, feeBySource), { x1: 30 });
+});
+
+test('a saved fee snapshot wins over the source\'s current fee, also when it says "none"', () => {
+  const lines = [{ barcode: 'x1' }];
+  const products = new Map([['x1', { xmlSourceId: 'biii' }]]);
+  const feeBySource = new Map([['biii', 45]]);   // raised later
+  assert.deepEqual(feeMapFor(lines, { snapshot: { x1: 30 }, products, feeBySource }).get('x1'), { unit: 30, source: 'snapshot' });
+  assert.equal(feeMapFor(lines, { snapshot: {}, products, feeBySource }).size, 0);                  // arrived when there was no fee
+  assert.deepEqual(feeMapFor(lines, { snapshot: null, products, feeBySource }).get('x1'), { unit: 45, source: 'source' });   // no snapshot: current fee
+});

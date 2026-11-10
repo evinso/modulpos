@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:smoke": "node test/smoke/run.mjs products && node test/smoke/run.mjs pricing && node test/smoke/run.mjs sendsettings && node test/smoke/run.mjs whatsapp && node test/smoke/run.mjs buybox && node test/smoke/run.mjs trendyolsend && node test/smoke/run.mjs ordersprofit"
+    "test:smoke": "node test/smoke/run.mjs products && node test/smoke/run.mjs pricing && node test/smoke/run.mjs sendsettings && node test/smoke/run.mjs whatsapp && node test/smoke/run.mjs buybox && node test/smoke/run.mjs trendyolsend && node test/smoke/run.mjs ordersprofit && node test/smoke/run.mjs xmlfee"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

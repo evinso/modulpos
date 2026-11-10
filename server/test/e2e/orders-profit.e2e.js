@@ -78,6 +78,28 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     ok('date filter keeps recent orders', (await get(`?from=${today}&to=${today}`)).d.rows.length === 0 && (await get('?from=2000-01-01&to=2100-01-01')).d.rows.length === 3);
     ok('paging', (await get('?limit=1&page=2')).d.rows.length === 1 && (await get('?limit=1')).d.pagination.totalPages === 3);
 
+    // supplier service fee: set on the XML source, only for products of that source
+    const before1 = row(await get(), 1);
+    const src = (await c.query(`insert into app."XmlSource"(id,"storeId",name,url,"orderServiceFee","updatedAt") values(gen_random_uuid(),$1,'e2e-biii','https://example.invalid/x.xml',0,now()) returning id`, [store.id])).rows[0].id;
+    const o4 = await order(4, 'delivered', 200, line({ barcode: 'e2e-op1', lineGrossAmount: 200, commission: 21 }), new Date(now - 6 * 86400000));
+    await c.query(`update app."Order" set "lineFees"='{}' where id=$1`, [o4]);   // arrived while the source charged nothing
+    await c.query(`update app."Product" set "xmlSourceId"=$1 where "storeId"=$2 and barcode='e2e-op1'`, [src, store.id]);
+    ok('no fee on the source -> no supplier fee', row(await get(), 1).supplierFee === 0);
+    ok('the fee is validated (negative / text rejected)', (await a('PUT', `/xml-sources/${src}`, { orderServiceFee: -5 })).s === 400 && (await a('PUT', `/xml-sources/${src}`, { orderServiceFee: 'abc' })).s === 400);
+    ok('another store cannot change my source\'s fee', [403, 404].includes((await b('PUT', `/xml-sources/${src}`, { orderServiceFee: 99 })).s) && (await c.query(`select "orderServiceFee" f from app."XmlSource" where id=$1`, [src])).rows[0].f === 0);
+    const put = await a('PUT', `/xml-sources/${src}`, { orderServiceFee: 30 });
+    ok('fee of 30 TL per product saved on the source', put.s === 200 && put.d.orderServiceFee === 30);
+    r = await get();
+    ok('order 1 (product of that source) now carries 30 TL and the profit drops by exactly that', row(r, 1).supplierFee === 30 && near(before1.profit - row(r, 1).profit, 30), `${before1.profit} -> ${row(r, 1).profit}`);
+    ok('an order that arrived while there was no fee keeps its snapshot (0)', row(r, 4).supplierFee === 0);
+    ok('products that are not from that source (order 2) pay no fee', row(r, 2).supplierFee === 0);
+    ok('the summary adds the supplier fee up', r.d.summary.supplierFee === 30, String(r.d.summary.supplierFee));
+    await a('PUT', `/xml-sources/${src}`, { orderServiceFee: 45 });
+    r = await get();
+    ok('changing the fee later changes orders without a snapshot, not the one with one', row(r, 1).supplierFee === 45 && row(r, 4).supplierFee === 0);
+    await a('PUT', `/xml-sources/${src}`, { orderServiceFee: 0 });
+    ok('fee removed -> 0 again', row(await get(), 1).supplierFee === 0);
+
     // refresh with fake keys must fail politely, never throw a 500
     const ref = await a('POST', '/orders/profit/refresh');
     ok('refresh with unusable keys answers 200 with a message', ref.s === 200 && typeof ref.d.message === 'string', JSON.stringify(ref.d).slice(0, 200));
