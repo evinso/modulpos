@@ -80,7 +80,8 @@ router.get('/profit', async (req, res, next) => {
 
     const results = orders.map((o) => {
       const lines = parseLines(o.items);
-      const snap = o.lineCosts ? orderCosts.parseJson(o.lineCosts, null) : (snapshots.get(o.id) || null);
+      // only a snapshot that was really saved when the order arrived counts as "cost at the time"; one made just now is the product's current cost
+      const snap = o.lineCosts ? orderCosts.parseJson(o.lineCosts, null) : null;
       const costs = orderCosts.costMapFor(lines, { manual, snapshot: snap, products });
       const r = computeOrderProfit(o, { finance: o.finance, costs, settings });
       return { id: o.id, orderNumber: o.orderNumber, marketplaceOrderId: o.marketplaceOrderId, orderDate: o.orderDate, status: o.status, ...r };
