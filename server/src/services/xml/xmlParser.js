@@ -311,6 +311,7 @@ async function analyzeXml(url, options = {}) {
     categoryPaths.unshift(options.categoryField);
   }
   const sampleProducts = [];
+  const fieldCollector = createFieldCollector();
   const uniqueCategories = new Set();
   let totalCount = 0;
   let partial = false;
@@ -322,6 +323,8 @@ async function analyzeXml(url, options = {}) {
       onProduct: (product, index) => {
         totalCount++;
         if (index < 10) sampleProducts.push(product);
+        // Tags can differ between products (more images on later ones): read the first 2000 fully, then every 25th
+        if (index < 2000 || index % 25 === 0) fieldCollector.add(product);
         for (const cp of categoryPaths) {
           const catVal = getNestedValue(product, cp);
           if (catVal && typeof catVal === 'string') { uniqueCategories.add(catVal.trim()); break; }
@@ -340,7 +343,7 @@ async function analyzeXml(url, options = {}) {
   }
 
   const sampleProduct = sampleProducts[0];
-  const fields = extractFields(sampleProduct);
+  const fields = fieldCollector.fields();
   const sampleData = sampleProducts.slice(0, 5).map(p => {
     const row = {};
     for (const field of fields) row[field.path] = getNestedValue(p, field.path);
@@ -450,7 +453,9 @@ function mapProducts(rawProducts, mcIn) {
   // Explicit user mappings always win; listPrice/cost keep their old behaviour.
   let mc = mcIn || {};
   if (rawProducts.length > 0) {
-    const auto = suggestMapping(extractFields(rawProducts[0]));
+    const collector = createFieldCollector();
+    for (const p of rawProducts.slice(0, 50)) collector.add(p);
+    const auto = suggestMapping(collector.fields());
     mc = { ...mc };
     for (const k of ['sku', 'barcode', 'title', 'description', 'price', 'stock', 'brand', 'category', 'images']) {
       if (!mc[k] || String(mc[k]).trim() === '') { if (auto[k]) mc[k] = auto[k]; }
@@ -575,6 +580,41 @@ function extractFields(obj, prefix = '', depth = 0) {
     }
   }
   return fields;
+}
+
+/**
+ * Field list of SEVERAL products merged into one. Products of one feed do not all carry the same tags
+ * (the first has Resim1-Resim2, the others Resim1-Resim5), so the mapping screen must not be built from
+ * the first product alone. A new tag is placed right after the tag that precedes it in its own product,
+ * and its sample comes from the first product that has a real value.
+ */
+function createFieldCollector(limit = 400) {
+  const list = [];
+  const byPath = new Map();
+  const hasValue = (f) => f.type !== 'null' && f.sample !== null && f.sample !== undefined && f.sample !== '';
+  return {
+    add(product) {
+      let prev = null;
+      for (const f of extractFields(product)) {
+        const have = byPath.get(f.path);
+        if (!have) {
+          if (list.length < limit) {
+            const copy = { ...f };
+            byPath.set(f.path, copy);
+            const after = prev ? list.indexOf(byPath.get(prev)) : -1;
+            list.splice(after >= 0 ? after + 1 : list.length, 0, copy);
+          }
+        } else if (!hasValue(have) && hasValue(f)) {
+          have.type = f.type; have.sample = f.sample;
+          if (f.length !== undefined) have.length = f.length;
+        } else if (f.length !== undefined && (have.length === undefined || f.length > have.length)) {
+          have.length = f.length;
+        }
+        prev = f.path;
+      }
+    },
+    fields() { return list; },
+  };
 }
 
 function flattenKeys(obj, prefix = '') {
@@ -736,4 +776,4 @@ function getImagesValue(obj, mappedField, fallbackFields) {
   return collectedImages;
 }
 
-module.exports = { parseXml, analyzeXml, streamProductObjects, withIdleTimeout };
+module.exports = { parseXml, analyzeXml, streamProductObjects, withIdleTimeout, createFieldCollector };

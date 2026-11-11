@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Urunler>
+<Urun><UrunKodu>IMG-1</UrunKodu><Barkod>8692222000011</Barkod><UrunAdi>Iki Gorselli Urun</UrunAdi><SatisFiyati>100</SatisFiyati><Stok>5</Stok><Marka>Test</Marka><Kategori>Test / Gorsel</Kategori><Resim1>https://img.example.com/a1.jpg</Resim1><Resim2>https://img.example.com/a2.jpg</Resim2></Urun>
+<Urun><UrunKodu>IMG-2</UrunKodu><Barkod>8692222000028</Barkod><UrunAdi>Bes Gorselli Urun</UrunAdi><SatisFiyati>200</SatisFiyati><Stok>5</Stok><Marka>Test</Marka><Kategori>Test / Gorsel</Kategori><Resim1>https://img.example.com/b1.jpg</Resim1><Resim2>https://img.example.com/b2.jpg</Resim2><Resim3>https://img.example.com/b3.jpg</Resim3><Resim4>https://img.example.com/b4.jpg</Resim4><Resim5>https://img.example.com/b5.jpg</Resim5></Urun>
+<Urun><UrunKodu>IMG-3</UrunKodu><Barkod>8692222000035</Barkod><UrunAdi>Uc Gorselli Urun</UrunAdi><SatisFiyati>300</SatisFiyati><Stok>5</Stok><Marka>Test</Marka><Kategori>Test / Gorsel</Kategori><Resim1>https://img.example.com/c1.jpg</Resim1><Resim2>https://img.example.com/c2.jpg</Resim2><Resim3>https://img.example.com/c3.jpg</Resim3></Urun>
+</Urunler>

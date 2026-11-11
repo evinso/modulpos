@@ -62,7 +62,9 @@ cd client && npm run test:smoke                 # renders the products screen in
   A supplier can charge a service fee per product after an order is placed: it is a setting of the XML SOURCE (`XmlSource.orderServiceFee`, edited on each
   source card) and applies only to products of that source (`orderCosts.feeMapFor`); the fee at the time is saved on the order (`Order.lineFees`, `{}` = none),
   orders without that snapshot use the source's current fee. (`GlobalXmlProvider.orderFee` is a different thing: the per-order fee of dropship supplier orders.)
-* **Field mapping**: `xml/autoMapping.js` guesses the mapping for new feeds; the user's saved mapping always wins.
+* **Field mapping**: `xml/autoMapping.js` guesses the mapping for new feeds; the user's saved mapping always wins. The field list of the mapping screen is
+  MERGED over many products (`createFieldCollector` in `xmlParser.js`), never taken from the first product: products of one feed carry different tags
+  (2 images on the first, 5 on the others).
 * **Tenant isolation**: every route that takes an `:id` must verify the record belongs to the caller's store
   (`middleware/ownership.js` → `router.param`). Never look records up by `id` alone.
 * **Auth**: httpOnly cookie session (`utils/sessionCookie.js`, `middleware/auth.js`); never store the JWT in browser storage or URLs.

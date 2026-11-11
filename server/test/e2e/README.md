@@ -20,6 +20,7 @@ E2E_DB_URL="postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres" 
 * `session-cookie` – cookie flags, CSRF header, CORS preflight, SSE, logout.
 * `hardening` – VAT 0, manual prices, duplicate barcodes, DB sync guard, signed proxy.
 * `whatsapp-access` – a normal user cannot reach any WhatsApp / settings endpoint (403) and changes nothing; an admin gets readable reasons; with the built-in connection it opens a real connection to WhatsApp up to the QR code and closes it again (skipped when a phone is linked). Never sends a message.
+* `xml-varied-images` – a feed whose first product has 2 images and later ones 5: the mapping list offers every image tag, the suggestion and a no-mapping sync keep them all (fixture `feed-images-varied.xml` must be pushed first).
 * `generic-feeds` – three structurally different feeds (`test/fixtures`) imported with no manual mapping.
 
 Keep runs short: the API limits each client to 1000 requests / 15 minutes (login/register: 20).
