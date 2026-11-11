@@ -69,6 +69,11 @@ cd client && npm run test:smoke                 # renders the products screen in
   category or from a category mapping. Free: rule-based suggestions (word matching over the bundled tree, NOT reliable on its own) and a manual picker. Paid (credit setting
   `credit_product_category_ai`, per product, default 0.05): the AI only chooses among the rule-based candidates, answers are validated against them, only products with a result
   are charged (the rest is refunded), a fatal AI error (empty vendor balance, rejected key) stops at once with a readable message (`aiErrors.js`).
+  **Default answers for required attributes** (`services/attributeDefaults.js`, stored in `connection.config.attributeDefaults`, panel "Varsayılan cevaplar"): rules by attribute name
+  ("Menşei" -> TR, "Renk, Web Color" -> Çok Renkli; comma = aliases, `|` = alternative values tried in order) plus one answer for all other required attributes. They are written into
+  the products' attributes with `auto: true` (refreshed when rules change; hand-typed values and values of a category mapping are never touched) and only when Trendyol accepts the
+  value (it is in the attribute's value list, or the attribute allows free text); the rest stays empty and is listed with Trendyol's example values. Applied on saving the rules and
+  after every assignment (best effort). The attribute lookup + 6 h cache is shared with the readiness check (`loadRequiredDefs`).
 * **Field mapping**: `xml/autoMapping.js` guesses the mapping for new feeds; the user's saved mapping always wins. The field list of the mapping screen is
   MERGED over many products (`createFieldCollector` in `xmlParser.js`), never taken from the first product: products of one feed carry different tags
   (2 images on the first, 5 on the others).

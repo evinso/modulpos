@@ -47,41 +47,11 @@ function parseImages(raw) {
   } catch { return []; }
 }
 
-// Required attributes per Trendyol category, cached because the category tree rarely changes.
-const ATTR_TTL_MS = 6 * 60 * 60 * 1000;
-const attrCache = new Map(); // `${connectionId}:${categoryId}` -> { at, required: [{id,name}] | null }
-
+// Required attributes per Trendyol category. The lookup (and its 6-hour cache) is shared with the default-answers feature.
 async function loadRequiredAttributes(connection, categoryIds) {
   const out = new Map();
-  if (connection.marketplaceType !== 'trendyol' || categoryIds.length === 0) return out;
-  const TrendyolService = require('./trendyol/trendyolService');
-  let service;
-  try { service = new TrendyolService(connection); } catch { return out; }
-
-  const todo = [];
-  for (const id of categoryIds) {
-    const hit = attrCache.get(`${connection.id}:${id}`);
-    if (hit && Date.now() - hit.at < ATTR_TTL_MS) { if (hit.required) out.set(id, hit.required); }
-    else todo.push(id);
-  }
-  const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
-  todo.length = Math.min(todo.length, 60); // the rest is fetched by the next calls (results are cached for hours)
-  for (let i = 0; i < todo.length; i += 5) {
-    await Promise.all(todo.slice(i, i + 5).map(async (id) => {
-      try {
-        const data = await withTimeout(service.getCategoryAttributes(id), 8000);
-        const list = data?.categoryAttributes || data?.attributes || [];
-        const required = list
-          .filter((a) => a && a.required === true)
-          .map((a) => ({ id: String(a.attribute?.id ?? a.id), name: a.attribute?.name ?? a.name ?? String(a.id) }));
-        attrCache.set(`${connection.id}:${id}`, { at: Date.now(), required });
-        out.set(id, required);
-      } catch {
-        // Trendyol unreachable / slow: do not block products because of that; remember briefly so we do not retry on every request
-        attrCache.set(`${connection.id}:${id}`, { at: Date.now() - ATTR_TTL_MS + 5 * 60 * 1000, required: null });
-      }
-    }));
-  }
+  const { map } = await require('./attributeDefaults').loadRequiredDefs(connection, categoryIds, { max: 60, timeoutMs: 8000 });
+  for (const [id, defs] of map) out.set(id, defs.map((d) => ({ id: d.id, name: d.name })));
   return out;
 }
 

@@ -76,6 +76,23 @@ const base = 'https://raw.githubusercontent.com/evinso/modulpos/main/server/test
     const at = await call('PUT', `${P}/attributes`, { categoryId: catId, attributes: { 5: { name: 'Renk', valueId: '91', valueName: 'Beyaz' } } });
     ok('attributes are stored for every product of that category', at.s === 200 && at.d.updated >= 1, JSON.stringify(at.d));
 
+    // default answers for required attributes (saved on the connection, applied to the chosen categories)
+    await c.query(`update app."MarketplaceConnection" set config=$2 where id=$1`, [conn, JSON.stringify({ brandStrategy: 'override', defaultBrandId: 7 })]);
+    const d0 = (await call('GET', `${P}/attribute-defaults`)).d;
+    ok('before anything is saved the page gets the suggestion (Menşei TR, colours Çok Renkli, rest Belirtilmemiş)', d0.saved === false && d0.rules.some((r) => r.name === 'Menşei' && r.value === 'TR') && d0.fallback.enabled === true && d0.fallback.value === 'Belirtilmemiş', JSON.stringify(d0));
+    ok('a half rule is refused', (await call('PUT', `${P}/attribute-defaults`, { rules: [{ name: 'Menşei', value: '' }] })).s === 400);
+    ok('"everything else" without a value is refused', (await call('PUT', `${P}/attribute-defaults`, { rules: [], fallback: { enabled: true, value: '' } })).s === 400);
+    ok('nothing was saved by refused requests', (await call('GET', `${P}/attribute-defaults`)).d.saved === false);
+    ok('another store cannot read or change them (404)', (await callB('GET', `${P}/attribute-defaults`)).s === 404 && (await callB('PUT', `${P}/attribute-defaults`, { rules: [] })).s === 404);
+    const sd = await call('PUT', `${P}/attribute-defaults`, { rules: [{ name: 'Menşei', value: 'TR' }, { name: 'Renk, Web Color', value: 'Çok Renkli' }], fallback: { enabled: true, value: 'Belirtilmemiş' } });
+    ok('saving works and reports what it applied (test credentials cannot reach Trendyol, so categories wait as "pending")', sd.s === 200 && sd.d.saved === true && typeof sd.d.products === 'number' && typeof sd.d.pending === 'number', JSON.stringify({ s: sd.s, c: sd.d.categories, p: sd.d.products, pend: sd.d.pending }));
+    const d1 = (await call('GET', `${P}/attribute-defaults`)).d;
+    ok('they are stored and read back', d1.saved === true && d1.rules.length === 2 && d1.fallback.value === 'Belirtilmemiş');
+    const cfg = JSON.parse((await c.query(`select config from app."MarketplaceConnection" where id=$1`, [conn])).rows[0].config);
+    ok('other connection settings are untouched', cfg.brandStrategy === 'override' && cfg.defaultBrandId === 7 && !!cfg.attributeDefaults);
+    const again = await call('PUT', P, { assignments: [{ productId: ids.ids[2], categoryId: kupa.id, source: 'manual' }] });
+    ok('assigning a category still works when the defaults cannot be applied right now', again.s === 200 && again.d.saved === 1);
+
     // paid AI step: give the temp user credits, call, and check the books balance whatever the vendor says
     await call('GET', '/credits/balance');
     await c.query(`update app."CreditBalance" set balance = 50 where "userId" = $1`, [A.user.id]);

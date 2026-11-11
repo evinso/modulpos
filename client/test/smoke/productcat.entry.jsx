@@ -80,6 +80,23 @@ put = calls.find((c) => c.m === 'PUT' && /product-categories$/.test(c.url));
 ok('picking saves it as a manual choice for that product', !!put && put.body.assignments[0].productId === 'q2' && put.body.assignments[0].source === 'manual', JSON.stringify(put && put.body));
 ok('the picker closes', !document.querySelector('[role="dialog"]'));
 
+// 6b) default answers for required attributes, set once for everything
+const panel = () => document.querySelector('[data-testid="attr-defaults"]');
+ok('the defaults panel is there, open and says it is not saved yet', !!panel() && panel().textContent.includes('Henüz kaydedilmedi'));
+const val = (label) => panel().querySelector(`input[aria-label="${label}"]`);
+ok('the suggested rules are prefilled (Menşei -> TR, colours -> Çok Renkli)', val('Kural 1 özellik adı').value === 'Menşei' && val('Kural 1 değer').value === 'TR' && val('Kural 2 özellik adı').value === 'Renk, Web Color' && val('Kural 2 değer').value === 'Çok Renkli');
+ok('and "everything else" -> Belirtilmemiş is on', val('Diğer tüm zorunlu özellikler').checked === true && val('Diğer özellikler için değer').value === 'Belirtilmemiş');
+const ex = [...panel().querySelectorAll('[data-testid="attr-example"]')];
+ok('attributes still empty are offered with Trendyol\'s own example values', ex.some((b) => b.textContent === 'Unisex') && !ex.some((b) => b.textContent === 'Beyaz'), ex.map((b) => b.textContent).join(','));
+await click(ex.find((b) => b.textContent === 'Unisex'));
+ok('clicking an example adds a rule for that attribute', val('Kural 3 özellik adı') && val('Kural 3 özellik adı').value === 'Cinsiyet' && val('Kural 3 değer').value === 'Unisex');
+calls.length = 0;
+await click(btn('Kaydet ve tüm ürünlere uygula', panel()), 150);
+const sd = calls.find((c) => c.m === 'PUT' && /attribute-defaults$/.test(c.url));
+ok('saving sends all rules and the "everything else" answer', !!sd && sd.body.rules.length === 3 && sd.body.rules[2].value === 'Unisex' && sd.body.fallback.enabled === true && sd.body.fallback.value === 'Belirtilmemiş', JSON.stringify(sd && sd.body));
+const rs = document.querySelector('[data-testid="attr-defaults-result"]');
+ok('the result says how many products got answers and what stayed empty', !!rs && rs.textContent.includes('12 ürüne uygulandı') && rs.textContent.includes('Cinsiyet (2)'), rs && rs.textContent);
+
 // 7) required attributes are typed once per category
 await click(btn('Özellikleri gir'), 120);
 const sel = document.querySelector('select[aria-label="Renk değeri"]');

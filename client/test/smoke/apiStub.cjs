@@ -93,7 +93,8 @@ const get = async (url, cfg = {}) => {
   }
   if (url === '/marketplace/connections/c1/product-categories/ids') return { data: { total: 3, ids: ['q1', 'q2', 'q3'], truncated: false } };
   if (url === '/marketplace/connections/c1/product-categories/search') return { data: [{ id: '10', name: 'Pense', path: 'Hırdavat > Manuel El Aletleri > Pense' }] };
-  if (url === '/marketplace/connections/c1/product-categories/groups') return { data: [{ categoryId: '555', name: 'Ev & Mobilya > Mum > Mum Seti', count: 4, required: [{ id: '5', name: 'Renk' }], missing: [{ id: '5', name: 'Renk' }], attributes: {} }] };
+  if (url === '/marketplace/connections/c1/product-categories/groups') return { data: [{ categoryId: '555', name: 'Ev & Mobilya > Mum > Mum Seti', count: 4, required: [{ id: '5', name: 'Renk' }], missing: [{ id: '5', name: 'Renk', triedDefaults: false, allowCustom: false, examples: ['Beyaz', 'Siyah'] }, { id: '9', name: 'Cinsiyet', triedDefaults: false, allowCustom: false, examples: ['Unisex', 'Erkek', 'Kadın / Kız'] }], attributes: {} }] };
+  if (url === '/marketplace/connections/c1/product-categories/attribute-defaults') return { data: { saved: false, rules: [{ name: 'Menşei', value: 'TR' }, { name: 'Renk, Web Color', value: 'Çok Renkli' }], fallback: { enabled: true, value: 'Belirtilmemiş' } } };
   if (url === '/marketplace/connections/c1/categories/555/attributes') return { data: { categoryAttributes: [{ required: true, allowCustom: false, attribute: { id: 5, name: 'Renk' }, attributeValues: [{ id: 91, name: 'Beyaz' }, { id: 92, name: 'Siyah' }] }] } };
   throw new Error('unmocked GET ' + url);
 };
@@ -129,6 +130,7 @@ const post = async (url, body) => {
 const put = async (url, body) => {
   calls.push({ m: 'PUT', url, body });
   if (url === '/orders/profit/cost' || url === '/orders/profit/settings') return { data: { ok: true } };
+  if (/product-categories\/attribute-defaults$/.test(url)) return { data: { saved: true, categories: 3, products: 12, pending: 0, unresolved: [{ name: 'Cinsiyet', categories: 2 }] } };
   if (/product-categories$/.test(url)) return { data: { saved: body.assignments.length, skipped: 0 } };
   if (/product-categories\/attributes$/.test(url)) return { data: { updated: 4 } };
 

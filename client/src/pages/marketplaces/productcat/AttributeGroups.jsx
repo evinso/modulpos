@@ -3,6 +3,7 @@ import { AlertTriangle, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../../services/api';
 import { shortPath } from './helpers';
+import AttributeDefaults from './AttributeDefaults';
 
 /**
  * Trendyol wants some attributes (e.g. "Renk") for many categories. They belong to the CATEGORY, so they are typed once
@@ -20,31 +21,47 @@ export default function AttributeGroups({ connId, reloadKey, onChanged }) {
   useEffect(() => { load(); }, [load, reloadKey]);
 
   const needing = (groups || []).filter((g) => g.missing.length > 0);
-  if (!groups || needing.length === 0) return null;
+  if (!groups) return null;
+
+  // attributes still empty somewhere, summed over categories (with Trendyol's example values) for the defaults panel
+  const summary = new Map();
+  for (const g of needing) for (const m of g.missing) {
+    const e = summary.get(m.name) || { name: m.name, categories: 0, examples: [] };
+    e.categories++;
+    for (const ex of m.examples || []) if (!e.examples.includes(ex)) e.examples.push(ex);
+    summary.set(m.name, e);
+  }
+  const missingSummary = [...summary.values()].sort((a, b) => b.categories - a.categories);
+  const reload = () => { load(); onChanged && onChanged(); };
 
   return (
-    <div className="card" style={{ padding: 18, marginTop: 20, border: '1px solid rgba(245,158,11,0.5)' }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-        <AlertTriangle size={16} style={{ color: 'var(--warning, #f59e0b)' }} />
-        <strong>Zorunlu özellik girilmesi gereken kategoriler ({needing.length})</strong>
-      </div>
-      <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--text-muted)' }}>
-        Trendyol bu kategoriler için aşağıdaki özellikleri zorunlu tutuyor. Bir kez girin; o kategoriyi alan tüm ürünlere uygulanır. Girilene kadar bu ürünler gönderilemez.
-      </p>
-      {needing.map((g) => (
-        <div key={g.categoryId} style={{ borderTop: '1px solid var(--border-color)', padding: '10px 0' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 13 }} title={g.name}>{shortPath(g.name, 2)}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{g.count} ürün · eksik: {g.missing.map((m) => m.name).join(', ')}</div>
-            </div>
-            <button className="btn btn-secondary" onClick={() => setOpen(open === g.categoryId ? null : g.categoryId)}>
-              {open === g.categoryId ? 'Kapat' : 'Özellikleri gir'}
-            </button>
+    <div className="card" style={{ padding: 18, marginTop: 20, border: needing.length ? '1px solid rgba(245,158,11,0.5)' : undefined }}>
+      <AttributeDefaults connId={connId} missing={missingSummary} onApplied={reload} />
+      {needing.length > 0 && (
+        <>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+            <AlertTriangle size={16} style={{ color: 'var(--warning, #f59e0b)' }} />
+            <strong>Zorunlu özellik girilmesi gereken kategoriler ({needing.length})</strong>
           </div>
-          {open === g.categoryId && <AttributeForm connId={connId} group={g} onSaved={() => { setOpen(null); load(); onChanged && onChanged(); }} />}
-        </div>
-      ))}
+          <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--text-muted)' }}>
+            Trendyol bu kategoriler için aşağıdaki özellikleri zorunlu tutuyor ve varsayılan cevaplarınız bunlara uymadı. Bir kez girin; o kategoriyi alan tüm ürünlere uygulanır. Girilene kadar bu ürünler gönderilemez.
+          </p>
+          {needing.map((g) => (
+            <div key={g.categoryId} style={{ borderTop: '1px solid var(--border-color)', padding: '10px 0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13 }} title={g.name}>{shortPath(g.name, 2)}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{g.count} ürün · eksik: {g.missing.map((m) => m.name).join(', ')}</div>
+                </div>
+                <button className="btn btn-secondary" onClick={() => setOpen(open === g.categoryId ? null : g.categoryId)}>
+                  {open === g.categoryId ? 'Kapat' : 'Özellikleri gir'}
+                </button>
+              </div>
+              {open === g.categoryId && <AttributeForm connId={connId} group={g} onSaved={() => { setOpen(null); reload(); }} />}
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -66,7 +83,7 @@ function AttributeForm({ connId, group, onSaved }) {
     return () => { alive = false; };
   }, [connId, group]);
 
-  const set = (a, patch) => setValues((v) => ({ ...v, [a.attribute.id]: { name: a.attribute.name, valueId: '', valueName: '', ...(v[a.attribute.id] || {}), ...patch } }));
+  const set = (a, patch) => setValues((v) => ({ ...v, [a.attribute.id]: { name: a.attribute.name, valueId: '', valueName: '', ...(v[a.attribute.id] || {}), ...patch, auto: false } }));
 
   const save = async () => {
     const lacking = (attrs || []).find((a) => { const v = values[a.attribute.id]; return !v || (!v.valueId && !String(v.valueName || '').trim()); });

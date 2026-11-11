@@ -9,6 +9,7 @@ const productListCache = require('../services/productListCache');
 const { getMatcher } = require('../services/categoryMatcher');
 const { matchProducts, DEFAULT_MODEL } = require('../services/categoryAiPicker');
 const { classifyAiError } = require('../services/aiErrors');
+const AD = require('../services/attributeDefaults');
 
 /**
  * Product-level Trendyol categories: a category chosen for ONE product (wins over the category mapping).
@@ -25,6 +26,19 @@ const SOURCES = new Set(['manual', 'rule', 'ai']);
 
 async function getConnection(id) {
   return prisma.marketplaceConnection.findUnique({ where: { id } });
+}
+
+/**
+ * Gives the products of freshly assigned categories the connection's default answers for required attributes
+ * (when any are set). Best effort: a Trendyol hiccup must never fail the assignment itself.
+ */
+async function fillAfterSave(connection, categoryIds) {
+  try {
+    const d = AD.parseDefaults(connection.config);
+    if (!d.rules.length && !d.fallback.enabled) return;
+    await AD.fillCategories(connection, categoryIds, { budgetMs: 8000 });
+    productListCache.invalidate(connection.storeId);
+  } catch (e) { console.error('[ProductCategories] varsayılan özellikler uygulanamadı:', e.message); }
 }
 
 function productWhere(connection, xmlSourceId) {
@@ -142,6 +156,7 @@ router.put('/connections/:id/product-categories', async (req, res, next) => {
       });
     }));
     productListCache.invalidate(connection.storeId);
+    await fillAfterSave(connection, valid.map((a) => String(matcher.get(a.categoryId).id)));
     res.json({ saved: valid.length, skipped: list.length - valid.length });
   } catch (error) { next(error); }
 });
@@ -170,6 +185,7 @@ router.post('/connections/:id/product-categories/apply-suggestions', async (req,
         });
       }));
       productListCache.invalidate(connection.storeId);
+      await fillAfterSave(connection, picked.map(({ leaf }) => String(leaf.id)));
     }
     res.json({ applied: picked.length, skipped: products.length - picked.length });
   } catch (error) { next(error); }
@@ -240,6 +256,7 @@ router.post('/connections/:id/product-categories/ai-match', async (req, res, nex
         });
       }));
       productListCache.invalidate(connection.storeId);
+      await fillAfterSave(connection, found.map((r) => String(r.categoryId)));
     }
     const unmatched = products.length - found.length;
     await refund(unmatched, `${unmatched} ürün için sonuç yok`);
@@ -263,18 +280,22 @@ router.get('/connections/:id/product-categories/groups', async (req, res, next) 
   try {
     const connection = await getConnection(req.params.id);
     const ctx = await getReadinessContext(connection);
+    const d = AD.parseDefaults(connection.config);
+    const triedDefaults = d.rules.length > 0 || d.fallback.enabled;
     const groups = new Map();
     for (const [productId, m] of ctx.productMappings) {
       const key = String(m.marketplaceCategoryId);
       if (!groups.has(key)) groups.set(key, { categoryId: key, name: m.marketplaceCategoryName || key, count: 0, attributes: m.attributes || null });
       groups.get(key).count++;
     }
+    const { map: defsMap } = await AD.loadRequiredDefs(connection, [...groups.keys()], { max: 60 }); // cached; gives the value lists for examples
     const out = [...groups.values()].map((g) => {
       const required = ctx.requiredAttrs.get(g.categoryId) || [];
+      const defs = defsMap.get(g.categoryId) || [];
       let attrs = {};
       try { attrs = g.attributes ? JSON.parse(g.attributes) : {}; } catch { attrs = {}; }
       const missing = required.filter((r) => { const v = attrs[r.id]; return !v || (!v.valueId && !(v.valueName && String(v.valueName).trim())); });
-      return { categoryId: g.categoryId, name: g.name, count: g.count, required, missing, attributes: attrs };
+      return { categoryId: g.categoryId, name: g.name, count: g.count, required, missing: missing.map((m) => { const d = defs.find((x) => x.id === m.id) || {}; return { ...m, triedDefaults, allowCustom: !!d.allowCustom, examples: (d.values || []).slice(0, 6).map((v) => v.name) }; }), attributes: attrs };
     }).sort((a, b) => (b.missing.length > 0) - (a.missing.length > 0) || b.count - a.count);
     res.json(out);
   } catch (error) { next(error); }
@@ -289,11 +310,56 @@ router.put('/connections/:id/product-categories/attributes', async (req, res, ne
     const clean = {};
     for (const [id, v] of Object.entries(attributes)) {
       if (!/^\d+$/.test(id) || !v || typeof v !== 'object') return res.status(400).json({ error: 'Geçersiz özellik' });
-      clean[id] = { name: String(v.name || '').slice(0, 120), valueId: v.valueId ? String(v.valueId) : '', valueName: String(v.valueName || '').slice(0, 200) };
+      clean[id] = { name: String(v.name || '').slice(0, 120), valueId: v.valueId ? String(v.valueId) : '', valueName: String(v.valueName || '').slice(0, 200), ...(v.auto === true ? { auto: true } : {}) };
     }
     const r = await prisma.productCategoryOverride.updateMany({ where: { connectionId: connection.id, marketplaceCategoryId: String(categoryId) }, data: { attributes: JSON.stringify(clean) } });
     productListCache.invalidate(connection.storeId);
     res.json({ updated: r.count });
+  } catch (error) { next(error); }
+});
+
+// GET the default answers for required attributes (what is saved, or the suggestion when nothing is saved yet)
+router.get('/connections/:id/product-categories/attribute-defaults', async (req, res, next) => {
+  try {
+    const connection = await getConnection(req.params.id);
+    const d = AD.parseDefaults(connection.config);
+    if (d.saved) return res.json({ saved: true, rules: d.rules, fallback: d.fallback });
+    res.json({ saved: false, rules: AD.SUGGESTED.rules, fallback: AD.SUGGESTED.fallback });
+  } catch (error) { next(error); }
+});
+
+// PUT default answers: { rules: [{ name, value }], fallback: { enabled, value } } -> saved on the connection and applied to every chosen category
+router.put('/connections/:id/product-categories/attribute-defaults', async (req, res, next) => {
+  try {
+    const connection = await getConnection(req.params.id);
+    const body = req.body || {};
+    const rawRules = Array.isArray(body.rules) ? body.rules : null;
+    if (!rawRules) return res.status(400).json({ error: 'rules dizisi gerekli' });
+    if (rawRules.length > 40) return res.status(400).json({ error: 'En fazla 40 kural tanımlanabilir' });
+    const rules = [];
+    for (const r of rawRules) {
+      const name = String(r?.name || '').trim();
+      const value = String(r?.value || '').trim();
+      if (!name && !value) continue;                       // empty row
+      if (!name || !value) return res.status(400).json({ error: 'Her kuralda hem özellik adı hem değer olmalı' });
+      if (name.length > 200 || value.length > 120) return res.status(400).json({ error: 'Özellik adı ya da değer çok uzun' });
+      rules.push({ name, value });
+    }
+    const fbValue = String(body.fallback?.value || '').trim();
+    const fbEnabled = body.fallback?.enabled === true;
+    if (fbEnabled && !fbValue) return res.status(400).json({ error: 'Diğer özellikler için bir değer yazın ya da seçeneği kapatın' });
+    if (fbValue.length > 120) return res.status(400).json({ error: 'Değer çok uzun' });
+
+    let config = {};
+    try { config = connection.config ? JSON.parse(connection.config) : {}; } catch { config = {}; }
+    config.attributeDefaults = { rules, fallback: { enabled: fbEnabled, value: fbValue } };
+    const configText = JSON.stringify(config);
+    await prisma.marketplaceConnection.update({ where: { id: connection.id }, data: { config: configText } });
+
+    const cats = await prisma.productCategoryOverride.groupBy({ by: ['marketplaceCategoryId'], where: { connectionId: connection.id } });
+    const result = await AD.fillCategories({ ...connection, config: configText }, cats.map((c) => c.marketplaceCategoryId), { budgetMs: 40000 });
+    productListCache.invalidate(connection.storeId);
+    res.json({ saved: true, rules, fallback: { enabled: fbEnabled, value: fbValue }, ...result });
   } catch (error) { next(error); }
 });
 
