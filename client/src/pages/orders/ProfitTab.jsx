@@ -64,7 +64,7 @@ function Breakdown({ row, settings, onSaved }) {
         {row.supplierFee > 0 && line('Tedarikçi hizmet bedeli', `− ${tl(row.supplierFee)}`, 'XML kaynağı ayarı, ürün başına')}
         {row.taxModel && line('Stopaj', `− ${tl(row.stopaj)}`, `KDV hariç satışın %${settings ? settings.withholdingPct : ''}'i`)}
         {row.taxModel && line('Ödenecek KDV', row.payableVat === null ? '—' : row.payableVat >= 0 ? `− ${tl(row.payableVat)}` : `+ ${tl(-row.payableVat)}`, row.payableVat !== null && row.payableVat < 0 ? 'giderlerin KDV\'si satış KDV\'sinden fazla (KDV alacağı)' : '')}
-        {line('Kargo', row.cargo === null ? '—' : `− ${tl(row.cargo)}`, row.cargoSource === 'trendyol' ? 'Trendyol faturasından' : row.cargoSource === 'estimate' ? 'tahmini' : 'bilinmiyor')}
+        {line('Kargo', row.cargo === null ? '—' : `− ${tl(row.cargo)}`, row.cargoSource === 'trendyol' ? 'Trendyol faturasından' : row.cargoSource === 'estimate' ? (row.status === 'delivered' ? 'tahmini — kargo faturası henüz kesilmedi' : 'tahmini') : 'bilinmiyor')}
         {line('Alış maliyeti', row.cost === null ? '—' : `− ${tl(row.cost)}`)}
         {line('Net kâr', row.profit === null ? 'hesaplanamadı' : tl(row.profit), row.profitPct !== null ? `net satışın %${row.profitPct}'i` : '', true)}
         {row.taxModel && row.vatDetail && (
@@ -227,7 +227,7 @@ export default function ProfitTab() {
           <Info size={15} style={{ flexShrink: 0, marginTop: 1 }} />
           <div>
             {s.unknownProfit > 0 && <div><strong>{s.unknownProfit} sipariş</strong> kâr toplamına katılmadı: alış maliyeti veya kargo bilinmiyor. Satırı açıp alış maliyetini girebilirsiniz.</div>}
-            {s.estimated > 0 && <div><strong>~</strong> ile başlayan tutarlar tahmindir. Komisyon ve kargo, sipariş teslim edilip Trendyol hesap ekstresine düştükten sonra kesinleşir; <em>Trendyol'dan kesin verileri al</em> ile okunur. Platform hizmet bedeli her zaman ayarınızdaki tutardır.</div>}
+            {s.estimated > 0 && <div><strong>~</strong> ile başlayan tutarlar tahmindir. Komisyon, teslimattan birkaç gün sonra hesap ekstresine düşünce; kargo ise Trendyol'un kargo faturasıyla kesinleşir (faturalarınız siparişten yaklaşık 3 hafta sonra kesiliyor, o zamana kadar tahmini tutar gösterilir). <em>Trendyol'dan kesin verileri al</em> ile okunur, her gün de kendiliğinden okunur. Platform hizmet bedeli her zaman ayarınızdaki tutardır.</div>}
           </div>
         </div>
       )}

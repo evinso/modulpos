@@ -15,17 +15,28 @@ function windows(fromMs, toMs, days = WINDOW_DAYS) {
   return out;
 }
 
-/** Sale rows -> Map orderNumber -> { commissionAmount, commissionRate, sellerRevenue, settledAt } (summed over the order's rows). */
-function parseSettlements(rows) {
-  const out = new Map();
+// The statement books an order in several rows. The commission of the "Sale" row is charged on the LIST price; a seller discount ("Discount")
+// or coupon ("Coupon") gives the commission of the discounted part back, so the real commission is Sale - Discount - Coupon (+ their cancellations).
+// Checked on real orders: 499,79 - 138,69 - 2,85 = 358,25 = commission rate x the price after discounts.
+const SETTLEMENT_TYPES = [['Sale', 1], ['Discount', -1], ['DiscountCancel', 1], ['Coupon', -1], ['CouponCancel', 1]];
+
+/**
+ * Statement rows -> Map orderNumber -> { commissionAmount, commissionRate, sellerRevenue, settledAt, hasSale } (summed over the order's rows).
+ * `sign` = +1 for rows that add commission (Sale, cancellations), -1 for rows that give it back (Discount, Coupon); `sale` marks the Sale rows.
+ */
+function parseSettlements(rows, { sign = 1, sale = true, into = new Map() } = {}) {
+  const out = into;
   for (const r of rows || []) {
     if (!r || !r.orderNumber) continue;
     const key = String(r.orderNumber);
-    const cur = out.get(key) || { commissionAmount: 0, commissionRate: null, sellerRevenue: 0, settledAt: null };
-    cur.commissionAmount += Number(r.commissionAmount) || 0;
-    cur.sellerRevenue += Number(r.sellerRevenue) || 0;
-    if (r.commissionRate != null) cur.commissionRate = Number(r.commissionRate);
-    if (r.transactionDate) cur.settledAt = new Date(Number(r.transactionDate));
+    const cur = out.get(key) || { commissionAmount: 0, commissionRate: null, sellerRevenue: 0, settledAt: null, hasSale: false };
+    cur.commissionAmount += sign * (Number(r.commissionAmount) || 0);
+    cur.sellerRevenue += sign * (Number(r.sellerRevenue) || 0);
+    if (sale) {
+      cur.hasSale = true;
+      if (r.commissionRate != null) cur.commissionRate = Number(r.commissionRate);
+      if (r.transactionDate) cur.settledAt = new Date(Number(r.transactionDate));
+    }
     out.set(key, cur);
   }
   return out;
@@ -77,14 +88,16 @@ async function syncConnectionFinance({ db, service, connection, dryRun = false, 
 
   const settlements = new Map();
   const cargo = new Map();
+  let commissionComplete = true;   // a missing Discount/Coupon page would leave the commission too high: then it is not saved this time
   for (const [start, end] of ws) {
-    try {
-      const rows = await fetchAll(service, 'settlements', { transactionType: 'Sale', startDate: start, endDate: end });
-      for (const [k, v] of parseSettlements(rows)) {
-        const cur = settlements.get(k);
-        if (cur) { cur.commissionAmount += v.commissionAmount; cur.sellerRevenue += v.sellerRevenue; } else settlements.set(k, v);
+    for (const [type, sign] of SETTLEMENT_TYPES) {
+      try {
+        parseSettlements(await fetchAll(service, 'settlements', { transactionType: type, startDate: start, endDate: end }), { sign, sale: type === 'Sale', into: settlements });
+      } catch (e) {
+        commissionComplete = false;
+        result.errors.push(`Komisyon ${type} (${new Date(start).toISOString().slice(0, 10)}): ${e.response ? e.response.status : e.message}`);
       }
-    } catch (e) { result.errors.push(`Komisyon (${new Date(start).toISOString().slice(0, 10)}): ${e.response ? e.response.status : e.message}`); }
+    }
     try {
       const invoices = (await fetchAll(service, 'otherfinancials', { transactionType: 'DeductionInvoices', startDate: start, endDate: end }))
         .filter((r) => /kargo/i.test(r.transactionType || '') && r.id);
@@ -98,7 +111,8 @@ async function syncConnectionFinance({ db, service, connection, dryRun = false, 
 
   for (const o of todo) {
     const key = String(o.marketplaceOrderId);
-    const s = settlements.get(key); const c = cargo.get(key);
+    const s0 = settlements.get(key); const c = cargo.get(key);
+    const s = s0 && s0.hasSale && commissionComplete ? s0 : null;
     if (!s && !c) continue;
     const data = {};
     if (s) { data.commissionAmount = money(s.commissionAmount); data.commissionRate = s.commissionRate; data.sellerRevenue = money(s.sellerRevenue); data.settledAt = s.settledAt; result.matchedCommission++; }
@@ -135,4 +149,4 @@ async function syncStoreFinance(storeId, { db = require('../config/database'), T
   return total;
 }
 
-module.exports = { windows, parseSettlements, parseCargoItems, syncConnectionFinance, syncStoreFinance };
+module.exports = { SETTLEMENT_TYPES, windows, parseSettlements, parseCargoItems, syncConnectionFinance, syncStoreFinance };

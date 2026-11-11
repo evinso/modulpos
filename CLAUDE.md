@@ -59,7 +59,7 @@ cd client && npm run test:smoke                 # renders the products screen in
 * **Order profit panel** (`/orders` tab "Kârlılık", `services/orderProfit.js`, `orderCosts.js`, `orderFinanceSync.js`): Trendyol sales with list price,
   discounted price, what the customer paid, commission, platform fee, shipping, our cost and profit. Same profit method as the price template
   (VAT-exclusive revenue minus charged amounts). Commission and shipping are Trendyol's REAL figures once read from the current account statement
-  (`settlements` Sale rows) and the cargo invoices (`otherfinancials` DeductionInvoices -> `cargo-invoice/{id}/items`), matched by order number into
+  (`settlements` Sale rows MINUS the Discount/Coupon rows, which give commission back: the real commission is charged on the price after discounts) and the cargo invoices (`otherfinancials` DeductionInvoices -> `cargo-invoice/{id}/items`), matched by order number into
   `OrderFinance` (button on the tab + a daily cron); until then they are estimates (line commission rate, average known shipping) and shown with `~`.
   **Tax model (2026-11-12, same as the price template's tax options, `services/taxMath.js`):** the page's default is VAT payer + 1% stopaj (settings `inputVat`, `purchaseVatRate`, `withholdingPct` in
   `order_profit:<storeId>`; without them `computeOrderProfit` keeps the earlier no-VAT-credit method). profit = discounted sale - commission - platform fee - supplier fee - shipping - purchase cost - stopaj
