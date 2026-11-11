@@ -1,7 +1,8 @@
 const express = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
 const { auth } = require('../middleware/auth');
-const { getSetting, deductCredits } = require('./credits');
+const { getSetting, deductCredits, refundCredits } = require('./credits');
+const { classifyAiError } = require('../services/aiErrors');
 const staticCategories = require('../data/trendyolCategories');
 const TrendyolService = require('../services/trendyol/trendyolService');
 const prisma = require('../config/database');
@@ -235,6 +236,7 @@ JSON formatı (anahtar = köşeli parantez içindeki sayı, alt anahtar = özell
 router.post('/category-match', async (req, res, next) => {
   try {
     const { xmlCategories, connectionId } = req.body;
+    let charged = 0; // credits taken for this request and not yet given back
     if (!Array.isArray(xmlCategories) || xmlCategories.length === 0) {
       return res.status(400).json({ error: 'xmlCategories dizisi gerekli' });
     }
@@ -252,10 +254,31 @@ router.post('/category-match', async (req, res, next) => {
       try {
         await deductCredits(req.user.id, totalCost, 'category_ai',
           `AI Kategori Eşleştirme: ${xmlCategories.length} kategori × ${costPerCat} kredi`);
+        charged = totalCost;
       } catch (creditErr) {
         return res.status(402).json({ error: creditErr.message });
       }
     }
+    // Only categories that really got a result are paid for: the rest goes back (never throws)
+    const refund = async (count, why) => {
+      const amount = parseFloat((costPerCat * count).toFixed(2));
+      if (!(amount > 0) || amount > charged) return;
+      try {
+        await refundCredits(req.user.id, amount, `AI Kategori Eşleştirme iadesi: ${why}`);
+        charged = parseFloat((charged - amount).toFixed(2));
+      } catch (e) { console.error('[AI] Kredi iadesi yapılamadı:', e.message); }
+    };
+    const admin = req.user.role === 'admin' || req.user.role === 'superadmin';
+    let aiFailure = null; // first AI error seen (a fatal one wins)
+    const noteFailure = (err) => {
+      const info = classifyAiError(err, { admin });
+      if (!aiFailure || (info.fatal && !aiFailure.fatal)) aiFailure = info;
+      return info;
+    };
+    const stopWith = async (info) => {
+      await refund(xmlCategories.length, 'AI servisi yanıt vermedi');
+      return res.status(502).json({ error: info.message, aiUnavailable: true, refunded: true });
+    };
 
     const { topLevel, leafById, byTopLevel } = getCategoryData();
     const client = new Anthropic({ apiKey });
@@ -272,6 +295,8 @@ router.post('/category-match', async (req, res, next) => {
         Object.assign(topLevelMappings, result);
       } catch (err) {
         console.error('[AI] Step-1 batch hatası:', err.message);
+        const info = noteFailure(err);
+        if (info.fatal) return await stopWith(info); // empty account / rejected key: nothing else can work
         for (const cat of batch) topLevelMappings[cat] = null;
       }
     }
@@ -318,6 +343,8 @@ router.post('/category-match', async (req, res, next) => {
           Object.assign(allMatches, result.matches || {});
         } catch (err) {
           console.error('[AI] Step-2 fallback hatası:', err.message);
+          const info = noteFailure(err);
+          if (info.fatal) return await stopWith(info);
           for (const cat of batch) allMatches[cat] = null;
         }
       }
@@ -335,6 +362,8 @@ router.post('/category-match', async (req, res, next) => {
           Object.assign(allMatches, result.matches || {});
         } catch (err) {
           console.error(`[AI] Step-2 batch hatası (topId=${topId}):`, err.message);
+          const info = noteFailure(err);
+          if (info.fatal) return await stopWith(info);
           for (const cat of batch) allMatches[cat] = null;
         }
       }
@@ -367,6 +396,9 @@ router.post('/category-match', async (req, res, next) => {
 
     const matchedCount = Object.values(enriched).filter(Boolean).length;
     console.log(`[AI] Step-2 Final: ${matchedCount}/${Object.keys(enriched).length} eşleşti`);
+    // Nothing matched because the AI calls failed: say so (and give the credits back) instead of a vague "no match"
+    if (matchedCount === 0 && aiFailure) return await stopWith(aiFailure);
+    await refund(xmlCategories.length - matchedCount, `${xmlCategories.length - matchedCount} kategori eşleşmedi`);
 
     // ── Step 3 + 4: Fetch attributes & AI-fill them ──────────────────────────
     if (connectionId) {
@@ -446,6 +478,10 @@ router.post('/category-match', async (req, res, next) => {
     res.json({ matches: enriched });
   } catch (error) {
     console.error('[AI Category Match Error]', error.message);
+    // Unexpected failure after the credits were taken: nothing was delivered, so give them back
+    if (charged > 0 && !res.headersSent) {
+      try { await refundCredits(req.user.id, charged, 'AI Kategori Eşleştirme iadesi: beklenmeyen hata'); } catch (e) { console.error('[AI] Kredi iadesi yapılamadı:', e.message); }
+    }
     next(error);
   }
 });
