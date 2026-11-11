@@ -21,7 +21,6 @@ const GlobalXmlMarketPage = lazy(() => import('./pages/xml/GlobalXmlMarketPage')
 const GlobalXmlAdminPage  = lazy(() => import('./pages/xml/GlobalXmlAdminPage'));
 const MarketplacePage     = lazy(() => import('./pages/marketplaces/MarketplacePage'));
 const CategoryMappingPage = lazy(() => import('./pages/marketplaces/CategoryMappingPage'));
-const ProductCategoriesPage = lazy(() => import('./pages/marketplaces/ProductCategoriesPage'));
 const TrendyolSendPage       = lazy(() => import('./pages/marketplaces/TrendyolSendPage'));
 const HepsiburadaSendPage    = lazy(() => import('./pages/marketplaces/HepsiburadaSendPage'));
 const HepsiburadaMappingPage = lazy(() => import('./pages/marketplaces/HepsiburadaMappingPage'));
@@ -90,7 +89,7 @@ function App() {
             <Route path="/global-xml-admin" element={<AdminRoute><GlobalXmlAdminPage /></AdminRoute>} />
             <Route path="/marketplace"      element={<MarketplacePage />} />
             <Route path="/category-mapping" element={<CategoryMappingPage />} />
-            <Route path="/product-categories" element={<ProductCategoriesPage />} />
+            <Route path="/product-categories" element={<Navigate to="/category-mapping?tab=products" replace />} />
             <Route path="/trendyol-send"       element={<TrendyolSendPage />} />
             <Route path="/hepsiburada-send"       element={<HepsiburadaSendPage />} />
             <Route path="/hepsiburada-mapping"    element={<HepsiburadaMappingPage />} />

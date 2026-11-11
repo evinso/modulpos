@@ -1,7 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowRight, Search, Check, Loader2, Link2, AlertCircle, FolderTree, Wand2 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { ArrowRight, Search, Check, Loader2, Link2, AlertCircle, FolderTree, Wand2, RotateCcw } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+import ProductCategoriesSection from './productcat/ProductCategoriesSection';
+import ResetDialog from './productcat/ResetDialog';
 
 export default function CategoryMappingPage() {
   const [connections, setConnections] = useState([]);
@@ -30,6 +33,11 @@ export default function CategoryMappingPage() {
   const [filterXmlSource, setFilterXmlSource] = useState('');
   const [categoryAiCost, setCategoryAiCost] = useState(0.5);
 
+  // Two tabs per XML source: mapping of whole XML categories, and a category for each single product
+  const [params, setParams] = useSearchParams();
+  const [showReset, setShowReset] = useState(false);
+  const [resetToken, setResetToken] = useState(0);
+
   useEffect(() => {
     fetchConnections();
     fetchXmlSources();
@@ -46,7 +54,7 @@ export default function CategoryMappingPage() {
     setSelectedLocal('');
     setSelectedTrendyol(null);
     setCatSearch('');
-    if (selectedConn && filterXmlSource) loadSourceData(selectedConn.id, filterXmlSource);
+    if (selectedConn && filterXmlSource && filterXmlSource !== 'none') loadSourceData(selectedConn.id, filterXmlSource);
     else { setLocalCategories([]); setMappings([]); }
   }, [selectedConn, filterXmlSource]);
 
@@ -266,6 +274,9 @@ export default function CategoryMappingPage() {
 
   const selectedXmlSource = xmlSources.find(s => s.id === filterXmlSource);
   const isGlobalXml = selectedXmlSource && selectedXmlSource.globalProviderId;
+  const tab = filterXmlSource === 'none' || params.get('tab') === 'products' ? 'products' : 'mapping';
+  const setTab = (t) => setParams(t === 'products' ? { tab: 'products' } : {}, { replace: true });
+  const sourceName = filterXmlSource === 'none' ? 'Elle eklenen ürünler' : (selectedXmlSource ? selectedXmlSource.name : '');
 
   return (
     <div>
@@ -298,10 +309,18 @@ export default function CategoryMappingPage() {
           </p>
         ) : (
           <>
-            <select className="form-select" style={{ maxWidth: 420 }} value={filterXmlSource} onChange={e => setFilterXmlSource(e.target.value)}>
-              <option value="">XML kaynağı seçin…</option>
-              {xmlSources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <select className="form-select" aria-label="XML kaynağı" style={{ maxWidth: 420 }} value={filterXmlSource} onChange={e => setFilterXmlSource(e.target.value)}>
+                <option value="">XML kaynağı seçin…</option>
+                {xmlSources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                <option value="none">Elle eklenen ürünler (yalnızca ürün bazlı kategori)</option>
+              </select>
+              {filterXmlSource && (
+                <button className="btn btn-secondary" onClick={() => setShowReset(true)} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                  <RotateCcw size={14} /> Kategorileri sıfırla
+                </button>
+              )}
+            </div>
             <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', fontSize: 12 }}>
               Eşleştirmeler seçtiğiniz XML’e kaydedilir; o XML silinince eşleştirmeleri de silinir. Aynı adlı kategori başka bir XML’de ayrıca eşleştirilir.
             </p>
@@ -316,8 +335,19 @@ export default function CategoryMappingPage() {
         </div>
       )}
 
+      {filterXmlSource && (
+        <div role="tablist" style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          <button role="tab" aria-selected={tab === 'mapping'} className={`btn ${tab === 'mapping' ? 'btn-primary' : 'btn-secondary'}`} disabled={filterXmlSource === 'none'} onClick={() => setTab('mapping')}>Kategori eşleştirme</button>
+          <button role="tab" aria-selected={tab === 'products'} className={`btn ${tab === 'products' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('products')}>Ürün bazlı kategori</button>
+        </div>
+      )}
+
+      {filterXmlSource && tab === 'products' && selectedConn && (
+        <ProductCategoriesSection key={`${selectedConn.id}:${filterXmlSource}`} connId={selectedConn.id} srcId={filterXmlSource} reloadToken={resetToken} />
+      )}
+
       {/* Step 2: the mapping form (only once a source is chosen) */}
-      {filterXmlSource && (() => {
+      {filterXmlSource && tab === 'mapping' && (() => {
         if (isGlobalXml) {
           return (
             <div className="card" style={{ marginBottom: 20, padding: 32, textAlign: 'center', background: 'rgba(59,130,246,0.03)' }}>
@@ -523,7 +553,7 @@ export default function CategoryMappingPage() {
         );
       })()}
 
-      {filterXmlSource && !isGlobalXml && (
+      {filterXmlSource && tab === 'mapping' && !isGlobalXml && (
         <div className="card" style={{ padding: 20 }}>
           <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 12px' }}>
             Bu XML’in eşleştirmeleri ({mappings.length}) · eşleşmeyen kategori: {localCategories.filter(c => !mappedLookup[c]).length}
@@ -550,6 +580,12 @@ export default function CategoryMappingPage() {
             </div>
           )}
         </div>
+      )}
+
+      {showReset && selectedConn && (
+        <ResetDialog connId={selectedConn.id} srcId={filterXmlSource} srcName={sourceName} mappingCount={isGlobalXml ? 0 : mappings.length}
+          onClose={() => setShowReset(false)}
+          onDone={() => { setShowReset(false); setResetToken((t) => t + 1); if (filterXmlSource !== 'none') fetchMappings(selectedConn.id, filterXmlSource).catch(() => {}); }} />
       )}
 
     </div>

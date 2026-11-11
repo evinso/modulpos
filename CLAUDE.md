@@ -62,7 +62,7 @@ cd client && npm run test:smoke                 # renders the products screen in
   A supplier can charge a service fee per product after an order is placed: it is a setting of the XML SOURCE (`XmlSource.orderServiceFee`, edited on each
   source card) and applies only to products of that source (`orderCosts.feeMapFor`); the fee at the time is saved on the order (`Order.lineFees`, `{}` = none),
   orders without that snapshot use the source's current fee. (`GlobalXmlProvider.orderFee` is a different thing: the per-order fee of dropship supplier orders.)
-* **Product-level categories** (`ProductCategoryOverride`, `services/productCategories.js`, `categoryMatcher.js`, `categoryAiPicker.js`, page `/product-categories`): a Trendyol category chosen for ONE
+* **Product-level categories** (`ProductCategoryOverride`, `services/productCategories.js`, `categoryMatcher.js`, `categoryAiPicker.js`; tab "Ürün bazlı kategori" of the category mapping page `/category-mapping?tab=products`, `/product-categories` redirects there; "Kategorileri sıfırla" on that page deletes them per XML source via `POST .../product-categories/reset`, XML-category mappings only when asked): a Trendyol category chosen for ONE
   product, because XML categories are often too broad to map as a whole ("Ev ve Yaşam", 800 kinds of products). It wins over the category mapping and is applied INSIDE
   `ReadinessContext.resolveMapping`, so the list, readiness and both send routes use the same answer; never look categories up anywhere else (the old `resolveCatMapping` helpers
   in `marketplace.js` are no longer used for sending). Required Trendyol attributes belong to the category: typed once per category, reused from other products of that

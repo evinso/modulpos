@@ -203,6 +203,32 @@ router.delete('/connections/:id/product-categories', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+// POST reset the categories of ONE XML source: { xmlSourceId, includeMappings? }
+//   always: every category chosen for a single product of that source (their attribute values go with them)
+//   includeMappings: true also deletes the XML-category mappings of that source
+// Nothing on the marketplace is touched; products simply fall back to the XML-category mapping (or to "no category").
+router.post('/connections/:id/product-categories/reset', async (req, res, next) => {
+  try {
+    const connection = await getConnection(req.params.id);
+    const { xmlSourceId, includeMappings } = req.body || {};
+    if (!xmlSourceId || typeof xmlSourceId !== 'string') return res.status(400).json({ error: 'xmlSourceId gerekli' });
+    const productFilter = { storeId: connection.storeId };
+    if (xmlSourceId === 'none') productFilter.xmlSourceId = null;
+    else {
+      const source = await prisma.xmlSource.findFirst({ where: { id: xmlSourceId, storeId: connection.storeId }, select: { id: true } });
+      if (!source) return res.status(404).json({ error: 'XML kaynağı bulunamadı' });
+      productFilter.xmlSourceId = xmlSourceId;
+    }
+    const removed = await prisma.productCategoryOverride.deleteMany({ where: { connectionId: connection.id, product: productFilter } });
+    let removedMappings = 0;
+    if (includeMappings === true && xmlSourceId !== 'none') {
+      removedMappings = (await prisma.categoryMapping.deleteMany({ where: { connectionId: connection.id, xmlSourceId } })).count;
+    }
+    productListCache.invalidate(connection.storeId);
+    res.json({ removedProducts: removed.count, removedMappings });
+  } catch (error) { next(error); }
+});
+
 // POST paid AI step: { productIds } (max 100 per call; the page sends parts). Only products with a result are charged.
 router.post('/connections/:id/product-categories/ai-match', async (req, res, next) => {
   let charged = 0;

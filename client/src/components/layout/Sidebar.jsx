@@ -20,14 +20,13 @@ function MpBadge({ status }) {
   );
 }
 
-const TRENDYOL_ROUTES      = ['/category-mapping', '/product-categories', '/trendyol-send', '/buybox', '/questions'];
+const TRENDYOL_ROUTES      = ['/category-mapping', '/trendyol-send', '/buybox', '/questions'];
 const HEPSIBURADA_ROUTES   = ['/hepsiburada-send', '/hepsiburada-mapping', '/hepsiburada-create', '/hepsiburada-buybox', '/hepsiburada-questions', '/hepsiburada-update'];
 const PAZARAMA_ROUTES      = ['/pazarama-send', '/pazarama-mapping', '/pazarama-orders'];
 const CICEKSEPETI_ROUTES   = ['/ciceksepeti-send'];
 
 const trendyolItems = [
   { to: '/category-mapping', icon: FolderTree, label: 'Kategori Eşleştirme' },
-  { to: '/product-categories', icon: Tags, label: 'Ürün Bazlı Kategori' },
   { to: '/trendyol-send', icon: Send, label: 'Pazaryerine Gönder' },
   { to: '/buybox', icon: TrendingUp, label: 'BuyBox İzleme' },
   { to: '/questions', icon: MessageSquare, label: 'Müşteri Soruları' },

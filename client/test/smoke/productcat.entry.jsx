@@ -1,6 +1,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import ProductCategoriesPage from '../../src/pages/marketplaces/ProductCategoriesPage.jsx';
+import { MemoryRouter } from 'react-router-dom';
+import CategoryMappingPage from '../../src/pages/marketplaces/CategoryMappingPage.jsx';
 import { calls, pc } from './apiStub.cjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -14,12 +15,16 @@ const setVal = async (el, v, proto = window.HTMLInputElement.prototype) => { awa
 const btn = (label, root = document) => [...root.querySelectorAll('button')].find((b) => b.textContent.includes(label));
 
 const root = createRoot(document.getElementById('root'));
-await act(async () => { root.render(<ProductCategoriesPage />); });
+await act(async () => { root.render(<MemoryRouter><CategoryMappingPage /></MemoryRouter>); });
 await wait(150);
 
-ok('nothing is loaded before an XML source is chosen', !calls.some((c) => /product-categories\/products/.test(c.url)) && text().includes('Devam etmek için bir XML kaynağı seçin'));
+ok('nothing is loaded before an XML source is chosen', !calls.some((c) => /product-categories\/products/.test(c.url)) && text().includes('Devam etmek için yukarıdan bir XML kaynağı seçin') && !btn('Kategorileri sıfırla'));
 await setVal(document.querySelector('select[aria-label="XML kaynağı"]'), 's1', window.HTMLSelectElement.prototype);
 await wait(150);
+ok('after choosing a source the mapping tab is shown first and the per-product tab is NOT loaded yet', text().includes('Eşleştirmeyi Kaydet') && !calls.some((c) => /product-categories\/products/.test(c.url)));
+ok('both tabs and the reset button are there', !!btn('Ürün bazlı kategori') && !!btn('Kategori eşleştirme') && !!btn('Kategorileri sıfırla'));
+await click(btn('Ürün bazlı kategori'), 200);
+ok('the per-product tab replaces the mapping form', !text().includes('Eşleştirmeyi Kaydet') && text().includes('Toplam ürün'));
 
 ok('overview numbers are shown', ['Ürüne özel kategori', 'Kategorisi olmayan'].every((t) => text().includes(t)) && document.querySelector('[data-testid="overview"]').textContent.includes('8'));
 ok('the list asks for products without a category first', calls.some((c) => /product-categories\/products$/.test(c.url) && c.params.status === 'missing' && c.params.xmlSourceId === 's1'));
@@ -41,7 +46,10 @@ const check = (i) => rows()[i].querySelector('input[type="checkbox"]');
 await click(check(0)); await click(check(1));
 ok('selecting rows shows the bulk bar', text().includes('2') && !!btn('ilk öneriyi uygula'));
 calls.length = 0;
+let confirmText = '';
+window.confirm = (m) => { confirmText = m; return true; };
 await click(btn('ilk öneriyi uygula'), 150);
+ok('the free bulk step first warns that suggestions can be wrong', confirmText.includes('yanlış olabilir') && confirmText.includes('sıfırla'), confirmText.slice(0, 80));
 const ap = calls.find((c) => /apply-suggestions$/.test(c.url));
 ok('the free bulk step sends the selected ids', !!ap && ap.body.productIds.length === 2 && ap.body.productIds.includes('q1'), JSON.stringify(ap && ap.body));
 
@@ -114,6 +122,26 @@ calls.length = 0;
 await click(rows()[2].querySelectorAll('button')[rows()[2].querySelectorAll('button').length - 1], 150);
 const rm = calls.find((c) => c.m === 'DELETE' && /product-categories$/.test(c.url));
 ok('"Kaldır" gives the product back to the category mapping', !!rm && rm.body.productIds[0] === 'q3', JSON.stringify(rm && rm.body));
+
+// 9) reset: one place for everything a source got assigned
+calls.length = 0;
+await click(btn('Kategorileri sıfırla'), 120);
+ok('reset opens a dialog that says how many products have their own category', !!document.querySelector('[role="dialog"]') && document.querySelector('[data-testid="reset-count"]').textContent === '1');
+ok('and offers the XML-category mappings as an extra, unticked', document.querySelector('input[aria-label="Kategori eşleştirmelerini de sil"]').checked === false && text().includes('2 kategori eşleştirmesini'));
+await click(btn('Vazgeç', document.querySelector('[role="dialog"]')), 40);
+ok('cancelling changes nothing', !calls.some((c) => c.m === 'POST' && /reset$/.test(c.url)) && !document.querySelector('[role="dialog"]'));
+await click(btn('Kategorileri sıfırla'), 120);
+await click(btn('Sıfırla', document.querySelector('[role="dialog"]')), 200);
+let rs1 = calls.find((c) => c.m === 'POST' && /reset$/.test(c.url));
+ok('resetting sends the source and keeps the mappings by default', !!rs1 && rs1.body.xmlSourceId === 's1' && rs1.body.includeMappings === false, JSON.stringify(rs1 && rs1.body));
+ok('the dialog closes and the list is reloaded', !document.querySelector('[role="dialog"]') && calls.filter((c) => /product-categories\/products$/.test(c.url)).length >= 1);
+calls.length = 0;
+await click(btn('Kategorileri sıfırla'), 120);
+await click(document.querySelector('input[aria-label="Kategori eşleştirmelerini de sil"]'), 20);
+await click(btn('Sıfırla', document.querySelector('[role="dialog"]')), 200);
+const rs2 = calls.find((c) => c.m === 'POST' && /reset$/.test(c.url));
+ok('ticking the box also removes the XML-category mappings', !!rs2 && rs2.body.includeMappings === true, JSON.stringify(rs2 && rs2.body));
+ok('the mapping list is reloaded after that', calls.some((c) => c.m === 'GET' && /category-mappings$/.test(c.url)));
 
 console.error = () => {};
 const real = errors.filter((e) => !/not wrapped in act|Warning: An update|ReactDOMTestUtils|act\(/.test(e));

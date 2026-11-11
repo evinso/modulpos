@@ -105,11 +105,31 @@ const base = 'https://raw.githubusercontent.com/evinso/modulpos/main/server/test
     const b2 = await balance();
     ok('the refused call cost nothing', Math.abs(b2 - b1) < 1e-6);
 
+    // reset one source: every per-product category goes, XML-category mappings stay unless asked
+    const ovCount = async () => (await c.query(`select count(*)::int n from app."ProductCategoryOverride" where "connectionId"=$1`, [conn])).rows[0].n;
+    const mapCount = async () => (await c.query(`select count(*)::int n from app."CategoryMapping" where "connectionId"=$1`, [conn])).rows[0].n;
+    ok('another store cannot reset our connection (404)', (await callB('POST', `${P}/reset`, { xmlSourceId: src.id })).s === 404);
+    ok('a source that is not the caller\'s is refused (404) and nothing is deleted', (await callB('POST', `/marketplace/connections/${bConn}/product-categories/reset`, { xmlSourceId: src.id })).s === 404 && (await ovCount()) >= 1);
+    ok('a reset needs a source', (await call('POST', `${P}/reset`, {})).s === 400);
+    const ovBefore = await ovCount(); const mapsBefore = await mapCount();
+    const rs = await call('POST', `${P}/reset`, { xmlSourceId: src.id });
+    ok('reset removes every per-product category of the source', rs.s === 200 && ovBefore >= 1 && rs.d.removedProducts === ovBefore && rs.d.removedMappings === 0 && (await ovCount()) === 0, JSON.stringify(rs.d));
+    ok('the XML-category mapping is still there', (await mapCount()) === mapsBefore && mapsBefore >= 1);
+    const afterReset = (await call('GET', `/marketplace/connections/${conn}/product-list?limit=50&fresh=1`)).d.products.find((p) => p.id === target.id);
+    ok('the product is back on the XML-category mapping at once', afterReset.mapName === 'Genel > Kategori', afterReset.mapName);
+    ok('the overview shows nothing assigned any more', (await call('GET', `${P}/overview?xmlSourceId=${src.id}`)).d.assigned === 0);
+    await call('PUT', P, { assignments: ids.ids.map((id) => ({ productId: id, categoryId: kupa.id, source: 'rule' })) });
+
     // removing gives the product back to the mapping
     const del = await call('DELETE', P, { productIds: ids.ids });
     ok('removing the own categories works', del.s === 200 && del.d.removed >= 1, JSON.stringify(del.d));
     const back = (await call('GET', `/marketplace/connections/${conn}/product-list?limit=50&fresh=1`)).d.products.find((p) => p.id === target.id);
     ok('the product is back on the XML-category mapping', back.mapName === 'Genel > Kategori', back.mapName);
+    await call('PUT', P, { assignments: [{ productId: target.id, categoryId: kupa.id, source: 'manual' }] });
+    const rs2 = await call('POST', `${P}/reset`, { xmlSourceId: src.id, includeMappings: true });
+    ok('reset with the mappings option also deletes the XML-category mappings of that source', rs2.s === 200 && rs2.d.removedProducts === 1 && rs2.d.removedMappings === mapsBefore && (await mapCount()) === 0 && (await ovCount()) === 0, JSON.stringify(rs2.d));
+    const gone = (await call('GET', `/marketplace/connections/${conn}/product-list?limit=50&fresh=1`)).d.products.find((p) => p.id === target.id);
+    ok('now the product has no category at all', gone.issues.some((i) => i.code === 'no_category_mapping'));
   } catch (e) { console.log('ERROR', e); fails++; } finally {
     await c.query(`delete from app."SyncLog" where "storeId"=$1`, [storeId]).catch(() => {});
     for (const u of [A, B]) await c.query(`delete from app."User" where id=$1`, [u.user.id]).catch((e) => console.log('cleanup:', e.message));

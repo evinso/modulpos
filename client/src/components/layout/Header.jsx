@@ -15,7 +15,6 @@ const pageTitles = {
   '/xml-converter': 'XML Dönüştürücü',
   '/marketplace': 'Pazaryeri Bağlantıları',
   '/category-mapping': 'Kategori Eşleştirme',
-  '/product-categories': 'Ürün Bazlı Kategori',
   '/trendyol-send': 'Pazaryerine Gönder',
   '/orders': 'Sipariş Yönetimi',
   '/pricing': 'Fiyat Şablonları',

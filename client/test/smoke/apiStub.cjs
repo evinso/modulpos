@@ -82,6 +82,9 @@ const get = async (url, cfg = {}) => {
   if (url === '/whatsapp/connections/w1/status') return { data: wa.status };
   if (url === '/whatsapp/connections/w1/qr') { wa.qrCalls++; return { data: typeof wa.qr === 'function' ? wa.qr(wa.qrCalls) : wa.qr }; }
   if (url.startsWith('/admin/system-settings')) return { data: { waha_enabled: 'false', waha_session: 'default', waha_admin_phone: '905551112233', waha_events: '["new_order"]', waha_otp_enabled: 'false' } };
+  if (url === '/marketplace/local-categories') return { data: ['Giyim', 'Aksesuar', 'Ev ve Yaşam'] };
+  if (url === '/marketplace/connections/c1/categories') return { data: { categories: [] } };
+  if (url === '/credits/prices') return { data: { categoryAiCost: 0.5 } };
   if (url === '/marketplace/connections/c1/product-categories/overview') return { data: { total: 8, assigned: 1, mapped: 2, missing: 5, aiCostPerProduct: 0.05, categories: [{ category: 'Ev ve Yaşam', total: 6, missing: 4 }, { category: 'Oyuncak &amp; Kırtasiye', total: 2, missing: 1 }] } };
   if (url === '/marketplace/connections/c1/product-categories/products') {
     const sug = (id, name, path, coverage = 1) => ({ id, name, path, score: 20, coverage });
@@ -101,6 +104,7 @@ const get = async (url, cfg = {}) => {
 const post = async (url, body) => {
   calls.push({ m: 'POST', url, body });
   if (url === '/orders/profit/refresh') return { data: { message: '5 siparişten 0 komisyon, 0 kargo bilgisi Trendyol\'dan alındı', pending: 5 } };
+  if (/product-categories\/reset$/.test(url)) return { data: { removedProducts: 1, removedMappings: body.includeMappings ? 2 : 0 } };
   if (/product-categories\/apply-suggestions$/.test(url)) return { data: { applied: body.productIds.length - 1, skipped: 1 } };
   if (/product-categories\/ai-match$/.test(url)) {
     if (pc.aiError) { const e = new Error('x'); e.response = { status: 502, data: { error: pc.aiError, aiUnavailable: true, refunded: true } }; throw e; }
