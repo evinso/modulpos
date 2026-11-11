@@ -11,6 +11,7 @@ const mk = (i, over = {}) => ({
 });
 const calls = [];
 const sendBehaviour = { failAt150: false, allBelowStock: false };
+const pc = { aiError: null, aiMatched: 2 };
 // WhatsApp page: tests change `wa.status` / `wa.qr` (a value, or a function of the call number) to play different WAHA situations
 const wa = { engine: 'waha', status: { stateInstance: 'notAuthorized' }, qr: { type: 'loading', message: '' }, qrCalls: 0 };
 const detail = {
@@ -81,11 +82,29 @@ const get = async (url, cfg = {}) => {
   if (url === '/whatsapp/connections/w1/status') return { data: wa.status };
   if (url === '/whatsapp/connections/w1/qr') { wa.qrCalls++; return { data: typeof wa.qr === 'function' ? wa.qr(wa.qrCalls) : wa.qr }; }
   if (url.startsWith('/admin/system-settings')) return { data: { waha_enabled: 'false', waha_session: 'default', waha_admin_phone: '905551112233', waha_events: '["new_order"]', waha_otp_enabled: 'false' } };
+  if (url === '/marketplace/connections/c1/product-categories/overview') return { data: { total: 8, assigned: 1, mapped: 2, missing: 5, aiCostPerProduct: 0.05, categories: [{ category: 'Ev ve Yaşam', total: 6, missing: 4 }, { category: 'Oyuncak &amp; Kırtasiye', total: 2, missing: 1 }] } };
+  if (url === '/marketplace/connections/c1/product-categories/products') {
+    const sug = (id, name, path, coverage = 1) => ({ id, name, path, score: 20, coverage });
+    return { data: { total: 3, page: 1, limit: 50, products: [
+      { id: 'q1', title: 'Çelik Pense Seti 3 Parça', category: 'Ev ve Yaşam', stock: 5, current: null, suggestions: [sug('10', 'Pense', 'Hırdavat > Manuel El Aletleri > Pense'), sug('11', 'Çelik Set', 'Hırdavat > Set & Takım > Çelik Set', 0.5)] },
+      { id: 'q2', title: 'Peluş Ayıcık', category: 'Oyuncak &amp; Kırtasiye', stock: 3, current: null, suggestions: [] },
+      { id: 'q3', title: 'Seramik Kupa', category: 'Ev ve Yaşam', stock: 9, current: { categoryId: '30', name: 'Ev & Mobilya > Sofra > Kupa', productLevel: true, source: 'ai' }, suggestions: [] },
+    ] } };
+  }
+  if (url === '/marketplace/connections/c1/product-categories/ids') return { data: { total: 3, ids: ['q1', 'q2', 'q3'], truncated: false } };
+  if (url === '/marketplace/connections/c1/product-categories/search') return { data: [{ id: '10', name: 'Pense', path: 'Hırdavat > Manuel El Aletleri > Pense' }] };
+  if (url === '/marketplace/connections/c1/product-categories/groups') return { data: [{ categoryId: '555', name: 'Ev & Mobilya > Mum > Mum Seti', count: 4, required: [{ id: '5', name: 'Renk' }], missing: [{ id: '5', name: 'Renk' }], attributes: {} }] };
+  if (url === '/marketplace/connections/c1/categories/555/attributes') return { data: { categoryAttributes: [{ required: true, allowCustom: false, attribute: { id: 5, name: 'Renk' }, attributeValues: [{ id: 91, name: 'Beyaz' }, { id: 92, name: 'Siyah' }] }] } };
   throw new Error('unmocked GET ' + url);
 };
 const post = async (url, body) => {
   calls.push({ m: 'POST', url, body });
   if (url === '/orders/profit/refresh') return { data: { message: '5 siparişten 0 komisyon, 0 kargo bilgisi Trendyol\'dan alındı', pending: 5 } };
+  if (/product-categories\/apply-suggestions$/.test(url)) return { data: { applied: body.productIds.length - 1, skipped: 1 } };
+  if (/product-categories\/ai-match$/.test(url)) {
+    if (pc.aiError) { const e = new Error('x'); e.response = { status: 502, data: { error: pc.aiError, aiUnavailable: true, refunded: true } }; throw e; }
+    return { data: { matched: Math.min(pc.aiMatched, body.productIds.length), unmatched: Math.max(0, body.productIds.length - pc.aiMatched), noCandidates: 0, charged: 0.1 } };
+  }
   if (/send-products$/.test(url)) {
     if (sendBehaviour.allBelowStock) { const e = new Error('x'); e.response = { status: 400, data: { error: `Seçili ${body.productIds.length} ürünün stoğu minimum stok eşiğinin (${body.minStock}) altında olduğu için hiçbiri gönderilmedi`, belowMinStock: body.productIds.length } }; throw e; }
     if (body.productIds.includes('id150') && sendBehaviour.failAt150) { const e = new Error('x'); e.response = { status: 400, data: { error: 'Trendyol API hatası', message: 'Trendyol reddetti' } }; throw e; }
@@ -110,12 +129,15 @@ const post = async (url, body) => {
 const put = async (url, body) => {
   calls.push({ m: 'PUT', url, body });
   if (url === '/orders/profit/cost' || url === '/orders/profit/settings') return { data: { ok: true } };
+  if (/product-categories$/.test(url)) return { data: { saved: body.assignments.length, skipped: 0 } };
+  if (/product-categories\/attributes$/.test(url)) return { data: { updated: 4 } };
+
   if (/^\/xml-sources\/[^/]+$/.test(url)) return { data: { id: 's1', orderServiceFee: Number(body.orderServiceFee) } };
   if (/\/sale-price$/.test(url)) {
     if (body.price < 120 && body.confirmLoss !== true) { const e = new Error('409'); e.response = { status: 409, data: { error: 'Bu fiyatta zarar edersiniz', loss: true } }; throw e; }
     return { data: { ok: true, pricing: { salePrice: body.price, manual: true } } };
   }
   if (/send-settings$/.test(url)) return { data: { settings: body.settings, summary: [] } }; return { data: {} }; };
-const del = async (url, cfg) => { calls.push({ m: 'DELETE', url, params: cfg && cfg.params }); return { data: /sale-price$/.test(url) ? { ok: true, removed: 1 } : {} }; };
-module.exports = { get, post, put, delete: del, calls, wa, sendBehaviour };
+const del = async (url, cfg) => { calls.push({ m: 'DELETE', url, params: cfg && cfg.params, body: cfg && cfg.data }); return { data: /sale-price$/.test(url) ? { ok: true, removed: 1 } : (/product-categories$/.test(url) ? { removed: (cfg.data.productIds || []).length } : {}) }; };
+module.exports = { get, post, put, delete: del, calls, wa, sendBehaviour, pc };
 module.exports.default = module.exports;

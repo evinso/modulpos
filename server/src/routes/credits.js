@@ -65,6 +65,7 @@ router.get('/prices', auth, async (req, res, next) => {
     const buyboxAdjustCost = await getSetting('credit_buybox_adjust', '0.1');
     const autoReplyCost = await getSetting('credit_auto_reply', '1');
     const categoryAiCost = await getSetting('credit_category_ai', '0.5');
+    const productCategoryAiCost = await getSetting('credit_product_category_ai', '0.05');
 
     res.json({
       xmlConvertCost: parseFloat(xmlConvertCost),
@@ -72,7 +73,8 @@ router.get('/prices', auth, async (req, res, next) => {
       buyboxCheckCost: parseFloat(buyboxCheckCost),
       buyboxAdjustCost: parseFloat(buyboxAdjustCost),
       autoReplyCost: parseFloat(autoReplyCost),
-      categoryAiCost: parseFloat(categoryAiCost)
+      categoryAiCost: parseFloat(categoryAiCost),
+      productCategoryAiCost: parseFloat(productCategoryAiCost)
     });
   } catch (error) {
     next(error);

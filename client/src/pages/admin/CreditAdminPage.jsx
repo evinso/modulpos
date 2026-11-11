@@ -10,7 +10,8 @@ export default function CreditAdminPage() {
     credit_xml_import_default: '5',
     credit_buybox_check: '1',
     credit_buybox_adjust: '0.1',
-    credit_auto_reply: '1'
+    credit_auto_reply: '1',
+    credit_product_category_ai: '0.05'
   });
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -212,6 +213,22 @@ export default function CreditAdminPage() {
             />
             <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
               Manuel veya otomatik BuyBox fiyat güncellemesinde ürün başına kesilecek kredi. 0 = ücretsiz.
+            </span>
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 20 }}>
+            <label className="form-label">AI Ürün Kategorisi Ücreti (Kredi / Ürün)</label>
+            <input
+              type="number"
+              className="form-input"
+              min="0"
+              step="0.01"
+              value={settings.credit_product_category_ai}
+              onChange={e => setSettings({ ...settings, credit_product_category_ai: e.target.value })}
+              placeholder="0.05"
+            />
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
+              Ürün bazlı kategori eşleştirmede yalnızca sonuç alınan her ürün için kesilir; sonuçsuz ürünlerin kredisi iade edilir. 0 = ücretsiz.
             </span>
           </div>
 

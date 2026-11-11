@@ -62,6 +62,13 @@ cd client && npm run test:smoke                 # renders the products screen in
   A supplier can charge a service fee per product after an order is placed: it is a setting of the XML SOURCE (`XmlSource.orderServiceFee`, edited on each
   source card) and applies only to products of that source (`orderCosts.feeMapFor`); the fee at the time is saved on the order (`Order.lineFees`, `{}` = none),
   orders without that snapshot use the source's current fee. (`GlobalXmlProvider.orderFee` is a different thing: the per-order fee of dropship supplier orders.)
+* **Product-level categories** (`ProductCategoryOverride`, `services/productCategories.js`, `categoryMatcher.js`, `categoryAiPicker.js`, page `/product-categories`): a Trendyol category chosen for ONE
+  product, because XML categories are often too broad to map as a whole ("Ev ve Yaşam", 800 kinds of products). It wins over the category mapping and is applied INSIDE
+  `ReadinessContext.resolveMapping`, so the list, readiness and both send routes use the same answer; never look categories up anywhere else (the old `resolveCatMapping` helpers
+  in `marketplace.js` are no longer used for sending). Required Trendyol attributes belong to the category: typed once per category, reused from other products of that
+  category or from a category mapping. Free: rule-based suggestions (word matching over the bundled tree, NOT reliable on its own) and a manual picker. Paid (credit setting
+  `credit_product_category_ai`, per product, default 0.05): the AI only chooses among the rule-based candidates, answers are validated against them, only products with a result
+  are charged (the rest is refunded), a fatal AI error (empty vendor balance, rejected key) stops at once with a readable message (`aiErrors.js`).
 * **Field mapping**: `xml/autoMapping.js` guesses the mapping for new feeds; the user's saved mapping always wins. The field list of the mapping screen is
   MERGED over many products (`createFieldCollector` in `xmlParser.js`), never taken from the first product: products of one feed carry different tags
   (2 images on the first, 5 on the others).

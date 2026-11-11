@@ -2,6 +2,7 @@ const prisma = require('../config/database');
 const { loadPricingContext } = require('./pricingEngine');
 const SS = require('./sendSettings');
 const { isAlreadyListedMessage } = require('./marketplaceStatus');
+const { buildOverrideMappings } = require('./productCategories');
 
 /**
  * "Is this product safe to send to the marketplace?"
@@ -64,6 +65,7 @@ async function loadRequiredAttributes(connection, categoryIds) {
     else todo.push(id);
   }
   const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+  todo.length = Math.min(todo.length, 60); // the rest is fetched by the next calls (results are cached for hours)
   for (let i = 0; i < todo.length; i += 5) {
     await Promise.all(todo.slice(i, i + 5).map(async (id) => {
       try {
@@ -115,8 +117,9 @@ class MappingIndex {
 }
 
 class ReadinessContext {
-  constructor({ indexes, globalCatMap, priceCtx, dupBarcodes, dupWinner, mpByProduct, requiredAttrs, brandCfg, send }) {
+  constructor({ indexes, globalCatMap, priceCtx, dupBarcodes, dupWinner, mpByProduct, requiredAttrs, brandCfg, send, productMappings }) {
     this.indexes = indexes; // xmlSourceId ('' = legacy, shared) -> MappingIndex
+    this.productMappings = productMappings || new Map(); // productId -> category chosen for that product
     this.globalCatMap = globalCatMap;
     this.priceCtx = priceCtx;
     this.dupBarcodes = dupBarcodes;
@@ -128,12 +131,15 @@ class ReadinessContext {
   }
 
   /**
-   * Category mapping lookup. A mapping belongs to the XML source it was made for; tries, in order:
+   * Category mapping lookup. A category chosen for the single product always wins; otherwise a mapping belongs
+   * to the XML source it was made for and is tried in this order:
    *  1. the product's own XML source (exact key, case-insensitive key, path parts, last level of a path key)
    *  2. the global-provider mapping of that source
    *  3. legacy mappings that were created before mappings were tied to a source
    */
-  resolveMapping(category, xmlSourceId) {
+  resolveMapping(category, xmlSourceId, productId) {
+    const chosen = productId ? this.productMappings.get(productId) : null;
+    if (chosen) return chosen;
     if (!category) return null;
     const own = xmlSourceId ? this.indexes.get(xmlSourceId) : null;
     if (own) { const hit = own.find(category); if (hit) return hit; }
@@ -157,7 +163,7 @@ class ReadinessContext {
     const excluded = SS.excludedReasons(p, this.send);
     if (excluded.length) add(ISSUE.EXCLUDED, `Gönderim ayarlarına takıldı: ${excluded.join('; ')}`);
 
-    const mapping = this.resolveMapping(p.category, p.xmlSourceId);
+    const mapping = this.resolveMapping(p.category, p.xmlSourceId, p.id);
     if (!mapping) add(ISSUE.NO_CATEGORY, `Kategori eşleştirmesi yok (${p.category || 'kategori boş'})`);
 
     const bc = (p.barcode || '').trim();
@@ -254,7 +260,7 @@ class ReadinessContext {
 async function buildReadinessContext(connection, { xmlSourceIds = null } = {}) {
   const storeId = connection.storeId;
 
-  const [catMappings, priceCtx, dupRows, mps] = await Promise.all([
+  const [catMappings, priceCtx, dupRows, mps, catOverrides] = await Promise.all([
     prisma.categoryMapping.findMany({ where: { connectionId: connection.id } }),
     loadPricingContext(storeId, connection.id),
     prisma.product.groupBy({ by: ['barcode'], where: { storeId, barcode: { not: null } }, _count: { _all: true }, having: { barcode: { _count: { gt: 1 } } } }),
@@ -262,7 +268,9 @@ async function buildReadinessContext(connection, { xmlSourceIds = null } = {}) {
       where: { connectionId: connection.id },
       select: { productId: true, status: true, errorMessage: true, updatedAt: true },
     }),
+    prisma.productCategoryOverride.findMany({ where: { connectionId: connection.id } }),
   ]);
+  const productMappings = buildOverrideMappings(catOverrides, catMappings);
 
   const maps = new Map();
   for (const m of catMappings) {
@@ -313,7 +321,10 @@ async function buildReadinessContext(connection, { xmlSourceIds = null } = {}) {
   const brandCfg = { strategy: cfg.brandStrategy || 'xml', defaultBrandId: cfg.defaultBrandId || null };
   const send = SS.normalizeSendSettings(cfg.sendSettings);
 
-  const mappedCategoryIds = [...new Set(catMappings.map((m) => String(m.marketplaceCategoryId)))].slice(0, 80);
+  const mappedCategoryIds = [...new Set([
+    ...catMappings.map((m) => String(m.marketplaceCategoryId)),
+    ...[...productMappings.values()].map((m) => String(m.marketplaceCategoryId)),
+  ])].slice(0, 400);
   const requiredAttrs = await loadRequiredAttributes(connection, mappedCategoryIds);
 
   return new ReadinessContext({
@@ -323,6 +334,7 @@ async function buildReadinessContext(connection, { xmlSourceIds = null } = {}) {
     dupBarcodes,
     dupWinner,
     mpByProduct: new Map(mps.map((m) => [m.productId, m])),
+    productMappings,
     requiredAttrs,
     brandCfg,
     send,
@@ -343,4 +355,4 @@ async function getReadinessContext(connection, { ttlMs = 15000 } = {}) {
   return ctx;
 }
 
-module.exports = { buildReadinessContext, getReadinessContext, ReadinessContext, MappingIndex, ISSUE, LIMITS, parseImages };
+module.exports = { buildReadinessContext, getReadinessContext, ReadinessContext, MappingIndex, ISSUE, LIMITS, parseImages, loadRequiredAttributes };

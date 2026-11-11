@@ -1369,8 +1369,7 @@ router.post('/connections/:id/send-products', async (req, res, next) => {
     // Create MarketplaceProduct records – only for products that were really sent
     for (const p of products) {
       if (!sentIds.has(p.id)) continue;
-      const mapping = resolveCatMapping(p.category, catMap, p.xmlSourceId, globalCatMap);
-      if (!mapping || !p.barcode) continue;
+      if (!p.barcode) continue; // sent products already passed the readiness check (incl. their category)
 
       await prisma.marketplaceProduct.upsert({
         where: {

@@ -160,6 +160,7 @@ model Product {
   buyboxRecords       BuyboxRecord[]
   logs                ProductLog[]
   priceOverrides      ProductPriceOverride[]
+  categoryOverrides   ProductCategoryOverride[]
 
   @@index([storeId])
   @@index([storeId, xmlSourceId])
@@ -184,6 +185,26 @@ model ProductPriceOverride {
 
   @@unique([productId, connectionId])
   @@index([connectionId])
+}
+
+// A Trendyol category chosen for ONE product (the XML category is too broad to map as a whole, e.g. "Ev ve Yaşam").
+// It wins over the category mapping; attributes have the same shape as CategoryMapping.attributes.
+model ProductCategoryOverride {
+  id                      String   @id @default(uuid())
+  connectionId            String
+  productId               String
+  marketplaceCategoryId   String
+  marketplaceCategoryName String?
+  attributes              String?  // JSON: required attributes for this category
+  source                  String   @default("manual") // manual | rule | ai
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  product    Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, productId])
+  @@index([connectionId, marketplaceCategoryId])
 }
 
 model ProductLog {
@@ -244,6 +265,7 @@ model MarketplaceConnection {
   categoryMappings    CategoryMapping[]
   buyboxRecords       BuyboxRecord[]
   priceOverrides      ProductPriceOverride[]
+  categoryOverrides   ProductCategoryOverride[]
   buyboxAutoLogs      BuyboxAutoLog[]
 }
 
