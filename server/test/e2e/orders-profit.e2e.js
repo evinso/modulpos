@@ -131,7 +131,7 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     ok('shipping typed in', (await a('PUT', '/orders/profit/cargo', { orderId: o4, amount: 120 })).s === 200);
     r = await get();
     const m4 = row(r, 4);
-    ok('it replaces the estimate, counts as known and changes the profit', m4.cargo === 120 && m4.cargoSource === 'manual' && m4.exact === true && m4.profit !== before4.profit, JSON.stringify([m4.cargo, m4.cargoSource, before4.profit, m4.profit]));
+    ok('it replaces the estimate and changes the profit (order 4 stays "not exact": its commission is still an estimate)', m4.cargo === 120 && m4.cargoSource === 'manual' && m4.exact === false && m4.profit !== before4.profit, JSON.stringify([m4.cargo, m4.cargoSource, before4.profit, m4.profit]));
     ok('the VAT to pay follows the typed amount (VAT inside 120 = 20)', near(m4.vatDetail.cargo, 20), JSON.stringify(m4.vatDetail));
     ok('Trendyol\'s invoice figure beats a typed amount (order 1 has 103,49 from the invoice)', (await a('PUT', '/orders/profit/cargo', { orderId: o1, amount: 50 })).s === 200 && row(await get(), 1).cargo === 103.49 && row(await get(), 1).cargoSource === 'trendyol');
     ok('shipping removed -> the estimate again', (await a('PUT', '/orders/profit/cargo', { orderId: o4, amount: null })).s === 200 && row(await get(), 4).cargoSource === 'estimate');
