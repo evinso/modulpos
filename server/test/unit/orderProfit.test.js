@@ -234,3 +234,25 @@ test('taxOptions: off unless set; the purchase VAT defaults to 20', () => {
   const t = taxOptions({ inputVat: true });
   assert.ok(Math.abs(t.kp - 1 / 6) < 1e-12 && Math.abs(t.ki - 1 / 6) < 1e-12);
 });
+
+// ---- shipping fee typed in by hand (seller panel "Sipariş Kayıtları") until the cargo invoice exists ----
+test('a typed shipping fee replaces the estimate and counts as known', () => {
+  const o = refOrder();
+  const withCost = { finance: { commissionAmount: 129.12 }, costs: new Map([['ref', { unit: 195, source: 'manual' }]]), settings: { ...TAX, cargoEstimate: 95.99 } };
+  const est = computeOrderProfit(o, withCost);
+  assert.equal(est.cargo, 95.99); assert.equal(est.cargoSource, 'estimate'); assert.equal(est.exact, false);
+  const man = computeOrderProfit(o, { ...withCost, manualCargo: 106 });
+  assert.equal(man.cargo, 106); assert.equal(man.cargoSource, 'manual'); assert.equal(man.exact, true);
+  assert.equal(man.profit, 114.77);              // same as with the invoice figure of the reference sale
+});
+
+test('Trendyol\'s invoice beats a typed fee; no estimate and no fee still leaves the profit open', () => {
+  const o = refOrder();
+  const base = { costs: new Map([['ref', { unit: 195, source: 'manual' }]]), settings: { ...TAX, cargoEstimate: null } };
+  const real = computeOrderProfit(o, { ...base, finance: { commissionAmount: 129.12, cargoAmount: 103.49 }, manualCargo: 106 });
+  assert.equal(real.cargo, 103.49); assert.equal(real.cargoSource, 'trendyol');
+  const none = computeOrderProfit(o, { ...base, finance: { commissionAmount: 129.12 } });
+  assert.equal(none.cargo, null); assert.equal(none.profit, null);
+  const zero = computeOrderProfit(o, { ...base, finance: { commissionAmount: 129.12 }, manualCargo: 0 });
+  assert.equal(zero.cargoSource, 'manual'); assert.notEqual(zero.profit, null);   // free shipping is a valid answer
+});

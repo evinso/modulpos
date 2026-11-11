@@ -71,6 +71,7 @@ router.get('/profit', async (req, res, next) => {
     const orders = await prisma.order.findMany({ where, orderBy: { orderDate: 'desc' }, take: 3000, include: { finance: true } });
     const settings = await loadProfitSettings(store.id);
     const manual = await orderCosts.loadManual(prisma, store.id);
+    const manualCargo = await orderCosts.loadManualCargo(prisma, store.id);
 
     // product costs / supplier fees for the orders that have no saved snapshot yet (and save the cost snapshot: later XML price
     // changes must not rewrite history). A fee snapshot is only made when the order arrives; orders without one use the source's current fee.
@@ -93,7 +94,7 @@ router.get('/profit', async (req, res, next) => {
       const costs = orderCosts.costMapFor(lines, { manual, snapshot: snap, products });
       const feeSnap = o.lineFees ? orderCosts.parseJson(o.lineFees, {}) : null;
       const fees = orderCosts.feeMapFor(lines, { snapshot: feeSnap, products, feeBySource });
-      const r = computeOrderProfit(o, { finance: o.finance, costs, fees, settings });
+      const r = computeOrderProfit(o, { finance: o.finance, costs, fees, settings, manualCargo: manualCargo[o.id] });
       return { id: o.id, orderNumber: o.orderNumber, marketplaceOrderId: o.marketplaceOrderId, orderDate: o.orderDate, status: o.status, ...r };
     });
 
@@ -144,6 +145,23 @@ router.put('/profit/settings', async (req, res, next) => {
     const value = JSON.stringify({ serviceFee, cargoEstimate, ...tax });
     await prisma.systemSettings.upsert({ where: { key: settingsKey(store.id) }, create: { key: settingsKey(store.id), value }, update: { value } });
     res.json({ ok: true, settings: await loadProfitSettings(store.id) });
+  } catch (error) { next(error); }
+});
+
+// Shipping fee of one order, typed in by hand from the seller panel (Finans > Sipariş Kayıtları): { orderId, amount } amount in TL incl. VAT, null / empty removes it.
+// Only used until Trendyol's cargo invoice (about 3 weeks after the order) has the real figure.
+router.put('/profit/cargo', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const orderId = typeof req.body.orderId === 'string' ? req.body.orderId : '';
+    const order = orderId ? await prisma.order.findFirst({ where: { id: orderId, storeId: store.id }, select: { id: true } }) : null;
+    if (!order) return res.status(404).json({ error: 'Sipariş bulunamadı' });
+    const raw = req.body.amount;
+    const amount = raw === null || raw === '' || raw === undefined ? null : Number(raw);
+    if (amount !== null && (!Number.isFinite(amount) || amount < 0 || amount > 100000)) return res.status(400).json({ error: 'Kargo tutarı 0 veya daha büyük bir sayı olmalı' });
+    await orderCosts.saveManualCargo(prisma, store.id, order.id, amount === null ? null : Math.round(amount * 100) / 100);
+    res.json({ ok: true });
   } catch (error) { next(error); }
 });
 

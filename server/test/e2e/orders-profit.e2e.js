@@ -122,6 +122,20 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     ok('order 2 (no cost yet): stopaj is known, VAT to pay and profit are not invented', row(r, 2).stopaj > 0 && row(r, 2).payableVat === null && row(r, 2).profit === null);
     ok('the summary carries stopaj and the VAT to pay (orders 1 and 4 have a known profit: -9.79 and -18.12, the product cost of order 4 was raised to 150 earlier in this test)', r.d.summary.taxModel === true && r.d.summary.stopaj > 0 && near(r.d.summary.payableVat, -27.91), JSON.stringify([r.d.summary.stopaj, r.d.summary.payableVat, r.d.rows.map((x) => [x.marketplaceOrderId, x.status, x.cost, x.cargo, x.supplierFee, x.payableVat, x.profit])]));
 
+    // shipping fee typed in by hand (seller panel "Sipariş Kayıtları"), used until Trendyol's cargo invoice exists
+    ok('bad shipping amounts are rejected', (await a('PUT', '/orders/profit/cargo', { orderId: o4, amount: -5 })).s === 400 && (await a('PUT', '/orders/profit/cargo', { orderId: o4, amount: 'abc' })).s === 400);
+    ok('an unknown order is refused', (await a('PUT', '/orders/profit/cargo', { orderId: '00000000-0000-0000-0000-000000000000', amount: 100 })).s === 404 && (await a('PUT', '/orders/profit/cargo', { amount: 100 })).s === 404);
+    ok('another store cannot set the shipping of my order', (await b('PUT', '/orders/profit/cargo', { orderId: o4, amount: 1 })).s === 404);
+    const before4 = row(await get(), 4);
+    ok('order 4 (no invoice yet) uses the estimate', before4.cargoSource === 'estimate' && before4.exact === false);
+    ok('shipping typed in', (await a('PUT', '/orders/profit/cargo', { orderId: o4, amount: 120 })).s === 200);
+    r = await get();
+    const m4 = row(r, 4);
+    ok('it replaces the estimate, counts as known and changes the profit', m4.cargo === 120 && m4.cargoSource === 'manual' && m4.exact === true && m4.profit !== before4.profit, JSON.stringify([m4.cargo, m4.cargoSource, before4.profit, m4.profit]));
+    ok('the VAT to pay follows the typed amount (VAT inside 120 = 20)', near(m4.vatDetail.cargo, 20), JSON.stringify(m4.vatDetail));
+    ok('Trendyol\'s invoice figure beats a typed amount (order 1 has 103,49 from the invoice)', (await a('PUT', '/orders/profit/cargo', { orderId: o1, amount: 50 })).s === 200 && row(await get(), 1).cargo === 103.49 && row(await get(), 1).cargoSource === 'trendyol');
+    ok('shipping removed -> the estimate again', (await a('PUT', '/orders/profit/cargo', { orderId: o4, amount: null })).s === 200 && row(await get(), 4).cargoSource === 'estimate');
+
     ok('not logged in -> 401', (await fetch(API + '/orders/profit')).status === 401);
   } catch (e) { console.log('FAIL  unexpected error', e.message); fails++; }
   finally {

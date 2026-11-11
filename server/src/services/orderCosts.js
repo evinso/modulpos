@@ -106,4 +106,17 @@ async function saveManual(db, storeId, barcode, unitCost) {
   return map;
 }
 
-module.exports = { feeMapFor, feeSnapshotFor, loadFeeBySource, costMapFor, loadProducts, snapshotFor, loadManual, saveManual, lineKeys, costOf, parseJson };
+// Shipping fee of ONE order typed in by hand (from the seller panel's "Sipariş Kayıtları") until Trendyol's cargo invoice exists: { orderId: amount incl. VAT }
+const cargoKey = (storeId) => `order_cargo:${storeId}`;
+async function loadManualCargo(db, storeId) {
+  const row = await db.systemSettings.findUnique({ where: { key: cargoKey(storeId) } });
+  return row ? parseJson(row.value, {}) : {};
+}
+async function saveManualCargo(db, storeId, orderId, amount) {
+  const map = await loadManualCargo(db, storeId);
+  if (amount === null) delete map[orderId]; else map[orderId] = amount;
+  await db.systemSettings.upsert({ where: { key: cargoKey(storeId) }, create: { key: cargoKey(storeId), value: JSON.stringify(map) }, update: { value: JSON.stringify(map) } });
+  return map;
+}
+
+module.exports = { loadManualCargo, saveManualCargo, feeMapFor, feeSnapshotFor, loadFeeBySource, costMapFor, loadProducts, snapshotFor, loadManual, saveManual, lineKeys, costOf, parseJson };

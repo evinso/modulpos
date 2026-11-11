@@ -58,8 +58,9 @@ function lineFigures(line) {
  * finance: { commissionAmount, cargoAmount, ... } from Trendyol, or null
  * fees: Map barcode -> { unit, source }  supplier service fee per unit (XML source setting); missing = no fee
  * settings: { serviceFee, cargoEstimate, inputVat, purchaseVatRate, withholdingPct }  (cargoEstimate may be null = unknown)
+ * manualCargo: shipping fee (incl. VAT) typed in for this order; used until Trendyol's cargo invoice has the real figure
  */
-function computeOrderProfit(order, { finance = null, costs = new Map(), fees = new Map(), settings = {} } = {}) {
+function computeOrderProfit(order, { finance = null, costs = new Map(), fees = new Map(), settings = {}, manualCargo = null } = {}) {
   const lines = parseLines(order.items).map(lineFigures);
   const sum = (f) => lines.reduce((a, l) => a + f(l), 0);
 
@@ -78,7 +79,8 @@ function computeOrderProfit(order, { finance = null, costs = new Map(), fees = n
   const serviceFee = has(settings.serviceFee) ? num(settings.serviceFee) : 0;
 
   const cargoReal = finance && has(finance.cargoAmount);
-  const cargo = cargoReal ? num(finance.cargoAmount) : (has(settings.cargoEstimate) ? num(settings.cargoEstimate) : null);
+  const cargoManual = !cargoReal && has(manualCargo) && num(manualCargo) >= 0;
+  const cargo = cargoReal ? num(finance.cargoAmount) : cargoManual ? num(manualCargo) : (has(settings.cargoEstimate) ? num(settings.cargoEstimate) : null);
 
   let cost = 0; let costMissing = lines.length === 0; let supplierFee = 0;
   const lineRows = lines.map((l) => {
@@ -123,11 +125,11 @@ function computeOrderProfit(order, { finance = null, costs = new Map(), fees = n
     serviceFee: round2(serviceFee), serviceFeeSource: 'estimate',
     supplierFee: round2(supplierFee),
     taxModel: tax.active, inputVat: tax.inputVat, stopaj: tax.active ? stopaj : null, payableVat, vatDetail,
-    cargo: cargo === null ? null : round2(cargo), cargoSource: cargoReal ? 'trendyol' : (cargo === null ? null : 'estimate'),
+    cargo: cargo === null ? null : round2(cargo), cargoSource: cargoReal ? 'trendyol' : cargoManual ? 'manual' : (cargo === null ? null : 'estimate'),
     cost: costMissing ? null : round2(cost), costMissing,
     profit: profit === null ? null : round2(profit),
     profitPct: profit !== null && netRevenue > 0 ? round2(profit / netRevenue * 100) : null,
-    exact: !!(commissionReal && cargoReal && !costMissing),
+    exact: !!(commissionReal && (cargoReal || cargoManual) && !costMissing),
     mismatch: Math.abs(paid - num(order.totalAmount)) > 0.05 && num(order.totalAmount) > 0,
   };
 }

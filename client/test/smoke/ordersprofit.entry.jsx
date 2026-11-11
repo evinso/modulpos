@@ -15,7 +15,7 @@ const setVal = async (el, v) => { await act(async () => { const set = Object.get
 const btn = (label) => [...document.querySelectorAll('button')].find((b) => (b.textContent || '').includes(label));
 
 ok('format: Turkish thousands and decimals', tl(1234.5) === '1.234,50 ₺' && tl(null) === '—');
-ok('format: a value Trendyol has not confirmed starts with "~"', approx(42, 'estimate') === '~42,00 ₺' && approx(42, 'trendyol') === '42,00 ₺');
+ok('format: a value Trendyol has not confirmed starts with "~"; typed-in values do not', approx(42, 'estimate') === '~42,00 ₺' && approx(42, 'trendyol') === '42,00 ₺' && approx(42, 'manual') === '42,00 ₺');
 
 const root = createRoot(document.getElementById('root'));
 await act(async () => { root.render(<OrdersPage />); });
@@ -44,7 +44,7 @@ const costInput = document.querySelector('input[aria-label="Birim alış maliyet
 ok('and an input for the purchase cost of that product', !!costInput);
 calls.length = 0;
 await setVal(costInput, '310');
-await click(btn('Kaydet'), 120);
+await click([...costInput.parentElement.querySelectorAll('button')].find((b) => b.textContent === 'Kaydet'), 120);   // the cost editor's own button (the detail also has a shipping editor)
 const put = calls.find((c) => c.m === 'PUT' && c.url === '/orders/profit/cost');
 ok('saving sends the barcode and the unit cost', !!put && put.body.barcode === 'bc2' && String(put.body.unitCost) === '310', JSON.stringify(put && put.body));
 ok('the list is reloaded afterwards', calls.some((c) => c.m === 'GET' && c.url === '/orders/profit'));
@@ -63,6 +63,20 @@ await click(btn('kesin verileri al'), 150);
 ok('"get the real figures from Trendyol" calls the refresh endpoint', calls.some((c) => c.m === 'POST' && c.url === '/orders/profit/refresh'));
 
 // ── the tax model (VAT payer: the VAT inside costs comes back, stopaj): the owner's layout ──
+// ── shipping fee typed in by hand (seller panel "Sipariş Kayıtları") ──
+await click(rows()[0]);
+ok('an order with Trendyol\'s invoice figure has no shipping editor (the invoice is final)', !document.querySelector('[data-testid="cargo-editor"]'));
+await click(rows()[2]);
+const ce = document.querySelector('[data-testid="cargo-editor"]');
+ok('an order whose cargo invoice is not out yet has a place to type the shipping fee', !!ce && ce.textContent.includes('Sipariş Kayıtları'));
+calls.length = 0;
+await setVal(ce.querySelector('input[aria-label="Kargo tutarı"]'), '100');
+await act(async () => { const sel = ce.querySelector('select[aria-label="Kargo tutarı KDV"]'); Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set.call(sel, 'exc'); sel.dispatchEvent(new window.Event('change', { bubbles: true })); }); await wait(20);
+await click([...ce.querySelectorAll('button')].find((b) => b.textContent === 'Kaydet'), 120);
+const pc2 = calls.find((c) => c.m === 'PUT' && c.url === '/orders/profit/cargo');
+ok('saving sends the order and the VAT-inclusive amount ("KDV hariç" 100 -> 120)', !!pc2 && pc2.body.orderId === 'o3' && pc2.body.amount === 120, JSON.stringify(pc2 && pc2.body));
+ok('the list is reloaded afterwards', calls.some((c) => c.m === 'GET' && c.url === '/orders/profit'));
+
 ok('earlier method: no stopaj / VAT-to-pay columns', !text().includes('Ödenecek KDV'));
 profitTax.on = true;
 await click(btn('kesin verileri al'), 200);

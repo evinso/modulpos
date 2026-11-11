@@ -45,6 +45,44 @@ function CostEditor({ line, onSaved }) {
   );
 }
 
+/**
+ * Shipping fee of one order typed in by hand, for orders whose Trendyol cargo invoice is not out yet (it comes about 3 weeks after the order).
+ * The number is read from the seller panel (Finans > Sipariş Kayıtları); it is stored VAT-inclusive, so "KDV hariç" is converted here.
+ */
+function CargoEditor({ row, onSaved }) {
+  const [value, setValue] = useState(row.cargoSource === 'manual' && row.cargo !== null ? String(row.cargo) : '');
+  const [vat, setVat] = useState('inc');
+  const [saving, setSaving] = useState(false);
+  if (row.cargoSource === 'trendyol') return null;     // the invoice figure is final
+  const save = async (clear) => {
+    setSaving(true);
+    try {
+      const n = Number(value);
+      const amount = clear ? null : (vat === 'exc' ? Math.round(n * 1.2 * 100) / 100 : n);
+      await api.put('/orders/profit/cargo', { orderId: row.id, amount });
+      toast.success(clear ? 'Elle girilen kargo tutarı kaldırıldı' : 'Kargo tutarı kaydedildi');
+      onSaved();
+    } catch (err) { toast.error(err.response?.data?.error || 'Kaydedilemedi'); }
+    finally { setSaving(false); }
+  };
+  return (
+    <div data-testid="cargo-editor" style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--border-color)' }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Kargo tutarı</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <input type="number" min="0" step="0.01" className="form-input" aria-label="Kargo tutarı" style={{ width: 100, padding: '4px 8px', fontSize: 13 }} value={value} placeholder="₺" onChange={(e) => setValue(e.target.value)} />
+        <select className="form-select" aria-label="Kargo tutarı KDV" style={{ width: 110, padding: '4px 6px', fontSize: 12 }} value={vat} onChange={(e) => setVat(e.target.value)}>
+          <option value="inc">KDV dahil</option><option value="exc">KDV hariç</option>
+        </select>
+        <button className="btn btn-primary btn-sm" disabled={saving || value === '' || !(Number(value) >= 0)} onClick={() => save(false)}>Kaydet</button>
+        {row.cargoSource === 'manual' && <button className="btn btn-secondary btn-sm" disabled={saving} onClick={() => save(true)}>Kaldır</button>}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+        Satıcı Paneli → Finans → Sipariş Kayıtları’nda gördüğünüz kargo tutarını yazın. Trendyol’un kargo faturası gelince gerçek tutar bunun yerine geçer.
+      </div>
+    </div>
+  );
+}
+
 function Breakdown({ row, settings, onSaved }) {
   const [showVat, setShowVat] = useState(false);
   const line = (label, value, hint, bold) => (
@@ -64,7 +102,7 @@ function Breakdown({ row, settings, onSaved }) {
         {row.supplierFee > 0 && line('Tedarikçi hizmet bedeli', `− ${tl(row.supplierFee)}`, 'XML kaynağı ayarı, ürün başına')}
         {row.taxModel && line('Stopaj', `− ${tl(row.stopaj)}`, `KDV hariç satışın %${settings ? settings.withholdingPct : ''}'i`)}
         {row.taxModel && line('Ödenecek KDV', row.payableVat === null ? '—' : row.payableVat >= 0 ? `− ${tl(row.payableVat)}` : `+ ${tl(-row.payableVat)}`, row.payableVat !== null && row.payableVat < 0 ? 'giderlerin KDV\'si satış KDV\'sinden fazla (KDV alacağı)' : '')}
-        {line('Kargo', row.cargo === null ? '—' : `− ${tl(row.cargo)}`, row.cargoSource === 'trendyol' ? 'Trendyol faturasından' : row.cargoSource === 'estimate' ? (row.status === 'delivered' ? 'tahmini — kargo faturası henüz kesilmedi' : 'tahmini') : 'bilinmiyor')}
+        {line('Kargo', row.cargo === null ? '—' : `− ${tl(row.cargo)}`, row.cargoSource === 'trendyol' ? 'Trendyol faturasından' : row.cargoSource === 'manual' ? 'elle girildi (fatura gelince güncellenir)' : row.cargoSource === 'estimate' ? (row.status === 'delivered' ? 'tahmini — kargo faturası henüz kesilmedi' : 'tahmini') : 'bilinmiyor')}
         {line('Alış maliyeti', row.cost === null ? '—' : `− ${tl(row.cost)}`)}
         {line('Net kâr', row.profit === null ? 'hesaplanamadı' : tl(row.profit), row.profitPct !== null ? `net satışın %${row.profitPct}'i` : '', true)}
         {row.taxModel && row.vatDetail && (
@@ -87,6 +125,7 @@ function Breakdown({ row, settings, onSaved }) {
         )}
         {row.tyDiscount > 0 && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>Trendyol'un karşıladığı indirim ({tl(row.tyDiscount)}) size ödenir; müşteri {tl(row.customerPaid)} ödedi.</div>}
         {row.mismatch && <div style={{ fontSize: 11, color: 'var(--warning)', marginTop: 6 }}>Satır toplamı siparişin tutarıyla uyuşmuyor; kargo/ek ücret farkı olabilir.</div>}
+        <CargoEditor row={row} onSaved={onSaved} />
       </div>
       <div>
         <div style={{ fontWeight: 700, marginBottom: 6 }}>Ürünler ve alış maliyeti</div>
