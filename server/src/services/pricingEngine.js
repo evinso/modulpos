@@ -23,6 +23,11 @@ const prisma = require('../config/database');
  *   shippingTiersExVat: true         the shipping table is written like the marketplace tariff: limits are VAT-EXCLUSIVE order amounts and
  *                                     costs are VAT-exclusive carrier prices (+20% carrier VAT is added here). Absent/false = both VAT-inclusive.
  *   profitTiers:   [{ upTo, value }]  profit that depends on the PURCHASE price; same shape, overrides rule.value.
+ *   serviceFee                        marketplace service fee per order (TL, VAT-inclusive), a fixed cost like shipping
+ *   inputVat: true                    the seller is a VAT payer: the VAT inside the purchase price (purchaseVatRate, default 20), shipping,
+ *                                     commission, service fee and other costs (20%) is deducted from the VAT payable on the sale
+ *   withholdingPct                    income-tax withholding ("stopaj", 1) charged on the VAT-EXCLUSIVE sale price
+ *   Both need the gross commission basis (the template screen always sets it). Absent = the earlier calculation, unchanged.
  */
 
 const KINDS = ['price_template', 'price_range', 'marketplace_xml'];
@@ -53,6 +58,23 @@ function scopeSize(c) {
 // be able to stall the server. Far beyond any real use; the screen itself has no row limit below this.
 const MAX_TIERS = 1000;
 const CARRIER_VAT = 0.2; // VAT on carrier invoices
+const EXPENSE_VAT = 0.2; // VAT on commission, carrier, marketplace-service and other cost invoices
+
+/**
+ * Tax side of the profit model. `active` only with the gross commission basis and at least one of the two options on;
+ * otherwise everything is zero and the earlier formulas run untouched.
+ *   w   withholding as a fraction of the VAT-exclusive price
+ *   ki  share of a VAT-inclusive expense that is recoverable VAT (20% VAT -> 1/6)
+ *   kp  same for the purchase price (purchaseVatRate)
+ */
+function taxModel(c) {
+  const gross = c.commissionBasis === 'gross' || c.profitMode === 'margin_on_gross';
+  const w = Math.max(0, num(c.withholdingPct)) / 100;
+  const inputVat = c.inputVat === true;
+  if (!gross || (!inputVat && !(w > 0))) return { active: false, w: 0, ki: 0, kp: 0, inputVat: false };
+  const rp = inputVat ? Math.max(0, num(c.purchaseVatRate, 20)) / 100 : 0;
+  return { active: true, w, inputVat, ki: inputVat ? EXPENSE_VAT / (1 + EXPENSE_VAT) : 0, kp: rp / (1 + rp) };
+}
 
 /** Turns a tariff-style (VAT-exclusive) table into the VAT-inclusive one the solver works with. */
 function grossTiers(tiers, c) {
@@ -147,7 +169,7 @@ function resolveTemplate(purchasePrice, value, c) {
 
 function priceWith(P, value, c) {
 
-  const cost = P + num(c.shippingCost) + num(c.packagingCost) + num(c.extraCost);
+  const cost = P + num(c.shippingCost) + num(c.packagingCost) + num(c.extraCost) + num(c.serviceFee);
   const pct = num(c.commissionPct) + num(c.extraPct);
   const v = num(value);
   const mode = c.profitMode || 'percent_of_purchase';
@@ -158,24 +180,29 @@ function priceWith(P, value, c) {
     const v = num(c.vatRate) / 100;
     const share = 1 / (1 + v);                 // part of the gross price that is revenue (VAT is passed on to the state)
     const pc = pct / 100;
+    // profit(G) = G * a - K. Earlier model: a = share - pc, K = cost. With the tax options: stopaj shrinks the revenue share and the VAT
+    // inside the (VAT-inclusive) costs comes back, so the same costs weigh less: a = share*(1-w) - (1-ki)*pc, K = (1-ki)*fixed + (1-kp)*P.
+    const tm = taxModel(c);
+    const a = tm.active ? share * (1 - tm.w) - (1 - tm.ki) * pc : share - pc;
+    const K = tm.active ? (1 - tm.ki) * (cost - P) + (1 - tm.kp) * P : cost;
     let gross;
     if (mode === 'margin_on_gross') {
       // net margin = share of the VAT-INCLUSIVE sale price (what marketplace calculators call "kâr marjı") that stays with you
-      const denom = share - pc - num(value) / 100;
+      const denom = a - num(value) / 100;
       if (denom <= 0.02) return null;
-      gross = cost / denom;
+      gross = K / denom;
     } else if (mode === 'margin_on_price') {
-      const denom = share * (1 - num(value) / 100) - pc;
+      const denom = tm.active ? a - share * num(value) / 100 : share * (1 - num(value) / 100) - pc;
       if (denom <= 0.02) return null;
-      gross = cost / denom;
+      gross = K / denom;
     } else {
       let profit;
       if (mode === 'percent_of_cost') profit = cost * (num(value) / 100);
       else if (mode === 'fixed') profit = num(value);
       else profit = P * (num(value) / 100);
-      const denom = share - pc;
+      const denom = a;
       if (denom <= 0.02) return null;
-      gross = (cost + profit) / denom;
+      gross = (K + profit) / denom;
     }
     return finishPrice(gross, c);
   }
@@ -262,24 +289,57 @@ function sellsAtLoss(pv) {
 function explainAtPrice(price, purchasePrice, c) {
   const G = num(price), P = num(purchasePrice);
   if (!(G > 0)) return null;
-  const vat = num(c.vatRate);
-  const exVat = G / (1 + vat / 100);
   let shipping = num(c.shippingCost), shippingTier = null;
   const tiers = grossTiers(activeTiers(c.shippingTiers, 'cost'), c);
   if (tiers.length) {
     const i = Math.max(0, tiers.findIndex((t) => t.upTo === null || G <= t.upTo + 1e-9));
     shipping = tiers[i].cost; shippingTier = i + 1;
   }
-  const fixedCosts = shipping + num(c.packagingCost) + num(c.extraCost);
+  return { ...profitBreakdown(G, P, shipping, c), shippingCost: round2(shipping), shippingTier, profitTier: null, profitValue: null };
+}
+
+/**
+ * Where a sale price goes: the one place that turns (sale price, purchase price, shipping, template) into a profit.
+ * Earlier model:   profit = price without VAT - purchase - shipping and other costs - commission
+ * With the tax options (taxModel): profit = price - commission - service fee - other - shipping - purchase - stopaj - VAT payable,
+ *   VAT payable = VAT of the sale - the VAT inside purchase, shipping, commission, service fee and other costs.
+ * The amounts are rounded one by one so the list on screen adds up to the profit shown.
+ */
+function profitBreakdown(G, P, shipping, c) {
+  const vat = num(c.vatRate);
+  const exVat = G / (1 + vat / 100);
+  const other = num(c.packagingCost) + num(c.extraCost);
+  const serviceFee = num(c.serviceFee);
+  const fixedCosts = shipping + other + serviceFee;
   const cost = P + fixedCosts;
   const pct = num(c.commissionPct) + num(c.extraPct);
-  const commission = (c.commissionBasis === 'gross' || c.profitMode === 'margin_on_gross') ? G * pct / 100 : exVat * pct / 100;
-  const profit = exVat - cost - commission;
+  const gross = c.commissionBasis === 'gross' || c.profitMode === 'margin_on_gross';
+  const commission = gross ? G * pct / 100 : exVat * pct / 100;
+  const tm = taxModel(c);
+
+  let profit;
+  let exact;           // profit before rounding, for the percentages (as before the tax options existed)
+  let tax = {};
+  if (!tm.active) {
+    exact = exVat - cost - commission;
+    profit = round2(exact);
+  } else {
+    const r = round2;
+    const detail = {
+      sale: r(G - exVat), purchase: r(P * tm.kp), shipping: r(shipping * tm.ki),
+      commission: r(commission * tm.ki), serviceFee: r(serviceFee * tm.ki), other: r(other * tm.ki),
+    };
+    const payable = r(detail.sale - detail.purchase - detail.shipping - detail.commission - detail.serviceFee - detail.other);
+    const withholding = r(tm.w * exVat);
+    profit = r(r(G) - r(commission) - r(serviceFee) - r(other) - r(shipping) - r(P) - withholding - payable);
+    exact = profit;
+    tax = { taxModel: true, inputVat: tm.inputVat, serviceFee: r(serviceFee), otherCost: r(other), withholding, payableVat: payable, vatDetail: { ...detail, total: payable } };
+  }
   return {
     price: round2(G), purchase: round2(P), fixedCosts: round2(fixedCosts), cost: round2(cost),
-    commissionAmount: round2(commission), profit: round2(profit), profitPct: P > 0 ? round2(profit / P * 100) : 0,
-    vatAmount: round2(G - exVat), marginOnPricePct: G > 0 ? round2(profit / G * 100) : 0,
-    shippingCost: round2(shipping), shippingTier, profitTier: null, profitValue: null,
+    commissionAmount: round2(commission), profit, profitPct: P > 0 ? round2(exact / P * 100) : 0,
+    vatAmount: round2(G - exVat), marginOnPricePct: G > 0 ? round2(exact / G * 100) : 0,
+    ...tax,
   };
 }
 
@@ -416,24 +476,8 @@ async function loadPricingContext(storeId, connectionId) {
 function explainTemplatePrice(purchasePrice, value, c) {
   const r = resolveTemplate(purchasePrice, value, c);
   if (r === null) return null;
-  const price = r.price;
-  const P = num(purchasePrice);
-  const fixedCosts = r.shippingCost + num(c.packagingCost) + num(c.extraCost);
-  const cost = P + fixedCosts;
-  const pct = num(c.commissionPct) + num(c.extraPct);
-  const vat = num(c.vatRate);
-  const exVat = price / (1 + vat / 100);
-  const commission = (c.commissionBasis === 'gross' || c.profitMode === 'margin_on_gross') ? price * pct / 100 : exVat * pct / 100;
   return {
-    price,
-    purchase: round2(P),
-    fixedCosts: round2(fixedCosts),
-    cost: round2(cost),
-    commissionAmount: round2(commission),
-    profit: round2(exVat - cost - commission),
-    profitPct: P > 0 ? round2((exVat - cost - commission) / P * 100) : 0,
-    vatAmount: round2(price - exVat),
-    marginOnPricePct: price > 0 ? round2((exVat - cost - commission) / price * 100) : 0, // net profit as % of the sale price
+    ...profitBreakdown(r.price, num(purchasePrice), r.shippingCost, c),
     shippingCost: round2(r.shippingCost),
     shippingTier: r.shippingTier,            // 1-based row of the shipping table that was used (null = single amount)
     profitTier: r.profitTier,                // 1-based row of the profit table that was used (null = single value)
@@ -524,4 +568,4 @@ function summarizeCoverage(products, value, conds) {
   };
 }
 
-module.exports = { autoBandEdges, explainAtPrice, sellsAtLoss, MANUAL_RULE_NAME, PricingContext, loadPricingContext, computeTemplatePrice, resolveTemplate, validateTiers, MAX_TIERS, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };
+module.exports = { autoBandEdges, taxModel, explainAtPrice, sellsAtLoss, MANUAL_RULE_NAME, PricingContext, loadPricingContext, computeTemplatePrice, resolveTemplate, validateTiers, MAX_TIERS, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };

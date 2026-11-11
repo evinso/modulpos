@@ -23,7 +23,11 @@ cd client && npm run test:smoke                 # renders the products screen in
   Sale VAT comes from the product (chosen when the XML source is added), never from the pricing template.
   The template screen (`client/src/pages/pricing/`) is ONE screen with two template types: **Tek kâr** (one profit,
   percent of purchase or fixed TL) and **Kademeli kâr** (`profitTiers`, any number of rows by purchase price; `MAX_TIERS` = 1000 is only a safety ceiling). Costs are single values
-  (shipping, other, commission). Keep it that way: no VAT options and no marketplace names/tariffs in this screen.
+  (shipping, other, commission, service fee). Keep it that way: no marketplace names/tariffs in this screen.
+  Tax options (added 2026-11-12 on the owner's request, they are a VAT payer): **KDV mükellefiyim** (`inputVat`, purchase VAT `purchaseVatRate` default 20) and **stopaj** (`withholdingPct`, 1% of the
+  VAT-exclusive price). With them, profit = price - commission - service fee - other - shipping - purchase - stopaj - VAT payable, where VAT payable = VAT of the sale minus the VAT inside purchase,
+  shipping, commission, service fee and other costs (20%, `EXPENSE_VAT`). `profitBreakdown()` is the ONE place that turns a price into a profit and `priceWith()` its exact inverse; both go through
+  `taxModel()`. Without the options (every template saved before them) the earlier formulas run untouched, so changing a template's options changes its prices: it is the owner's decision per template.
   The engine can still evaluate older stored rules that use `shippingTiers` (+`shippingTiersExVat`) or `margin_on_gross`,
   but no screen creates them; editing such a rule warns and drops them on save.
   A sale price typed in by hand for one product on one marketplace lives in `ProductPriceOverride` and is applied INSIDE

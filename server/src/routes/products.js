@@ -337,6 +337,7 @@ function describePrice(pv, price) {
     commissionAmount: b ? b.commissionAmount : null,
     fixedCosts: b ? b.fixedCosts : null,
     vatAmount: b ? b.vatAmount : null,
+    breakdown: b || null,
     loss,
   };
 }

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import ProfitBreakdown from './ProfitBreakdown';
 import { TrendingUp, AlertTriangle } from 'lucide-react';
 
 const money = (n) => (Number(n) || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -118,16 +119,7 @@ export default function CoveragePanel({ summary, preview, previewError, samplePr
                 <button type="button" onClick={() => setShowCalc(!showCalc)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12, marginTop: 4, fontFamily: 'inherit' }}>
                   {showCalc ? '▾' : '▸'} Hesabı göster
                 </button>
-                {showCalc && [
-                  ['Satış fiyatı', `₺${money(preview.price)}`],
-                  [`KDV (%${previewVat})`, `−₺${money(preview.vatAmount)}`],
-                  ['Komisyon', `−₺${money(preview.commissionAmount)}`],
-                  ['Kargo ve diğer giderler', `−₺${money(preview.fixedCosts)}`],
-                  ['Alış fiyatı', `−₺${money(preview.purchase)}`],
-                  ['Elinize kalan', `₺${money(preview.profit)}`],
-                ].map(([k, v]) => (
-                  <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0' }}><span style={{ color: 'var(--text-secondary)' }}>{k}</span><span>{v}</span></div>
-                ))}
+                {showCalc && <div style={{ marginTop: 6 }}><ProfitBreakdown b={preview} vatRate={previewVat} fontSize={12} /></div>}
               </div>
             )}
           </div>

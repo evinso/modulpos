@@ -14,6 +14,7 @@ E2E_DB_URL="postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres" 
 * `feed-changes` – products that leave the XML get stock 0 and return with it, a broken/cut-off feed is never acted on, loss alert for hand-priced products after a purchase price rise, giving hand-typed prices back to the template (fixtures `feed-stock-*.xml` must be pushed first).
 * `already-listed` – products the marketplace says exist (“same barcode already exists”) are treated as listed: skipped by the send routes, healed to active by the status update.
 * `pricing-tiers` – shipping / profit tier tables in price templates: calculator, validation, storage, isolation, real product price.
+* `pricing-tax` – price template tax options (KDV mükellefiyim, stopaj, service fee): the owner's reference sale is reproduced to the cent, the earlier calculation is untouched without the options, products get the lower price and the tax breakdown.
 * `xml-scoped-mapping` – category mappings belong to one XML source and disappear with it; earnings summary of the price template.
 * `products-page` – the products screen API: summary, facets, filters, sorting, paging, per-marketplace pricing, detail panel, editing rules.
 * `orders-profit` – profit panel of the orders page: real vs estimated commission / shipping, cost snapshot and typed costs, cancelled orders left out, estimate settings, filters, isolation.

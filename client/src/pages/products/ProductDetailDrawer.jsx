@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Edit, Trash2, AlertTriangle, CheckCircle2, ArrowUp, ArrowDown, Sparkles, RefreshCw } from 'lucide-react';
 import api from '../../services/api';
+import ProfitBreakdown from '../pricing/ProfitBreakdown';
 import { Thumb, Pill, StockPill, StatusPill, Field, money, dateTime, MP_STATUS, ISSUE_LABELS } from './productsUi';
 
 const TABS = [
@@ -221,24 +222,7 @@ function PriceTab({ data }) {
                   Bu fiyatta zarar ediyorsunuz (alış fiyatı arttıysa elle girdiğiniz fiyat buna uymuyor olabilir). Fiyatı güncelleyin veya şablon fiyatına dönün.
                 </div>
               )}
-              {m.pricing.breakdown && (
-                <div>
-                  {[
-                    ['Satış fiyatı (KDV dahil)', `₺${money(m.pricing.salePrice)}`],
-                    [`KDV (%${m.pricing.vatRate})`, `−₺${money(m.pricing.breakdown.vatAmount)}`],
-                    ['Komisyon', `−₺${money(m.pricing.breakdown.commissionAmount)}`],
-                    ['Kargo ve diğer giderler', `−₺${money(m.pricing.breakdown.fixedCosts)}`],
-                    ['Alış fiyatı', `−₺${money(m.pricing.breakdown.purchase)}`],
-                  ].map(([k, v]) => (
-                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>{k}</span><span>{v}</span>
-                    </div>
-                  ))}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 14, borderTop: '1px solid var(--border-color)', marginTop: 6, paddingTop: 8 }}>
-                    <span>Elinize kalan</span><span style={{ color: earn(m.pricing.breakdown.profit) }}>₺{money(m.pricing.breakdown.profit)}</span>
-                  </div>
-                </div>
-              )}
+              {m.pricing.breakdown && <ProfitBreakdown b={m.pricing.breakdown} price={m.pricing.salePrice} vatRate={m.pricing.vatRate} />}
               {m.listing && m.listing.marketplacePrice != null && Math.abs(m.listing.marketplacePrice - m.pricing.salePrice) > 0.005 && (
                 <div style={{ marginTop: 10, fontSize: 12, color: 'var(--warning)', display: 'flex', gap: 6, alignItems: 'center' }}>
                   <AlertTriangle size={14} /> {m.name}’da şu an ₺{money(m.listing.marketplacePrice)} görünüyor; hesaplanan fiyatla farklı. Fiyatı güncellemek için “Trendyol fiyat/stok gönder” işlemini kullanın.

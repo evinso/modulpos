@@ -122,6 +122,8 @@ const post = async (url, body) => {
   if (/sync-price-stock$/.test(url)) return { data: { message: '1 ürün pazaryerlerinde güncellendi', count: 1 } };
   if (/send-products$/.test(url)) return { data: { message: '1 ürün Trendyol’a gönderildi', sent: 1 } };
   if (url === '/products/reset-manual-prices') return { data: { ok: true, removed: body.productIds ? body.productIds.length : 1, skippedNoTemplate: 0, productIds: body.productIds || ['p3'], activeProductIds: ['p1'] } };
+  if (url === '/pricing/calculate' && body.conditions && body.conditions.inputVat) return { data: { price: 586.9, purchase: 195, fixedCosts: 119.19, cost: 314.19, commissionAmount: 129.12, profit: 114.77, profitPct: 58.86, vatAmount: 97.82, marginOnPricePct: 19.56,
+    taxModel: true, inputVat: true, serviceFee: 13.19, otherCost: 0, withholding: 4.89, payableVat: 23.93, vatDetail: { sale: 97.82, purchase: 32.5, shipping: 17.67, commission: 21.52, serviceFee: 2.2, other: 0, total: 23.93 }, shippingCost: 106, shippingTier: null, profitTier: null, profitValue: null } };
   if (url === '/pricing/calculate') return { data: { price: 314, purchase: 100, fixedCosts: 84, cost: 184, commissionAmount: 47.1, profit: 30, profitPct: 30, vatAmount: 52.33, marginOnPricePct: 9.55, shippingTier: body.conditions.shippingTiers && body.conditions.shippingTiers.length ? 2 : null, shippingCost: 84, profitTier: null } };
   if (url === '/pricing/coverage') return { data: { total: 4098, covered: 4098, priced: 4098, unpriced: 0, losing: 2, totalProfit: 285400.5, avgProfit: 69.6, avgPrice: 250, avgPurchase: 100, minProfit: -3, maxProfit: 210, marginOnPricePct: 14.2,
     bands: [

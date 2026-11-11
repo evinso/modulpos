@@ -119,7 +119,13 @@ export default function PriceModal({ product, connection, onClose, onDone }) {
               <div>
                 <span style={{ color: earn(preview.profit), fontWeight: 700 }}>{preview.profit >= 0 ? 'Net kazanç' : 'Net zarar'}: {preview.profit < 0 ? '−' : ''}₺{money(Math.abs(preview.profit))}</span>
                 <span style={{ color: 'var(--text-muted)' }}> · satışın %{preview.marginOnPricePct}’i · alışın %{preview.profitPct}’i</span>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Komisyon ₺{money(preview.commissionAmount)} · KDV ₺{money(preview.vatAmount)} · kargo ve diğer ₺{money(preview.fixedCosts)} düşüldü</div>
+                {preview.breakdown && preview.breakdown.taxModel ? (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    Komisyon ₺{money(preview.commissionAmount)}{preview.breakdown.serviceFee > 0 ? ` · hizmet bedeli ₺${money(preview.breakdown.serviceFee)}` : ''}{preview.breakdown.withholding > 0 ? ` · stopaj ₺${money(preview.breakdown.withholding)}` : ''} · ödenecek KDV ₺{money(preview.breakdown.payableVat)} · kargo ve diğer ₺{money(preview.breakdown.shippingCost + (preview.breakdown.otherCost || 0))} düşüldü
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Komisyon ₺{money(preview.commissionAmount)} · KDV ₺{money(preview.vatAmount)} · kargo ve diğer ₺{money(preview.fixedCosts)} düşüldü</div>
+                )}
               </div>
             ) : (
               <span style={{ color: 'var(--text-muted)' }}>Bu ürüne uyan fiyat şablonu olmadığı için kazanç hesaplanamıyor.{preview.loss ? ' Bu fiyat alış fiyatının altında.' : ''}</span>

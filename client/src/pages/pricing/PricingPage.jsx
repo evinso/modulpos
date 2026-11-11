@@ -36,6 +36,10 @@ const EMPTY_FORM = {
   name: '', connectionId: '', xmlChoice: '',
   minPurchasePrice: '', maxPurchasePrice: '', // only kept when an existing template has them
   shippingCost: '', otherCost: '', commissionPct: '',
+  serviceFee: '',                 // marketplace service fee per order (TL, VAT-inclusive)
+  inputVat: true,                 // VAT payer: the VAT inside purchase / shipping / commission / fee comes off the VAT to pay
+  purchaseVatRate: '20',          // VAT % inside the purchase price
+  withholdingPct: '1',            // stopaj, % of the price without VAT
   mode: 'single',                 // 'single' | 'tiered'
   unit: 'percent_of_purchase',    // 'percent_of_purchase' | 'fixed'
   value: '',                      // single profit
@@ -79,6 +83,10 @@ function ruleToForm(r) {
     shippingCost: hasShippingTable ? '' : (c.shippingCost ?? ''),
     otherCost: c.packagingCost ?? '',
     commissionPct: c.commissionPct ?? '',
+    serviceFee: c.serviceFee ?? '',
+    inputVat: c.inputVat === true,
+    purchaseVatRate: c.purchaseVatRate ?? '20',
+    withholdingPct: c.withholdingPct ?? '',
     mode: profitRows.length > 0 ? 'tiered' : 'single',
     unit: mode0 === 'fixed' ? 'fixed' : 'percent_of_purchase',
     value: r.value ?? '',
@@ -107,6 +115,10 @@ function formToPayload(f) {
     packagingCost: num(f.otherCost) ?? 0,
     extraCost: keep.extraCost ?? 0,
     commissionPct: num(f.commissionPct) ?? 0,
+    serviceFee: num(f.serviceFee) ?? 0,
+    inputVat: !!f.inputVat,
+    purchaseVatRate: num(f.purchaseVatRate) ?? 20,
+    withholdingPct: num(f.withholdingPct) ?? 0,
     extraPct: keep.extraPct ?? 0,
     commissionBasis: 'gross', // commission on the sale price the customer pays, as marketplaces charge it
     vatRate: null,            // sale VAT comes from the product's XML source
@@ -387,16 +399,39 @@ export default function PricingPage() {
 
                   <div style={sectionTitle}>Maliyetlerim</div>
                   <div style={{ ...hintStyle, marginBottom: 8 }}>Her sipariş için ödediğiniz tutarları yazın. Satış fiyatı bunları ve kârınızı karşılayacak şekilde hesaplanır.</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-                    <div className="form-group"><label className="form-label">Kargo (₺)</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+                    <div className="form-group"><label className="form-label">Kargo (₺, KDV dahil)</label>
                       <input type="number" min="0" step="0.01" className="form-input" data-testid="cost-shipping" value={form.shippingCost} onChange={(e) => set({ shippingCost: e.target.value })} /></div>
-                    <div className="form-group"><label className="form-label">Diğer gider (₺)</label>
-                      <input type="number" min="0" step="0.01" className="form-input" data-testid="cost-other" value={form.otherCost} onChange={(e) => set({ otherCost: e.target.value })} />
-                      <small style={hintStyle}>paketleme, hizmet bedeli vb.</small></div>
                     <div className="form-group"><label className="form-label">Komisyon (%)</label>
                       <input type="number" min="0" max="90" step="0.01" className="form-input" data-testid="cost-commission" value={form.commissionPct} onChange={(e) => set({ commissionPct: e.target.value })} />
-                      <small style={hintStyle}>satış fiyatının %’si</small></div>
+                      <small style={hintStyle}>KDV dahil satış fiyatının %’si</small></div>
+                    <div className="form-group"><label className="form-label">Hizmet bedeli (₺, KDV dahil)</label>
+                      <input type="number" min="0" step="0.01" className="form-input" data-testid="cost-service" value={form.serviceFee} onChange={(e) => set({ serviceFee: e.target.value })} />
+                      <small style={hintStyle}>pazaryerinin sipariş başı sabit ücreti (ör. 13,19 ₺)</small></div>
+                    <div className="form-group"><label className="form-label">Diğer gider (₺)</label>
+                      <input type="number" min="0" step="0.01" className="form-input" data-testid="cost-other" value={form.otherCost} onChange={(e) => set({ otherCost: e.target.value })} />
+                      <small style={hintStyle}>paketleme vb.</small></div>
                   </div>
+
+                  <div style={sectionTitle}>Vergi</div>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, marginBottom: 8, cursor: 'pointer' }}>
+                    <input type="checkbox" data-testid="input-vat" checked={form.inputVat} onChange={(e) => set({ inputVat: e.target.checked })} style={{ marginTop: 3 }} />
+                    <span><strong>KDV mükellefiyim</strong>
+                      <span style={{ display: 'block', ...hintStyle }}>Açıkken alış, kargo, komisyon ve hizmet bedelindeki KDV, satıştan doğan KDV’den düşülür (“Ödenecek KDV”). Aynı kâr için satış fiyatı daha düşük çıkar. Kapalıyken bu KDV’ler gider sayılır.</span></span>
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+                    <div className="form-group"><label className="form-label">Alış fiyatındaki KDV (%)</label>
+                      <input type="number" min="0" max="30" step="1" className="form-input" data-testid="purchase-vat" disabled={!form.inputVat} value={form.purchaseVatRate} onChange={(e) => set({ purchaseVatRate: e.target.value })} />
+                      <small style={hintStyle}>Alış fiyatınız KDV dahilse; faturasız alışta 0 yazın</small></div>
+                    <div className="form-group"><label className="form-label">Stopaj (%)</label>
+                      <input type="number" min="0" max="10" step="0.01" className="form-input" data-testid="withholding" value={form.withholdingPct} onChange={(e) => set({ withholdingPct: e.target.value })} />
+                      <small style={hintStyle}>KDV hariç satış fiyatı üzerinden (e-ticaret stopajı %1)</small></div>
+                  </div>
+                  {editingId && !form.inputVat && !(num(form.withholdingPct) > 0) && (
+                    <div data-testid="old-calc-note" style={{ ...hintStyle, color: 'var(--warning)', marginBottom: 6 }}>
+                      Bu şablon eski hesapla çalışıyor (gider KDV’si düşülmüyor, stopaj yok). “KDV mükellefiyim”i açarsanız aynı kâr için satış fiyatları düşer; sağdaki tablo yeni halini gösterir.
+                    </div>
+                  )}
 
                   <div style={sectionTitle}>Kârım</div>
                   <div style={{ ...hintStyle, marginBottom: 8 }}>Kâr, tüm giderler düşüldükten sonra elinize kalan net tutardır.</div>
