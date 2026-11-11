@@ -58,7 +58,7 @@ function scopeSize(c) {
 // be able to stall the server. Far beyond any real use; the screen itself has no row limit below this.
 const MAX_TIERS = 1000;
 const CARRIER_VAT = 0.2; // VAT on carrier invoices
-const EXPENSE_VAT = 0.2; // VAT on commission, carrier, marketplace-service and other cost invoices
+const { EXPENSE_VAT } = require('./taxMath'); // VAT on commission, carrier, marketplace-service and other cost invoices (shared with orderProfit)
 
 /**
  * Tax side of the profit model. `active` only with the gross commission basis and at least one of the two options on;

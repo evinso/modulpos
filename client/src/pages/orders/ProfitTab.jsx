@@ -39,13 +39,14 @@ function CostEditor({ line, onSaved }) {
       <button className="btn btn-primary btn-sm" disabled={saving || !(Number(value) > 0)} onClick={() => save(false)}>Kaydet</button>
       {line.costSource === 'manual' && <button className="btn btn-secondary btn-sm" disabled={saving} onClick={() => save(true)}>Kaldır</button>}
       <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-        {line.unitCost ? SOURCE_LABEL[line.costSource] || '' : 'Bu ürün maliyet listenizde bulunamadı; bu barkoddaki tüm siparişlere uygulanır'}
+        {line.unitCost ? SOURCE_LABEL[line.costSource] || '' : 'Bu ürün maliyet listenizde bulunamadı; KDV dahil birim alış fiyatını girin, bu barkoddaki tüm siparişlere uygulanır'}
       </span>
     </div>
   );
 }
 
-function Breakdown({ row, onSaved }) {
+function Breakdown({ row, settings, onSaved }) {
+  const [showVat, setShowVat] = useState(false);
   const line = (label, value, hint, bold) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24, padding: '3px 0', fontWeight: bold ? 700 : 400, borderTop: bold ? '1px solid var(--border-color)' : undefined, marginTop: bold ? 4 : 0 }}>
       <span style={{ color: bold ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{label}{hint && <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 6 }}>{hint}</span>}</span>
@@ -57,13 +58,33 @@ function Breakdown({ row, onSaved }) {
       <div>
         <div style={{ fontWeight: 700, marginBottom: 6 }}>Kâr hesabı</div>
         {line('İndirimli satış (KDV dahil)', tl(row.discounted), row.sellerDiscount ? `liste ${tl(row.gross)} − satıcı indirimi ${tl(row.sellerDiscount)}` : '')}
-        {line('Satış KDV\'si', `− ${tl(row.vat)}`)}
+        {!row.taxModel && line('Satış KDV\'si', `− ${tl(row.vat)}`)}
         {line('Komisyon', `− ${tl(row.commission)}`, row.commissionSource === 'trendyol' ? 'Trendyol\'dan' : `tahmini (%${row.commissionRate})`)}
         {line('Platform hizmet bedeli', `− ${tl(row.serviceFee)}`, 'tahmini (ayarlardan)')}
         {row.supplierFee > 0 && line('Tedarikçi hizmet bedeli', `− ${tl(row.supplierFee)}`, 'XML kaynağı ayarı, ürün başına')}
+        {row.taxModel && line('Stopaj', `− ${tl(row.stopaj)}`, `KDV hariç satışın %${settings ? settings.withholdingPct : ''}'i`)}
+        {row.taxModel && line('Ödenecek KDV', row.payableVat === null ? '—' : row.payableVat >= 0 ? `− ${tl(row.payableVat)}` : `+ ${tl(-row.payableVat)}`, row.payableVat !== null && row.payableVat < 0 ? 'giderlerin KDV\'si satış KDV\'sinden fazla (KDV alacağı)' : '')}
         {line('Kargo', row.cargo === null ? '—' : `− ${tl(row.cargo)}`, row.cargoSource === 'trendyol' ? 'Trendyol faturasından' : row.cargoSource === 'estimate' ? 'tahmini' : 'bilinmiyor')}
         {line('Alış maliyeti', row.cost === null ? '—' : `− ${tl(row.cost)}`)}
         {line('Net kâr', row.profit === null ? 'hesaplanamadı' : tl(row.profit), row.profitPct !== null ? `net satışın %${row.profitPct}'i` : '', true)}
+        {row.taxModel && row.vatDetail && (
+          <div style={{ marginTop: 8 }}>
+            <button type="button" data-testid="vat-toggle" onClick={() => setShowVat(!showVat)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12, fontFamily: 'inherit' }}>
+              {showVat ? '▾' : '▸'} KDV dökümü
+            </button>
+            {showVat && (
+              <div data-testid="vat-detail" style={{ marginTop: 4 }}>
+                {line('Satıştan oluşan KDV', tl(row.vatDetail.sale))}
+                {line('Alıştan oluşan KDV', tl(row.vatDetail.purchase))}
+                {line('Kargodan oluşan KDV', tl(row.vatDetail.cargo))}
+                {line('Komisyondan oluşan KDV', tl(row.vatDetail.commission))}
+                {line('Hizmet bedelinden oluşan KDV', tl(row.vatDetail.serviceFee))}
+                {line('Ödenecek KDV', tl(row.vatDetail.total), '', true)}
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Ödenecek KDV’den, giderlerinizden oluşan KDV düşülür. Tedarikçi hizmet bedelinde KDV düşülmez.</div>
+              </div>
+            )}
+          </div>
+        )}
         {row.tyDiscount > 0 && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>Trendyol'un karşıladığı indirim ({tl(row.tyDiscount)}) size ödenir; müşteri {tl(row.customerPaid)} ödedi.</div>}
         {row.mismatch && <div style={{ fontSize: 11, color: 'var(--warning)', marginTop: 6 }}>Satır toplamı siparişin tutarıyla uyuşmuyor; kargo/ek ücret farkı olabilir.</div>}
       </div>
@@ -92,7 +113,7 @@ export default function ProfitTab() {
   const [open, setOpen] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [form, setForm] = useState({ serviceFee: '', cargoEstimate: '' });
+  const [form, setForm] = useState({ serviceFee: '', cargoEstimate: '', inputVat: true, purchaseVatRate: '20', withholdingPct: '1' });
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => { const t = setTimeout(() => setDebouncedQ(q), 350); return () => clearTimeout(t); }, [q]);
@@ -111,12 +132,12 @@ export default function ProfitTab() {
   }, [range, status, debouncedQ, page, reloadKey]);
 
   const openSettings = () => {
-    if (data) setForm({ serviceFee: String(data.settings.serviceFee), cargoEstimate: data.settings.cargoEstimateSaved === null ? '' : String(data.settings.cargoEstimateSaved) });
+    if (data) setForm({ serviceFee: String(data.settings.serviceFee), cargoEstimate: data.settings.cargoEstimateSaved === null ? '' : String(data.settings.cargoEstimateSaved), inputVat: data.settings.inputVat !== false, purchaseVatRate: String(data.settings.purchaseVatRate ?? 20), withholdingPct: String(data.settings.withholdingPct ?? 1) });
     setShowSettings((v) => !v);
   };
   const saveSettings = async () => {
     try {
-      await api.put('/orders/profit/settings', { serviceFee: form.serviceFee, cargoEstimate: form.cargoEstimate === '' ? null : form.cargoEstimate });
+      await api.put('/orders/profit/settings', { serviceFee: form.serviceFee, cargoEstimate: form.cargoEstimate === '' ? null : form.cargoEstimate, inputVat: !!form.inputVat, purchaseVatRate: form.purchaseVatRate === '' ? 0 : form.purchaseVatRate, withholdingPct: form.withholdingPct === '' ? 0 : form.withholdingPct });
       toast.success('Ayarlar kaydedildi'); setShowSettings(false); load();
     } catch (err) { toast.error(err.response?.data?.error || 'Kaydedilemedi'); }
   };
@@ -132,6 +153,7 @@ export default function ProfitTab() {
   if (loading && !data) return <div className="loading-spinner"><div className="spinner"></div></div>;
   const s = data?.summary; const rows = data?.rows || []; const pg = data?.pagination;
   const showSupplier = !!(s && s.supplierFee > 0) || rows.some((r) => r.supplierFee > 0);
+  const showTax = rows.some((r) => r.taxModel);
 
   return (
     <div>
@@ -164,8 +186,25 @@ export default function ProfitTab() {
             <input type="number" min="0" step="0.01" className="form-input" style={{ width: 150 }} aria-label="Tahmini kargo" placeholder={data.settings.cargoAverage === null ? 'bilinmiyor' : String(data.settings.cargoAverage)} value={form.cargoEstimate} onChange={(e) => setForm((f) => ({ ...f, cargoEstimate: e.target.value }))} />
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{data.settings.cargoAverage === null ? 'Henüz kargo faturası okunmadı' : `Boş bırakırsanız faturalardan okunan ortalama kullanılır: ${tl(data.settings.cargoAverage)}`}</div>
           </div>
+          <div style={{ flexBasis: '100%', height: 0 }} />
+          <div style={{ maxWidth: 340 }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" aria-label="KDV mükellefiyim" checked={form.inputVat} onChange={(e) => setForm((f) => ({ ...f, inputVat: e.target.checked }))} style={{ marginTop: 3 }} />
+              <span><strong>KDV mükellefiyim</strong><span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>Alış, kargo, komisyon ve hizmet bedelindeki KDV, satıştan doğan KDV’den düşülür (Ödenecek KDV).</span></span>
+            </label>
+          </div>
+          <div>
+            <label className="form-label">Alış maliyetindeki KDV (%)</label>
+            <input type="number" min="0" max="30" step="1" className="form-input" style={{ width: 120 }} aria-label="Alış maliyetindeki KDV" disabled={!form.inputVat} value={form.purchaseVatRate} onChange={(e) => setForm((f) => ({ ...f, purchaseVatRate: e.target.value }))} />
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Alış maliyetleri KDV dahil kabul edilir</div>
+          </div>
+          <div>
+            <label className="form-label">Stopaj (%)</label>
+            <input type="number" min="0" max="10" step="0.01" className="form-input" style={{ width: 120 }} aria-label="Stopaj" value={form.withholdingPct} onChange={(e) => setForm((f) => ({ ...f, withholdingPct: e.target.value }))} />
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>KDV hariç satış üzerinden</div>
+          </div>
           <button className="btn btn-primary" onClick={saveSettings}>Kaydet</button>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 380 }}>Bu iki tutar yalnızca Trendyol'dan henüz kesinleşmemiş siparişlerde kullanılır. Komisyon ve kargo kesinleşince gerçek tutar gösterilir.</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 380 }}>Hizmet bedeli ve tahmini kargo yalnızca Trendyol'dan henüz kesinleşmemiş siparişlerde kullanılır. Komisyon ve kargo kesinleşince gerçek tutar gösterilir.</div>
         </div>
       )}
 
@@ -176,6 +215,8 @@ export default function ProfitTab() {
           <Card label="Komisyon" value={tl(s.commission)} />
           <Card label="Hizmet bedeli" value={tl(s.serviceFee)} sub="Trendyol platform" />
           {s.supplierFee > 0 && <Card label="Tedarikçi hizmeti" value={tl(s.supplierFee)} sub="XML kaynağı, ürün başına" />}
+          {s.taxModel && <Card label="Stopaj" value={tl(s.stopaj)} sub={`KDV hariç satışın %${data.settings.withholdingPct}'i`} />}
+          {s.taxModel && <Card label="Ödenecek KDV" value={tl(s.payableVat)} sub={s.unknownProfit ? `${s.profitOrders} siparişin toplamı` : 'giderlerin KDV’si düşülmüş'} />}
           <Card label="Kargo" value={tl(s.cargo)} />
           <Card label="Alış maliyeti" value={tl(s.cost)} />
           <Card label="Net kâr" value={tl(s.profit)} color={s.profit >= 0 ? 'var(--success)' : 'var(--danger)'} sub={s.unknownProfit ? `${s.profitOrders} siparişin toplamı` : undefined} />
@@ -200,7 +241,7 @@ export default function ProfitTab() {
               <tr>
                 <th>Tarih</th><th>Sipariş</th><th>Ürün</th>
                 <th style={{ textAlign: 'right' }}>Satış fiyatı</th><th style={{ textAlign: 'right' }}>İndirimli satış</th><th style={{ textAlign: 'right' }}>Müşteri ödedi</th>
-                <th style={{ textAlign: 'right' }}>Komisyon</th><th style={{ textAlign: 'right' }}>Hizmet bedeli</th>{showSupplier && <th style={{ textAlign: 'right' }}>Tedarikçi hizmeti</th>}<th style={{ textAlign: 'right' }}>Kargo</th>
+                <th style={{ textAlign: 'right' }}>Komisyon</th><th style={{ textAlign: 'right' }}>Hizmet bedeli</th>{showSupplier && <th style={{ textAlign: 'right' }}>Tedarikçi hizmeti</th>}{showTax && <th style={{ textAlign: 'right' }}>Stopaj</th>}{showTax && <th style={{ textAlign: 'right' }}>Ödenecek KDV</th>}<th style={{ textAlign: 'right' }}>Kargo</th>
                 <th style={{ textAlign: 'right' }}>Alış maliyeti</th><th style={{ textAlign: 'right' }}>Net kâr</th><th></th>
               </tr>
             </thead>
@@ -222,6 +263,8 @@ export default function ProfitTab() {
                   <td style={{ textAlign: 'right', fontSize: 13, color: r.commissionSource === 'trendyol' ? undefined : 'var(--text-secondary)' }}>{approx(r.commission, r.commissionSource)}</td>
                   <td style={{ textAlign: 'right', fontSize: 13, color: 'var(--text-secondary)' }}>{approx(r.serviceFee, r.serviceFeeSource)}</td>
                   {showSupplier && <td style={{ textAlign: 'right', fontSize: 13 }}>{r.supplierFee > 0 ? tl(r.supplierFee) : '—'}</td>}
+                  {showTax && <td style={{ textAlign: 'right', fontSize: 13, color: 'var(--text-secondary)' }}>{r.taxModel ? tl(r.stopaj) : '—'}</td>}
+                  {showTax && <td style={{ textAlign: 'right', fontSize: 13, color: 'var(--text-secondary)' }}>{r.payableVat === null || r.payableVat === undefined ? '—' : tl(r.payableVat)}</td>}
                   <td style={{ textAlign: 'right', fontSize: 13, color: r.cargoSource === 'trendyol' ? undefined : 'var(--text-secondary)' }}>{approx(r.cargo, r.cargoSource)}</td>
                   <td style={{ textAlign: 'right', fontSize: 13 }}>{r.costMissing ? <span style={{ color: 'var(--warning)' }}>maliyet gir</span> : tl(r.cost)}</td>
                   <td style={{ textAlign: 'right', fontSize: 13, fontWeight: 700, color: r.profit === null ? 'var(--text-muted)' : r.profit >= 0 ? 'var(--success)' : 'var(--danger)' }}>
@@ -230,7 +273,7 @@ export default function ProfitTab() {
                   <td>{open === r.id ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</td>
                 </tr>,
                 open === r.id && (
-                  <tr key={r.id + '-d'} data-testid="profit-detail"><td colSpan={showSupplier ? 13 : 12} style={{ background: 'var(--bg-secondary)' }}><Breakdown row={r} onSaved={load} /></td></tr>
+                  <tr key={r.id + '-d'} data-testid="profit-detail"><td colSpan={12 + (showSupplier ? 1 : 0) + (showTax ? 2 : 0)} style={{ background: 'var(--bg-secondary)' }}><Breakdown row={r} settings={data.settings} onSaved={load} /></td></tr>
                 ),
               ])}
             </tbody>
@@ -245,7 +288,11 @@ export default function ProfitTab() {
         )}
       </div>
       <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.6 }}>
-        Net kâr, fiyat şablonundaki kâr hesabıyla aynı yöntemle bulunur: KDV hariç satış − komisyon − hizmet bedeli − kargo − alış maliyeti. Komisyon, hizmet bedeli ve kargo faturadaki (KDV dahil) tutarlarıyla düşülür. İptal ve iade siparişler toplamlara katılmaz.
+        Net kâr, fiyat şablonundaki kâr hesabıyla aynı yöntemle bulunur.{' '}
+        {data?.settings?.inputVat !== false && data?.settings?.inputVat !== undefined
+          ? 'İndirimli satış − komisyon − hizmet bedeli − kargo − alış maliyeti − stopaj − ödenecek KDV; ödenecek KDV, satıştan doğan KDV’den giderlerinizdeki KDV’nin düşülmesiyle bulunur. Tutarlar faturadaki (KDV dahil) halleriyle alınır.'
+          : 'KDV hariç satış − komisyon − hizmet bedeli − kargo − alış maliyeti − stopaj. Gider KDV’si düşülmüyor (“Tahmin ayarları”ndan “KDV mükellefiyim” ile açılır).'}{' '}
+        İptal ve iade siparişler toplamlara katılmaz.
       </div>
     </div>
   );

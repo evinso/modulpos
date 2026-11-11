@@ -155,3 +155,82 @@ test('a saved fee snapshot wins over the source\'s current fee, also when it say
   assert.equal(feeMapFor(lines, { snapshot: {}, products, feeBySource }).size, 0);                  // arrived when there was no fee
   assert.deepEqual(feeMapFor(lines, { snapshot: null, products, feeBySource }).get('x1'), { unit: 45, source: 'source' });   // no snapshot: current fee
 });
+
+// ---- tax model: recoverable VAT on costs + stopaj (same model as the price template) ----
+const { taxOptions } = require('../../src/services/orderProfit');
+const TAX = { serviceFee: 13.19, cargoEstimate: null, inputVat: true, purchaseVatRate: 20, withholdingPct: 1 };
+const refOrder = () => ({ status: 'delivered', totalAmount: 586.9, items: JSON.stringify([{ quantity: 1, barcode: 'ref', lineGrossAmount: 586.9, lineSellerDiscount: 0, lineTyDiscount: 0, vatRate: 20, commission: 22 }]) });
+
+test('the owner\'s reference sale: every figure of the profit screen, to the cent (586,90 -> net 114,77)', () => {
+  const r = computeOrderProfit(refOrder(), { finance: { commissionAmount: 129.12, cargoAmount: 106 }, costs: new Map([['ref', { unit: 195, source: 'manual' }]]), settings: TAX });
+  assert.equal(r.commission, 129.12); assert.equal(r.serviceFee, 13.19); assert.equal(r.cargo, 106); assert.equal(r.cost, 195);
+  assert.equal(r.stopaj, 4.89);
+  assert.equal(r.payableVat, 23.93);
+  assert.deepEqual(r.vatDetail, { sale: 97.82, purchase: 32.5, cargo: 17.67, commission: 21.52, serviceFee: 2.2, total: 23.93 });
+  assert.equal(r.profit, 114.77);
+  assert.equal(r.taxModel, true);
+  assert.equal(Math.round((586.9 - 129.12 - 13.19 - 4.89 - 23.93 - 106 - 195) * 100) / 100, r.profit, 'the list adds up');
+});
+
+test('without the tax options the earlier method is unchanged (profit 45.77 for the same sale)', () => {
+  const r = computeOrderProfit(refOrder(), { finance: { commissionAmount: 129.12, cargoAmount: 106 }, costs: new Map([['ref', { unit: 195, source: 'manual' }]]), settings: { serviceFee: 13.19, cargoEstimate: null } });
+  assert.equal(r.profit, 45.77);
+  assert.equal(r.taxModel, false); assert.equal(r.stopaj, null); assert.equal(r.payableVat, null); assert.equal(r.vatDetail, null);
+});
+
+test('a non-VAT-payer: no VAT comes back (the VAT of the sale is paid in full), stopaj still applies', () => {
+  const r = computeOrderProfit(refOrder(), { finance: { commissionAmount: 129.12, cargoAmount: 106 }, costs: new Map([['ref', { unit: 195, source: 'manual' }]]), settings: { ...TAX, inputVat: false } });
+  assert.equal(r.payableVat, 97.82);
+  assert.equal(r.stopaj, 4.89);
+  assert.equal(r.profit, 40.88);                 // 45.77 (earlier method) - 4.89 stopaj
+});
+
+test('a purchase without VAT credit (rate 0) only loses the purchase part of the credit', () => {
+  const r = computeOrderProfit(refOrder(), { finance: { commissionAmount: 129.12, cargoAmount: 106 }, costs: new Map([['ref', { unit: 195, source: 'manual' }]]), settings: { ...TAX, purchaseVatRate: 0 } });
+  assert.equal(r.vatDetail.purchase, 0);
+  assert.equal(r.profit, 82.27);                 // 114.77 - 32.50
+});
+
+test('the supplier\'s service fee gets no VAT credit', () => {
+  const fees = new Map([['ref', { unit: 30, source: 'xml' }]]);
+  const a = computeOrderProfit(refOrder(), { finance: { commissionAmount: 129.12, cargoAmount: 106 }, costs: new Map([['ref', { unit: 195, source: 'manual' }]]), fees, settings: TAX });
+  assert.equal(a.supplierFee, 30);
+  assert.equal(a.profit, 84.77);                 // 114.77 - 30, the VAT to pay is unchanged
+  assert.equal(a.payableVat, 23.93);
+});
+
+test('mixed VAT rates: VAT of each line and stopaj on the VAT-exclusive revenue', () => {
+  const items = JSON.stringify([
+    { quantity: 1, barcode: 'a', lineGrossAmount: 120, vatRate: 20, commission: 10 },
+    { quantity: 1, barcode: 'b', lineGrossAmount: 110, vatRate: 10, commission: 10 },
+  ]);
+  const r = computeOrderProfit({ status: 'delivered', totalAmount: 230, items }, { finance: { commissionAmount: 23, cargoAmount: 60 }, costs: new Map([['a', { unit: 40, source: 'manual' }], ['b', { unit: 30, source: 'manual' }]]), settings: { serviceFee: 0, inputVat: true, purchaseVatRate: 20, withholdingPct: 1 } });
+  assert.equal(r.netRevenue, 200);               // 100 + 100
+  assert.equal(r.vat, 30);                       // 20 + 10
+  assert.equal(r.stopaj, 2);
+  // input VAT: purchase 70 * 1/6 = 11.67, cargo 60 / 6 = 10, commission 23 / 6 = 3.83 -> to pay 30 - 25.5 = 4.5
+  assert.equal(r.vatDetail.purchase, 11.67); assert.equal(r.vatDetail.cargo, 10); assert.equal(r.vatDetail.commission, 3.83);
+  assert.equal(r.payableVat, 4.5);
+  assert.equal(r.profit, 230 - 23 - 60 - 70 - 2 - 4.5);
+});
+
+test('unknown cost or shipping: stopaj is known, VAT to pay and profit are not invented', () => {
+  const r = computeOrderProfit(refOrder(), { finance: { commissionAmount: 129.12 }, costs: new Map(), settings: TAX });
+  assert.equal(r.profit, null); assert.equal(r.payableVat, null); assert.equal(r.vatDetail, null);
+  assert.equal(r.stopaj, 4.89);
+});
+
+test('summary adds stopaj over all orders and VAT to pay over the orders whose profit is known', () => {
+  const ok = computeOrderProfit(refOrder(), { finance: { commissionAmount: 129.12, cargoAmount: 106 }, costs: new Map([['ref', { unit: 195, source: 'manual' }]]), settings: TAX });
+  const unknown = computeOrderProfit(refOrder(), { finance: { commissionAmount: 129.12 }, costs: new Map(), settings: TAX });
+  const s = summarize([ok, unknown]);
+  assert.equal(s.stopaj, 9.78); assert.equal(s.payableVat, 23.93); assert.equal(s.profit, 114.77); assert.equal(s.taxModel, true);
+});
+
+test('taxOptions: off unless set; the purchase VAT defaults to 20', () => {
+  assert.equal(taxOptions(undefined).active, false);
+  assert.equal(taxOptions({ serviceFee: 13.19 }).active, false);
+  assert.equal(taxOptions({ withholdingPct: 1 }).active, true);
+  const t = taxOptions({ inputVat: true });
+  assert.ok(Math.abs(t.kp - 1 / 6) < 1e-12 && Math.abs(t.ki - 1 / 6) < 1e-12);
+});

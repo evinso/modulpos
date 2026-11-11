@@ -29,6 +29,11 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     await c.query(`insert into app."OrderFinance"(id,"orderId","commissionAmount","commissionRate","cargoAmount") values(gen_random_uuid(),$1,42,21,103.49)`, [o1]);
 
     const get = async (qs = '') => (await a('GET', '/orders/profit' + qs));
+    // a store that never saved anything gets the tax options ON (VAT payer, 20% VAT in purchases, 1% stopaj); the older checks below run with them OFF
+    const first = await get();
+    ok('by default the profit uses the tax options (KDV mükellefiyim, 20% purchase VAT, 1% stopaj)', first.d.settings.inputVat === true && first.d.settings.purchaseVatRate === 20 && first.d.settings.withholdingPct === 1 && first.d.rows.every((x) => x.taxModel === true), JSON.stringify(first.d.settings));
+    ok('the other store gets the same defaults', (await b('GET', '/orders/profit')).d.settings.inputVat === true);
+    ok('the older method is still available (options switched off)', (await a('PUT', '/orders/profit/settings', { inputVat: false, withholdingPct: 0 })).d.settings.inputVat === false);
     let r = await get();
     ok('the panel answers with rows, a summary and the estimate settings', r.s === 200 && r.d.rows.length === 3 && r.d.summary && r.d.settings, JSON.stringify(r.d && r.d.summary));
     const row = (res, num) => res.d.rows.find((x) => x.marketplaceOrderId === 'E2E' + num);
@@ -103,6 +108,19 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     // refresh with fake keys must fail politely, never throw a 500
     const ref = await a('POST', '/orders/profit/refresh');
     ok('refresh with unusable keys answers 200 with a message', ref.s === 200 && typeof ref.d.message === 'string', JSON.stringify(ref.d).slice(0, 200));
+
+    // tax options: the owner's model (VAT payer: VAT inside costs comes back; stopaj on the VAT-exclusive revenue)
+    ok('bad tax options are rejected', (await a('PUT', '/orders/profit/settings', { inputVat: 'yes' })).s === 400 && (await a('PUT', '/orders/profit/settings', { withholdingPct: 50 })).s === 400 && (await a('PUT', '/orders/profit/settings', { purchaseVatRate: -1 })).s === 400);
+    const on = await a('PUT', '/orders/profit/settings', { serviceFee: 13.19, cargoEstimate: null, inputVat: true, purchaseVatRate: 20, withholdingPct: 1 });
+    ok('tax options saved', on.s === 200 && on.d.settings.inputVat === true && on.d.settings.withholdingPct === 1);
+    ok('saving only the estimates leaves the tax options as they were', (await a('PUT', '/orders/profit/settings', { serviceFee: 13.19, cargoEstimate: null })).d.settings.withholdingPct === 1);
+    r = await get();
+    const t1 = row(r, 1);
+    // order 1: sale 200 (VAT 33.33), commission 42, fee 13.19, cargo 103.49, cost 100: VAT inside = 16.67 + 17.25 + 7.00 + 2.20 -> to pay -9.79 (a credit); stopaj 1.67
+    ok('order 1 with the tax model: stopaj 1.67, VAT to pay -9.79, net profit -50.56', t1.taxModel === true && near(t1.stopaj, 1.67) && near(t1.payableVat, -9.79) && near(t1.profit, -50.56), JSON.stringify([t1.stopaj, t1.payableVat, t1.profit]));
+    ok('with the VAT breakdown', t1.vatDetail && near(t1.vatDetail.sale, 33.33) && near(t1.vatDetail.purchase, 16.67) && near(t1.vatDetail.cargo, 17.25) && near(t1.vatDetail.commission, 7) && near(t1.vatDetail.serviceFee, 2.2));
+    ok('order 2 (no cost yet): stopaj is known, VAT to pay and profit are not invented', row(r, 2).stopaj > 0 && row(r, 2).payableVat === null && row(r, 2).profit === null);
+    ok('the summary carries stopaj and the VAT to pay (orders 1 and 4 have a known profit, -9.79 each)', r.d.summary.taxModel === true && r.d.summary.stopaj > 0 && near(r.d.summary.payableVat, -19.58), JSON.stringify([r.d.summary.stopaj, r.d.summary.payableVat]));
 
     ok('not logged in -> 401', (await fetch(API + '/orders/profit')).status === 401);
   } catch (e) { console.log('FAIL  unexpected error', e.message); fails++; }

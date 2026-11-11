@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import OrdersPage from '../../src/pages/orders/OrdersPage.jsx';
 import { tl, approx } from '../../src/pages/orders/profitFormat.js';
-import { calls } from './apiStub.cjs';
+import { calls, profitTax } from './apiStub.cjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const wait = (ms = 30) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
@@ -61,6 +61,35 @@ ok('they can be saved', !!ps && String(ps.body.serviceFee) === '14.5' && ps.body
 calls.length = 0;
 await click(btn('kesin verileri al'), 150);
 ok('"get the real figures from Trendyol" calls the refresh endpoint', calls.some((c) => c.m === 'POST' && c.url === '/orders/profit/refresh'));
+
+// ── the tax model (VAT payer: the VAT inside costs comes back, stopaj): the owner's layout ──
+ok('earlier method: no stopaj / VAT-to-pay columns', !text().includes('Ödenecek KDV'));
+profitTax.on = true;
+await click(btn('kesin verileri al'), 200);
+const head = document.querySelector('thead').textContent;
+ok('the table gets Stopaj and Ödenecek KDV columns', head.includes('Stopaj') && head.includes('Ödenecek KDV'));
+const rr = () => [...document.querySelectorAll('[data-testid="profit-row"]')];
+ok('order 1 shows stopaj 1,67 and VAT to pay (a credit here, -3,12)', rr()[0].textContent.includes('1,67 ₺') && rr()[0].textContent.includes('-3,12 ₺'), rr()[0].textContent);
+ok('an order without a purchase cost shows no VAT to pay (nothing invented)', !rr()[1].textContent.includes('-3,12') && rr()[1].textContent.includes('maliyet gir'));
+ok('summary cards: stopaj and VAT to pay', text().includes('Stopaj') && text().includes('10,69 ₺') && text().includes('Ödenecek KDV') && text().includes('-6,24 ₺'));
+await click(rr()[0]);
+const det = () => document.querySelector('[data-testid="profit-detail"]');
+const dl = det() && det().textContent;
+ok('the detail lists commission, fee, supplier fee, stopaj, VAT to pay, shipping, purchase and net profit', !!dl && ['Komisyon', 'Platform hizmet bedeli', 'Tedarikçi hizmet bedeli', 'Stopaj', 'Ödenecek KDV', 'Kargo', 'Alış maliyeti', 'Net kâr'].every((t) => dl.includes(t)), dl && dl.slice(0, 200));
+ok('the separate "Satış KDV\'si" line is gone (it is inside the VAT to pay)', !dl.includes('Satış KDV'));
+ok('a negative VAT to pay is shown as a credit', dl.includes('+ 3,12 ₺') && dl.includes('KDV alacağı'));
+await click(det().querySelector('[data-testid="vat-toggle"]'), 40);
+const vd2 = det().querySelector('[data-testid="vat-detail"]');
+ok('the VAT breakdown names every source', !!vd2 && ['Satıştan oluşan KDV', 'Alıştan oluşan KDV', 'Kargodan oluşan KDV', 'Komisyondan oluşan KDV', 'Hizmet bedelinden oluşan KDV', 'giderlerinizden oluşan KDV düşülür'].every((t) => vd2.textContent.includes(t)));
+await click(btn('Tahmin ayarları'));
+const iv = document.querySelector('input[aria-label="KDV mükellefiyim"]');
+ok('settings: VAT payer is on, purchase VAT 20, stopaj 1', !!iv && iv.checked === true && document.querySelector('input[aria-label="Alış maliyetindeki KDV"]').value === '20' && document.querySelector('input[aria-label="Stopaj"]').value === '1');
+calls.length = 0;
+await setVal(document.querySelector('input[aria-label="Stopaj"]'), '2');
+await click([...document.querySelectorAll('button')].find((b) => b.textContent === 'Kaydet'), 120);
+const ps2 = calls.find((c) => c.m === 'PUT' && c.url === '/orders/profit/settings');
+ok('saving sends the tax options too', !!ps2 && ps2.body.inputVat === true && String(ps2.body.withholdingPct) === '2' && String(ps2.body.purchaseVatRate) === '20', JSON.stringify(ps2 && ps2.body));
+profitTax.on = false;
 
 console.error = () => {};
 const real = errors.filter((e) => !/not wrapped in act|Warning: An update|ReactDOMTestUtils|act\(/.test(e));

@@ -34,6 +34,8 @@ router.get('/', async (req, res, next) => {
 // ── Profit panel (Trendyol sales: price, discount, what the customer paid, commission, fees, shipping, our cost, profit) ──
 
 const DEFAULT_SERVICE_FEE = 13.19;   // Trendyol's "Platform Hizmet Bedeli" per shipment, as invoiced to this store (KDV dahil)
+// Tax options of the profit (same model as the price template): the owner is a VAT payer, so the VAT inside costs is deducted, and stopaj is charged
+const DEFAULT_TAX = { inputVat: true, purchaseVatRate: 20, withholdingPct: 1 };
 const settingsKey = (storeId) => `order_profit:${storeId}`;
 
 async function loadProfitSettings(storeId) {
@@ -44,7 +46,10 @@ async function loadProfitSettings(storeId) {
   const cargoAverage = agg._count.cargoAmount > 0 ? Math.round(agg._avg.cargoAmount * 100) / 100 : null;
   const serviceFee = Number.isFinite(Number(saved.serviceFee)) && saved.serviceFee !== null ? Number(saved.serviceFee) : DEFAULT_SERVICE_FEE;
   const cargoSaved = saved.cargoEstimate !== null && saved.cargoEstimate !== undefined && Number.isFinite(Number(saved.cargoEstimate)) ? Number(saved.cargoEstimate) : null;
-  return { serviceFee, cargoEstimate: cargoSaved !== null ? cargoSaved : cargoAverage, cargoEstimateSaved: cargoSaved, cargoAverage, serviceFeeDefault: DEFAULT_SERVICE_FEE };
+  const inputVat = typeof saved.inputVat === 'boolean' ? saved.inputVat : DEFAULT_TAX.inputVat;
+  const purchaseVatRate = Number.isFinite(Number(saved.purchaseVatRate)) && saved.purchaseVatRate !== null ? Number(saved.purchaseVatRate) : DEFAULT_TAX.purchaseVatRate;
+  const withholdingPct = Number.isFinite(Number(saved.withholdingPct)) && saved.withholdingPct !== null ? Number(saved.withholdingPct) : DEFAULT_TAX.withholdingPct;
+  return { serviceFee, cargoEstimate: cargoSaved !== null ? cargoSaved : cargoAverage, cargoEstimateSaved: cargoSaved, cargoAverage, serviceFeeDefault: DEFAULT_SERVICE_FEE, inputVat, purchaseVatRate, withholdingPct };
 }
 
 function dayStart(s) { const d = new Date(`${s}T00:00:00+03:00`); return Number.isNaN(d.getTime()) ? null : d; }
@@ -122,7 +127,21 @@ router.put('/profit/settings', async (req, res, next) => {
     const read = (v) => (v === null || v === '' || v === undefined ? null : Number(v));
     const serviceFee = read(req.body.serviceFee); const cargoEstimate = read(req.body.cargoEstimate);
     for (const v of [serviceFee, cargoEstimate]) if (v !== null && (!Number.isFinite(v) || v < 0 || v > 100000)) return res.status(400).json({ error: 'Tutarlar 0 veya daha büyük bir sayı olmalı' });
-    const value = JSON.stringify({ serviceFee, cargoEstimate });
+    // tax options: only what is sent changes, the rest stays as saved
+    const row = await prisma.systemSettings.findUnique({ where: { key: settingsKey(store.id) } });
+    const saved = row ? orderCosts.parseJson(row.value, {}) : {};
+    const tax = { inputVat: saved.inputVat, purchaseVatRate: saved.purchaseVatRate, withholdingPct: saved.withholdingPct };
+    if (req.body.inputVat !== undefined) {
+      if (typeof req.body.inputVat !== 'boolean') return res.status(400).json({ error: 'KDV mükellefiyim seçeneği geçersiz' });
+      tax.inputVat = req.body.inputVat;
+    }
+    for (const [key, max] of [['purchaseVatRate', 30], ['withholdingPct', 10]]) {
+      if (req.body[key] === undefined) continue;
+      const v = read(req.body[key]);
+      if (v === null || !Number.isFinite(v) || v < 0 || v > max) return res.status(400).json({ error: `${key === 'purchaseVatRate' ? 'Alış KDV' : 'Stopaj'} oranı 0 ile ${max} arasında olmalı` });
+      tax[key] = v;
+    }
+    const value = JSON.stringify({ serviceFee, cargoEstimate, ...tax });
     await prisma.systemSettings.upsert({ where: { key: settingsKey(store.id) }, create: { key: settingsKey(store.id), value }, update: { value } });
     res.json({ ok: true, settings: await loadProfitSettings(store.id) });
   } catch (error) { next(error); }

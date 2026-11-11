@@ -17,7 +17,7 @@ E2E_DB_URL="postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres" 
 * `pricing-tax` – price template tax options (KDV mükellefiyim, stopaj, service fee): the owner's reference sale is reproduced to the cent, the earlier calculation is untouched without the options, products get the lower price and the tax breakdown.
 * `xml-scoped-mapping` – category mappings belong to one XML source and disappear with it; earnings summary of the price template.
 * `products-page` – the products screen API: summary, facets, filters, sorting, paging, per-marketplace pricing, detail panel, editing rules.
-* `orders-profit` – profit panel of the orders page: real vs estimated commission / shipping, cost snapshot and typed costs, cancelled orders left out, estimate settings, filters, isolation.
+* `orders-profit` – profit panel of the orders page: real vs estimated commission / shipping, cost snapshot and typed costs, the tax model (stopaj, VAT to pay) and its settings, cancelled orders left out, estimate settings, filters, isolation.
 * `session-cookie` – cookie flags, CSRF header, CORS preflight, SSE, logout.
 * `hardening` – VAT 0, manual prices, duplicate barcodes, DB sync guard, signed proxy.
 * `whatsapp-access` – a normal user cannot reach any WhatsApp / settings endpoint (403) and changes nothing; an admin gets readable reasons; with the built-in connection it opens a real connection to WhatsApp up to the QR code and closes it again (skipped when a phone is linked). Never sends a message.

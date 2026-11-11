@@ -12,6 +12,7 @@ const mk = (i, over = {}) => ({
 const calls = [];
 const sendBehaviour = { failAt150: false, allBelowStock: false };
 const pc = { aiError: null, aiMatched: 2 };
+const profitTax = { on: false };   // orders profit: the earlier method (false) or the tax model (true)
 // WhatsApp page: tests change `wa.status` / `wa.qr` (a value, or a function of the call number) to play different WAHA situations
 const wa = { engine: 'waha', status: { stateInstance: 'notAuthorized' }, qr: { type: 'loading', message: '' }, qrCalls: 0 };
 const detail = {
@@ -59,16 +60,26 @@ const get = async (url, cfg = {}) => {
   if (url === '/orders/profit') {
     const L = (o) => ({ name: 'Gümüş Kolye', barcode: 'bc1', sku: 'bc1', qty: 1, gross: 200, sellerDisc: 0, tyDisc: 0, revenue: 200, paid: 200, vatRate: 20, commissionRate: 21, unitCost: 60, costSource: 'manual', ...o });
     const base = { gross: 200, sellerDiscount: 0, tyDiscount: 0, discounted: 200, customerPaid: 200, vat: 33.33, netRevenue: 166.67, commissionRate: 21, serviceFee: 13.19, serviceFeeSource: 'estimate', excluded: false, mismatch: false };
-    return { data: {
+    const out = { data: {
       rows: [
         { id: 'o1', orderNumber: 'TY-1', marketplaceOrderId: '1', orderDate: '2026-10-01T10:00:00Z', status: 'delivered', ...base, lines: [L({ unitFee: 30 })], commission: 42, commissionSource: 'trendyol', cargo: 103.49, cargoSource: 'trendyol', cost: 60, costMissing: false, supplierFee: 30, profit: -82.01, profitPct: -49.2, exact: true },
         { id: 'o2', orderNumber: 'TY-2', marketplaceOrderId: '2', orderDate: '2026-11-08T10:00:00Z', status: 'shipped', ...base, gross: 938.1, sellerDiscount: 56.34, discounted: 881.76, customerPaid: 881.76, lines: [L({ barcode: 'bc2', name: 'Bluetooth Kulaklık', gross: 938.1, revenue: 881.76, unitCost: null, costSource: null })], commission: 141.08, commissionSource: 'estimate', cargo: 95.99, cargoSource: 'estimate', cost: null, costMissing: true, profit: null, profitPct: null, exact: false },
         { id: 'o3', orderNumber: 'TY-3', marketplaceOrderId: '3', orderDate: '2026-11-07T10:00:00Z', status: 'shipped', ...base, lines: [L({})], commission: 42, commissionSource: 'estimate', cargo: 95.99, cargoSource: 'estimate', cost: 60, costMissing: false, profit: -40.01, profitPct: -24, exact: false },
       ],
       summary: { supplierFee: 30, orders: 3, excluded: 0, gross: 1338.1, discounted: 1281.76, customerPaid: 1281.76, commission: 225.08, serviceFee: 39.57, cargo: 295.47, cost: 120, vat: 100, profit: -92.02, profitOrders: 2, unknownProfit: 1, estimated: 2 },
-      settings: { serviceFee: 13.19, cargoEstimate: 95.99, cargoEstimateSaved: null, cargoAverage: 95.99, serviceFeeDefault: 13.19 },
+      settings: { serviceFee: 13.19, cargoEstimate: 95.99, cargoEstimateSaved: null, cargoAverage: 95.99, serviceFeeDefault: 13.19, inputVat: false, purchaseVatRate: 20, withholdingPct: 0 },
       pagination: { total: 3, page: 1, limit: 25, totalPages: 1 },
     } };
+    if (profitTax.on) {
+      const d = out.data;
+      d.settings = { ...d.settings, inputVat: true, withholdingPct: 1 };
+      const vd = { sale: 33.33, purchase: 10, cargo: 17.25, commission: 7, serviceFee: 2.2, total: -3.12 };
+      d.rows[0] = { ...d.rows[0], taxModel: true, inputVat: true, stopaj: 1.67, payableVat: -3.12, vatDetail: vd, profit: -80.56 + 40, profitPct: -24.2 };
+      d.rows[1] = { ...d.rows[1], taxModel: true, inputVat: true, stopaj: 7.35, payableVat: null, vatDetail: null };
+      d.rows[2] = { ...d.rows[2], taxModel: true, inputVat: true, stopaj: 1.67, payableVat: -3.12, vatDetail: vd, profit: -12.4, profitPct: -7.4 };
+      d.summary = { ...d.summary, taxModel: true, stopaj: 10.69, payableVat: -6.24, profit: -52.96 };
+    }
+    return out;
   }
   if (url === '/credits/balance') return { data: { balance: 25 } };
   if (url === '/credits/prices') return { data: { buyboxCheckCost: 1, buyboxAdjustCost: 0.1 } };
@@ -147,5 +158,5 @@ const put = async (url, body) => {
   }
   if (/send-settings$/.test(url)) return { data: { settings: body.settings, summary: [] } }; return { data: {} }; };
 const del = async (url, cfg) => { calls.push({ m: 'DELETE', url, params: cfg && cfg.params, body: cfg && cfg.data }); return { data: /sale-price$/.test(url) ? { ok: true, removed: 1 } : (/product-categories$/.test(url) ? { removed: (cfg.data.productIds || []).length } : {}) }; };
-module.exports = { get, post, put, delete: del, calls, wa, sendBehaviour, pc };
+module.exports = { get, post, put, delete: del, calls, wa, sendBehaviour, pc, profitTax };
 module.exports.default = module.exports;
