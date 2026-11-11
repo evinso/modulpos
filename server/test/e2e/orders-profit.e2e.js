@@ -30,9 +30,9 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
 
     const get = async (qs = '') => (await a('GET', '/orders/profit' + qs));
     // a store that never saved anything gets the tax options ON (VAT payer, 20% VAT in purchases, 1% stopaj); the older checks below run with them OFF
-    const first = await get();
-    ok('by default the profit uses the tax options (KDV mükellefiyim, 20% purchase VAT, 1% stopaj)', first.d.settings.inputVat === true && first.d.settings.purchaseVatRate === 20 && first.d.settings.withholdingPct === 1 && first.d.rows.every((x) => x.taxModel === true), JSON.stringify(first.d.settings));
-    ok('the other store gets the same defaults', (await b('GET', '/orders/profit')).d.settings.inputVat === true);
+    // (checked on the other store, so this store's first view is still the first one: the cost snapshot is made then)
+    const fresh = (await b('GET', '/orders/profit')).d.settings;
+    ok('by default the profit uses the tax options (KDV mükellefiyim, 20% purchase VAT, 1% stopaj)', fresh.inputVat === true && fresh.purchaseVatRate === 20 && fresh.withholdingPct === 1, JSON.stringify(fresh));
     ok('the older method is still available (options switched off)', (await a('PUT', '/orders/profit/settings', { inputVat: false, withholdingPct: 0 })).d.settings.inputVat === false);
     let r = await get();
     ok('the panel answers with rows, a summary and the estimate settings', r.s === 200 && r.d.rows.length === 3 && r.d.summary && r.d.settings, JSON.stringify(r.d && r.d.summary));
@@ -79,7 +79,7 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     // filters
     ok('status filter', (await get('?status=delivered')).d.rows.length === 1);
     ok('search by order number', (await get('?q=E2E2')).d.rows.length === 1);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date(Date.now() + 3 * 3600000).toISOString().slice(0, 10);   // the page filters by Turkey time
     ok('date filter keeps recent orders', (await get(`?from=${today}&to=${today}`)).d.rows.length === 0 && (await get('?from=2000-01-01&to=2100-01-01')).d.rows.length === 3);
     ok('paging', (await get('?limit=1&page=2')).d.rows.length === 1 && (await get('?limit=1')).d.pagination.totalPages === 3);
 
@@ -120,7 +120,7 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     ok('order 1 with the tax model: stopaj 1.67, VAT to pay -9.79, net profit -50.56', t1.taxModel === true && near(t1.stopaj, 1.67) && near(t1.payableVat, -9.79) && near(t1.profit, -50.56), JSON.stringify([t1.stopaj, t1.payableVat, t1.profit]));
     ok('with the VAT breakdown', t1.vatDetail && near(t1.vatDetail.sale, 33.33) && near(t1.vatDetail.purchase, 16.67) && near(t1.vatDetail.cargo, 17.25) && near(t1.vatDetail.commission, 7) && near(t1.vatDetail.serviceFee, 2.2));
     ok('order 2 (no cost yet): stopaj is known, VAT to pay and profit are not invented', row(r, 2).stopaj > 0 && row(r, 2).payableVat === null && row(r, 2).profit === null);
-    ok('the summary carries stopaj and the VAT to pay (orders 1 and 4 have a known profit, -9.79 each)', r.d.summary.taxModel === true && r.d.summary.stopaj > 0 && near(r.d.summary.payableVat, -19.58), JSON.stringify([r.d.summary.stopaj, r.d.summary.payableVat]));
+    ok('the summary carries stopaj and the VAT to pay (orders 1 and 4 have a known profit: -9.79 and -18.12, order 4's product cost was raised to 150 earlier in this test)', r.d.summary.taxModel === true && r.d.summary.stopaj > 0 && near(r.d.summary.payableVat, -27.91), JSON.stringify([r.d.summary.stopaj, r.d.summary.payableVat, r.d.rows.map((x) => [x.marketplaceOrderId, x.status, x.cost, x.cargo, x.supplierFee, x.payableVat, x.profit])]));
 
     ok('not logged in -> 401', (await fetch(API + '/orders/profit')).status === 401);
   } catch (e) { console.log('FAIL  unexpected error', e.message); fails++; }
