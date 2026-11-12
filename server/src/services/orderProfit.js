@@ -4,13 +4,14 @@
 //   revenue (KDV dahil)  = gross - seller discount          (Trendyol's own discount is paid back to the seller)
 //   customer paid        = gross - seller discount - Trendyol discount
 //   net revenue          = revenue / (1 + VAT)
-//   supplier service fee = what the supplier (XML source) charges per unit after the order is placed, set on the XML source
+//   other cost           = the "Diğer gider" of the PRICE TEMPLATE that prices the sold product, per unit (packaging, the supplier's service fee after an
+//                          order…). The same number is built into the sale price, so the profit takes it off again.
 //
 //   Tax options on (settings.inputVat / settings.withholdingPct; the page's default):
-//     profit = revenue - commission - platform fee - supplier fee - shipping - purchase cost - stopaj - VAT to pay
+//     profit = revenue - commission - platform fee - other cost - shipping - purchase cost - stopaj - VAT to pay
 //     stopaj = withholding % of the VAT-EXCLUSIVE revenue
-//     VAT to pay = VAT of the sale - the VAT inside purchase cost, shipping, commission and platform fee (20% VAT on the invoices)
-//     All of those amounts are VAT-INCLUSIVE as charged. The supplier's service fee gets no VAT credit (no invoice is known for it).
+//     VAT to pay = VAT of the sale - the VAT inside purchase cost, shipping, commission, platform fee and other cost (20% VAT on the invoices)
+//     All of those amounts are VAT-INCLUSIVE as charged (the template treats its other cost the same way).
 //   Without the options (settings without them): profit = net revenue - the same costs (the earlier, simpler method).
 const { EXPENSE_VAT } = require('./taxMath');
 
@@ -56,11 +57,11 @@ function lineFigures(line) {
 /**
  * costs: Map barcode -> { unit, source }   (source: 'snapshot' | 'product' | 'manual')
  * finance: { commissionAmount, cargoAmount, ... } from Trendyol, or null
- * fees: Map barcode -> { unit, source }  supplier service fee per unit (XML source setting); missing = no fee
+ * others: Map barcode -> { unit, source }  "Diğer gider" per unit from the price template (VAT-inclusive); missing = none
  * settings: { serviceFee, cargoEstimate, inputVat, purchaseVatRate, withholdingPct }  (cargoEstimate may be null = unknown)
  * manualCargo: shipping fee (incl. VAT) typed in for this order; used until Trendyol's cargo invoice has the real figure
  */
-function computeOrderProfit(order, { finance = null, costs = new Map(), fees = new Map(), settings = {}, manualCargo = null } = {}) {
+function computeOrderProfit(order, { finance = null, costs = new Map(), others = new Map(), settings = {}, manualCargo = null } = {}) {
   const lines = parseLines(order.items).map(lineFigures);
   const sum = (f) => lines.reduce((a, l) => a + f(l), 0);
 
@@ -82,15 +83,15 @@ function computeOrderProfit(order, { finance = null, costs = new Map(), fees = n
   const cargoManual = !cargoReal && has(manualCargo) && num(manualCargo) >= 0;
   const cargo = cargoReal ? num(finance.cargoAmount) : cargoManual ? num(manualCargo) : (has(settings.cargoEstimate) ? num(settings.cargoEstimate) : null);
 
-  let cost = 0; let costMissing = lines.length === 0; let supplierFee = 0;
+  let cost = 0; let costMissing = lines.length === 0; let otherCost = 0;
   const lineRows = lines.map((l) => {
-    const f = fees.get(l.barcode) || (l.sku ? fees.get(l.sku) : undefined);
-    const unitFee = f && f.unit > 0 ? f.unit : 0;
-    supplierFee += unitFee * l.qty;
+    const f = others.get(l.barcode) || (l.sku ? others.get(l.sku) : undefined);
+    const unitOther = f && f.unit > 0 ? f.unit : 0;
+    otherCost += unitOther * l.qty;
     const c = costs.get(l.barcode) || (l.sku ? costs.get(l.sku) : undefined);
-    if (!c || !(c.unit > 0)) { costMissing = true; return { ...l, unitCost: null, costSource: null, unitFee }; }
+    if (!c || !(c.unit > 0)) { costMissing = true; return { ...l, unitCost: null, costSource: null, unitOther }; }
     cost += c.unit * l.qty;
-    return { ...l, unitCost: c.unit, costSource: c.source, unitFee };
+    return { ...l, unitCost: c.unit, costSource: c.source, unitOther };
   });
 
   const excluded = EXCLUDED.has(order.status);
@@ -101,16 +102,16 @@ function computeOrderProfit(order, { finance = null, costs = new Map(), fees = n
   let profit = null; let payableVat = null; let vatDetail = null;
   if (complete) {
     if (!tax.active) {
-      profit = netRevenue - commission - serviceFee - supplierFee - cargo - cost;
+      profit = netRevenue - commission - serviceFee - otherCost - cargo - cost;
     } else {
       // every amount is rounded first, so the list on screen adds up to the profit shown
       vatDetail = {
         sale: round2(vat), purchase: round2(cost * tax.kp), cargo: round2(cargo * tax.ki),
-        commission: round2(commission * tax.ki), serviceFee: round2(serviceFee * tax.ki),
+        commission: round2(commission * tax.ki), serviceFee: round2(serviceFee * tax.ki), other: round2(otherCost * tax.ki),
       };
-      payableVat = round2(vatDetail.sale - vatDetail.purchase - vatDetail.cargo - vatDetail.commission - vatDetail.serviceFee);
+      payableVat = round2(vatDetail.sale - vatDetail.purchase - vatDetail.cargo - vatDetail.commission - vatDetail.serviceFee - vatDetail.other);
       vatDetail.total = payableVat;
-      profit = round2(revenue) - round2(commission) - round2(serviceFee) - round2(supplierFee) - round2(cargo) - round2(cost) - stopaj - payableVat;
+      profit = round2(revenue) - round2(commission) - round2(serviceFee) - round2(otherCost) - round2(cargo) - round2(cost) - stopaj - payableVat;
     }
   }
 
@@ -123,7 +124,7 @@ function computeOrderProfit(order, { finance = null, costs = new Map(), fees = n
     commission: round2(commission), commissionSource: commissionReal ? 'trendyol' : 'estimate',
     commissionRate: lines.length ? round2(lines.reduce((a, l) => a + l.commissionRate * l.revenue, 0) / (revenue || 1)) : 0,
     serviceFee: round2(serviceFee), serviceFeeSource: 'estimate',
-    supplierFee: round2(supplierFee),
+    otherCost: round2(otherCost),
     taxModel: tax.active, inputVat: tax.inputVat, stopaj: tax.active ? stopaj : null, payableVat, vatDetail,
     cargo: cargo === null ? null : round2(cargo), cargoSource: cargoReal ? 'trendyol' : cargoManual ? 'manual' : (cargo === null ? null : 'estimate'),
     cost: costMissing ? null : round2(cost), costMissing,
@@ -142,7 +143,7 @@ function summarize(results) {
   return {
     orders: live.length, excluded: results.length - live.length,
     gross: add((r) => r.gross), discounted: add((r) => r.discounted), customerPaid: add((r) => r.customerPaid),
-    commission: add((r) => r.commission), serviceFee: add((r) => r.serviceFee), supplierFee: add((r) => r.supplierFee), cargo: add((r) => r.cargo),
+    commission: add((r) => r.commission), serviceFee: add((r) => r.serviceFee), otherCost: add((r) => r.otherCost), cargo: add((r) => r.cargo),
     cost: add((r) => r.cost), vat: add((r) => r.vat),
     taxModel: live.some((r) => r.taxModel), stopaj: add((r) => r.stopaj), payableVat: add((r) => r.payableVat),
     profit: add((r) => r.profit),

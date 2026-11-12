@@ -28,7 +28,7 @@ const detail = {
 };
 const get = async (url, cfg = {}) => {
   calls.push({ m: 'GET', url, params: cfg.params });
-  if (url === '/xml-sources') return { data: [{ id: 's1', name: 'Tedarikçi A', totalProducts: 8, status: 'active', url: 'https://example.invalid/a.xml', syncIntervalMin: 60, orderServiceFee: 30, mappingConfig: '{"title":"t"}', _count: { products: 8 } }] };
+  if (url === '/xml-sources') return { data: [{ id: 's1', name: 'Tedarikçi A', totalProducts: 8, status: 'active', url: 'https://example.invalid/a.xml', syncIntervalMin: 60, mappingConfig: '{"title":"t"}', _count: { products: 8 } }] };
   if (url === '/marketplace/connections/c1/category-mappings') return { data: [{ id: 'cm1', xmlSourceId: 's1', localCategory: 'Giyim' }, { id: 'cm2', xmlSourceId: 's1', localCategory: 'Aksesuar' }] };
   if (/^\/products\/[^/]+\/price-preview$/.test(url)) { const price = Number(cfg.params.price); return { data: { salePrice: price, templatePrice: 251.9, hasTemplate: true, ruleName: 'genel', purchase: 101, profit: Math.round((price * 0.5 - 120) * 100) / 100, profitPct: 30, marginOnPricePct: 12, commissionAmount: 20, fixedCosts: 10, vatAmount: 40, loss: price < 120 } }; }
   if (url === '/marketplace/connections') return { data: [{ id: 'c1', marketplaceType: 'trendyol', status: 'active', supplierName: 'Mağazam', config: JSON.stringify({ buyboxAutoAdjust: true, buyboxAutoMode: 'undercut', buyboxAutoAmount: 2 }) }] };
@@ -62,18 +62,18 @@ const get = async (url, cfg = {}) => {
     const base = { gross: 200, sellerDiscount: 0, tyDiscount: 0, discounted: 200, customerPaid: 200, vat: 33.33, netRevenue: 166.67, commissionRate: 21, serviceFee: 13.19, serviceFeeSource: 'estimate', excluded: false, mismatch: false };
     const out = { data: {
       rows: [
-        { id: 'o1', orderNumber: 'TY-1', marketplaceOrderId: '1', orderDate: '2026-10-01T10:00:00Z', status: 'delivered', ...base, lines: [L({ unitFee: 30 })], commission: 42, commissionSource: 'trendyol', cargo: 103.49, cargoSource: 'trendyol', cost: 60, costMissing: false, supplierFee: 30, profit: -82.01, profitPct: -49.2, exact: true },
+        { id: 'o1', orderNumber: 'TY-1', marketplaceOrderId: '1', orderDate: '2026-10-01T10:00:00Z', status: 'delivered', ...base, lines: [L({ unitOther: 30 })], commission: 42, commissionSource: 'trendyol', cargo: 103.49, cargoSource: 'trendyol', cost: 60, costMissing: false, otherCost: 30, profit: -82.01, profitPct: -49.2, exact: true },
         { id: 'o2', orderNumber: 'TY-2', marketplaceOrderId: '2', orderDate: '2026-11-08T10:00:00Z', status: 'shipped', ...base, gross: 938.1, sellerDiscount: 56.34, discounted: 881.76, customerPaid: 881.76, lines: [L({ barcode: 'bc2', name: 'Bluetooth Kulaklık', gross: 938.1, revenue: 881.76, unitCost: null, costSource: null })], commission: 141.08, commissionSource: 'estimate', cargo: 95.99, cargoSource: 'estimate', cost: null, costMissing: true, profit: null, profitPct: null, exact: false },
         { id: 'o3', orderNumber: 'TY-3', marketplaceOrderId: '3', orderDate: '2026-11-07T10:00:00Z', status: 'shipped', ...base, lines: [L({})], commission: 42, commissionSource: 'estimate', cargo: 95.99, cargoSource: 'estimate', cost: 60, costMissing: false, profit: -40.01, profitPct: -24, exact: false },
       ],
-      summary: { supplierFee: 30, orders: 3, excluded: 0, gross: 1338.1, discounted: 1281.76, customerPaid: 1281.76, commission: 225.08, serviceFee: 39.57, cargo: 295.47, cost: 120, vat: 100, profit: -92.02, profitOrders: 2, unknownProfit: 1, estimated: 2 },
+      summary: { otherCost: 30, orders: 3, excluded: 0, gross: 1338.1, discounted: 1281.76, customerPaid: 1281.76, commission: 225.08, serviceFee: 39.57, cargo: 295.47, cost: 120, vat: 100, profit: -92.02, profitOrders: 2, unknownProfit: 1, estimated: 2 },
       settings: { serviceFee: 13.19, cargoEstimate: 95.99, cargoEstimateSaved: null, cargoAverage: 95.99, serviceFeeDefault: 13.19, inputVat: false, purchaseVatRate: 20, withholdingPct: 0 },
       pagination: { total: 3, page: 1, limit: 25, totalPages: 1 },
     } };
     if (profitTax.on) {
       const d = out.data;
       d.settings = { ...d.settings, inputVat: true, withholdingPct: 1 };
-      const vd = { sale: 33.33, purchase: 10, cargo: 17.25, commission: 7, serviceFee: 2.2, total: -3.12 };
+      const vd = { sale: 33.33, purchase: 10, cargo: 17.25, commission: 7, serviceFee: 2.2, other: 5, total: -3.12 };
       d.rows[0] = { ...d.rows[0], taxModel: true, inputVat: true, stopaj: 1.67, payableVat: -3.12, vatDetail: vd, profit: -80.56 + 40, profitPct: -24.2 };
       d.rows[1] = { ...d.rows[1], taxModel: true, inputVat: true, stopaj: 7.35, payableVat: null, vatDetail: null };
       d.rows[2] = { ...d.rows[2], taxModel: true, inputVat: true, stopaj: 1.67, payableVat: -3.12, vatDetail: vd, profit: -12.4, profitPct: -7.4 };
@@ -152,7 +152,6 @@ const put = async (url, body) => {
   if (/product-categories$/.test(url)) return { data: { saved: body.assignments.length, skipped: 0 } };
   if (/product-categories\/attributes$/.test(url)) return { data: { updated: 4 } };
 
-  if (/^\/xml-sources\/[^/]+$/.test(url)) return { data: { id: 's1', orderServiceFee: Number(body.orderServiceFee) } };
   if (/\/sale-price$/.test(url)) {
     if (body.price < 120 && body.confirmLoss !== true) { const e = new Error('409'); e.response = { status: 409, data: { error: 'Bu fiyatta zarar edersiniz', loss: true } }; throw e; }
     return { data: { ok: true, pricing: { salePrice: body.price, manual: true } } };

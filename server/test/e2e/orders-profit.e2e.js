@@ -83,32 +83,39 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     ok('date filter keeps recent orders', (await get(`?from=${today}&to=${today}`)).d.rows.length === 0 && (await get('?from=2000-01-01&to=2100-01-01')).d.rows.length === 3);
     ok('paging', (await get('?limit=1&page=2')).d.rows.length === 1 && (await get('?limit=1')).d.pagination.totalPages === 3);
 
-    // supplier service fee: set on the XML source, only for products of that source
+    // "Diğer gider" of the PRICE TEMPLATE (e.g. the supplier's service fee per unit): taken off the profit for the products the template prices
     const before1 = row(await get(), 1);
     const src = (await c.query(`insert into app."XmlSource"(id,"storeId",name,url,"orderServiceFee","updatedAt") values(gen_random_uuid(),$1,'e2e-biii','https://example.invalid/x.xml',0,now()) returning id`, [store.id])).rows[0].id;
     const o4 = await order(4, 'delivered', 200, line({ barcode: 'e2e-op1', lineGrossAmount: 200, commission: 21 }), new Date(now - 6 * 86400000));
-    await c.query(`update app."Order" set "lineFees"='{}' where id=$1`, [o4]);   // arrived while the source charged nothing
     await c.query(`update app."Product" set "xmlSourceId"=$1 where "storeId"=$2 and barcode='e2e-op1'`, [src, store.id]);
-    ok('no fee on the source -> no supplier fee', row(await get(), 1).supplierFee === 0);
-    ok('the fee is validated (negative / text rejected)', (await a('PUT', `/xml-sources/${src}`, { orderServiceFee: -5 })).s === 400 && (await a('PUT', `/xml-sources/${src}`, { orderServiceFee: 'abc' })).s === 400);
-    ok('another store cannot change my source\'s fee', [403, 404].includes((await b('PUT', `/xml-sources/${src}`, { orderServiceFee: 99 })).s) && (await c.query(`select "orderServiceFee" f from app."XmlSource" where id=$1`, [src])).rows[0].f === 0);
-    const put = await a('PUT', `/xml-sources/${src}`, { orderServiceFee: 30 });
-    ok('fee of 30 TL per product saved on the source', put.s === 200 && put.d.orderServiceFee === 30);
+    const tplConds = (other) => ({ connectionId: conn, xmlSourceIds: [src], commissionBasis: 'gross', commissionPct: 20, shippingCost: 50, packagingCost: other, vatRate: null, profitMode: 'percent_of_purchase', profitTiers: [], shippingTiers: [] });
+    ok('no template covers the product -> no other cost', row(await get(), 1).otherCost === 0);
+    const tpl = await a('POST', '/pricing', { name: 'e2e şablon', type: 'percentage', value: 30, applyTo: 'price_template', conditions: tplConds(30) });
+    ok('template with "Diğer gider" 30 saved', tpl.s === 201);
     r = await get();
-    ok('order 1 (product of that source) now carries 30 TL and the profit drops by exactly that', row(r, 1).supplierFee === 30 && near(before1.profit - row(r, 1).profit, 30), `${before1.profit} -> ${row(r, 1).profit}`);
-    ok('an order that arrived while there was no fee keeps its snapshot (0)', row(r, 4).supplierFee === 0);
-    ok('products that are not from that source (order 2) pay no fee', row(r, 2).supplierFee === 0);
-    ok('the summary adds the supplier fee up', r.d.summary.supplierFee === 30, String(r.d.summary.supplierFee));
-    await a('PUT', `/xml-sources/${src}`, { orderServiceFee: 45 });
+    ok('order 1 (a product that template prices) now carries 30 TL and the profit drops by exactly that', row(r, 1).otherCost === 30 && near(before1.profit - row(r, 1).profit, 30), `${before1.profit} -> ${row(r, 1).profit}`);
+    ok('the line shows the amount per unit', row(r, 1).lines[0].unitOther === 30);
+    ok('products no template prices (order 2) pay nothing', row(r, 2).otherCost === 0);
+    await c.query(`update app."Order" set "lineFees"=$2 where id=$1`, [o4, JSON.stringify({ 'e2e-op1': 10 })]);   // arrived when the template said 10
     r = await get();
-    ok('changing the fee later changes orders without a snapshot, not the one with one', row(r, 1).supplierFee === 45 && row(r, 4).supplierFee === 0);
-    await a('PUT', `/xml-sources/${src}`, { orderServiceFee: 0 });
-    ok('fee removed -> 0 again', row(await get(), 1).supplierFee === 0);
+    ok('an order with a saved amount keeps it (10), the others follow the template (30)', row(r, 4).otherCost === 10 && row(r, 1).otherCost === 30);
+    ok('the summary adds the other cost up', r.d.summary.otherCost === 40, String(r.d.summary.otherCost));
+    await a('PUT', `/pricing/${tpl.d.id}`, { conditions: tplConds(45) });
+    r = await get();
+    ok('changing the template changes orders without a saved amount, not the one with one', row(r, 1).otherCost === 45 && row(r, 4).otherCost === 10);
+    await a('PUT', `/pricing/${tpl.d.id}`, { conditions: tplConds(0) });
+    ok('"Diğer gider" removed from the template -> 0 again (the saved one stays)', row(await get(), 1).otherCost === 0 && row(await get(), 4).otherCost === 10);
+    ok('another store\'s templates do not touch my orders', (await b('GET', '/orders/profit')).d.rows.length === 0);
+    // the old per-XML-source field is gone: the API ignores it and nothing reads it
+    await a('PUT', `/xml-sources/${src}`, { orderServiceFee: 99 });
+    ok('the XML source API ignores the old field and the profit does not read it', (await c.query(`select "orderServiceFee" f from app."XmlSource" where id=$1`, [src])).rows[0].f === 0 && row(await get(), 1).otherCost === 0);
+    await a('DELETE', `/pricing/${tpl.d.id}`);
 
     // refresh with fake keys must fail politely, never throw a 500
     const ref = await a('POST', '/orders/profit/refresh');
     ok('refresh with unusable keys answers 200 with a message', ref.s === 200 && typeof ref.d.message === 'string', JSON.stringify(ref.d).slice(0, 200));
 
+    await c.query(`update app."Order" set "lineFees"=null where id=$1`, [o4]);   // back to "no amount" for the tax checks below
     // tax options: the owner's model (VAT payer: VAT inside costs comes back; stopaj on the VAT-exclusive revenue)
     ok('bad tax options are rejected', (await a('PUT', '/orders/profit/settings', { inputVat: 'yes' })).s === 400 && (await a('PUT', '/orders/profit/settings', { withholdingPct: 50 })).s === 400 && (await a('PUT', '/orders/profit/settings', { purchaseVatRate: -1 })).s === 400);
     const on = await a('PUT', '/orders/profit/settings', { serviceFee: 13.19, cargoEstimate: null, inputVat: true, purchaseVatRate: 20, withholdingPct: 1 });

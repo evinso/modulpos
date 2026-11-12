@@ -108,3 +108,37 @@ test('a hand-typed price is judged with the same model (loss detection)', () => 
   assert.ok(newer.profit > olderLoss.profit);
   assert.equal(E.sellsAtLoss({ breakdown: newer }), newer.profit < 0);
 });
+
+// ---- otherCostFor: the template's "Diğer gider" per product (read by the order profit panel) ----
+const rule = (o) => ({ id: 'r' + Math.random(), name: o.name || 'şablon', isActive: o.isActive !== false, applyTo: o.applyTo || 'price_template', type: 'percentage', value: o.value ?? 30, priority: o.priority ?? 0, createdAt: o.createdAt || new Date('2026-11-01'), conditions: JSON.stringify(o.conds || {}) });
+const prod = (o = {}) => ({ id: 'p', xmlSourceId: 'biii', category: 'Kolye', brand: 'X', xmlPrice: 100, price: 100, vatRate: 20, ...o });
+
+test('otherCostFor: packaging + extra of the template that prices the product', () => {
+  const ctx = new E.PricingContext([rule({ conds: { commissionBasis: 'gross', commissionPct: 20, shippingCost: 50, packagingCost: 29.9, extraCost: 0.1, serviceFee: 13.19, xmlSourceIds: ['biii'] } })], 'c1');
+  assert.equal(Math.round(ctx.otherCostFor(prod()) * 100) / 100, 30);          // the platform fee (serviceFee) and shipping are not part of it
+});
+
+test('otherCostFor: follows the same matching as pricing (scope, source, active) and is null when nothing prices the product', () => {
+  const rules = [
+    rule({ name: 'tahtakale', conds: { commissionBasis: 'gross', commissionPct: 20, packagingCost: 0, xmlSourceIds: ['tk'], connectionId: 'c1' } }),
+    rule({ name: 'ebijuteri', conds: { commissionBasis: 'gross', commissionPct: 20, packagingCost: 29.9, xmlSourceIds: ['biii'], connectionId: 'c1' } }),
+    rule({ name: 'kapalı', isActive: false, conds: { commissionBasis: 'gross', commissionPct: 20, packagingCost: 99, xmlSourceIds: ['x'] } }),
+  ];
+  const ctx = new E.PricingContext(rules, 'c1');
+  assert.equal(ctx.otherCostFor(prod({ xmlSourceId: 'biii' })), 29.9);
+  assert.equal(ctx.otherCostFor(prod({ xmlSourceId: 'tk' })), 0);
+  assert.equal(ctx.otherCostFor(prod({ xmlSourceId: 'x' })), null, 'inactive template');
+  assert.equal(ctx.otherCostFor(prod({ xmlSourceId: 'unknown' })), null, 'no template covers it');
+  assert.equal(new E.PricingContext(rules, 'other-connection').otherCostFor(prod({ xmlSourceId: 'biii' })), null, 'template belongs to another marketplace connection');
+});
+
+test('otherCostFor: an older "price range" style rule without a template body gives null', () => {
+  const ctx = new E.PricingContext([rule({ applyTo: 'marketplace_xml', conds: { connectionId: 'c1', xmlSourceId: 'biii' } })], 'c1');
+  assert.equal(ctx.otherCostFor(prod()), null);
+});
+
+test('the template treats "Diğer gider" as VAT-inclusive (20% VAT comes off the VAT to pay) - the profit panel does the same', () => {
+  const b = E.explainAtPrice(586.90, 195, { ...BASE, serviceFee: 13.19, packagingCost: 30, inputVat: true, purchaseVatRate: 20, withholdingPct: 1 });
+  assert.equal(b.vatDetail.other, 5);
+  assert.equal(b.otherCost, 30);
+});

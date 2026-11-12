@@ -410,7 +410,7 @@ export default function PricingPage() {
                       <small style={hintStyle}>pazaryerinin sipariş başı sabit ücreti (ör. 13,19 ₺)</small></div>
                     <div className="form-group"><label className="form-label">Diğer gider (₺)</label>
                       <input type="number" min="0" step="0.01" className="form-input" data-testid="cost-other" value={form.otherCost} onChange={(e) => set({ otherCost: e.target.value })} />
-                      <small style={hintStyle}>paketleme vb.</small></div>
+                      <small style={hintStyle}>ürün başına: paketleme, tedarikçinin hizmet bedeli vb. (Kârlılık da bunu düşer)</small></div>
                   </div>
 
                   <div style={sectionTitle}>Vergi</div>

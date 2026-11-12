@@ -113,47 +113,49 @@ test('costs: manual beats the snapshot, which beats today\'s product; the snapsh
   assert.equal(snapshotFor([{ barcode: 'nope' }], products), null);
 });
 
-// ── supplier service fee (set on the XML source, paid per unit after the order is placed) ──
-const { feeMapFor, feeSnapshotFor } = require('../../src/services/orderCosts');
+// ── "Diğer gider" of the price template (e.g. the supplier's service fee per unit), taken off the profit ──
+const { otherCostMapFor, otherCostSnapshotFor } = require('../../src/services/orderCosts');
+const fakeCtx = (byProductKey) => ({ otherCostFor: (p) => (p && p.k in byProductKey ? byProductKey[p.k] : null) });
 
-test('the supplier fee is taken per unit and lowers the profit', () => {
+test('the other cost is taken per unit and lowers the profit', () => {
   const base = computeOrderProfit(realOrder(), { finance: { commissionAmount: 42, cargoAmount: 103.49 }, costs: costs(60), settings });
-  const withFee = computeOrderProfit(realOrder(), { finance: { commissionAmount: 42, cargoAmount: 103.49 }, costs: costs(60), fees: new Map([['160800001', { unit: 30, source: 'source' }]]), settings });
-  assert.equal(base.supplierFee, 0); assert.equal(withFee.supplierFee, 30);
-  assert.equal(withFee.profit, Math.round((base.profit - 30) * 100) / 100);
-  assert.equal(withFee.lines[0].unitFee, 30);
+  const withOther = computeOrderProfit(realOrder(), { finance: { commissionAmount: 42, cargoAmount: 103.49 }, costs: costs(60), others: new Map([['160800001', { unit: 30, source: 'template' }]]), settings });
+  assert.equal(base.otherCost, 0); assert.equal(withOther.otherCost, 30);
+  assert.equal(withOther.profit, Math.round((base.profit - 30) * 100) / 100);
+  assert.equal(withOther.lines[0].unitOther, 30);
 });
 
-test('quantity multiplies the supplier fee', () => {
+test('quantity multiplies the other cost', () => {
   const items = JSON.stringify([{ quantity: 3, barcode: 'a', lineGrossAmount: 600, vatRate: 20, commission: 10 }]);
-  const r = computeOrderProfit({ status: 'delivered', totalAmount: 600, items }, { costs: new Map([['a', { unit: 50, source: 'manual' }]]), fees: new Map([['a', { unit: 30, source: 'source' }]]), settings: { serviceFee: 0, cargoEstimate: 0 } });
-  assert.equal(r.supplierFee, 90);
+  const r = computeOrderProfit({ status: 'delivered', totalAmount: 600, items }, { costs: new Map([['a', { unit: 50, source: 'manual' }]]), others: new Map([['a', { unit: 30, source: 'template' }]]), settings: { serviceFee: 0, cargoEstimate: 0 } });
+  assert.equal(r.otherCost, 90);
 });
 
-test('a product that is not from a fee-charging source pays nothing; the totals add the fee up', () => {
-  const only = computeOrderProfit(realOrder(), { costs: costs(60), fees: new Map([['other', { unit: 30, source: 'source' }]]), settings });
-  assert.equal(only.supplierFee, 0);
-  const a = computeOrderProfit(realOrder(), { finance: { commissionAmount: 42, cargoAmount: 103.49 }, costs: costs(60), fees: new Map([['160800001', { unit: 30, source: 'source' }]]), settings });
-  const b = computeOrderProfit(realOrder(), { finance: { commissionAmount: 42, cargoAmount: 103.49 }, costs: costs(60), fees: new Map([['160800001', { unit: 30, source: 'source' }]]), settings });
-  assert.equal(summarize([a, b]).supplierFee, 60);
+test('a product without an entry pays nothing; the totals add the other cost up', () => {
+  const only = computeOrderProfit(realOrder(), { costs: costs(60), others: new Map([['other', { unit: 30, source: 'template' }]]), settings });
+  assert.equal(only.otherCost, 0);
+  const o = { finance: { commissionAmount: 42, cargoAmount: 103.49 }, costs: costs(60), others: new Map([['160800001', { unit: 30, source: 'template' }]]), settings };
+  assert.equal(summarize([computeOrderProfit(realOrder(), o), computeOrderProfit(realOrder(), o)]).otherCost, 60);
 });
 
-test('fee per line: the fee of the XML source of the sold product; other sources and unknown products pay none', () => {
-  const lines = [{ barcode: 'x1' }, { barcode: 'y1' }, { barcode: 'z1' }];
-  const products = new Map([['x1', { xmlSourceId: 'biii' }], ['y1', { xmlSourceId: 'other' }]]);   // z1 is not a known product
-  const feeBySource = new Map([['biii', 30]]);
-  const m = feeMapFor(lines, { products, feeBySource });
-  assert.deepEqual([...m.keys()], ['x1']); assert.deepEqual(m.get('x1'), { unit: 30, source: 'source' });
-  assert.deepEqual(feeSnapshotFor(lines, products, feeBySource), { x1: 30 });
+test('per line: the other cost of the template that prices the sold product; unknown products and products without a template pay none', () => {
+  const lines = [{ barcode: 'x1' }, { barcode: 'y1' }, { barcode: 'z1' }, { barcode: 'w1' }];
+  const products = new Map([['x1', { k: 'biii' }], ['y1', { k: 'free' }], ['w1', { k: 'nopricing' }]]);   // z1 is not a known product
+  const ctx = fakeCtx({ biii: 29.9, free: 0 });                                                            // 'nopricing' has no template (null)
+  const m = otherCostMapFor(lines, { products, ctx });
+  assert.deepEqual([...m.keys()], ['x1']); assert.deepEqual(m.get('x1'), { unit: 29.9, source: 'template' });
+  assert.deepEqual(otherCostSnapshotFor(lines, products, ctx), { x1: 29.9 });
+  assert.equal(otherCostSnapshotFor([{ barcode: 'y1' }], products, ctx), null, 'nothing to save');
+  assert.equal(otherCostMapFor(lines, { products, ctx: null }).size, 0, 'no pricing context: nothing');
 });
 
-test('a saved fee snapshot wins over the source\'s current fee, also when it says "none"', () => {
+test('a saved snapshot wins over the template\'s current value; without one the current value is used', () => {
   const lines = [{ barcode: 'x1' }];
-  const products = new Map([['x1', { xmlSourceId: 'biii' }]]);
-  const feeBySource = new Map([['biii', 45]]);   // raised later
-  assert.deepEqual(feeMapFor(lines, { snapshot: { x1: 30 }, products, feeBySource }).get('x1'), { unit: 30, source: 'snapshot' });
-  assert.equal(feeMapFor(lines, { snapshot: {}, products, feeBySource }).size, 0);                  // arrived when there was no fee
-  assert.deepEqual(feeMapFor(lines, { snapshot: null, products, feeBySource }).get('x1'), { unit: 45, source: 'source' });   // no snapshot: current fee
+  const products = new Map([['x1', { k: 'biii' }]]);
+  const ctx = fakeCtx({ biii: 45 });   // raised later
+  assert.deepEqual(otherCostMapFor(lines, { snapshot: { x1: 30 }, products, ctx }).get('x1'), { unit: 30, source: 'snapshot' });
+  assert.deepEqual(otherCostMapFor(lines, { snapshot: {}, products, ctx }).get('x1'), { unit: 45, source: 'template' });    // an empty snapshot says nothing
+  assert.deepEqual(otherCostMapFor(lines, { snapshot: null, products, ctx }).get('x1'), { unit: 45, source: 'template' });
 });
 
 // ---- tax model: recoverable VAT on costs + stopaj (same model as the price template) ----
@@ -166,7 +168,7 @@ test('the owner\'s reference sale: every figure of the profit screen, to the cen
   assert.equal(r.commission, 129.12); assert.equal(r.serviceFee, 13.19); assert.equal(r.cargo, 106); assert.equal(r.cost, 195);
   assert.equal(r.stopaj, 4.89);
   assert.equal(r.payableVat, 23.93);
-  assert.deepEqual(r.vatDetail, { sale: 97.82, purchase: 32.5, cargo: 17.67, commission: 21.52, serviceFee: 2.2, total: 23.93 });
+  assert.deepEqual(r.vatDetail, { sale: 97.82, purchase: 32.5, cargo: 17.67, commission: 21.52, serviceFee: 2.2, other: 0, total: 23.93 });
   assert.equal(r.profit, 114.77);
   assert.equal(r.taxModel, true);
   assert.equal(Math.round((586.9 - 129.12 - 13.19 - 4.89 - 23.93 - 106 - 195) * 100) / 100, r.profit, 'the list adds up');
@@ -191,12 +193,17 @@ test('a purchase without VAT credit (rate 0) only loses the purchase part of the
   assert.equal(r.profit, 82.27);                 // 114.77 - 32.50
 });
 
-test('the supplier\'s service fee gets no VAT credit', () => {
-  const fees = new Map([['ref', { unit: 30, source: 'xml' }]]);
-  const a = computeOrderProfit(refOrder(), { finance: { commissionAmount: 129.12, cargoAmount: 106 }, costs: new Map([['ref', { unit: 195, source: 'manual' }]]), fees, settings: TAX });
-  assert.equal(a.supplierFee, 30);
-  assert.equal(a.profit, 84.77);                 // 114.77 - 30, the VAT to pay is unchanged
-  assert.equal(a.payableVat, 23.93);
+test('the other cost is VAT-inclusive like in the price template: its VAT comes off the VAT to pay', () => {
+  const others = new Map([['ref', { unit: 30, source: 'template' }]]);
+  const a = computeOrderProfit(refOrder(), { finance: { commissionAmount: 129.12, cargoAmount: 106 }, costs: new Map([['ref', { unit: 195, source: 'manual' }]]), others, settings: TAX });
+  assert.equal(a.otherCost, 30);
+  assert.equal(a.vatDetail.other, 5);              // 30 / 6
+  assert.equal(a.payableVat, 18.93);               // 23.93 - 5.00
+  assert.equal(a.profit, 89.77);                   // 114.77 - 30 + 5
+  assert.equal(Math.round((586.9 - 129.12 - 13.19 - 30 - 106 - 195 - 4.89 - 18.93) * 100) / 100, a.profit, 'the list adds up');
+  // without "KDV mükellefiyim" no VAT comes back
+  const b = computeOrderProfit(refOrder(), { finance: { commissionAmount: 129.12, cargoAmount: 106 }, costs: new Map([['ref', { unit: 195, source: 'manual' }]]), others, settings: { ...TAX, inputVat: false } });
+  assert.equal(b.vatDetail.other, 0);
 });
 
 test('mixed VAT rates: VAT of each line and stopaj on the VAT-exclusive revenue', () => {

@@ -17,7 +17,7 @@ export const XML = [
           { t: 'steps', x: [
             '**XML Kaynağı Ekle** — [[Kaynak Adı]], [[XML URL]] ve [[Senkronizasyon Aralığı (dakika)]] (en az 5). Sistem adresi okur, kaç ürün bulduğunu ve alanları gösterir.',
             '**Alan Eşleştirmesi** — XML’deki alanları ModulPOS alanlarına bağlarsınız ({{#xml-alanlar|ayrıntı}}). Bilinen formatlarda alanlar **kendiliğinden önerilir**; yalnızca kontrol edip düzeltirsiniz.',
-            '**Ürün Ayarları** — barkod ön eki, alış fiyatı KDV’si, ürün KDV’si, sipariş sonrası hizmet bedeli ({{#xml-ayarlar|ayrıntı}}).',
+            '**Ürün Ayarları** — barkod ön eki, alış fiyatı KDV’si ve ürün KDV’si ({{#xml-ayarlar|ayrıntı}}).',
             '**Önizleme & Kaydet** — eşleştirmenin ilk ürünlerde nasıl göründüğüne bakıp kaydedersiniz. Kategorileri Trendyol’a bağlamak ayrı bir adımdır ({{#kategori-neden|Kategori Eşleştirme}}).',
             '**Tamamlandı** — [[Ürünleri Çek]] ile ürünler ilk kez sisteme alınır. Büyük listeler arka planda çekilir, ilerlemeyi kartta görürsünüz.',
           ] },
@@ -48,15 +48,14 @@ export const XML = [
         ],
       },
       {
-        id: 'xml-ayarlar', title: 'Ürün ayarları: barkod, KDV, hizmet bedeli',
+        id: 'xml-ayarlar', title: 'Ürün ayarları: barkod ve KDV',
         blocks: [
           { t: 'table', head: ['Alan', 'Ne işe yarar'], rows: [
             ['Barkod Ön Eki', 'Barkodların başına eklenir (ör. “TRY-” ise 12345 → TRY-12345). Aynı barkodu kullanan farklı tedarikçileri ayırmak için.'],
             ['Alış Fiyatı KDV Oranı', 'Tedarikçi fiyatları **KDV hariç** geliyorsa seçtiğiniz oran alış fiyatına otomatik eklenir. Fiyatlar KDV dahilse %0 bırakın. (Alış fiyatı sistemde hep KDV dahil tutulur.)'],
             ['Ürün KDV Oranı (Trendyol)', 'Satış KDV’si: %0, %1, %10 veya %20. Hem Trendyol’a gider hem fiyat hesabında kullanılır.'],
-            ['Sipariş sonrası hizmet bedeli (₺ / ürün)', 'Tedarikçiniz sipariş verdikten sonra ürün başına **ayrıca hizmet bedeli** alıyorsa buraya yazın. Yalnızca **bu kaynağın ürünleri** için geçerlidir; Kârlılık hesabında gider olarak düşülür ({{#karlilik-maliyet|ayrıntı}}).'],
           ] },
-          { t: 'note', tone: 'warn', x: 'Hizmet bedeli **satış fiyatını değiştirmez**; yalnızca kâr hesabını etkiler. Fiyatın bu bedeli de karşılamasını istiyorsanız fiyat şablonundaki [[Diğer gider (₺)]] alanına ekleyin.' },
+          { t: 'note', tone: 'info', x: 'Tedarikçinizin sipariş sonrası ürün başına aldığı **hizmet bedeli** gibi giderler XML kaynağına değil, **fiyat şablonundaki [[Diğer gider (₺)]]** alanına yazılır; hem satış fiyatına eklenir hem de Kârlılık’ta düşülür ({{#sablon-maliyet|ayrıntı}}).' },
         ],
       },
       {

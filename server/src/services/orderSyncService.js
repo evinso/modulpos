@@ -3,6 +3,7 @@ const TrendyolService = require('./trendyol/trendyolService');
 const notificationService = require('./notificationService');
 const whatsappService = require('./whatsappService');
 const orderCosts = require('./orderCosts');
+const { loadPricingContext } = require('./pricingEngine');
 
 function mapTrendyolStatus(status) {
   const map = {
@@ -47,9 +48,10 @@ async function syncOrdersForStore(store, connections) {
             const products = await orderCosts.loadProducts(prisma, store.id, (pkg.lines || []).flatMap(orderCosts.lineKeys));
             const snap = orderCosts.snapshotFor(pkg.lines || [], products);
             lineCosts = snap ? JSON.stringify(snap) : null;
-            // the supplier's per-unit service fee at this moment ('{}' = checked, none)
-            lineFees = JSON.stringify(orderCosts.feeSnapshotFor(pkg.lines || [], products, await orderCosts.loadFeeBySource(prisma, store.id)));
-          } catch { /* the panel falls back to the product's cost / the source's current fee */ }
+            // the "Diğer gider" of the price template that prices these items, per unit, as it is now (nothing saved when there is none)
+            const fees = orderCosts.otherCostSnapshotFor(pkg.lines || [], products, await loadPricingContext(store.id, conn.id));
+            lineFees = fees ? JSON.stringify(fees) : null;
+          } catch { /* the panel falls back to the product's cost / the template's current value */ }
 
           await prisma.order.create({
             data: {

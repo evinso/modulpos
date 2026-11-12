@@ -33,7 +33,7 @@ ok('a settled order shows Trendyol\'s commission and cargo without "~"', t0.incl
 ok('an unsettled order shows commission and cargo as estimates with "~"', rows()[1].textContent.includes('~141,08 ₺') && rows()[1].textContent.includes('~95,99 ₺'));
 ok('the platform fee is always an estimate', t0.includes('~13,19 ₺'));
 ok('a missing purchase cost is called out and no profit is invented', rows()[1].textContent.includes('maliyet gir') && rows()[1].textContent.includes('—'));
-ok('the supplier service fee gets its own column and card because some order has one', text().includes('Tedarikçi hizmeti') && rows()[0].textContent.includes('30,00 ₺') && rows()[1].textContent.includes('—'));
+ok('the template\'s "Diğer gider" gets its own column and card because some order has one', text().includes('Diğer gider') && text().includes('fiyat şablonundan') && rows()[0].textContent.includes('30,00 ₺') && rows()[1].textContent.includes('—'));
 ok('summary cards: customer paid, commission, cargo, cost and net profit', text().includes('Müşterinin ödediği') && text().includes('1.281,76 ₺') && text().includes('Net kâr') && text().includes('-92,02 ₺'));
 ok('it says how many orders are not in the profit total', text().includes('1 sipariş') && text().includes('kâr toplamına katılmadı'));
 
@@ -89,12 +89,12 @@ ok('summary cards: stopaj and VAT to pay', text().includes('Stopaj') && text().i
 await click(rr()[0]);
 const det = () => document.querySelector('[data-testid="profit-detail"]');
 const dl = det() && det().textContent;
-ok('the detail lists commission, fee, supplier fee, stopaj, VAT to pay, shipping, purchase and net profit', !!dl && ['Komisyon', 'Platform hizmet bedeli', 'Tedarikçi hizmet bedeli', 'Stopaj', 'Ödenecek KDV', 'Kargo', 'Alış maliyeti', 'Net kâr'].every((t) => dl.includes(t)), dl && dl.slice(0, 200));
+ok('the detail lists commission, fee, other cost, stopaj, VAT to pay, shipping, purchase and net profit', !!dl && ['Komisyon', 'Platform hizmet bedeli', 'Diğer gider', 'Stopaj', 'Ödenecek KDV', 'Kargo', 'Alış maliyeti', 'Net kâr'].every((t) => dl.includes(t)), dl && dl.slice(0, 200));
 ok('the separate "Satış KDV\'si" line is gone (it is inside the VAT to pay)', !dl.includes('Satış KDV'));
 ok('a negative VAT to pay is shown as a credit', dl.includes('+ 3,12 ₺') && dl.includes('KDV alacağı'));
 await click(det().querySelector('[data-testid="vat-toggle"]'), 40);
 const vd2 = det().querySelector('[data-testid="vat-detail"]');
-ok('the VAT breakdown names every source', !!vd2 && ['Satıştan oluşan KDV', 'Alıştan oluşan KDV', 'Kargodan oluşan KDV', 'Komisyondan oluşan KDV', 'Hizmet bedelinden oluşan KDV', 'giderlerinizden oluşan KDV düşülür'].every((t) => vd2.textContent.includes(t)));
+ok('the VAT breakdown names every source', !!vd2 && ['Satıştan oluşan KDV', 'Alıştan oluşan KDV', 'Kargodan oluşan KDV', 'Komisyondan oluşan KDV', 'Hizmet bedelinden oluşan KDV', 'Diğer giderden oluşan KDV', 'giderlerinizden oluşan KDV düşülür'].every((t) => vd2.textContent.includes(t)) && !vd2.textContent.includes('Tedarikçi hizmet bedelinde KDV düşülmez'));
 await click(btn('Tahmin ayarları'));
 const iv = document.querySelector('input[aria-label="KDV mükellefiyim"]');
 ok('settings: VAT payer is on, purchase VAT 20, stopaj 1', !!iv && iv.checked === true && document.querySelector('input[aria-label="Alış maliyetindeki KDV"]').value === '20' && document.querySelector('input[aria-label="Stopaj"]').value === '1');

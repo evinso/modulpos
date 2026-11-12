@@ -7,6 +7,7 @@ const { publicConnection } = require('../utils/sanitize');
 const { computeOrderProfit, summarize, parseLines } = require('../services/orderProfit');
 const orderCosts = require('../services/orderCosts');
 const { syncStoreFinance } = require('../services/orderFinanceSync');
+const { loadPricingContext } = require('../services/pricingEngine');
 
 const router = express.Router();
 router.use(auth);
@@ -73,14 +74,16 @@ router.get('/profit', async (req, res, next) => {
     const manual = await orderCosts.loadManual(prisma, store.id);
     const manualCargo = await orderCosts.loadManualCargo(prisma, store.id);
 
-    // product costs / supplier fees for the orders that have no saved snapshot yet (and save the cost snapshot: later XML price
-    // changes must not rewrite history). A fee snapshot is only made when the order arrives; orders without one use the source's current fee.
-    const feeBySource = await orderCosts.loadFeeBySource(prisma, store.id);
-    const need = orders.filter((o) => !o.lineCosts || !o.lineFees);
-    const products = need.length ? await orderCosts.loadProducts(prisma, store.id, need.flatMap((o) => parseLines(o.items).flatMap(orderCosts.lineKeys))) : new Map();
+    // product costs for the orders that have no saved snapshot yet (and save the cost snapshot: later XML price changes must not rewrite history).
+    // The "Diğer gider" of the price template is looked up for every order: a saved snapshot wins, otherwise the template's current value.
+    const ctxByConn = new Map();
+    for (const cid of new Set(orders.map((o) => o.connectionId).filter(Boolean))) {
+      try { ctxByConn.set(cid, await loadPricingContext(store.id, cid)); } catch { /* no template -> no other cost */ }
+    }
+    const products = orders.length ? await orderCosts.loadProducts(prisma, store.id, orders.flatMap((o) => parseLines(o.items).flatMap(orderCosts.lineKeys))) : new Map();
+    const need = orders.filter((o) => !o.lineCosts);
     const snapshots = new Map();
     for (const o of need) {
-      if (o.lineCosts) continue;
       const snap = orderCosts.snapshotFor(parseLines(o.items), products);
       if (snap) snapshots.set(o.id, snap);
     }
@@ -92,9 +95,9 @@ router.get('/profit', async (req, res, next) => {
       // only a snapshot that was really saved when the order arrived counts as "cost at the time"; one made just now is the product's current cost
       const snap = o.lineCosts ? orderCosts.parseJson(o.lineCosts, null) : null;
       const costs = orderCosts.costMapFor(lines, { manual, snapshot: snap, products });
-      const feeSnap = o.lineFees ? orderCosts.parseJson(o.lineFees, {}) : null;
-      const fees = orderCosts.feeMapFor(lines, { snapshot: feeSnap, products, feeBySource });
-      const r = computeOrderProfit(o, { finance: o.finance, costs, fees, settings, manualCargo: manualCargo[o.id] });
+      const otherSnap = o.lineFees ? orderCosts.parseJson(o.lineFees, {}) : null;
+      const others = orderCosts.otherCostMapFor(lines, { snapshot: otherSnap, products, ctx: ctxByConn.get(o.connectionId) || null });
+      const r = computeOrderProfit(o, { finance: o.finance, costs, others, settings, manualCargo: manualCargo[o.id] });
       return { id: o.id, orderNumber: o.orderNumber, marketplaceOrderId: o.marketplaceOrderId, orderDate: o.orderDate, status: o.status, ...r };
     });
 

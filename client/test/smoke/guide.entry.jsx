@@ -47,7 +47,7 @@ const count = (str, re) => (str.match(re) || []).length;
 const badMarkup = allTexts(SECTIONS).filter((x) => count(x, /\*\*/g) % 2 !== 0 || count(x, /\[\[/g) !== count(x, /\]\]/g) || count(x, /\{\{/g) !== count(x, /\}\}/g));
 ok('no broken **bold** / [[name]] / {{link}} markup', badMarkup.length === 0, badMarkup.slice(0, 2).join(' || '));
 ok('every "not ready" reason of the product list is explained', Object.keys(ISSUE_LABELS).every((k) => ISSUE_HELP[k] && ISSUE_HELP[k][0] && ISSUE_HELP[k][1]), Object.keys(ISSUE_LABELS).filter((k) => !ISSUE_HELP[k]).join(','));
-ok('no leftovers of the old guide wording that is wrong today', !JSON.stringify(SECTIONS).includes('Yönetim → Fiyatlandırma') && !JSON.stringify(SECTIONS).includes('XPath'));
+ok('no leftovers of old wording that is wrong today (old menu path, the removed per-XML-source service fee)', !JSON.stringify(SECTIONS).includes('Yönetim → Fiyatlandırma') && !JSON.stringify(SECTIONS).includes('XPath') && !JSON.stringify(SECTIONS).includes('Sipariş sonrası hizmet bedeli') && !JSON.stringify(SECTIONS).includes('Tedarikçi hizmet bedeli'));
 
 // ---------- parsing / search helpers ----------
 const pi = parseInline('Önce **kalın** [[Düğme]] {{/pricing|Şablonlar}} {{#sablon-vergi|vergi}} son');

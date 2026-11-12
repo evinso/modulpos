@@ -19,8 +19,8 @@ export const MONEY = [
       {
         id: 'karlilik-nedir', title: 'Kârlılık sekmesi: ne gösterir?',
         blocks: [
-          { t: 'p', x: 'Trendyol satışlarınız için, sipariş başına: **satış fiyatı**, indirimli satış, müşterinin ödediği, komisyon, hizmet bedeli, (varsa) tedarikçi hizmet bedeli, stopaj, ödenecek KDV, kargo, alış maliyeti ve **net kâr**. Üstteki kartlar seçili aralığın toplamlarını verir; tarih aralığı, durum ve sipariş no/müşteri araması ile daraltırsınız. İptal ve iade siparişler toplamlara katılmaz.' },
-          { t: 'p', x: '**Net kâr** = indirimli satış − komisyon − hizmet bedeli − tedarikçi hizmet bedeli − kargo − alış maliyeti − stopaj − ödenecek KDV. Hesap, {{#sablon-vergi|fiyat şablonundaki vergi modeliyle}} aynıdır ve satırı açınca adım adım görürsünüz, **KDV dökümüyle** birlikte.' },
+          { t: 'p', x: 'Trendyol satışlarınız için, sipariş başına: **satış fiyatı**, indirimli satış, müşterinin ödediği, komisyon, hizmet bedeli, (varsa) diğer gider, stopaj, ödenecek KDV, kargo, alış maliyeti ve **net kâr**. Üstteki kartlar seçili aralığın toplamlarını verir; tarih aralığı, durum ve sipariş no/müşteri araması ile daraltırsınız. İptal ve iade siparişler toplamlara katılmaz.' },
+          { t: 'p', x: '**Net kâr** = indirimli satış − komisyon − hizmet bedeli − diğer gider − kargo − alış maliyeti − stopaj − ödenecek KDV. Hesap, {{#sablon-vergi|fiyat şablonundaki vergi modeliyle}} aynıdır ve satırı açınca adım adım görürsünüz, **KDV dökümüyle** birlikte.' },
           { t: 'note', tone: 'info', x: 'Trendyol’un kendi indirimleri (örn. Trendyol kupon/indirim katkısı) size ödenir; müşteri daha az ödese de gelirinizden düşmez. Satıcı indirimi ve kuponlar ise gelirinizden düşer ve komisyon bu indirimli fiyat üzerinden hesaplanır.' },
         ],
       },
@@ -41,12 +41,12 @@ export const MONEY = [
         ],
       },
       {
-        id: 'karlilik-maliyet', title: 'Alış maliyeti ve tedarikçi hizmet bedeli',
+        id: 'karlilik-maliyet', title: 'Alış maliyeti ve diğer gider',
         blocks: [
           { t: 'ul', x: [
             '**Alış maliyeti** (KDV dahil kabul edilir) üç yerden gelir, güçlüden zayıfa: önce sizin **elle girdiğiniz** birim maliyet, sonra **sipariş geldiği andaki** ürün maliyeti, sonra ürünün **şu anki** maliyeti. Böylece sonradan değişen XML fiyatı geçmiş siparişlerin kârını bozmaz.',
             'Ürün sistemde bulunamıyorsa kâr uydurulmaz: satırda **“maliyet gir”** yazar. Satırı açıp [[Birim ₺]] kutusuna birim alış maliyetini (KDV dahil) yazarsanız, aynı barkodlu tüm siparişlere uygulanır.',
-            '**Tedarikçi hizmet bedeli:** XML kaynağındaki “Sipariş sonrası hizmet bedeli”, o kaynağın ürünleri için sipariş başına düşülür. Tutar, sipariş geldiği andaki değerle saklanır; sonradan değiştirmek eski siparişleri etkilemez. Bu bedelin **KDV’si düşülmez** (faturası bilinmediği için).',
+            '**Diğer gider:** Ürünü fiyatlandıran **fiyat şablonundaki [[Diğer gider (₺)]]** (ör. tedarikçinizin sipariş sonrası ürün başına aldığı hizmet bedeli) her satılan adet için düşülür; fatura KDV’li olduğundan içindeki KDV de ödenecek KDV’den düşülür. Tutar, sipariş geldiği andaki değerle saklanır; şablonu sonradan değiştirmek o siparişi etkilemez (siparişi saklanmamış olanlar şablonun güncel değerini kullanır). **Şablonu bulunamayan** ürünlerde (ürün sisteminizde yoksa ya da hiçbir şablon kapsamıyorsa) diğer gider düşülemez.',
             'Bir sipariş için maliyet veya kargo bilinmiyorsa o sipariş **kâr toplamına katılmaz**; ekranda kaç siparişin dışarıda kaldığı yazar.',
           ] },
         ],

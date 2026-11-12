@@ -33,7 +33,7 @@ export const PRICING = [
             ['Kargo (₺, KDV dahil)', 'Sipariş başına ödediğiniz kargo (faturadaki KDV dahil tutar).'],
             ['Komisyon (%)', 'Pazaryerinin komisyonu. **KDV dahil satış fiyatı** üzerinden alınır (Trendyol böyle keser).'],
             ['Hizmet bedeli (₺, KDV dahil)', 'Pazaryerinin sipariş başına sabit ücreti (şu an genellikle 13,19 ₺, KDV dahil; Trendyol faturanızdaki tutarı yazın).'],
-            ['Diğer gider (₺)', 'Paketleme, etiket vb. sipariş başı sabit giderler.'],
+            ['Diğer gider (₺)', 'Ürün başına sabit giderler: paketleme, etiket, tedarikçinizin sipariş sonrası aldığı **hizmet bedeli** gibi. KDV dahil yazın (faturası KDV’li kesiliyorsa içindeki KDV, “KDV mükellefiyim” açıkken ödenecek KDV’den düşülür). Bu tutar satış fiyatına eklenir; **Siparişler → Kârlılık da aynı tutarı düşer**, yani bir kez yazmanız yeter.'],
           ] },
           { t: 'note', tone: 'info', x: 'Satış fiyatı bu giderleri ve kârınızı karşılayacak şekilde hesaplanır. Bu yüzden ucuz ürünlerde bile fiyat, ürünün kendisinden çok daha yüksek çıkabilir: kargo ve komisyon sabit yük getirir.' },
         ],

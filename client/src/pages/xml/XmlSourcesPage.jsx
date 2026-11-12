@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Plus, RefreshCw, Trash2, FileCode2, Clock, CheckCircle, XCircle, Settings, Eye, ArrowRight, Link2, Send, Tag, DollarSign, Search, Check, FolderTree, Loader2, AlertCircle, ImageOff, X, History, Sparkles } from 'lucide-react';
-import ServiceFeeEditor from './ServiceFeeEditor';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 import LoadingOverlay from '../../components/LoadingOverlay';
@@ -36,7 +35,7 @@ export default function XmlSourcesPage() {
   const [logsLoading, setLogsLoading] = useState(false);
 
   // Add form
-  const [addForm, setAddForm] = useState({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10', purchaseVatRate: '0', orderServiceFee: '' });
+  const [addForm, setAddForm] = useState({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10', purchaseVatRate: '0' });
 
   // Mapping state
   const [analyzing, setAnalyzing] = useState(false);
@@ -242,7 +241,6 @@ export default function XmlSourcesPage() {
         defaultBrandId: addForm.defaultBrandId || null,
         defaultVatRate: Number.isNaN(parseInt(addForm.defaultVatRate)) ? 10 : parseInt(addForm.defaultVatRate),
         purchaseVatRate: parseInt(addForm.purchaseVatRate) || 0,
-        orderServiceFee: addForm.orderServiceFee === '' ? 0 : addForm.orderServiceFee,
       });
       setSavedSourceId(res.data.id);
       
@@ -305,7 +303,7 @@ export default function XmlSourcesPage() {
   const resetAddWizard = () => {
     setShowAddModal(false);
     setAddStep(1);
-    setAddForm({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10', purchaseVatRate: '0', orderServiceFee: '' });
+    setAddForm({ name: '', url: '', syncIntervalMin: 60, barcodePrefix: '', priceMarkup: '', priceMarkupPct: '', defaultCategoryId: '', defaultBrandId: '', defaultVatRate: '10', purchaseVatRate: '0' });
     setAddAnalysis(null);
     setAddMapping({});
     setAddPreview(null);
@@ -643,7 +641,6 @@ export default function XmlSourcesPage() {
                   <span>🕐 {s.lastSyncedAt ? new Date(s.lastSyncedAt).toLocaleString('tr-TR') : 'Henüz yok'}</span>
                 </div>
                 {s.errorMessage && <div className="alert alert-error" style={{ marginBottom: 12 }}>{s.errorMessage}</div>}
-                <ServiceFeeEditor key={`${s.id}-${s.orderServiceFee}`} source={s} onSaved={fetchSources} />
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {!isGlobal && (
                       <button className="btn btn-secondary btn-sm" onClick={() => openMapping(s)}>
@@ -780,14 +777,6 @@ export default function XmlSourcesPage() {
                     </select>
                     <small style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 4, display: 'block' }}>
                       Trendyol'a gönderilecek ürünlerin vergi oranı. Temmuz 2024 sonrası kabul edilen oranlar: %0, %1, %10, %20
-                    </small>
-                  </div>
-                  <div className="form-group" style={{ marginTop: 16 }}>
-                    <label className="form-label">Sipariş sonrası hizmet bedeli (₺ / ürün)</label>
-                    <input type="number" min="0" step="0.01" className="form-input" placeholder="0" value={addForm.orderServiceFee ?? ''}
-                      onChange={e => setAddForm({...addForm, orderServiceFee: e.target.value})} />
-                    <small style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 4, display: 'block' }}>
-                      Sipariş verdikten sonra bu tedarikçiye ürün başına ödediğiniz hizmet bedeli varsa girin. Yalnızca bu kaynağın ürünleri için geçerlidir ve Kârlılık panelinde gider olarak düşülür.
                     </small>
                   </div>
                 </div>

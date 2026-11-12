@@ -367,6 +367,16 @@ class PricingContext {
     return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null;
   }
 
+  /**
+   * The "Diğer gider" (packaging + extra, VAT-inclusive, per sold unit) of the template that prices this product, or null when no template
+   * applies to it. The order profit panel deducts this per unit, so the same number that is built into the sale price is also taken off the profit.
+   */
+  otherCostFor(product) {
+    const r = this._resolve(product);
+    if (!r || !r.conds) return null;
+    return num(r.conds.packagingCost) + num(r.conds.extraCost);
+  }
+
   /** What the price rules say for this product (ignoring any hand-typed price). */
   _resolve(product) {
     for (const { rule, conds } of this.rules) {

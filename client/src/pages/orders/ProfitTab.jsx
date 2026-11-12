@@ -99,7 +99,7 @@ function Breakdown({ row, settings, onSaved }) {
         {!row.taxModel && line('Satış KDV\'si', `− ${tl(row.vat)}`)}
         {line('Komisyon', `− ${tl(row.commission)}`, row.commissionSource === 'trendyol' ? 'Trendyol\'dan' : `tahmini (%${row.commissionRate})`)}
         {line('Platform hizmet bedeli', `− ${tl(row.serviceFee)}`, 'tahmini (ayarlardan)')}
-        {row.supplierFee > 0 && line('Tedarikçi hizmet bedeli', `− ${tl(row.supplierFee)}`, 'XML kaynağı ayarı, ürün başına')}
+        {row.otherCost > 0 && line('Diğer gider', `− ${tl(row.otherCost)}`, 'fiyat şablonundan, ürün başına')}
         {row.taxModel && line('Stopaj', `− ${tl(row.stopaj)}`, `KDV hariç satışın %${settings ? settings.withholdingPct : ''}'i`)}
         {row.taxModel && line('Ödenecek KDV', row.payableVat === null ? '—' : row.payableVat >= 0 ? `− ${tl(row.payableVat)}` : `+ ${tl(-row.payableVat)}`, row.payableVat !== null && row.payableVat < 0 ? 'giderlerin KDV\'si satış KDV\'sinden fazla (KDV alacağı)' : '')}
         {line('Kargo', row.cargo === null ? '—' : `− ${tl(row.cargo)}`, row.cargoSource === 'trendyol' ? 'Trendyol faturasından' : row.cargoSource === 'manual' ? 'elle girildi (fatura gelince güncellenir)' : row.cargoSource === 'estimate' ? (row.status === 'delivered' ? 'tahmini — kargo faturası henüz kesilmedi' : 'tahmini') : 'bilinmiyor')}
@@ -117,8 +117,9 @@ function Breakdown({ row, settings, onSaved }) {
                 {line('Kargodan oluşan KDV', tl(row.vatDetail.cargo))}
                 {line('Komisyondan oluşan KDV', tl(row.vatDetail.commission))}
                 {line('Hizmet bedelinden oluşan KDV', tl(row.vatDetail.serviceFee))}
+                {row.vatDetail.other > 0 && line('Diğer giderden oluşan KDV', tl(row.vatDetail.other))}
                 {line('Ödenecek KDV', tl(row.vatDetail.total), '', true)}
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Ödenecek KDV’den, giderlerinizden oluşan KDV düşülür. Tedarikçi hizmet bedelinde KDV düşülmez.</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Ödenecek KDV’den, giderlerinizden oluşan KDV düşülür.</div>
               </div>
             )}
           </div>
@@ -132,7 +133,7 @@ function Breakdown({ row, settings, onSaved }) {
         {row.lines.map((l) => (
           <div key={l.barcode} style={{ padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}>
             <div style={{ fontWeight: 500 }}>{l.name}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace', marginBottom: 6 }}>{l.barcode} · {l.qty} adet · satış {tl(l.revenue)} · KDV %{l.vatRate} · komisyon %{l.commissionRate}{l.unitFee > 0 ? ` · tedarikçi hizmeti ${tl(l.unitFee)}/adet` : ''}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace', marginBottom: 6 }}>{l.barcode} · {l.qty} adet · satış {tl(l.revenue)} · KDV %{l.vatRate} · komisyon %{l.commissionRate}{l.unitOther > 0 ? ` · diğer gider ${tl(l.unitOther)}/adet` : ''}</div>
             <CostEditor line={l} onSaved={onSaved} />
           </div>
         ))}
@@ -191,7 +192,7 @@ export default function ProfitTab() {
 
   if (loading && !data) return <div className="loading-spinner"><div className="spinner"></div></div>;
   const s = data?.summary; const rows = data?.rows || []; const pg = data?.pagination;
-  const showSupplier = !!(s && s.supplierFee > 0) || rows.some((r) => r.supplierFee > 0);
+  const showOther = !!(s && s.otherCost > 0) || rows.some((r) => r.otherCost > 0);
   const showTax = rows.some((r) => r.taxModel);
 
   return (
@@ -253,7 +254,7 @@ export default function ProfitTab() {
           <Card label="Müşterinin ödediği" value={tl(s.customerPaid)} sub={`liste ${tl(s.gross)}`} />
           <Card label="Komisyon" value={tl(s.commission)} />
           <Card label="Hizmet bedeli" value={tl(s.serviceFee)} sub="Trendyol platform" />
-          {s.supplierFee > 0 && <Card label="Tedarikçi hizmeti" value={tl(s.supplierFee)} sub="XML kaynağı, ürün başına" />}
+          {s.otherCost > 0 && <Card label="Diğer gider" value={tl(s.otherCost)} sub="fiyat şablonundan, ürün başına" />}
           {s.taxModel && <Card label="Stopaj" value={tl(s.stopaj)} sub={`KDV hariç satışın %${data.settings.withholdingPct}'i`} />}
           {s.taxModel && <Card label="Ödenecek KDV" value={tl(s.payableVat)} sub={s.unknownProfit ? `${s.profitOrders} siparişin toplamı` : 'giderlerin KDV’si düşülmüş'} />}
           <Card label="Kargo" value={tl(s.cargo)} />
@@ -280,7 +281,7 @@ export default function ProfitTab() {
               <tr>
                 <th>Tarih</th><th>Sipariş</th><th>Ürün</th>
                 <th style={{ textAlign: 'right' }}>Satış fiyatı</th><th style={{ textAlign: 'right' }}>İndirimli satış</th><th style={{ textAlign: 'right' }}>Müşteri ödedi</th>
-                <th style={{ textAlign: 'right' }}>Komisyon</th><th style={{ textAlign: 'right' }}>Hizmet bedeli</th>{showSupplier && <th style={{ textAlign: 'right' }}>Tedarikçi hizmeti</th>}{showTax && <th style={{ textAlign: 'right' }}>Stopaj</th>}{showTax && <th style={{ textAlign: 'right' }}>Ödenecek KDV</th>}<th style={{ textAlign: 'right' }}>Kargo</th>
+                <th style={{ textAlign: 'right' }}>Komisyon</th><th style={{ textAlign: 'right' }}>Hizmet bedeli</th>{showOther && <th style={{ textAlign: 'right' }}>Diğer gider</th>}{showTax && <th style={{ textAlign: 'right' }}>Stopaj</th>}{showTax && <th style={{ textAlign: 'right' }}>Ödenecek KDV</th>}<th style={{ textAlign: 'right' }}>Kargo</th>
                 <th style={{ textAlign: 'right' }}>Alış maliyeti</th><th style={{ textAlign: 'right' }}>Net kâr</th><th></th>
               </tr>
             </thead>
@@ -301,7 +302,7 @@ export default function ProfitTab() {
                   <td style={{ textAlign: 'right', fontSize: 13, fontWeight: 600 }}>{tl(r.customerPaid)}</td>
                   <td style={{ textAlign: 'right', fontSize: 13, color: r.commissionSource === 'trendyol' ? undefined : 'var(--text-secondary)' }}>{approx(r.commission, r.commissionSource)}</td>
                   <td style={{ textAlign: 'right', fontSize: 13, color: 'var(--text-secondary)' }}>{approx(r.serviceFee, r.serviceFeeSource)}</td>
-                  {showSupplier && <td style={{ textAlign: 'right', fontSize: 13 }}>{r.supplierFee > 0 ? tl(r.supplierFee) : '—'}</td>}
+                  {showOther && <td style={{ textAlign: 'right', fontSize: 13 }}>{r.otherCost > 0 ? tl(r.otherCost) : '—'}</td>}
                   {showTax && <td style={{ textAlign: 'right', fontSize: 13, color: 'var(--text-secondary)' }}>{r.taxModel ? tl(r.stopaj) : '—'}</td>}
                   {showTax && <td style={{ textAlign: 'right', fontSize: 13, color: 'var(--text-secondary)' }}>{r.payableVat === null || r.payableVat === undefined ? '—' : tl(r.payableVat)}</td>}
                   <td style={{ textAlign: 'right', fontSize: 13, color: r.cargoSource === 'trendyol' ? undefined : 'var(--text-secondary)' }}>{approx(r.cargo, r.cargoSource)}</td>
@@ -312,7 +313,7 @@ export default function ProfitTab() {
                   <td>{open === r.id ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</td>
                 </tr>,
                 open === r.id && (
-                  <tr key={r.id + '-d'} data-testid="profit-detail"><td colSpan={12 + (showSupplier ? 1 : 0) + (showTax ? 2 : 0)} style={{ background: 'var(--bg-secondary)' }}><Breakdown row={r} settings={data.settings} onSaved={load} /></td></tr>
+                  <tr key={r.id + '-d'} data-testid="profit-detail"><td colSpan={12 + (showOther ? 1 : 0) + (showTax ? 2 : 0)} style={{ background: 'var(--bg-secondary)' }}><Breakdown row={r} settings={data.settings} onSaved={load} /></td></tr>
                 ),
               ])}
             </tbody>
