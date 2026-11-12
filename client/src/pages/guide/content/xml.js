@@ -76,7 +76,7 @@ export const XML = [
         id: 'xml-ek', title: 'XML Dönüştürücü ve Hazır XML Market',
         blocks: [
           { t: 'ul', x: [
-            '{{/xml-converter|XML Dönüştürücü}}: Sistemin okuyamadığı bir XML biçimini otomatik dönüştürüp kaynak olarak eklemenizi sağlar (kredi harcar).',
+            '{{/xml-converter|XML Dönüştürücü}}: Sistemin okuyamadığı bir XML biçimini otomatik dönüştürüp kaynak olarak eklemenizi sağlar (kredi harcar). Dönüştürdüğünüz her adres için [[Son güncelleme]] gösterilir: dönüştürülmüş XML’in en son ne zaman üretildiği (bir XML kaynağı proxy adresini çektiğinde ya da XML’i indirdiğinizde) ve kaç ürün içerdiği. Tedarikçi dosyanın kendi tarihini bildiriyorsa [[Kaynak dosya tarihi]] de görünür. Bir XML kaynağı henüz çekmediyse “Henüz çekilmedi” yazar; [[Güncelleme bilgilerini yenile]] kredi harcamaz.',
             '{{/global-xml-market|Hazır XML Market}}: Yönetimin hazırladığı tedarikçi listelerini tek tıkla kaynak olarak eklersiniz; alan eşleştirmesi ve kategori eşleştirmesi hazır gelir, adres gizlidir. Eklemek kredi harcayabilir. Bu tedarikçilerden **Tedarikçi Siparişleri** ile sipariş de verebilirsiniz ({{#tedarikci-siparis|ayrıntı}}).',
           ] },
         ],

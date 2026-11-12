@@ -113,11 +113,12 @@ async function fetchPartialStream(url) {
  * Options:
  *   maxProducts  — stop after N products (0 = all)
  *   responseStream — pre-opened readable stream (skips HTTP fetch)
+ *   onHeaders    — callback(headers) with the supplier's response headers (only when this function fetches the URL itself)
  *   onProduct    — async callback(product, index) called for each product.
  *                  When provided, returns { count } instead of an array.
  *                  Return false from callback to stop early.
  */
-async function streamProductObjects(url, { maxProducts = 0, responseStream, onProduct } = {}) {
+async function streamProductObjects(url, { maxProducts = 0, responseStream, onProduct, onHeaders } = {}) {
   let stream = responseStream;
   if (!stream) {
     let res;
@@ -139,6 +140,7 @@ async function streamProductObjects(url, { maxProducts = 0, responseStream, onPr
       throw new Error(`XML URL'sine erişilemedi: ${err.message}`);
     }
     stream = res.data;
+    if (typeof onHeaders === 'function') { try { onHeaders(res.headers || {}); } catch { /* informational only */ } }
   }
 
   return new Promise((resolve, reject) => {

@@ -12,6 +12,7 @@ const mk = (i, over = {}) => ({
 const calls = [];
 const sendBehaviour = { failAt150: false, allBelowStock: false };
 const pc = { aiError: null, aiMatched: 2 };
+const conv = { feeds: {}, previewFeed: null };   // XML converter page: what /xml-converter/feeds/status answers per address, and the feed row a new conversion returns
 const profitTax = { on: false };   // orders profit: the earlier method (false) or the tax model (true)
 // WhatsApp page: tests change `wa.status` / `wa.qr` (a value, or a function of the call number) to play different WAHA situations
 const wa = { engine: 'waha', status: { stateInstance: 'notAuthorized' }, qr: { type: 'loading', message: '' }, qrCalls: 0 };
@@ -115,6 +116,8 @@ const get = async (url, cfg = {}) => {
 };
 const post = async (url, body) => {
   calls.push({ m: 'POST', url, body });
+  if (url === '/xml-converter/feeds/status') { const feeds = {}; for (const u of body.urls) feeds[u] = conv.feeds[u] === undefined ? null : conv.feeds[u]; return { data: { feeds } }; }
+  if (url === '/xml-converter/preview') return { data: { success: true, totalProducts: 4161, sample: [{ stok_kodu: 'A1', adi: 'Örnek ürün', fiyat: { son_kullanici: '10', bayi_fiyati: '8' }, miktar: '3', marka: 'M', kategori: 'K' }], feed: conv.previewFeed, convertedUrl: '/api/xml-converter/proxy?url=x&sig=y' } };
   if (url === '/orders/profit/refresh') return { data: { message: '5 siparişten 0 komisyon, 0 kargo bilgisi Trendyol\'dan alındı', pending: 5 } };
   if (/product-categories\/reset$/.test(url)) return { data: { removedProducts: 1, removedMappings: body.includeMappings ? 2 : 0 } };
   if (/product-categories\/apply-suggestions$/.test(url)) return { data: { applied: body.productIds.length - 1, skipped: 1 } };
@@ -158,5 +161,5 @@ const put = async (url, body) => {
   }
   if (/send-settings$/.test(url)) return { data: { settings: body.settings, summary: [] } }; return { data: {} }; };
 const del = async (url, cfg) => { calls.push({ m: 'DELETE', url, params: cfg && cfg.params, body: cfg && cfg.data }); return { data: /sale-price$/.test(url) ? { ok: true, removed: 1 } : (/product-categories$/.test(url) ? { removed: (cfg.data.productIds || []).length } : {}) }; };
-module.exports = { get, post, put, delete: del, calls, wa, sendBehaviour, pc, profitTax };
+module.exports = { get, post, put, delete: del, calls, wa, sendBehaviour, pc, profitTax, conv };
 module.exports.default = module.exports;

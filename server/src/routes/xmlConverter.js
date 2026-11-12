@@ -17,6 +17,7 @@ const validSig = (url, sig) => {
 const { deductCredits, getSetting } = require('./credits');
 const notificationService = require('../services/notificationService');
 const { streamProductObjects } = require('../services/xml/xmlParser');
+const { recordConverted, recordServed, parseHttpDate, statusFor } = require('../services/xml/converterFeeds');
 
 const FETCH_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -181,6 +182,33 @@ function buildProductXml(normalized) {
 
 const escapeXml = (s) => String(s).replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
 
+/**
+ * Writes the converted XML of `url` into `res` (one product at a time, never the whole file in memory) and notes the result
+ * (when it was produced, how many products, the supplier's own date) for the page. The note is written after the response ended.
+ */
+async function streamConverted(url, res, label) {
+  let count = 0;
+  let modified = null;
+  let error = null;
+  res.write('<?xml version="1.0" encoding="UTF-8"?>\n<Urunler>\n');
+  try {
+    await streamProductObjects(url, {
+      onHeaders: (h) => { modified = parseHttpDate(h['last-modified']); },
+      onProduct: (rawProduct) => {
+        count++;
+        res.write(buildProductXml(normalizeProduct(rawProduct)) + '\n');
+      }
+    });
+  } catch (err) {
+    error = err.message || String(err);
+    console.error(`[${label}] url:`, url, '| error:', error);
+    res.write(`<XmlConverterError><message>${escapeXml(error)}</message></XmlConverterError>`);
+  }
+  res.write('</Urunler>');
+  res.end();
+  recordServed(url, { count, modified, error });
+}
+
 // ── Auth required routes ──────────────────────────────────────────
 
 /**
@@ -206,7 +234,9 @@ router.post('/preview', auth, async (req, res) => {
     const rawProducts = [];
     let totalProducts = 0;
 
+    let sourceModified = null;
     await streamProductObjects(url, {
+      onHeaders: (h) => { sourceModified = parseHttpDate(h['last-modified']); },
       onProduct: (rawProduct) => {
         totalProducts++;
         if (rawProducts.length < 20) rawProducts.push(rawProduct);
@@ -233,10 +263,18 @@ router.post('/preview', auth, async (req, res) => {
       link: '/xml-converter'
     });
 
+    // when this converted XML was produced / what the supplier says about its own file (shown on the page; never blocks the answer)
+    let feed = null;
+    try {
+      await recordConverted(url, { count: totalProducts, modified: sourceModified });
+      feed = (await statusFor([url]))[url] || null;
+    } catch { /* informational only */ }
+
     res.json({
       success: true,
       totalProducts,
       sample,
+      feed,
       convertedUrl: `/api/xml-converter/proxy?url=${encodeURIComponent(url)}&sig=${signUrl(url)}`
     });
   } catch (err) {
@@ -248,6 +286,20 @@ router.post('/preview', auth, async (req, res) => {
     else if (rawMsg.includes('maxContentLength') || rawMsg.includes('maxBodyLength')) msg = 'XML dosyası çok büyük (5 MB önizleme limiti).';
     // Pass the raw technical message so the UI can show it for debugging
     res.status(400).json({ error: msg, detail: rawMsg });
+  }
+});
+
+/**
+ * POST /api/xml-converter/feeds/status   { urls: [supplier addresses] }
+ * -> { feeds: { [address]: { servedAt, servedOk, servedError, productCount, convertedAt, sourceModifiedAt } | null } }
+ * When each converted XML was last produced. Only the addresses sent are looked up (the table has no addresses), no credit is used.
+ */
+router.post('/feeds/status', auth, async (req, res) => {
+  try {
+    res.json({ feeds: await statusFor(req.body && req.body.urls) });
+  } catch (err) {
+    console.error('[xml-converter/feeds/status] error:', err.message);
+    res.status(500).json({ error: 'Güncelleme bilgisi okunamadı' });
   }
 });
 
@@ -265,23 +317,7 @@ router.get('/proxy', async (req, res) => {
 
   res.set('Content-Type', 'application/xml; charset=utf-8');
   res.set('Cache-Control', 'no-cache');
-  res.write('<?xml version="1.0" encoding="UTF-8"?>\n<Urunler>\n');
-
-  try {
-    await streamProductObjects(url, {
-      onProduct: (rawProduct) => {
-        const xml = buildProductXml(normalizeProduct(rawProduct));
-        res.write(xml + '\n');
-      }
-    });
-    res.write('</Urunler>');
-    res.end();
-  } catch (err) {
-    console.error('[Proxy Error] url:', url, '| error:', err.message);
-    res.write(`<XmlConverterError><message>${escapeXml(err.message)}</message></XmlConverterError>`);
-    res.write('</Urunler>');
-    res.end();
-  }
+  await streamConverted(url, res, 'Proxy');
 });
 
 /**
@@ -295,21 +331,7 @@ router.get('/download', auth, async (req, res) => {
   const filename = `converted_${Date.now()}.xml`;
   res.set('Content-Type', 'application/xml; charset=utf-8');
   res.set('Content-Disposition', `attachment; filename="${filename}"`);
-  res.write('<?xml version="1.0" encoding="UTF-8"?>\n<Urunler>\n');
-
-  try {
-    await streamProductObjects(url, {
-      onProduct: (rawProduct) => {
-        res.write(buildProductXml(normalizeProduct(rawProduct)) + '\n');
-      }
-    });
-    res.write('</Urunler>');
-    res.end();
-  } catch (err) {
-    res.write(`<XmlConverterError><message>${escapeXml(err.message)}</message></XmlConverterError>`);
-    res.write('</Urunler>');
-    res.end();
-  }
+  await streamConverted(url, res, 'xml-converter/download');
 });
 
 module.exports = router;

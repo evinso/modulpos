@@ -85,6 +85,10 @@ cd client && npm run test:smoke                 # renders the products screen in
   `ISSUE_LABELS` + `issueHelp.js`). Inline markup: `**bold**`, `[[Screen name]]`, `{{/route|text}}`, `{{#topic-id|text}}`. `npm run test:smoke` (guide) FAILS when a `[[name]]` is not found anywhere in
   the app's source, a `{{/route}}` is not a route in App.jsx, a jump target is missing, or a new readiness reason has no explanation: when you rename a button or add a feature, update the guide
   (and `GUIDE_UPDATED` in `content/index.js`).
+* **XML converter** (`/xml-converter`, `routes/xmlConverter.js`): a LIVE proxy, nothing of the converted XML is stored; every pull of the signed proxy address (an XML source's sync, or the download button) reads the supplier and converts on the spot
+  (`streamConverted`). So "when was it last updated" is a note written after each production: table `XmlConverterFeed` (one row per supplier address, found by the SHA-256 of the normalised address, no address stored; `services/xml/converterFeeds.js`):
+  `servedAt/servedOk/servedError/productCount` from the proxy and download, `convertedAt` from "Dönüştür", `sourceModifiedAt` = the supplier's `Last-Modified` header (via `streamProductObjects`' `onHeaders`; not every supplier sends one, e.g. biii does not,
+  TahtaKale's does). A failed pull or an empty feed is marked failed and keeps the last good product count. Writing the note never breaks the XML (best effort, after the response ended). The page reads it with `POST /xml-converter/feeds/status {urls}` (free, only the addresses sent are looked up).
 * **Field mapping**: `xml/autoMapping.js` guesses the mapping for new feeds; the user's saved mapping always wins. The field list of the mapping screen is
   MERGED over many products (`createFieldCollector` in `xmlParser.js`), never taken from the first product: products of one feed carry different tags
   (2 images on the first, 5 on the others).

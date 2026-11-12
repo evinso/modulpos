@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ArrowRight, Download, Copy, RefreshCw, CheckCircle, AlertCircle, Zap, Globe, FileCode2, Link2, Wallet, Info, Trash2, History } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+import ConverterFeedStatus from './ConverterFeedStatus';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://api.modulpos.com/api';
 const HISTORY_KEY = 'xmlConverterHistory';
@@ -17,14 +18,26 @@ export default function XmlConverterPage() {
 
   const [balance, setBalance] = useState(null);
   const [convertCost, setConvertCost] = useState(1);
+  // "Son güncelleme" of each converted XML, by the address that was typed: undefined = not asked yet, null = nothing recorded
+  const [feeds, setFeeds] = useState({});
+
+  const loadFeeds = useCallback(async (urls) => {
+    const list = [...new Set((urls || []).filter(Boolean))].slice(0, 50);
+    if (list.length === 0) return;
+    try {
+      const r = await api.post('/xml-converter/feeds/status', { urls: list });
+      setFeeds(prev => ({ ...prev, ...(r?.data?.feeds || {}) }));
+    } catch { /* informational only: the page works without it */ }
+  }, []);
 
   useEffect(() => {
     fetchCreditInfo();
     try {
       const saved = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
       setHistory(saved);
+      loadFeeds(saved.map(h => h.originalUrl));
     } catch {}
-  }, []);
+  }, [loadFeeds]);
 
   const addToHistory = (originalUrl, proxyUrl, productCount) => {
     const entry = { originalUrl, proxyUrl, productCount, date: new Date().toISOString() };
@@ -70,6 +83,9 @@ export default function XmlConverterPage() {
 
   const hasEnoughCredits = balance === null || balance >= convertCost;
 
+  // free: re-reads when each converted XML was last updated (the history's addresses and the one just converted)
+  const refreshFeeds = () => loadFeeds([...history.map(h => h.originalUrl), result?.sourceUrl]);
+
   const handlePreview = async () => {
     if (!url.trim()) return toast.error('XML URL gerekli');
     if (!hasEnoughCredits) return toast.error(`Yetersiz kredi. Bu işlem ${convertCost} kredi gerektirir.`);
@@ -78,7 +94,8 @@ export default function XmlConverterPage() {
     try {
       const res = await api.post('/xml-converter/preview', { url });
       if (res.data.success) {
-        setResult(res.data);
+        setResult({ ...res.data, sourceUrl: url });
+        setFeeds(prev => ({ ...prev, [url]: res.data.feed || null }));
         setBalance(prev => prev !== null ? Math.max(0, prev - convertCost) : null);
         toast.success(`${res.data.totalProducts} ürün dönüştürüldü! (${convertCost} kredi kullanıldı)`);
         fetchCreditInfo();
@@ -237,6 +254,7 @@ export default function XmlConverterPage() {
                   {' · '}
                   <span style={{ color: 'var(--warning)' }}>{convertCost} kredi kullanıldı</span>
                 </p>
+                <ConverterFeedStatus feed={feeds[result.sourceUrl]} onRefresh={refreshFeeds} />
               </div>
             </div>
             <a
@@ -301,13 +319,23 @@ export default function XmlConverterPage() {
               <History size={18} style={{ color: 'var(--accent-primary)' }} />
               Dönüştürme Geçmişi ({history.length})
             </h3>
-            <button
-              className="btn btn-secondary"
-              style={{ fontSize: 12, padding: '4px 10px' }}
-              onClick={() => { if (window.confirm('Tüm geçmiş silinsin mi?')) clearHistory(); }}
-            >
-              <Trash2 size={13} /> Temizle
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: 12, padding: '4px 10px' }}
+                onClick={refreshFeeds}
+                title="Son güncelleme bilgilerini yeniler (kredi harcamaz)"
+              >
+                <RefreshCw size={13} /> Güncelleme bilgilerini yenile
+              </button>
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: 12, padding: '4px 10px' }}
+                onClick={() => { if (window.confirm('Tüm geçmiş silinsin mi?')) clearHistory(); }}
+              >
+                <Trash2 size={13} /> Temizle
+              </button>
+            </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {history.map((h, i) => (
@@ -330,6 +358,7 @@ export default function XmlConverterPage() {
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.originalUrl}>
                     ↳ {h.originalUrl}
                   </div>
+                  <ConverterFeedStatus feed={feeds[h.originalUrl]} />
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   <button
