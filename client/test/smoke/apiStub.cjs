@@ -82,7 +82,8 @@ const get = async (url, cfg = {}) => {
     return out;
   }
   if (url === '/credits/balance') return { data: { balance: 25 } };
-  if (url === '/credits/prices') return { data: { buyboxCheckCost: 1, buyboxAdjustCost: 0.1 } };
+  if (url === '/credits/prices') return { data: { xmlConvertCost: 1, xmlImportDefaultCost: 5, buyboxCheckCost: 1, buyboxAdjustCost: 0.1, autoReplyCost: 1, categoryAiCost: 0.5, productCategoryAiCost: 0.05 } };
+  if (url === '/public/pricing-plans') return { data: [{ id: 'pl1', name: 'Başlangıç', price: '₺299', period: '/ ay', yearlyPrice: '₺2.990', features: ['1.000 ürün', '2 XML kaynağı'], isHighlighted: true }, { id: 'pl2', name: 'Pro', price: '₺599', period: '/ ay', features: ['10.000 ürün'] }] };
   if (url === '/marketplace/connections/c1/buybox-history') {
     const row = (barcode, title, sku, order, bbp, our) => ({ barcode, title, sku, buyboxOrder: order, buyboxPrice: bbp, ourPrice: our, hasMultipleSeller: order > 1, checkedAt: '2026-11-08T10:00:00Z', productId: 'p' + barcode });
     return { data: [row('869001', 'Gümüş Kolye İnci', 'KLY-1', 1, 100, 100), row('869002', 'Altın Yüzük Taşlı', 'YZK-2', 2, 90, 100), row('869003', 'Çelik Bileklik', 'BLK-3', 3, 50, 80)] };

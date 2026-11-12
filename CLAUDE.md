@@ -82,6 +82,11 @@ cd client && npm run test:smoke                 # renders the products screen in
   the products' attributes with `auto: true` (refreshed when rules change; hand-typed values and values of a category mapping are never touched) and only when Trendyol accepts the
   value (it is in the attribute's value list, or the attribute allows free text); the rest stays empty and is listed with Trendyol's example values. Applied on saving the rules and
   after every assignment (best effort). The attribute lookup + 6 h cache is shared with the readiness check (`loadRequiredDefs`).
+* **User guide** (`/guide`, `client/src/pages/guide/`): the content is DATA (`content/*.js`: sections -> topics -> blocks), rendered by `GuidePage.jsx` with a table of contents, search
+  (`guideText.js`, Turkish-folded) and live boxes (`LiveBoxes.jsx`: plans from `/public/pricing-plans`, credit prices from `/credits/prices`, the "not ready" table built from the product list's
+  `ISSUE_LABELS` + `issueHelp.js`). Inline markup: `**bold**`, `[[Screen name]]`, `{{/route|text}}`, `{{#topic-id|text}}`. `npm run test:smoke` (guide) FAILS when a `[[name]]` is not found anywhere in
+  the app's source, a `{{/route}}` is not a route in App.jsx, a jump target is missing, or a new readiness reason has no explanation: when you rename a button or add a feature, update the guide
+  (and `GUIDE_UPDATED` in `content/index.js`).
 * **Field mapping**: `xml/autoMapping.js` guesses the mapping for new feeds; the user's saved mapping always wins. The field list of the mapping screen is
   MERGED over many products (`createFieldCollector` in `xmlParser.js`), never taken from the first product: products of one feed carry different tags
   (2 images on the first, 5 on the others).
