@@ -78,7 +78,7 @@ export default function AttributeAuto({ connId, missingProducts, onDone }) {
       </p>
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
         <input type="checkbox" aria-label="Varsayılan cevaplarla doldurulanları da güncelle" checked={replaceRules} disabled={!!busy} onChange={(e) => setReplaceRules(e.target.checked)} />
-        Varsayılan cevaplarla doldurulmuş özellikleri de, metinde net bir değer varsa onunla değiştir (ör. "Çok Renkli" yerine başlıktaki "Siyah")
+        Varsayılan cevaplarla doldurulmuş özellikleri de, başlıkta net bir değer varsa onunla değiştir (ör. "Çok Renkli" yerine başlıktaki "Siyah"; açıklamadan değiştirilmez)
       </label>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <button type="button" className="btn btn-secondary" disabled={!!busy} onClick={fromText}>

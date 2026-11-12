@@ -41,7 +41,7 @@ async function loadDefs(connection, categoryIds, budgetMs = 15000) {
  * Products with a category of their own that still lack required attributes.
  * @param opts.xmlSourceId   only products of this source ('none' = added by hand)
  * @param opts.productIds    only these products
- * @param opts.includeRuleValues  also count attributes that only hold a default answer (auto: true) as open
+ * @param opts.includeRuleValues  also count attributes that only hold a default answer (auto: true) as open (fillFromText then replaces them only by a value read from the TITLE)
  * @returns { gaps: [{ rowId, productId, categoryId, attrs, missing: [def] }], pending, scanned }
  */
 async function findGaps(connection, { xmlSourceId = null, productIds = null, includeRuleValues = false } = {}) {
@@ -114,7 +114,10 @@ async function fillFromText(connection, opts = {}) {
     const entries = {};
     for (const d of g.missing) {
       const pick = pickValue(d, t.title, t.description);
-      if (pick) {
+      // an attribute that only holds a default answer ("Belirtilmemiş", a rule) is a safe answer: it is only replaced by what the TITLE says
+      const holds = AD.hasVal(g.attrs[d.id]);
+      const usePick = pick && (!holds || (pick.from === 'title' && String(g.attrs[d.id].valueId || '') !== pick.valueId));
+      if (usePick) {
         entries[d.id] = { name: d.name, valueId: pick.valueId, valueName: pick.valueName, from: pick.from };   // no `auto`: the default answers never replace it
         byFrom[pick.from]++; filledAttributes++;
       } else if (!AD.hasVal(g.attrs[d.id])) {

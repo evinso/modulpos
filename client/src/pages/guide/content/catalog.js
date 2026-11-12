@@ -131,7 +131,7 @@ export const CATALOG = [
           { t: 'ul', x: [
             '**Tahmin edilmez:** metinde yazmayan bir özellik boş kalır ve “Hâlâ boş” satırında adıyla listelenir; onu kategori başına elle girersiniz. Yanlış değer, ürünün Trendyol’da reddedilmesine yol açabilir.',
             'Rakam içeren değerler (ör. “5 Yıl”, “38 cm”) yalnızca özelliğin adı yanında yazıyorsa seçilir (“5 yıl garanti”, “genişlik 38 cm”); “3-6 yaş” ya da “2x38 cm” gibi aralık ve ölçülerden değer alınmaz. Menşei ve Marka gibi ürünün metninden anlaşılmayan özelliklere dokunulmaz.',
-            'Varsayılan cevapla doldurulmuş bir özellik normalde değişmez. [[Varsayılan cevaplarla doldurulanları da güncelle]] kutusunu işaretlerseniz, metinde net bir değer varsa o yazılır (ör. “Çok Renkli” yerine başlıktaki “Siyah”).',
+            'Varsayılan cevapla doldurulmuş bir özellik normalde değişmez. [[Varsayılan cevaplarla doldurulanları da güncelle]] kutusunu işaretlerseniz, **başlıkta** net bir değer varsa o yazılır (ör. “Çok Renkli” yerine başlıktaki “Siyah”); açıklamadan alınan değerler “Belirtilmemiş” gibi güvenli cevapların yerine yazılmaz.',
             'Bir ürüne kategori atadığınızda ücretsiz adım o ürün için kendiliğinden çalışır. Elle girdiğiniz değerler ve ürüne özel seçilen değerler, kategori için yazdığınız toplu değerle ezilmez.',
           ] },
           { t: 'note', tone: 'tip', x: 'Varsayılan cevaplar bölümüne ürüne göre değişen değerler yazmayın (ör. “Derinlik: 114 cm”, “Hacim: 6500 ml”): bu tür kurallar kategorideki tüm ürünlere aynı değeri yazar. Onları boş bırakın, bu adım her ürüne kendi metnine göre yazsın.' },

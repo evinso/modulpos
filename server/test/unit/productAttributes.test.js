@@ -121,6 +121,19 @@ test('default answers are only replaced when asked for', async () => {
   assert.equal(r.filledAttributes, 1);
 });
 
+test('a default answer is replaced only by what the TITLE says, and only when it is a different value', async () => {
+  reset();
+  db.rows = [row('p1', 'K1', typed(10, 'Renk', '103', 'Çok Renkli', { auto: true })), row('p2', 'K1', typed(10, 'Renk', '103', 'Çok Renkli', { auto: true })), row('p3', 'K1', typed(10, 'Renk', '102', 'Siyah', { auto: true }))];
+  db.products = [prod('p1', 'Kemer', 'Siyah deri kemer.'), prod('p2', 'Mavi Kemer'), prod('p3', 'Siyah Kemer')];
+  const r = await PA.fillFromText({ id: 'c1', storeId: 's1' }, { includeRuleValues: true });
+  assert.equal(attrsOf('p1')[10].valueName, 'Çok Renkli', 'only the description says Siyah: the safe default answer stays');
+  assert.equal(attrsOf('p1')[10].auto, true);
+  assert.equal(attrsOf('p2')[10].valueName, 'Mavi', 'the title says Mavi');
+  assert.equal(attrsOf('p2')[10].from, 'title');
+  assert.equal(attrsOf('p3')[10].auto, true, 'the title says what the default already is: nothing to change');
+  assert.equal(r.filledAttributes, 1);
+});
+
 test('only the listed products, or only one XML source, are looked at', async () => {
   reset();
   db.rows = [row('p1', 'K1'), row('p2', 'K1'), row('p3', 'K1')];
