@@ -36,6 +36,9 @@ cd client && npm run test:smoke                 # renders the products screen in
 * **Products screen** (`client/src/pages/products/`): marketplace first, then its XML source (`SourceGate`); nothing is loaded
   before both are chosen. `xmlSourceId=none` = products added by hand. The price dialog (`PriceModal`) saves a hand-typed
   price and can send it (`priceActions.js`: on sale -> `sync-price-stock`, never sent -> `send-products`).
+* **Trendyol send page** (`/trendyol-send`, `TrendyolSendPage.jsx`): like the products screen it works inside ONE XML source that is chosen FIRST ("Önce XML kaynağını seçin"): before that nothing is listed, no mappings are read,
+  and "Tümünü Gönder" / "Durumları Sorgula" are disabled; there is no "all suppliers" choice. `xmlSourceId=none` means products added by hand (understood by `product-list`, `product-list/ids` and `send-all-ready`).
+  Choosing another source clears the product selection (a selection must never be sent into another source). The API itself still accepts `send-all-ready` without a source (older callers, e2e); only the page requires it.
 * **One readiness validator** (`services/readiness.js`) decides whether a product may be sent; the list shows its reasons
   and the send routes refuse what it blocks. Add new send-time rules there, not in the routes.
 * **XML sync** (`services/xml/syncService.js`) is shared by the manual button and cron: diff in memory, batch writes,

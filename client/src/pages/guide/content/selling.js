@@ -23,9 +23,10 @@ export const SELLING = [
         blocks: [
           { t: 'steps', x: [
             '[[Pazaryerine Gönder]] sayfasını açın (başlığı “Trendyol’a Gönder”). Birden fazla Trendyol bağlantınız varsa üstten seçin.',
-            'Filtreleyin: tedarikçi (XML kaynağı), Trendyol durumu ([[Gönderilmemiş]], [[Bekliyor]], [[Aktif]], [[Reddedildi]], [[Kaldırıldı]]), kategori eşleşmesi, arama.',
-            'Ürünleri kutularla seçin, [[Hazırları Seç]] ile yalnızca gönderilmeye hazır olanları işaretleyin ya da filtrenin tamamı için [[Tüm gönderilebilir ürünler]]’i seçin (sayfalar arası seçer).',
-            '[[Trendyol\'a Gönder]]’e basın. Açılan onay penceresinde [[Minimum Stok Eşiği]]’ni yazabilirsiniz: bu sayıdan **az stoklu ürünler hiç gönderilmez**. (Gönderim ayarlarındaki “En az stok” ise ürünü 0 stokla gönderir; ikisi farklıdır.)',
+            '**Önce XML kaynağını seçin** ([[Önce XML kaynağını seçin]] kutusu). Sayfa seçtiğiniz kaynağın içinde çalışır: kaynak seçilmeden ürün listelenmez, durum sorgulanamaz ve gönderim yapılamaz. Kaynağı değiştirirseniz yaptığınız ürün seçimi temizlenir; böylece bir kaynağın ürünleri yanlışlıkla başka kaynakla birlikte gitmez. XML kaynağı olmayan, elle eklediğiniz ürünler için [[Elle eklenen ürünler (XML kaynağı olmayanlar)]] seçeneği vardır.',
+            'Filtreleyin: Trendyol durumu ([[Gönderilmemiş]], [[Bekliyor]], [[Aktif]], [[Reddedildi]], [[Kaldırıldı]]), kategori eşleşmesi, arama.',
+            'Ürünleri kutularla seçin, [[Hazırları Seç]] ile yalnızca gönderilmeye hazır olanları işaretleyin ya da filtrenin tamamı için [[Filtredeki Tümünü Seç]]’i kullanın (sayfalar arası seçer; gönderilebilir ve Trendyol’a hiç gönderilmemiş olanları seçer).',
+            '[[Seçilenleri Gönder]]’e basın; seçilen kaynaktaki gönderilebilir her ürünü tek seferde göndermek için [[Tümünü Gönder]]’i kullanın. Açılan onay penceresinde [[Minimum Stok Eşiği]]’ni yazabilirsiniz: bu sayıdan **az stoklu ürünler hiç gönderilmez**. (Gönderim ayarlarındaki “En az stok” ise ürünü 0 stokla gönderir; ikisi farklıdır.)',
             'Onaylayın. Çok sayıda ürün **100’lük partiler** halinde gider; ilerleme görünür, [[Durdur]] ile yarıda kesebilirsiniz (gönderilenler geri alınmaz).',
           ] },
           { t: 'note', tone: 'tip', x: 'Gönderimden sonra çıkan özette kaç ürünün gittiği, kaçının **atlandığı** ve [[Atlanan ürünlerin nedenleri]] yazar (ör. minimum stok altında, zaten Trendyol’da, hazır değil). Hazır olmayan ürün hiçbir zaman gönderilmez.' },

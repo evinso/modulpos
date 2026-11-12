@@ -38,6 +38,18 @@ const DUP = (b) => `Aynı barkodlu bir ürününüz bulunduğundan yeni ürün o
     ok('a real rejection and a never-sent product are not counted as "already listed"', (all.d.skipped || 0) >= 3 && all.d.skipReasons.already_listed === 3);
     ok('a product that is on the marketplace but removed there is skipped with its own reason (not re-sent, not flipped to active)', all.d.skipReasons.off_sale === 1, JSON.stringify(all.d.skipReasons));
 
+    // the Trendyol send page always works inside ONE XML source; "none" is the products added by hand, a foreign/unknown source is empty
+    const noneList = await a('GET', `/marketplace/connections/${conn}/product-list?fresh=1&limit=50&xmlSourceId=none`);
+    ok('product list: xmlSourceId=none lists exactly the products added by hand', noneList.s === 200 && noneList.d.products.length === 6 && noneList.d.pagination.total === 6, String(noneList.d.pagination && noneList.d.pagination.total));
+    const noneIds = await a('GET', `/marketplace/connections/${conn}/product-list/ids?fresh=1&xmlSourceId=none`);
+    ok('the "select all" ids follow the same scope', noneIds.s === 200 && noneIds.d.matching === 6, JSON.stringify(noneIds.d).slice(0, 120));
+    const otherList = await a('GET', `/marketplace/connections/${conn}/product-list?fresh=1&limit=50&xmlSourceId=00000000-0000-0000-0000-000000000000`);
+    ok('product list: a source that has none of these products is empty', otherList.s === 200 && otherList.d.products.length === 0);
+    const allNone = await a('POST', `/marketplace/connections/${conn}/send-all-ready`, { minStock: 0, xmlSourceId: 'none' });
+    ok('send-all-ready with xmlSourceId=none works on the products added by hand (same skip reasons)', allNone.s === 400 && allNone.d.skipReasons && allNone.d.skipReasons.already_listed === 3 && allNone.d.skipReasons.off_sale === 1, JSON.stringify(allNone.d && allNone.d.skipReasons));
+    const allOther = await a('POST', `/marketplace/connections/${conn}/send-all-ready`, { minStock: 0, xmlSourceId: '00000000-0000-0000-0000-000000000000' });
+    ok('send-all-ready inside a source that has none of them finds nothing to send', allOther.s === 400 && /Ürün bulunamadı/.test(allOther.d.error || ''), JSON.stringify(allOther.d).slice(0, 100));
+
     // sending selected products: same rule, clear message
     const offSel = await a('POST', `/marketplace/connections/${conn}/send-products`, { productIds: [P.off.id] });
     ok('send-products tells the user the removed product has to be fixed in the marketplace panel', offSel.s === 400 && /satışta değil/i.test(offSel.d.error || '') && offSel.d.offSale === 1, JSON.stringify(offSel.d).slice(0, 140));

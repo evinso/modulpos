@@ -50,7 +50,8 @@ async function getRows(connection, { search = '', xmlSourceId = '', categories =
   if (fresh || !entry || Date.now() - entry.at > CACHE_TTL_MS) {
     const and = [{ storeId: connection.storeId }];
     if (search) and.push({ OR: [{ title: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }, { barcode: { contains: search, mode: 'insensitive' } }] });
-    if (xmlSourceId) and.push({ xmlSourceId });
+    if (xmlSourceId === 'none') and.push({ xmlSourceId: null });   // products added by hand (no XML source)
+    else if (xmlSourceId) and.push({ xmlSourceId });
     const catList = String(categories).split(',').map((c) => c.trim()).filter(Boolean);
     if (catList.length) and.push({ OR: categoryClauses(catList) });
 

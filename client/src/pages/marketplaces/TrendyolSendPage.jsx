@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Send, Search, CheckSquare, Square, Package, AlertCircle,
-  RefreshCw, Filter, X, Check, Clock, Ban, Sparkles
+  RefreshCw, Filter, X, Check, Clock, Ban, Sparkles, FolderTree
 } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
@@ -61,6 +61,8 @@ export default function TrendyolSendPage() {
   const [filterIssue, setFilterIssue] = useState('');
   const [filterMpStatus, setFilterMpStatus] = useState('all'); // all | not_sent | active | pending | rejected | passive
   const [xmlSources, setXmlSources] = useState([]);
+  const [sourcesLoaded, setSourcesLoaded] = useState(false);
+  // The page works inside ONE XML source: nothing is listed and nothing can be sent until it is chosen. 'none' = products added by hand.
   const [filterXmlSource, setFilterXmlSource] = useState('');
   const [filterCategories, setFilterCategories] = useState(new Set());
   const requestSeq = useRef(0);
@@ -81,11 +83,11 @@ export default function TrendyolSendPage() {
   }, [debouncedSearch, filterXmlSource, filterCategories, filterReadiness, filterIssue, filterMpStatus, selectedConn]);
 
   useEffect(() => {
-    if (selectedConn) fetchProducts();
+    if (selectedConn && filterXmlSource) fetchProducts();
   }, [selectedConn, pagination.page, debouncedSearch, filterXmlSource, filterCategories, filterReadiness, filterIssue, filterMpStatus]);
 
   useEffect(() => {
-    if (selectedConn) fetchMappings();
+    if (selectedConn && filterXmlSource) fetchMappings();
   }, [selectedConn, filterXmlSource]);
 
   const fetchConnections = async () => {
@@ -98,7 +100,20 @@ export default function TrendyolSendPage() {
   };
 
   const fetchXmlSources = async () => {
-    try { const res = await api.get('/xml-sources'); setXmlSources(res.data); } catch {}
+    try { const res = await api.get('/xml-sources'); setXmlSources(res.data); } catch { /* the gate then shows no sources */ }
+    finally { setSourcesLoaded(true); }
+  };
+
+  // Choosing another source starts clean: what was selected or listed belongs to the previous one and must never be sent by mistake
+  const pickSource = (id) => {
+    setFilterXmlSource(id);
+    setSelectedIds(new Set());
+    setFilterCategories(new Set());
+    setProducts([]);
+    setStats(null);
+    setMappings([]);
+    setSendResult(null);
+    setPagination(p => ({ ...p, page: 1, total: 0, totalPages: 1 }));
   };
 
   // One request returns the page, the filtered total and the stats – the server does filtering,
@@ -125,10 +140,11 @@ export default function TrendyolSendPage() {
   };
 
   const fetchMappings = async () => {
-    if (!selectedConn) return;
+    if (!selectedConn || !filterXmlSource) return;
+    if (filterXmlSource === 'none') { setMappings([]); return; }   // products added by hand have no XML categories to map
     try {
-      // mappings belong to an XML source: with a source selected only its mappings are shown
-      const res = await api.get(`/marketplace/connections/${selectedConn.id}/category-mappings`, { params: filterXmlSource ? { xmlSourceId: filterXmlSource } : {} });
+      // mappings belong to an XML source: only the chosen source's mappings are shown
+      const res = await api.get(`/marketplace/connections/${selectedConn.id}/category-mappings`, { params: { xmlSourceId: filterXmlSource } });
       setMappings(res.data);
     } catch {}
   };
@@ -157,7 +173,7 @@ export default function TrendyolSendPage() {
     setSendResult(null);
     try {
       const body = { minStock };
-      if (filterXmlSource) body.xmlSourceId = filterXmlSource;
+      body.xmlSourceId = filterXmlSource;
       if (filterCategories.size > 0) body.localCategories = [...filterCategories];
       const res = await api.post(`/marketplace/connections/${selectedConn.id}/send-all-ready`, body);
       setSendResult({ type: 'all', ...res.data, sentAt: new Date().toLocaleString('tr-TR') });
@@ -285,6 +301,7 @@ export default function TrendyolSendPage() {
   const blockedCount = stats?.blocked ?? 0;
   const mpCount = (k) => stats?.mp?.[k] ?? 0;
   const issueEntries = Object.entries(stats?.byIssue || {}).sort((a, b) => b[1] - a[1]);
+  const sourceLabel = filterXmlSource === 'none' ? 'Elle eklenen ürünler' : (xmlSources.find(x => x.id === filterXmlSource)?.name || '');
   const hasFilter = filterReadiness !== 'all' || filterMpStatus !== 'all' || !!filterIssue;
 
   if (loading) return <div className="loading-spinner"><div className="spinner"></div></div>;
@@ -328,11 +345,11 @@ export default function TrendyolSendPage() {
               {connections.map(c => <option key={c.id} value={c.id}>{c.supplierName || c.marketplaceType}</option>)}
             </select>
           )}
-          <button className="btn btn-secondary" onClick={syncMarketplaceStatus} disabled={syncingStatus || !selectedConn}>
+          <button className="btn btn-secondary" onClick={syncMarketplaceStatus} disabled={syncingStatus || !selectedConn || !filterXmlSource} title={filterXmlSource ? undefined : 'Önce bir XML kaynağı seçin'}>
             <RefreshCw size={15} className={syncingStatus ? 'spinning' : ''} />
             {syncingStatus ? 'Sorgulanıyor...' : 'Durumları Sorgula'}
           </button>
-          <button className="btn btn-secondary" onClick={() => setShowSendModal('all')} disabled={sendingAll || sending || !selectedConn}>
+          <button className="btn btn-secondary" onClick={() => setShowSendModal('all')} disabled={sendingAll || sending || !selectedConn || !filterXmlSource} title={filterXmlSource ? undefined : 'Önce bir XML kaynağı seçin'}>
             <Send size={15} /> Tümünü Gönder
           </button>
           <button className="btn btn-primary" onClick={() => setShowSendModal('selected')} disabled={sending || sendingAll || selectedIds.size === 0}>
@@ -341,6 +358,31 @@ export default function TrendyolSendPage() {
         </div>
       </div>
 
+      {/* Step 1: the XML source comes first – listing, selecting and sending all happen inside it */}
+      <div className="card" data-testid="source-gate" style={{ marginBottom: 20, padding: 18, border: filterXmlSource ? undefined : '1px solid var(--accent-primary)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <span style={{ width: 24, height: 24, borderRadius: 12, background: 'var(--accent-primary)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>1</span>
+          <strong style={{ fontSize: 15 }}>Önce XML kaynağını seçin</strong>
+        </div>
+        <select className="form-select" aria-label="XML kaynağı" style={{ maxWidth: 420 }} value={filterXmlSource} onChange={e => pickSource(e.target.value)}>
+          <option value="">XML kaynağı seçin…</option>
+          {xmlSources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          <option value="none">Elle eklenen ürünler (XML kaynağı olmayanlar)</option>
+        </select>
+        <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.5 }}>
+          Ürünleri listelemek, seçmek ve göndermek seçtiğiniz XML kaynağının içinde yapılır; başka kaynağın ürünleri karışmaz.
+          {sourcesLoaded && xmlSources.length === 0 && <> Henüz bir XML kaynağınız yok: önce <a href="/xml-sources">XML Kaynakları</a> sayfasından ekleyin.</>}
+        </p>
+      </div>
+
+      {!filterXmlSource && (
+        <div className="card" data-testid="source-gate-hint" style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}>
+          <FolderTree size={40} style={{ opacity: 0.4, marginBottom: 10 }} />
+          <div>Devam etmek için yukarıdan bir XML kaynağı seçin.</div>
+        </div>
+      )}
+
+      {filterXmlSource && (<>
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 10, marginBottom: 20 }}>
         {[
@@ -458,10 +500,6 @@ export default function TrendyolSendPage() {
             )}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <select className="form-select" style={{ width: 160, fontSize: 13, padding: '6px 10px' }} value={filterXmlSource} onChange={e => setFilterXmlSource(e.target.value)}>
-              <option value="">Tüm Tedarikçiler</option>
-              {xmlSources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
             <select className="form-select" style={{ width: 170, fontSize: 13, padding: '6px 10px' }} value={filterMpStatus} onChange={e => { setFilterMpStatus(e.target.value); }}>
               <option value="all">Tüm Trendyol Durumlar</option>
               <option value="not_sent">Gönderilmemiş</option>
@@ -626,6 +664,8 @@ export default function TrendyolSendPage() {
         )}
       </div>
 
+      </>)}
+
       {/* Send result modal */}
       {sendResult && (
         <div className="modal-overlay" onClick={() => setSendResult(null)}>
@@ -685,7 +725,7 @@ export default function TrendyolSendPage() {
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 14 }}>
                 {showSendModal === 'all'
-                  ? <><strong>Tüm gönderilebilir ürünler</strong> Trendyol'a toplu olarak gönderilecek.</>
+                  ? <><strong>{sourceLabel}</strong> içindeki tüm gönderilebilir ürünler Trendyol'a toplu olarak gönderilecek.</>
                   : <><strong>{selectedIds.size} seçili ürün</strong> Trendyol'a gönderilecek.{selectedIds.size > 100 && <> 100'lük partiler halinde gönderilir, yaklaşık {Math.max(1, Math.round(selectedIds.size / 100 * 8 / 60))} dakika sürebilir; bu sürede sayfayı kapatmayın. İsterseniz <strong>Durdur</strong> ile yarıda kesebilirsiniz (gönderilenler geri alınmaz).</>}</>}
               </p>
               <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '14px 16px', border: '1px solid var(--border-color)' }}>

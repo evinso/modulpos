@@ -28,7 +28,7 @@ export const START = [
             '**Fiyat şablonu oluşturun.** {{/pricing|Fiyat Şablonları}} sayfasında [[Şablon Ekle]]; giderlerinizi, vergi durumunuzu ve kârınızı girin. Şablon yoksa ürünler gönderilemez. ({{#sablon-nasil|ayrıntı}})',
             '**Kategorileri eşleştirin.** {{/category-mapping|Kategori Eşleştirme}} sayfasında XML kategorilerinizi Trendyol kategorilerine bağlayın; karışık kategoriler için **ürün bazlı** kategori vardır. ({{#kategori-neden|ayrıntı}})',
             '**Ürünleri kontrol edin.** {{/products|Ürünler}} sayfasında pazaryerini ve XML kaynağını seçin; her ürünün fiyatını ve gönderilmeye hazır olup olmadığını görürsünüz. ({{#urunler-liste|ayrıntı}})',
-            '**Trendyol’a gönderin.** [[Pazaryerine Gönder]] sayfasında (sayfa başlığı “Trendyol’a Gönder”) ürünleri seçip [[Trendyol\'a Gönder]]’e basın. ({{#gonderim-nasil|ayrıntı}})',
+            '**Trendyol’a gönderin.** [[Pazaryerine Gönder]] sayfasında (sayfa başlığı “Trendyol’a Gönder”) önce XML kaynağını seçin, sonra ürünleri seçip [[Seçilenleri Gönder]]’e basın. ({{#gonderim-nasil|ayrıntı}})',
             '**İzleyin.** {{/orders|Siparişler}} ve kârlılık, [[BuyBox İzleme]], [[Müşteri Soruları]] sayfalarını kullanın.',
           ] },
           { t: 'note', tone: 'tip', x: 'Takıldığınız yerde ürün listesindeki **“hazır değil” nedenine** bakın; çoğu sorun orada adıyla yazar ({{#sorun-hazir|nedenler tablosu}}).' },

@@ -1465,7 +1465,8 @@ router.post('/connections/:id/send-all-ready', async (req, res, next) => {
 
     // Fetch all products for this store
     const productWhere = { storeId: connection.storeId };
-    if (xmlSourceId) productWhere.xmlSourceId = xmlSourceId;
+    if (xmlSourceId === 'none') productWhere.xmlSourceId = null;   // products added by hand (no XML source)
+    else if (xmlSourceId) productWhere.xmlSourceId = xmlSourceId;
     if (Array.isArray(localCategories) && localCategories.length > 0) {
       productWhere.OR = localCategories.flatMap(c => [
         { category: c },
