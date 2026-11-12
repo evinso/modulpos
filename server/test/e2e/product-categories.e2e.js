@@ -30,6 +30,20 @@ const base = 'https://raw.githubusercontent.com/evinso/modulpos/main/server/test
     ok('"select all filtered" returns every id', ids.total === 3 && ids.ids.length === 3);
     ok('manual picker searches the Trendyol tree', (await call('GET', `${P}/search?q=kupa`)).d.some((r) => r.name === 'Kupa'));
 
+    // free suggestions for the XML CATEGORIES (the "Kategori eşleştirme" tab)
+    const bal0 = await balance();
+    const cs = await call('GET', `${P}/category-suggestions?xmlSourceId=${src.id}`);
+    const dbCats = (await c.query(`select category, count(*)::int n from app."Product" where "xmlSourceId"=$1 and category is not null group by 1`, [src.id])).rows;
+    const csRows = (cs.d && cs.d.categories) || [];
+    ok('category suggestions: one row per XML category with its product count', cs.s === 200 && csRows.length === dbCats.length && dbCats.length > 0 && csRows.every((r) => dbCats.some((d) => d.category === r.category && d.n === r.total)), JSON.stringify(csRows.map((r) => [r.category, r.total])));
+    ok('every row has the flags and suggestions with a Trendyol id, name, path and share', csRows.every((r) => typeof r.mixed === 'boolean' && typeof r.weak === 'boolean' && Array.isArray(r.suggestions) && r.suggestions.length <= 3 && r.suggestions.every((x) => x.id && x.name && x.path && typeof x.share === 'number')));
+    ok('a 3-product feed has too little evidence: every category is weak, none mixed', csRows.every((r) => r.weak === true && r.mixed === false));
+    ok('at least one XML category gets a suggestion from its product titles', csRows.some((r) => r.suggestions.length > 0));
+    ok('it needs a XML source ("none" and missing are refused)', (await call('GET', `${P}/category-suggestions`)).s === 400 && (await call('GET', `${P}/category-suggestions?xmlSourceId=none`)).s === 400);
+    ok('a source that is not this store\'s is not found', (await call('GET', `${P}/category-suggestions?xmlSourceId=00000000-0000-0000-0000-000000000000`)).s === 404);
+    ok('another store cannot read them (the connection is not found)', (await callB('GET', `${P}/category-suggestions?xmlSourceId=${src.id}`)).s === 404);
+    ok('suggestions are free', String(await balance()) === String(bal0));
+
     // readiness BEFORE: blocked for lack of any category
     const before = (await call('GET', `/marketplace/connections/${conn}/product-list?limit=50&fresh=1`)).d.products;
     ok('before: every product is blocked by "no category"', before.length === 3 && before.every((p) => p.issues.some((i) => i.code === 'no_category_mapping')));

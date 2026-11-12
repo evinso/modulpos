@@ -80,6 +80,10 @@ cd client && npm run test:smoke                 # renders the products screen in
   the products' attributes with `auto: true` (refreshed when rules change; hand-typed values and values of a category mapping are never touched) and only when Trendyol accepts the
   value (it is in the attribute's value list, or the attribute allows free text); the rest stays empty and is listed with Trendyol's example values. Applied on saving the rules and
   after every assignment (best effort). The attribute lookup + 6 h cache is shared with the readiness check (`loadRequiredDefs`).
+  **Free suggestions for XML categories** (tab "Kategori eşleştirme", card "Önerilen eşleştirmeler", `GET .../product-categories/category-suggestions?xmlSourceId=`, `services/xmlCategorySuggestions.js`): each XML category is judged by up to 30 of its product
+  titles spread over the whole category (same word matcher as the product tab, plus the category name), counted per Trendyol leaf. `share` = titles with that leaf in their top 3; `mixed` = the biggest Trendyol FAMILY (parent category) holds < 40%
+  of the titles' best answers (so "Çelik Kolye"/"Zirkon Kolye" is NOT mixed, "Ev ve Yaşam" is); a non-mixed category drops answers from another top-level category (brass "pirinç" vs rice); `weak` = fewer than 5 products.
+  Nothing is saved from it: a click only fills the mapping form, the user still fills the required attributes and saves. Measured on the owner's feeds: biii 0 of 16 categories mixed, TahtaKale 38 of 79.
 * **User guide** (`/guide`, `client/src/pages/guide/`): the content is DATA (`content/*.js`: sections -> topics -> blocks), rendered by `GuidePage.jsx` with a table of contents, search
   (`guideText.js`, Turkish-folded) and live boxes (`LiveBoxes.jsx`: plans from `/public/pricing-plans`, credit prices from `/credits/prices`, the "not ready" table built from the product list's
   `ISSUE_LABELS` + `issueHelp.js`). Inline markup: `**bold**`, `[[Screen name]]`, `{{/route|text}}`, `{{#topic-id|text}}`. `npm run test:smoke` (guide) FAILS when a `[[name]]` is not found anywhere in

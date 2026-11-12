@@ -11,7 +11,7 @@ const mk = (i, over = {}) => ({
 });
 const calls = [];
 const sendBehaviour = { failAt150: false, allBelowStock: false };
-const pc = { aiError: null, aiMatched: 2 };
+const pc = { aiError: null, aiMatched: 2, saved: [] };   // saved: category mappings the page saved during the test
 const conv = { feeds: {}, previewFeed: null };   // XML converter page: what /xml-converter/feeds/status answers per address, and the feed row a new conversion returns
 const profitTax = { on: false };   // orders profit: the earlier method (false) or the tax model (true)
 // WhatsApp page: tests change `wa.status` / `wa.qr` (a value, or a function of the call number) to play different WAHA situations
@@ -30,7 +30,7 @@ const detail = {
 const get = async (url, cfg = {}) => {
   calls.push({ m: 'GET', url, params: cfg.params });
   if (url === '/xml-sources') return { data: [{ id: 's1', name: 'Tedarikçi A', totalProducts: 8, status: 'active', url: 'https://example.invalid/a.xml', syncIntervalMin: 60, mappingConfig: '{"title":"t"}', _count: { products: 8 } }] };
-  if (url === '/marketplace/connections/c1/category-mappings') return { data: [{ id: 'cm1', xmlSourceId: 's1', localCategory: 'Giyim' }, { id: 'cm2', xmlSourceId: 's1', localCategory: 'Aksesuar' }] };
+  if (url === '/marketplace/connections/c1/category-mappings') return { data: [{ id: 'cm1', xmlSourceId: 's1', localCategory: 'Giyim' }, { id: 'cm2', xmlSourceId: 's1', localCategory: 'Aksesuar' }, ...pc.saved] };
   if (/^\/products\/[^/]+\/price-preview$/.test(url)) { const price = Number(cfg.params.price); return { data: { salePrice: price, templatePrice: 251.9, hasTemplate: true, ruleName: 'genel', purchase: 101, profit: Math.round((price * 0.5 - 120) * 100) / 100, profitPct: 30, marginOnPricePct: 12, commissionAmount: 20, fixedCosts: 10, vatAmount: 40, loss: price < 120 } }; }
   if (url === '/marketplace/connections') return { data: [{ id: 'c1', marketplaceType: 'trendyol', status: 'active', supplierName: 'Mağazam', config: JSON.stringify({ buyboxAutoAdjust: true, buyboxAutoMode: 'undercut', buyboxAutoAmount: 2 }) }] };
   if (url === '/products/summary' && cfg.params && cfg.params.xmlSourceId === 'none') return { data: { total: 0 } };
@@ -95,7 +95,16 @@ const get = async (url, cfg = {}) => {
   if (url === '/whatsapp/connections/w1/status') return { data: wa.status };
   if (url === '/whatsapp/connections/w1/qr') { wa.qrCalls++; return { data: typeof wa.qr === 'function' ? wa.qr(wa.qrCalls) : wa.qr }; }
   if (url.startsWith('/admin/system-settings')) return { data: { waha_enabled: 'false', waha_session: 'default', waha_admin_phone: '905551112233', waha_events: '["new_order"]', waha_otp_enabled: 'false' } };
-  if (url === '/marketplace/local-categories') return { data: ['Giyim', 'Aksesuar', 'Ev ve Yaşam'] };
+  if (url === '/marketplace/local-categories') return { data: ['Giyim', 'Aksesuar', 'Ev ve Yaşam', 'Kolye', 'Kutu'] };
+  if (/\/product-categories\/category-suggestions$/.test(url)) {
+    const leaf = (id, path, share) => ({ id, name: path.split(' > ').pop(), path, share });
+    return { data: { categories: [
+      { category: 'Kolye', total: 898, mixed: false, weak: false, agree: 0.8, suggestions: [leaf(1, 'Aksesuar > Takı & Mücevher > Kolye > Çelik Kolye', 0.67), leaf(2, 'Aksesuar > Takı & Mücevher > Kolye > Zirkon Kolye', 0.47)] },
+      { category: 'Ev ve Yaşam', total: 782, mixed: true, weak: false, agree: 0.07, suggestions: [leaf(11, 'Ev > Saklama > Saklama Kutusu', 0.1), leaf(12, 'Ev > Temizlik > Paspas ve Mop', 0.07)] },
+      { category: 'Giyim', total: 40, mixed: false, weak: false, agree: 0.9, suggestions: [leaf(21, 'Giyim > Elbise', 0.9)] },
+      { category: 'Kutu', total: 3, mixed: false, weak: true, agree: 1, suggestions: [leaf(31, 'Ofis > Para Çekmecesi', 1)] },
+    ] } };
+  }
   if (url === '/marketplace/connections/c1/categories') return { data: { categories: [] } };
   if (url === '/credits/prices') return { data: { categoryAiCost: 0.5 } };
   if (url === '/marketplace/connections/c1/product-categories/overview') return { data: { total: 8, assigned: 1, mapped: 2, missing: 5, aiCostPerProduct: 0.05, categories: [{ category: 'Ev ve Yaşam', total: 6, missing: 4 }, { category: 'Oyuncak &amp; Kırtasiye', total: 2, missing: 1 }] } };
@@ -119,6 +128,7 @@ const post = async (url, body) => {
   if (url === '/xml-converter/feeds/status') { const feeds = {}; for (const u of body.urls) feeds[u] = conv.feeds[u] === undefined ? null : conv.feeds[u]; return { data: { feeds } }; }
   if (url === '/xml-converter/preview') return { data: { success: true, totalProducts: 4161, sample: [{ stok_kodu: 'A1', adi: 'Örnek ürün', fiyat: { son_kullanici: '10', bayi_fiyati: '8' }, miktar: '3', marka: 'M', kategori: 'K' }], feed: conv.previewFeed, convertedUrl: '/api/xml-converter/proxy?url=x&sig=y' } };
   if (url === '/orders/profit/refresh') return { data: { message: '5 siparişten 0 komisyon, 0 kargo bilgisi Trendyol\'dan alındı', pending: 5 } };
+  if (/\/category-mappings$/.test(url)) { pc.saved.push({ id: 'cm' + (3 + pc.saved.length), xmlSourceId: body.xmlSourceId, localCategory: body.localCategory, marketplaceCategoryName: body.marketplaceCategoryName }); return { data: { ok: true } }; }
   if (/product-categories\/reset$/.test(url)) return { data: { removedProducts: 1, removedMappings: body.includeMappings ? 2 : 0 } };
   if (/product-categories\/apply-suggestions$/.test(url)) return { data: { applied: body.productIds.length - 1, skipped: 1 } };
   if (/product-categories\/ai-match$/.test(url)) {

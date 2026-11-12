@@ -74,6 +74,7 @@ export const CATALOG = [
             'Trendyol bu kategori için **zorunlu özellik** istiyorsa (renk, menşei gibi) altında alanlar çıkar; doldurun.',
             '[[Eşleştirmeyi Kaydet]]. Kaydedilenler “Bu XML’in eşleştirmeleri” tablosunda listelenir, [[Sil]] ile kaldırılır.',
           ] },
+          { t: 'p', x: '**Ücretsiz öneriler:** formun altındaki [[Önerilen eşleştirmeler]] kartı, eşleşmemiş her XML kategorisi için içindeki ürünlerin başlıklarından bulunan olası Trendyol kategorilerini gösterir (kelime eşleştirmesi, yapay zeka değil). Bir öneriye tıklayınca XML ve Trendyol kategorisi forma gelir; zorunlu özellikleri kontrol edip kaydedersiniz, kendiliğinden kayıt yapılmaz. Önerinin yanındaki yüzde, ürün başlıklarının kaçında o kategorinin ilk 3 öneri arasında çıktığını gösterir. “Karışık kategori” uyarısı, başlıkların farklı kategorilere işaret ettiği anlamına gelir (ör. “Ev ve Yaşam”): böyle bir kategoriyi tek bir Trendyol kategorisiyle eşleştirmek yerine [[Ürün bazlı kategori]] sekmesini kullanın. Çok az ürünü olan kategorilerde öneri zayıf olabilir.' },
           { t: 'p', x: '[[AI ile Otomatik Eşleştir]] eşleşmemiş tüm kategorileri tek seferde yapay zekayla eşleştirmeyi dener; kategori başına kredi harcar, sonucu elle düzeltebilirsiniz. Hazır XML Market’ten eklenen kaynaklarda kategori eşleştirmeleri merkezi yönetilir, sizin yapmanız gerekmez.' },
         ],
       },

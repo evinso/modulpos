@@ -10,6 +10,7 @@ const { getMatcher } = require('../services/categoryMatcher');
 const { matchProducts, DEFAULT_MODEL } = require('../services/categoryAiPicker');
 const { classifyAiError } = require('../services/aiErrors');
 const AD = require('../services/attributeDefaults');
+const { suggestForCategories } = require('../services/xmlCategorySuggestions');
 
 /**
  * Product-level Trendyol categories: a category chosen for ONE product (wins over the category mapping).
@@ -114,6 +115,22 @@ router.get('/connections/:id/product-categories/products', async (req, res, next
       suggestions: r.current && r.current.productLevel ? [] : matcher.suggest(r.title, { context: r.category, top: 3 }).map(({ id, name, path, score, coverage }) => ({ id, name, path, score, coverage })),
     }));
     res.json({ total: rows.length, page, limit, products: slice });
+  } catch (error) { next(error); }
+});
+
+// GET free suggestions for every XML CATEGORY of one source (the "Kategori eşleştirme" tab): judged by the titles of the category's products
+router.get('/connections/:id/product-categories/category-suggestions', async (req, res, next) => {
+  try {
+    const connection = await getConnection(req.params.id);
+    const xmlSourceId = typeof req.query.xmlSourceId === 'string' ? req.query.xmlSourceId : '';
+    if (!xmlSourceId || xmlSourceId === 'none') return res.status(400).json({ error: 'Önce bir XML kaynağı seçin' });
+    const source = await prisma.xmlSource.findFirst({ where: { id: xmlSourceId, storeId: connection.storeId }, select: { id: true } });
+    if (!source) return res.status(404).json({ error: 'XML kaynağı bulunamadı' });
+    const products = await prisma.product.findMany({
+      where: { storeId: connection.storeId, xmlSourceId: source.id, category: { not: null } },
+      select: { title: true, category: true },
+    });
+    res.json({ categories: suggestForCategories(products, getMatcher()) });
   } catch (error) { next(error); }
 });
 

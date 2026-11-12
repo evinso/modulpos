@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ArrowRight, Search, Check, Loader2, Link2, AlertCircle, FolderTree, Wand2, RotateCcw } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 import ProductCategoriesSection from './productcat/ProductCategoriesSection';
 import ResetDialog from './productcat/ResetDialog';
+import CategorySuggestions from './productcat/CategorySuggestions';
 
 export default function CategoryMappingPage() {
   const [connections, setConnections] = useState([]);
@@ -37,6 +38,10 @@ export default function CategoryMappingPage() {
   const [params, setParams] = useSearchParams();
   const [showReset, setShowReset] = useState(false);
   const [resetToken, setResetToken] = useState(0);
+
+  // Free suggestions for the XML categories of the chosen source; `key` says which connection + source they belong to
+  const [sug, setSug] = useState({ key: '', rows: [], loading: false });
+  const formRef = useRef(null);
 
   useEffect(() => {
     fetchConnections();
@@ -121,6 +126,7 @@ export default function CategoryMappingPage() {
   };
 
   const loadSourceData = async (connId, xmlId) => {
+    loadSuggestions(connId, xmlId);   // not awaited: the page is usable without it
     try {
       const [localRes] = await Promise.all([
         api.get('/marketplace/local-categories', { params: { xmlSourceId: xmlId } }),
@@ -128,6 +134,14 @@ export default function CategoryMappingPage() {
       ]);
       setLocalCategories(localRes.data);
     } catch { toast.error('Veriler yüklenemedi'); }
+  };
+
+  const loadSuggestions = (connId, xmlId) => {
+    const key = `${connId}:${xmlId}`;
+    setSug({ key, rows: [], loading: true });
+    api.get(`/marketplace/connections/${connId}/product-categories/category-suggestions`, { params: { xmlSourceId: xmlId } })
+      .then((r) => setSug((prev) => (prev.key === key ? { key, rows: r.data?.categories || [], loading: false } : prev)))
+      .catch(() => setSug((prev) => (prev.key === key ? { key, rows: [], loading: false } : prev)));   // suggestions are a help, never an error
   };
 
   // Build flat searchable list from tree
@@ -165,6 +179,14 @@ export default function CategoryMappingPage() {
     }
     return map;
   }, [mappings]);
+
+  // A click on a suggestion fills the form (XML category + Trendyol category); the user checks the required attributes and saves
+  const handlePickSuggestion = (category, s) => {
+    setSelectedLocal(category);
+    setSelectedTrendyol({ id: s.id, name: s.name, fullPath: s.path });
+    setCatSearch(s.name);
+    if (formRef.current && formRef.current.scrollIntoView) formRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const handleSaveMapping = async () => {
     if (!selectedLocal || !selectedTrendyol || !selectedConn) return;
@@ -363,7 +385,7 @@ export default function CategoryMappingPage() {
         }
 
         return (
-          <div className="card" style={{ marginBottom: 20, padding: 24 }}>
+          <div className="card" ref={formRef} style={{ marginBottom: 20, padding: 24 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <h3 style={{ fontSize: 16, fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Link2 size={18} style={{ color: 'var(--accent-primary)' }} />
@@ -552,6 +574,15 @@ export default function CategoryMappingPage() {
       </div>
         );
       })()}
+
+      {filterXmlSource && tab === 'mapping' && !isGlobalXml && (
+        <CategorySuggestions
+          rows={(sug.key === `${selectedConn?.id}:${filterXmlSource}` ? sug.rows : []).filter((r) => !mappedLookup[r.category])}
+          loading={sug.key === `${selectedConn?.id}:${filterXmlSource}` && sug.loading}
+          onPick={handlePickSuggestion}
+          onOpenProducts={() => setTab('products')}
+        />
+      )}
 
       {filterXmlSource && tab === 'mapping' && !isGlobalXml && (
         <div className="card" style={{ padding: 20 }}>
