@@ -46,7 +46,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     ok('after the pull "Son güncelleme" is set: when, ok, how many products', !!f && !!f.servedAt && f.servedOk === true && f.productCount === 3 && f.servedError === null, JSON.stringify(f));
     ok('and it is "now"', f && Math.abs(Date.now() - new Date(f.servedAt).getTime()) < 120000);
     ok('the conversion time is still there', f && !!f.convertedAt);
-    ok('no internals leak (the address, the hash, ids)', !/urlHash|\bid\b|raw\.githubusercontent/.test(JSON.stringify(after.d)));
+    ok('the record holds only the six public fields (no hash, no id)', JSON.stringify(Object.keys(f).sort()) === JSON.stringify(['convertedAt', 'productCount', 'servedAt', 'servedError', 'servedOk', 'sourceModifiedAt']), Object.keys(f).join(','));
     ok('GitHub sends no Last-Modified, so the supplier date is empty rather than invented', f && (f.sourceModifiedAt === null || !Number.isNaN(Date.parse(f.sourceModifiedAt))), String(f && f.sourceModifiedAt));
 
     // a second pull moves the time forward
