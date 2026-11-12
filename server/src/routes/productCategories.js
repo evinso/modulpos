@@ -10,6 +10,9 @@ const { getMatcher } = require('../services/categoryMatcher');
 const { matchProducts, DEFAULT_MODEL } = require('../services/categoryAiPicker');
 const { classifyAiError } = require('../services/aiErrors');
 const AD = require('../services/attributeDefaults');
+const PC = require('../services/productCategories');
+const PA = require('../services/productAttributes');
+const { pickAttributes, optionsFor, DEFAULT_MODEL: ATTR_AI_MODEL } = require('../services/attributeAiPicker');
 const { suggestForCategories } = require('../services/xmlCategorySuggestions');
 
 /**
@@ -23,6 +26,7 @@ router.param('id', ownedParam('marketplaceConnection'));
 const MAX_IDS = 10000;
 const MAX_ASSIGN = 500;
 const MAX_AI = 100;
+const MAX_ATTR_AI = 40;
 const SOURCES = new Set(['manual', 'rule', 'ai']);
 
 async function getConnection(id) {
@@ -30,16 +34,18 @@ async function getConnection(id) {
 }
 
 /**
- * Gives the products of freshly assigned categories the connection's default answers for required attributes
- * (when any are set). Best effort: a Trendyol hiccup must never fail the assignment itself.
+ * Gives the products of freshly assigned categories the connection's default answers for required attributes (when any are set), then
+ * reads what is still open from each product's own title and description. Best effort: a Trendyol hiccup must never fail the assignment itself.
  */
-async function fillAfterSave(connection, categoryIds) {
+async function fillAfterSave(connection, categoryIds, productIds) {
   try {
     const d = AD.parseDefaults(connection.config);
-    if (!d.rules.length && !d.fallback.enabled) return;
-    await AD.fillCategories(connection, categoryIds, { budgetMs: 8000 });
-    productListCache.invalidate(connection.storeId);
+    if (d.rules.length || d.fallback.enabled) await AD.fillCategories(connection, categoryIds, { budgetMs: 8000 });
   } catch (e) { console.error('[ProductCategories] varsayılan özellikler uygulanamadı:', e.message); }
+  try {
+    if (productIds && productIds.length) await PA.fillFromText(connection, { productIds });
+  } catch (e) { console.error('[ProductCategories] başlık/açıklamadan özellik seçilemedi:', e.message); }
+  productListCache.invalidate(connection.storeId);
 }
 
 function productWhere(connection, xmlSourceId) {
@@ -173,7 +179,7 @@ router.put('/connections/:id/product-categories', async (req, res, next) => {
       });
     }));
     productListCache.invalidate(connection.storeId);
-    await fillAfterSave(connection, valid.map((a) => String(matcher.get(a.categoryId).id)));
+    await fillAfterSave(connection, valid.map((a) => String(matcher.get(a.categoryId).id)), valid.map((a) => a.productId));
     res.json({ saved: valid.length, skipped: list.length - valid.length });
   } catch (error) { next(error); }
 });
@@ -202,7 +208,7 @@ router.post('/connections/:id/product-categories/apply-suggestions', async (req,
         });
       }));
       productListCache.invalidate(connection.storeId);
-      await fillAfterSave(connection, picked.map(({ leaf }) => String(leaf.id)));
+      await fillAfterSave(connection, picked.map(({ leaf }) => String(leaf.id)), picked.map(({ productId }) => productId));
     }
     res.json({ applied: picked.length, skipped: products.length - picked.length });
   } catch (error) { next(error); }
@@ -299,7 +305,7 @@ router.post('/connections/:id/product-categories/ai-match', async (req, res, nex
         });
       }));
       productListCache.invalidate(connection.storeId);
-      await fillAfterSave(connection, found.map((r) => String(r.categoryId)));
+      await fillAfterSave(connection, found.map((r) => String(r.categoryId)), found.map((r) => r.productId));
     }
     const unmatched = products.length - found.length;
     await refund(unmatched, `${unmatched} ürün için sonuç yok`);
@@ -318,7 +324,8 @@ router.post('/connections/:id/product-categories/ai-match', async (req, res, nex
   }
 });
 
-// GET categories chosen for products, grouped, with the required attributes still missing
+// GET categories chosen for products, grouped, with the required attributes still missing (counted per product: values read from a product's
+// own text belong to that product alone)
 router.get('/connections/:id/product-categories/groups', async (req, res, next) => {
   try {
     const connection = await getConnection(req.params.id);
@@ -328,23 +335,34 @@ router.get('/connections/:id/product-categories/groups', async (req, res, next) 
     const groups = new Map();
     for (const [productId, m] of ctx.productMappings) {
       const key = String(m.marketplaceCategoryId);
-      if (!groups.has(key)) groups.set(key, { categoryId: key, name: m.marketplaceCategoryName || key, count: 0, attributes: m.attributes || null });
-      groups.get(key).count++;
+      if (!groups.has(key)) groups.set(key, { categoryId: key, name: m.marketplaceCategoryName || key, count: 0, shared: {}, lacking: new Map(), lackingProducts: 0 });
+      const g = groups.get(key);
+      g.count++;
+      const required = ctx.requiredAttrs.get(key) || [];
+      const attrs = PA.parseJson(m.attributes);
+      let lacks = false;
+      for (const r of required) { if (!AD.hasVal(attrs[r.id])) { g.lacking.set(r.id, (g.lacking.get(r.id) || 0) + 1); lacks = true; } }
+      if (lacks) g.lackingProducts++;
+      for (const [k, v] of Object.entries(PA.parseJson(PC.shareableJson(m.attributes)))) if (!g.shared[k]) g.shared[k] = v;   // what the form starts with: values that may be shared by the whole category
     }
     const { map: defsMap } = await AD.loadRequiredDefs(connection, [...groups.keys()], { max: 60 }); // cached; gives the value lists for examples
     const out = [...groups.values()].map((g) => {
       const required = ctx.requiredAttrs.get(g.categoryId) || [];
       const defs = defsMap.get(g.categoryId) || [];
-      let attrs = {};
-      try { attrs = g.attributes ? JSON.parse(g.attributes) : {}; } catch { attrs = {}; }
-      const missing = required.filter((r) => { const v = attrs[r.id]; return !v || (!v.valueId && !(v.valueName && String(v.valueName).trim())); });
-      return { categoryId: g.categoryId, name: g.name, count: g.count, required, missing: missing.map((m) => { const d = defs.find((x) => x.id === m.id) || {}; return { ...m, triedDefaults, allowCustom: !!d.allowCustom, examples: (d.values || []).slice(0, 6).map((v) => v.name) }; }), attributes: attrs };
+      const missing = required.filter((r) => g.lacking.has(r.id));
+      return {
+        categoryId: g.categoryId, name: g.name, count: g.count, required, lackingProducts: g.lackingProducts,
+        missing: missing.map((m) => { const df = defs.find((x) => x.id === m.id) || {}; return { ...m, products: g.lacking.get(m.id), triedDefaults, allowCustom: !!df.allowCustom, examples: (df.values || []).slice(0, 6).map((v) => v.name) }; }),
+        attributes: g.shared,
+      };
     }).sort((a, b) => (b.missing.length > 0) - (a.missing.length > 0) || b.count - a.count);
     res.json(out);
   } catch (error) { next(error); }
 });
 
-// PUT required attribute values for ALL products of one chosen category: { categoryId, attributes: { attrId: { name, valueId, valueName } } }
+// PUT required attribute values for the products of one chosen category: { categoryId, attributes: { attrId: { name, valueId, valueName } } }
+// Applied to every product of the category EXCEPT where that product already has a value of its own for the attribute (read from its title
+// or description, or chosen by the AI): those stay.
 router.put('/connections/:id/product-categories/attributes', async (req, res, next) => {
   try {
     const connection = await getConnection(req.params.id);
@@ -355,10 +373,140 @@ router.put('/connections/:id/product-categories/attributes', async (req, res, ne
       if (!/^\d+$/.test(id) || !v || typeof v !== 'object') return res.status(400).json({ error: 'Geçersiz özellik' });
       clean[id] = { name: String(v.name || '').slice(0, 120), valueId: v.valueId ? String(v.valueId) : '', valueName: String(v.valueName || '').slice(0, 200), ...(v.auto === true ? { auto: true } : {}) };
     }
-    const r = await prisma.productCategoryOverride.updateMany({ where: { connectionId: connection.id, marketplaceCategoryId: String(categoryId) }, data: { attributes: JSON.stringify(clean) } });
+    const rows = await prisma.productCategoryOverride.findMany({ where: { connectionId: connection.id, marketplaceCategoryId: String(categoryId) }, select: { id: true, attributes: true } });
+    // rows without their own entries all get the same text: one update for them
+    const plain = [];
+    const special = [];
+    for (const r of rows) {
+      const own = Object.fromEntries(Object.entries(PA.parseJson(r.attributes)).filter(([, v]) => v && v.from));
+      if (Object.keys(own).length === 0) plain.push(r.id); else special.push({ id: r.id, json: JSON.stringify({ ...clean, ...own }) });
+    }
+    let updated = 0;
+    if (plain.length) updated += (await prisma.productCategoryOverride.updateMany({ where: { id: { in: plain } }, data: { attributes: JSON.stringify(clean) } })).count;
+    for (const part of PA.chunk(special, 100)) {
+      await prisma.$transaction(part.map((u) => prisma.productCategoryOverride.update({ where: { id: u.id }, data: { attributes: u.json } })));
+      updated += part.length;
+    }
     productListCache.invalidate(connection.storeId);
-    res.json({ updated: r.count });
+    res.json({ updated });
   } catch (error) { next(error); }
+});
+
+// POST free step: fill the open required attributes of the products from their own title and description.
+// { xmlSourceId?: only this source ('none' = added by hand), productIds?: only these, includeRuleValues?: also replace default answers }
+router.post('/connections/:id/product-categories/attributes-from-text', async (req, res, next) => {
+  try {
+    const connection = await getConnection(req.params.id);
+    const { xmlSourceId, productIds, includeRuleValues } = req.body || {};
+    const opts = { includeRuleValues: includeRuleValues === true };
+    if (xmlSourceId !== undefined && xmlSourceId !== null && xmlSourceId !== '') {
+      if (typeof xmlSourceId !== 'string') return res.status(400).json({ error: 'xmlSourceId geçersiz' });
+      if (xmlSourceId !== 'none') {
+        const source = await prisma.xmlSource.findFirst({ where: { id: xmlSourceId, storeId: connection.storeId }, select: { id: true } });
+        if (!source) return res.status(404).json({ error: 'XML kaynağı bulunamadı' });
+      }
+      opts.xmlSourceId = xmlSourceId;
+    }
+    if (productIds !== undefined) {
+      if (!Array.isArray(productIds) || productIds.length > MAX_IDS) return res.status(400).json({ error: 'productIds geçersiz' });
+      opts.productIds = productIds;
+    }
+    const result = await PA.fillFromText(connection, opts);
+    productListCache.invalidate(connection.storeId);
+    res.json(result);
+  } catch (error) { next(error); }
+});
+
+// GET the products that still lack required attributes (ids for the AI step), and which attributes
+router.get('/connections/:id/product-categories/attribute-gaps', async (req, res, next) => {
+  try {
+    const connection = await getConnection(req.params.id);
+    const xmlSourceId = typeof req.query.xmlSourceId === 'string' && req.query.xmlSourceId ? req.query.xmlSourceId : null;
+    if (xmlSourceId && xmlSourceId !== 'none') {
+      const source = await prisma.xmlSource.findFirst({ where: { id: xmlSourceId, storeId: connection.storeId }, select: { id: true } });
+      if (!source) return res.status(404).json({ error: 'XML kaynağı bulunamadı' });
+    }
+    const { gaps, pending } = await PA.findGaps(connection, { xmlSourceId });
+    const names = new Map();
+    for (const g of gaps) for (const d of g.missing) names.set(d.name, (names.get(d.name) || 0) + 1);
+    const cost = parseFloat(await getSetting('credit_product_attribute_ai', '0.1')) || 0;
+    res.json({ products: gaps.length, ids: gaps.slice(0, MAX_IDS).map((g) => g.productId), attributes: PA.tally(names), pending, aiCostPerProduct: cost });
+  } catch (error) { next(error); }
+});
+
+// POST paid AI step for the open required attributes: { productIds } (max 40 per call; the page sends parts). Only products that got a value are charged.
+router.post('/connections/:id/product-categories/attributes-ai', async (req, res, next) => {
+  let charged = 0;
+  const userId = req.user.id;
+  try {
+    const connection = await getConnection(req.params.id);
+    const ids = Array.isArray(req.body.productIds) ? [...new Set(req.body.productIds)] : [];
+    if (ids.length === 0) return res.status(400).json({ error: 'productIds dizisi gerekli' });
+    if (ids.length > MAX_ATTR_AI) return res.status(400).json({ error: `Bir seferde en fazla ${MAX_ATTR_AI} ürün gönderilebilir` });
+
+    const apiKey = await getSetting('anthropic_api_key', process.env.ANTHROPIC_API_KEY || '');
+    if (!apiKey) return res.status(500).json({ error: 'Anthropic API Key ayarlanmamış. Superadmin → Genel Ayarlar sayfasından ekleyin.' });
+
+    const { gaps } = await PA.findGaps(connection, { productIds: ids });
+    if (gaps.length === 0) return res.json({ asked: 0, filledProducts: 0, filledAttributes: 0, unfilled: 0, charged: 0, partialError: null });
+    const texts = await PA.loadTexts(gaps.map((g) => g.productId));
+    const products = gaps.filter((g) => texts.has(g.productId)).map((g) => ({ key: g.productId, title: texts.get(g.productId).title, description: texts.get(g.productId).description, defs: g.missing }));
+
+    // the products the AI can be asked about are known before it is called, so the price is fixed up front
+    const askable = products.filter((p) => p.defs.some((d) => optionsFor(d, p.title, p.description)));
+    if (askable.length === 0) return res.json({ asked: 0, filledProducts: 0, filledAttributes: 0, unfilled: products.length, charged: 0, partialError: null });
+
+    const cost = parseFloat(await getSetting('credit_product_attribute_ai', '0.1')) || 0;
+    const total = parseFloat((cost * askable.length).toFixed(4));
+    if (total > 0) {
+      try { await deductCredits(userId, total, 'product_attribute_ai', `AI Ürün Özellikleri: ${askable.length} ürün × ${cost} kredi`); charged = total; }
+      catch (creditErr) { return res.status(402).json({ error: creditErr.message }); }
+    }
+    const refund = async (count, why) => {
+      const amount = parseFloat((cost * count).toFixed(4));
+      if (!(amount > 0) || amount > charged + 1e-9) return;
+      try { await refundCredits(userId, amount, `AI Ürün Özellikleri iadesi: ${why}`); charged = parseFloat((charged - amount).toFixed(4)); }
+      catch (e) { console.error('[AI] Kredi iadesi yapılamadı:', e.message); }
+    };
+
+    const model = (await getSetting('ai_product_attribute_model', ATTR_AI_MODEL)) || ATTR_AI_MODEL;
+    const client = new Anthropic({ apiKey });
+    const { results, error: aiError } = await pickAttributes({ client, products: askable, model });
+
+    const admin = req.user.role === 'admin' || req.user.role === 'superadmin';
+    const failure = aiError ? classifyAiError(aiError, { admin }) : null;
+    const updates = [];
+    let filledAttributes = 0;
+    for (const g of gaps) {
+      const got = results.get(g.productId);
+      if (!got) continue;
+      const entries = {};
+      for (const d of g.missing) {
+        const v = got[String(d.id)];
+        if (v) { entries[d.id] = { name: d.name, valueId: v.valueId, valueName: v.valueName, from: 'ai' }; filledAttributes++; }
+      }
+      if (Object.keys(entries).length) updates.push({ rowId: g.rowId, attrs: g.attrs, entries });
+    }
+    if (updates.length === 0 && failure) {
+      await refund(askable.length, 'AI servisi yanıt vermedi');
+      return res.status(502).json({ error: failure.message, aiUnavailable: true, refunded: true });
+    }
+    await PA.writeEntries(updates);
+    if (updates.length) productListCache.invalidate(connection.storeId);
+    const unfilled = askable.length - updates.length;
+    await refund(unfilled, `${unfilled} ürün için değer bulunamadı`);
+    res.json({
+      asked: askable.length, filledProducts: updates.length, filledAttributes, unfilled,
+      charged: parseFloat((cost * updates.length).toFixed(4)),
+      partialError: failure ? failure.message : null,
+    });
+  } catch (error) {
+    console.error('[AI Product Attribute Error]', error.message);
+    if (charged > 0 && !res.headersSent) {
+      try { await refundCredits(userId, charged, 'AI Ürün Özellikleri iadesi: beklenmeyen hata'); } catch (e) { console.error('[AI] Kredi iadesi yapılamadı:', e.message); }
+    }
+    next(error);
+  }
 });
 
 // GET the default answers for required attributes (what is saved, or the suggestion when nothing is saved yet)

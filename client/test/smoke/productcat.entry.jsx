@@ -105,15 +105,46 @@ ok('saving sends all rules and the "everything else" answer', !!sd && sd.body.ru
 const rs = document.querySelector('[data-testid="attr-defaults-result"]');
 ok('the result says how many products got answers and what stayed empty', !!rs && rs.textContent.includes('12 ürüne uygulandı') && rs.textContent.includes('Cinsiyet (2)'), rs && rs.textContent);
 
+// 6b) the open required attributes are read from each product's title and description
+const auto = document.querySelector('[data-testid="attr-auto"]');
+ok('the panel offers to fill open required attributes from title and description', !!auto && auto.textContent.includes('Eksik zorunlu özellikleri ürün başlığı ve açıklamasından otomatik seç') && auto.textContent.includes('3 üründe eksik'), auto && auto.textContent.slice(0, 120));
+ok('both a free and a paid step are offered', !!btn('Başlık ve açıklamadan seç (ücretsiz)') && !!btn('Yapay zekayla tamamla'));
+ok('the list says how many products lack each attribute (only when not all of them do)', text().includes('Renk (3 ürün)') && text().includes('Cinsiyet (2 ürün)'));
+calls.length = 0;
+await click(btn('Başlık ve açıklamadan seç (ücretsiz)'), 150);
+const ft = calls.find((c) => c.m === 'POST' && /attributes-from-text$/.test(c.url));
+ok('the free step is asked, and does not replace default answers unless the box is ticked', !!ft && ft.body.includeRuleValues === false, JSON.stringify(ft && ft.body));
+const rep1 = document.querySelector('[data-testid="attr-report"]');
+ok('the report says how many were chosen and from where, and what stayed empty', !!rep1 && rep1.textContent.includes('3 üründe 5 özellik') && rep1.textContent.includes('başlıktan 3, açıklamadan 2') && rep1.textContent.includes('Hâlâ boş: Garanti Süresi (2 ürün)'), rep1 && rep1.textContent);
+ok('the groups are read again afterwards', calls.some((c) => /product-categories\/groups$/.test(c.url)));
+await click(document.querySelector('input[aria-label="Varsayılan cevaplarla doldurulanları da güncelle"]'), 20);
+calls.length = 0;
+await click(btn('Başlık ve açıklamadan seç (ücretsiz)'), 150);
+ok('ticking the box asks to replace default answers too', calls.find((c) => /attributes-from-text$/.test(c.url)).body.includeRuleValues === true);
+await click(document.querySelector('input[aria-label="Varsayılan cevaplarla doldurulanları da güncelle"]'), 20);
+
+calls.length = 0;
+await click(btn('Yapay zekayla tamamla'), 400);
+ok('the AI step first asks which products are open', calls.some((c) => /attribute-gaps$/.test(c.url)));
+const aiCalls = calls.filter((c) => c.m === 'POST' && /attributes-ai$/.test(c.url));
+ok('then sends them in parts of 40', aiCalls.map((c) => c.body.productIds.length).join() === '40,40,5', aiCalls.map((c) => c.body.productIds.length).join());
+const rep2 = document.querySelector('[data-testid="attr-report"]');
+ok('the AI report: products and attributes chosen, how many were asked, credits used', !!rep2 && rep2.textContent.includes('42 üründe 42 özellik seçildi') && rep2.textContent.includes('85 ürüne soruldu') && rep2.textContent.includes('4,2 kredi'), rep2 && rep2.textContent);
+pc.attrAiError = 'Yapay zeka servisi şu an kullanılamıyor. Kredileriniz iade edildi.';
+calls.length = 0;
+await click(btn('Yapay zekayla tamamla'), 300);
+ok('when the AI service fails the run stops at once and the message is shown', calls.filter((c) => /attributes-ai$/.test(c.url)).length === 1 && document.querySelector('[data-testid="attr-report"]').textContent.includes('Kredileriniz iade edildi'));
+pc.attrAiError = null;
+
 // 7) required attributes are typed once per category
 await click(btn('Özellikleri gir'), 120);
 const sel = document.querySelector('select[aria-label="Renk değeri"]');
 ok('the required attribute offers Trendyol values', !!sel && sel.textContent.includes('Beyaz'));
 calls.length = 0;
-await click(btn('Kaydet (4 ürüne uygulanır)'), 80);
+await click(btn('Kaydet (3 ürüne uygulanır)'), 80);
 ok('saving without a value is refused', !calls.some((c) => c.m === 'PUT' && /attributes$/.test(c.url)));
 await setVal(sel, '91', window.HTMLSelectElement.prototype);
-await click(btn('Kaydet (4 ürüne uygulanır)'), 150);
+await click(btn('Kaydet (3 ürüne uygulanır)'), 150);
 const at = calls.find((c) => c.m === 'PUT' && /attributes$/.test(c.url));
 ok('saving sends the value for the whole category', !!at && at.body.categoryId === '555' && at.body.attributes['5'].valueId === '91', JSON.stringify(at && at.body));
 

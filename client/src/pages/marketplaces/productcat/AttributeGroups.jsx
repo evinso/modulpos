@@ -4,10 +4,11 @@ import toast from 'react-hot-toast';
 import api from '../../../services/api';
 import { shortPath } from './helpers';
 import AttributeDefaults from './AttributeDefaults';
+import AttributeAuto from './AttributeAuto';
 
 /**
- * Trendyol wants some attributes (e.g. "Renk") for many categories. They belong to the CATEGORY, so they are typed once
- * per chosen category and apply to every product that got that category.
+ * Trendyol wants some attributes (e.g. "Renk") for many categories. They can be typed once per chosen category (applies to every product that
+ * got it and has no value of its own yet), or read per product from its title and description (AttributeAuto).
  */
 export default function AttributeGroups({ connId, reloadKey, onChanged }) {
   const [groups, setGroups] = useState(null);
@@ -39,19 +40,20 @@ export default function AttributeGroups({ connId, reloadKey, onChanged }) {
       <AttributeDefaults connId={connId} missing={missingSummary} onApplied={reload} />
       {needing.length > 0 && (
         <>
+          <AttributeAuto connId={connId} missingProducts={needing.reduce((a, g) => a + (g.lackingProducts || 0), 0)} onDone={reload} />
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
             <AlertTriangle size={16} style={{ color: 'var(--warning, #f59e0b)' }} />
             <strong>Zorunlu özellik girilmesi gereken kategoriler ({needing.length})</strong>
           </div>
           <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--text-muted)' }}>
-            Trendyol bu kategoriler için aşağıdaki özellikleri zorunlu tutuyor ve varsayılan cevaplarınız bunlara uymadı. Bir kez girin; o kategoriyi alan tüm ürünlere uygulanır. Girilene kadar bu ürünler gönderilemez.
+            Trendyol bu kategoriler için aşağıdaki özellikleri zorunlu tutuyor ve varsayılan cevaplarınız bunlara uymadı. Bir kez girin; o kategoriyi alan ve bu değeri henüz almamış tüm ürünlere uygulanır (başlıktan ya da yapay zekayla seçilmiş değerler korunur). Girilene kadar bu ürünler gönderilemez.
           </p>
           {needing.map((g) => (
             <div key={g.categoryId} style={{ borderTop: '1px solid var(--border-color)', padding: '10px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 13 }} title={g.name}>{shortPath(g.name, 2)}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{g.count} ürün · eksik: {g.missing.map((m) => m.name).join(', ')}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{g.count} ürün · eksik: {g.missing.map((m) => (m.products && m.products < g.count ? `${m.name} (${m.products} ürün)` : m.name)).join(', ')}</div>
                 </div>
                 <button className="btn btn-secondary" onClick={() => setOpen(open === g.categoryId ? null : g.categoryId)}>
                   {open === g.categoryId ? 'Kapat' : 'Özellikleri gir'}
@@ -121,7 +123,7 @@ function AttributeForm({ connId, group, onSaved }) {
           </div>
         );
       })}
-      <div><button className="btn btn-primary" disabled={saving} onClick={save}>{saving ? 'Kaydediliyor…' : `Kaydet (${group.count} ürüne uygulanır)`}</button></div>
+      <div><button className="btn btn-primary" disabled={saving} onClick={save}>{saving ? 'Kaydediliyor…' : `Kaydet (${group.lackingProducts || group.count} ürüne uygulanır)`}</button></div>
     </div>
   );
 }

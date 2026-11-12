@@ -11,7 +11,7 @@ const mk = (i, over = {}) => ({
 });
 const calls = [];
 const sendBehaviour = { failAt150: false, allBelowStock: false };
-const pc = { aiError: null, aiMatched: 2, saved: [] };   // saved: category mappings the page saved during the test
+const pc = { aiError: null, aiMatched: 2, saved: [], attrAiError: null };   // saved: category mappings the page saved during the test
 const conv = { feeds: {}, previewFeed: null };   // XML converter page: what /xml-converter/feeds/status answers per address, and the feed row a new conversion returns
 const profitTax = { on: false };   // orders profit: the earlier method (false) or the tax model (true)
 // WhatsApp page: tests change `wa.status` / `wa.qr` (a value, or a function of the call number) to play different WAHA situations
@@ -83,7 +83,7 @@ const get = async (url, cfg = {}) => {
     return out;
   }
   if (url === '/credits/balance') return { data: { balance: 25 } };
-  if (url === '/credits/prices') return { data: { xmlConvertCost: 1, xmlImportDefaultCost: 5, buyboxCheckCost: 1, buyboxAdjustCost: 0.1, autoReplyCost: 1, categoryAiCost: 0.5, productCategoryAiCost: 0.05 } };
+  if (url === '/credits/prices') return { data: { xmlConvertCost: 1, xmlImportDefaultCost: 5, buyboxCheckCost: 1, buyboxAdjustCost: 0.1, autoReplyCost: 1, categoryAiCost: 0.5, productCategoryAiCost: 0.05, productAttributeAiCost: 0.1 } };
   if (url === '/public/pricing-plans') return { data: [{ id: 'pl1', name: 'Başlangıç', price: '₺299', period: '/ ay', yearlyPrice: '₺2.990', features: ['1.000 ürün', '2 XML kaynağı'], isHighlighted: true }, { id: 'pl2', name: 'Pro', price: '₺599', period: '/ ay', features: ['10.000 ürün'] }] };
   if (url === '/marketplace/connections/c1/buybox-history') {
     const row = (barcode, title, sku, order, bbp, our) => ({ barcode, title, sku, buyboxOrder: order, buyboxPrice: bbp, ourPrice: our, hasMultipleSeller: order > 1, checkedAt: '2026-11-08T10:00:00Z', productId: 'p' + barcode });
@@ -118,7 +118,8 @@ const get = async (url, cfg = {}) => {
   }
   if (url === '/marketplace/connections/c1/product-categories/ids') return { data: { total: 3, ids: ['q1', 'q2', 'q3'], truncated: false } };
   if (url === '/marketplace/connections/c1/product-categories/search') return { data: [{ id: '10', name: 'Pense', path: 'Hırdavat > Manuel El Aletleri > Pense' }] };
-  if (url === '/marketplace/connections/c1/product-categories/groups') return { data: [{ categoryId: '555', name: 'Ev & Mobilya > Mum > Mum Seti', count: 4, required: [{ id: '5', name: 'Renk' }], missing: [{ id: '5', name: 'Renk', triedDefaults: false, allowCustom: false, examples: ['Beyaz', 'Siyah'] }, { id: '9', name: 'Cinsiyet', triedDefaults: false, allowCustom: false, examples: ['Unisex', 'Erkek', 'Kadın / Kız'] }], attributes: {} }] };
+  if (url === '/marketplace/connections/c1/product-categories/groups') return { data: [{ categoryId: '555', name: 'Ev & Mobilya > Mum > Mum Seti', count: 4, lackingProducts: 3, required: [{ id: '5', name: 'Renk' }], missing: [{ id: '5', name: 'Renk', products: 3, triedDefaults: false, allowCustom: false, examples: ['Beyaz', 'Siyah'] }, { id: '9', name: 'Cinsiyet', products: 2, triedDefaults: false, allowCustom: false, examples: ['Unisex', 'Erkek', 'Kadın / Kız'] }], attributes: {} }] };
+  if (/product-categories\/attribute-gaps$/.test(url)) return { data: { products: 85, ids: Array.from({ length: 85 }, (_, i) => 'g' + i), attributes: [{ name: 'Renk', products: 60 }, { name: 'Garanti Süresi', products: 25 }], pending: 0, aiCostPerProduct: 0.1 } };
   if (url === '/marketplace/connections/c1/product-categories/attribute-defaults') return { data: { saved: false, rules: [{ name: 'Menşei', value: 'TR' }, { name: 'Renk, Web Color', value: 'Çok Renkli' }], fallback: { enabled: true, value: 'Belirtilmemiş' } } };
   if (url === '/marketplace/connections/c1/categories/555/attributes') return { data: { categoryAttributes: [{ required: true, allowCustom: false, attribute: { id: 5, name: 'Renk' }, attributeValues: [{ id: 91, name: 'Beyaz' }, { id: 92, name: 'Siyah' }] }] } };
   throw new Error('unmocked GET ' + url);
@@ -131,6 +132,12 @@ const post = async (url, body) => {
   if (/\/category-mappings$/.test(url)) { pc.saved.push({ id: 'cm' + (3 + pc.saved.length), xmlSourceId: body.xmlSourceId, localCategory: body.localCategory, marketplaceCategoryName: body.marketplaceCategoryName }); return { data: { ok: true } }; }
   if (/product-categories\/reset$/.test(url)) return { data: { removedProducts: 1, removedMappings: body.includeMappings ? 2 : 0 } };
   if (/product-categories\/apply-suggestions$/.test(url)) return { data: { applied: body.productIds.length - 1, skipped: 1 } };
+  if (/product-categories\/attributes-from-text$/.test(url)) return { data: { scanned: 4, products: 4, filledProducts: 3, filledAttributes: 5, byFrom: { title: 3, description: 2 }, stillMissing: [{ name: 'Garanti Süresi', products: 2 }], pending: 0 } };
+  if (/product-categories\/attributes-ai$/.test(url)) {
+    if (pc.attrAiError) { const e = new Error('x'); e.response = { status: 502, data: { error: pc.attrAiError, aiUnavailable: true, refunded: true } }; throw e; }
+    const n = body.productIds.length;
+    return { data: { asked: n, filledProducts: Math.floor(n / 2), filledAttributes: Math.floor(n / 2), unfilled: n - Math.floor(n / 2), charged: Math.round(0.1 * Math.floor(n / 2) * 100) / 100, partialError: null } };
+  }
   if (/product-categories\/ai-match$/.test(url)) {
     if (pc.aiError) { const e = new Error('x'); e.response = { status: 502, data: { error: pc.aiError, aiUnavailable: true, refunded: true } }; throw e; }
     return { data: { matched: Math.min(pc.aiMatched, body.productIds.length), unmatched: Math.max(0, body.productIds.length - pc.aiMatched), noCandidates: 0, charged: 0.1 } };

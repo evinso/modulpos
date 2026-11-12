@@ -107,6 +107,23 @@ const base = 'https://raw.githubusercontent.com/evinso/modulpos/main/server/test
     const again = await call('PUT', P, { assignments: [{ productId: ids.ids[2], categoryId: kupa.id, source: 'manual' }] });
     ok('assigning a category still works when the defaults cannot be applied right now', again.s === 200 && again.d.saved === 1);
 
+    // open required attributes read from each product's title and description (the test credentials cannot reach Trendyol: no value lists)
+    await call('GET', '/credits/balance');
+    await c.query(`update app."CreditBalance" set balance = 50 where "userId" = $1`, [A.user.id]);
+    const balAttr0 = Number(await balance());
+    const gaps = await call('GET', `${P}/attribute-gaps`);
+    ok('gaps list: ids, attribute tally, AI price and how many categories could not be read', gaps.s === 200 && Array.isArray(gaps.d.ids) && Array.isArray(gaps.d.attributes) && typeof gaps.d.products === 'number' && gaps.d.aiCostPerProduct >= 0 && gaps.d.pending >= 0, JSON.stringify(gaps.d).slice(0, 160));
+    ok('gaps list of a XML source works, a foreign source is not found', (await call('GET', `${P}/attribute-gaps?xmlSourceId=${src.id}`)).s === 200 && (await call('GET', `${P}/attribute-gaps?xmlSourceId=00000000-0000-0000-0000-000000000000`)).s === 404);
+    const fromText = await call('POST', `${P}/attributes-from-text`, {});
+    ok('free step answers with its report (nothing to read without value lists, nothing breaks)', fromText.s === 200 && ['scanned', 'products', 'filledProducts', 'filledAttributes'].every((k) => typeof fromText.d[k] === 'number') && Array.isArray(fromText.d.stillMissing) && fromText.d.byFrom && typeof fromText.d.pending === 'number', JSON.stringify(fromText.d).slice(0, 200));
+    ok('free step: a XML source can be given, a foreign one is refused, bad input is refused', (await call('POST', `${P}/attributes-from-text`, { xmlSourceId: src.id })).s === 200 && (await call('POST', `${P}/attributes-from-text`, { xmlSourceId: '00000000-0000-0000-0000-000000000000' })).s === 404 && (await call('POST', `${P}/attributes-from-text`, { productIds: 'x' })).s === 400);
+    ok('free step: "none" (products added by hand) is understood', (await call('POST', `${P}/attributes-from-text`, { xmlSourceId: 'none' })).s === 200);
+    ok('AI attribute step: no products and too many products are refused', (await call('POST', `${P}/attributes-ai`, { productIds: [] })).s === 400 && (await call('POST', `${P}/attributes-ai`, { productIds: Array.from({ length: 41 }, (_, i) => 'x' + i) })).s === 400);
+    const aiAttr = await call('POST', `${P}/attributes-ai`, { productIds: ids.ids });
+    ok('AI attribute step with nothing to ask (no value lists) asks nothing and costs nothing', aiAttr.s === 200 && aiAttr.d.asked === 0 && aiAttr.d.charged === 0 && Math.abs(Number(await balance()) - balAttr0) < 1e-9, JSON.stringify(aiAttr.d));
+    ok('another store cannot use any of the attribute steps (404)', (await callB('GET', `${P}/attribute-gaps`)).s === 404 && (await callB('POST', `${P}/attributes-from-text`, {})).s === 404 && (await callB('POST', `${P}/attributes-ai`, { productIds: ids.ids })).s === 404);
+    ok('the credit price is public to the page', (await call('GET', '/credits/prices')).d.productAttributeAiCost >= 0);
+
     // paid AI step: give the temp user credits, call, and check the books balance whatever the vendor says
     await call('GET', '/credits/balance');
     await c.query(`update app."CreditBalance" set balance = 50 where "userId" = $1`, [A.user.id]);

@@ -116,8 +116,25 @@ export const CATALOG = [
           { t: 'note', tone: 'warn', x: 'Bir değer yalnızca **Trendyol’un listesinde varsa** (ya da özellik serbest yazıya izin veriyorsa) kullanılır. Örneğin “Belirtilmemiş” birçok listede vardır ama hepsinde yok; Cinsiyet, Yaş Grubu, Garanti Süresi, Beden gibi özelliklerin çoğunda yoktur. Doldurulamayanlar sayfanın altındaki **“Zorunlu özellik girilmesi gereken kategoriler”** listesinde kalır; panel o özelliklerin Trendyol’daki gerçek örnek değerlerini çipler halinde gösterir, tıklayarak kural ekleyebilirsiniz.' },
           { t: 'ul', x: [
             'Elle girdiğiniz değerler hiçbir zaman otomatik değiştirilmez; otomatik yazılanlar kuralı değiştirince yenilenir.',
-            'Kategorisi seçilmiş ürünlerin zorunlu özelliği eksikse ürün gönderilmez (“Zorunlu özellik eksik”). Özellikler **kategoriye** aittir: bir kez girin, o kategoriyi alan tüm ürünlere uygulanır.',
+            'Kategorisi seçilmiş ürünlerin zorunlu özelliği eksikse ürün gönderilmez (“Zorunlu özellik eksik”). Özellikler kategoriye aittir: bir kez girin, o kategoriyi alan (ve bu değeri henüz almamış) tüm ürünlere uygulanır; ürüne göre değişenleri başlık ve açıklamadan seçtirebilirsiniz ({{#kategori-ozellik-otomatik|ayrıntı}}).',
           ] },
+        ],
+      },
+      {
+        id: 'kategori-ozellik-otomatik', title: 'Eksik özellikleri başlık ve açıklamadan seçtirme',
+        blocks: [
+          { t: 'p', x: 'Varsayılan cevaplar herkese aynı değeri verir. Ürüne göre değişen özellikler için (renk, cinsiyet, materyal, beden, garanti süresi…) [[Eksik zorunlu özellikleri ürün başlığı ve açıklamasından otomatik seç]] kartı her ürünün **kendi başlığına ve açıklamasına** bakar ve Trendyol’un izin verdiği değerler arasından seçer. Seçilen değer yalnızca o ürüne yazılır, kategorideki diğer ürünlere yayılmaz.' },
+          { t: 'steps', x: [
+            '[[Başlık ve açıklamadan seç (ücretsiz)]]: kelime eşleştirmesiyle çalışır. Değer metinde açıkça geçiyorsa seçer (ör. başlıkta “Siyah” → Renk: Siyah). Başlık bir değeri net söylüyorsa onu alır, birkaç farklı değer sayıyorsa seçmez; başlıkta yoksa açıklamaya bakar.',
+            '[[Yapay zekayla tamamla]]: ücretsiz adımın dolduramadıklarını yapay zeka okur ve yine yalnızca izin verilen değerler arasından seçer. Onay penceresi en fazla kaç kredi kesileceğini söyler; yalnızca değer bulunan ürünler için kredi kesilir, sonuçsuzların kredisi iade edilir. Yapay zeka servisi kullanılamıyorsa işlem ilk istekte durur ve krediniz iade edilir.',
+          ] },
+          { t: 'ul', x: [
+            '**Tahmin edilmez:** metinde yazmayan bir özellik boş kalır ve “Hâlâ boş” satırında adıyla listelenir; onu kategori başına elle girersiniz. Yanlış değer, ürünün Trendyol’da reddedilmesine yol açabilir.',
+            'Rakam içeren değerler (ör. “5 Yıl”, “38 cm”) yalnızca özelliğin adı yanında yazıyorsa seçilir (“5 yıl garanti”, “genişlik 38 cm”); “3-6 yaş” ya da “2x38 cm” gibi aralık ve ölçülerden değer alınmaz. Menşei ve Marka gibi ürünün metninden anlaşılmayan özelliklere dokunulmaz.',
+            'Varsayılan cevapla doldurulmuş bir özellik normalde değişmez. [[Varsayılan cevaplarla doldurulanları da güncelle]] kutusunu işaretlerseniz, metinde net bir değer varsa o yazılır (ör. “Çok Renkli” yerine başlıktaki “Siyah”).',
+            'Bir ürüne kategori atadığınızda ücretsiz adım o ürün için kendiliğinden çalışır. Elle girdiğiniz değerler ve ürüne özel seçilen değerler, kategori için yazdığınız toplu değerle ezilmez.',
+          ] },
+          { t: 'note', tone: 'tip', x: 'Varsayılan cevaplar bölümüne ürüne göre değişen değerler yazmayın (ör. “Derinlik: 114 cm”, “Hacim: 6500 ml”): bu tür kurallar kategorideki tüm ürünlere aynı değeri yazar. Onları boş bırakın, bu adım her ürüne kendi metnine göre yazsın.' },
         ],
       },
       {

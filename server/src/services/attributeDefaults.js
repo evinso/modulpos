@@ -120,7 +120,7 @@ function computeAttributes(defs, existingJson, mappingJson, compiled) {
   const mp = parseJson(mappingJson);
   const required = new Set(defs.map((d) => String(d.id)));
   const res = {};
-  for (const [id, v] of Object.entries(ex)) if (!required.has(id) && hasVal(v) && !v.auto) res[id] = v;
+  for (const [id, v] of Object.entries(ex)) if (!required.has(id) && hasVal(v) && !v.auto && !v.from) res[id] = v;   // a value read from the text was read for the OLD category: dropped
   let auto = 0;
   const unresolved = [];
   for (const d of defs) {

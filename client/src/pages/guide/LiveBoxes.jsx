@@ -52,6 +52,7 @@ export function LiveCredits() {
     ['Otomatik soru yanıtı', creditLabel(prices.autoReplyCost, '/ yanıt')],
     ['Yapay zeka ile XML kategorisi eşleştirme', creditLabel(prices.categoryAiCost, '/ kategori')],
     ['Yapay zeka ile ürün kategorisi', creditLabel(prices.productCategoryAiCost, '/ sonuç alınan ürün')],
+    ['Yapay zeka ile eksik ürün özelliği', creditLabel(prices.productAttributeAiCost, '/ değer bulunan ürün')],
     ['Tedarikçi siparişi (dropship)', 'Tedarikçinin sipariş ücreti, sipariş öncesi gösterilir'],
   ] : [];
   if (prices === null) return <div style={box}><span style={small}>Güncel fiyatlar yükleniyor…</span></div>;

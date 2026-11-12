@@ -16,13 +16,28 @@ const hasValues = (json) => {
 };
 
 /**
+ * The attribute JSON without the entries that belong to ONE product (read from its title/description or chosen by the AI, marked `from`):
+ * what is left may be shared with the other products of the category. null when nothing is left.
+ */
+function shareableJson(json) {
+  if (!json) return null;
+  let o;
+  try { o = JSON.parse(json); } catch { return null; }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+  const kept = {};
+  for (const [id, v] of Object.entries(o)) if (v && !v.from) kept[id] = v;
+  return Object.keys(kept).length ? JSON.stringify(kept) : null;
+}
+
+/**
  * @param overrides   ProductCategoryOverride rows of ONE connection
  * @param catMappings CategoryMapping rows of the same connection
  * @returns Map productId -> mapping-like { marketplaceCategoryId, marketplaceCategoryName, attributes, productLevel:true, source }
  *
  * Required attribute values (e.g. "Renk") belong to the Trendyol category, not to a product. A product without its own
  * values reuses, in this order: another product of the same connection with the same category that has values,
- * then a category mapping of that same Trendyol category.
+ * then a category mapping of that same Trendyol category. Values that belong to one product only (`from`: read from its text or chosen by the AI)
+ * are never taken over by another product.
  */
 function buildOverrideMappings(overrides, catMappings = []) {
   const byCat = new Map();   // categoryId -> attributes JSON
@@ -33,7 +48,8 @@ function buildOverrideMappings(overrides, catMappings = []) {
   const own = new Map();
   for (const o of overrides) {
     const k = String(o.marketplaceCategoryId);
-    if (hasValues(o.attributes)) own.set(k, o.attributes); // a value typed for a product group beats a mapping's
+    const shared = shareableJson(o.attributes);
+    if (hasValues(shared)) own.set(k, shared); // a value typed for a product group beats a mapping's
   }
   const out = new Map();
   for (const o of overrides) {
@@ -59,4 +75,4 @@ async function loadOverrideMappings(connectionId, catMappings) {
   return buildOverrideMappings(overrides, mappings);
 }
 
-module.exports = { buildOverrideMappings, loadOverrideMappings, hasValues };
+module.exports = { buildOverrideMappings, loadOverrideMappings, hasValues, shareableJson };
