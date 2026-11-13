@@ -105,4 +105,11 @@ async function storeIsLinked(store) {
   try { const c = JSON.parse(text); return !!(c && c.me && c.me.id); } catch { return false; }
 }
 
-module.exports = { createDbStore, createMemoryStore, useStoreAuthState, storeIsLinked };
+/** The WhatsApp id of the linked phone ("905321234567:7@s.whatsapp.net") of a store, or null when none is linked. Reads one row. */
+async function storeAccount(store) {
+  const text = await store.get('creds');
+  if (!text) return null;
+  try { const c = JSON.parse(text); return (c && c.me && c.me.id) || null; } catch { return null; }
+}
+
+module.exports = { createDbStore, createMemoryStore, useStoreAuthState, storeIsLinked, storeAccount };

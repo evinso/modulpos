@@ -62,7 +62,7 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     ok('admin: knows which connection method is in use', ['embedded', 'waha'].includes(eng.engine), `${eng.engine}, node ${eng.node}`);
     const st = (await asAdmin('GET', `/whatsapp/connections/${id}/status`)).d || {};
     ok('admin: status always has a state', typeof st.stateInstance === 'string', JSON.stringify(st).slice(0, 120));
-    const stored = (await c.query(`select count(*)::int n from app."WhatsappAuthState"`)).rows[0].n;
+    const stored = (await c.query(`select count(*)::int n from app."WhatsappAuthState" where key like 'default:%'`)).rows[0].n;
 
     if (eng.engine === 'embedded') {
       if (stored === 0) {
@@ -76,7 +76,7 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
         ok('built-in: while the QR is shown the state is "waiting for scan"', st2.stateInstance === 'notAuthorized' && st2.wahaStatus === 'SCAN_QR_CODE', JSON.stringify(st2));
         const out = await asAdmin('POST', `/whatsapp/connections/${id}/logout`);
         ok('built-in: closing the session works', out.s === 200, String(out.s));
-        const left = (await c.query(`select count(*)::int n from app."WhatsappAuthState"`)).rows[0].n;
+        const left = (await c.query(`select count(*)::int n from app."WhatsappAuthState" where key like 'default:%'`)).rows[0].n;
         ok('built-in: nothing is left stored afterwards', left === 0, String(left));
         const st3 = (await asAdmin('GET', `/whatsapp/connections/${id}/status`)).d || {};
         ok('built-in: and the status is "not linked" again', st3.wahaStatus === 'NOT_LINKED', JSON.stringify(st3));

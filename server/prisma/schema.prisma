@@ -90,6 +90,7 @@ model Store {
   autoReplyRules        AutoReplyRule[]
   whatsappConnections   WhatsappConnection[]
   whatsappCampaigns     WhatsappCampaign[]
+  whatsappSenders       WhatsappSender[]
 }
 
 model XmlSource {
@@ -715,6 +716,7 @@ model BuyboxAutoLog {
 model WhatsappCampaign {
   id           String    @id @default(uuid())
   storeId      String
+  senderId     String?               // the number that sends it (WhatsappSender); null = none chosen yet (cannot be started)
   name         String
   message      String                // may contain {ad} and the CSV column names in braces
   minDelaySec  Int
@@ -729,10 +731,28 @@ model WhatsappCampaign {
   updatedAt    DateTime  @updatedAt
 
   store      Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sender     WhatsappSender?             @relation(fields: [senderId], references: [id], onDelete: SetNull)
   recipients WhatsappCampaignRecipient[]
 
   @@index([storeId])
   @@index([status])
+  @@index([senderId])
+}
+
+// A WhatsApp number linked for BULK sending only (admin page /whatsapp-bulk). It has nothing to do with the platform's own WhatsApp
+// number (notifications): its login lives in table WhatsappAuthState under its own key prefix `s-<id>:` (the platform's is `default:`),
+// so the two can never read, overwrite or clear each other. See services/whatsapp/senders.js.
+model WhatsappSender {
+  id        String   @id @default(uuid())
+  storeId   String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store     Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaigns WhatsappCampaign[]
+
+  @@index([storeId])
 }
 
 // One number of a campaign. status: pending | sending | sent | failed. `phone` is the normalised number (905XXXXXXXXX).

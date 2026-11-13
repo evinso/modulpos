@@ -9,9 +9,11 @@ const { renderMessage } = require('./bulkCsv');
  *    timer, the next start (`resume()`) reads the database and goes on with the next number. Nobody is messaged twice: a number is
  *    claimed (pending -> sending) with a conditional update before it is sent, and one that was in flight when the process died is
  *    marked failed ("unknown") instead of being sent again.
- *  - only the oldest running campaign sends; the pause is the campaign's own, so two campaigns never double the speed of the number.
- *  - it protects the one shared number (which also carries the platform's notifications): a daily limit across all campaigns, and a
- *    campaign stops by itself when WhatsApp is not linked / restricted, or when 5 sends in a row fail.
+ *  - every campaign sends from a SENDER number of the bulk page (WhatsappSender, services/whatsapp/senders.js), never from the platform's own
+ *    WhatsApp. Per sender only the oldest running campaign sends (two campaigns never double the speed of one number); different senders
+ *    run side by side.
+ *  - it protects each number: a daily limit across all campaigns of that sender, and a campaign stops by itself when its number is not
+ *    linked / restricted, or when 5 sends in a row fail.
  *  - nothing here reads chats; a campaign sends text only.
  */
 
@@ -30,9 +32,12 @@ const MAX_DELAY_CEIL_SEC = 3600;
 /** Start of the Turkish calendar day that contains `ms` (as epoch ms). */
 function dayStartTr(ms) { return Math.floor((ms + TR_OFFSET_MS) / 86400000) * 86400000 - TR_OFFSET_MS; }
 
-/** Bulk messages already sent today from this store's number (all campaigns together). */
-async function sentTodayFor(prisma, storeId, ms = Date.now()) {
-  const campaigns = await prisma.whatsappCampaign.findMany({ where: { storeId }, select: { id: true } });
+/**
+ * Bulk messages already sent today (Turkish day) from one sender number, all its campaigns together.
+ * `senderId` undefined = every campaign of the store (the store's total); null = campaigns without a sender.
+ */
+async function sentTodayFor(prisma, storeId, ms = Date.now(), senderId = undefined) {
+  const campaigns = await prisma.whatsappCampaign.findMany({ where: { storeId, ...(senderId === undefined ? {} : { senderId }) }, select: { id: true } });
   if (campaigns.length === 0) return 0;
   return prisma.whatsappCampaignRecipient.count({ where: { campaignId: { in: campaigns.map((c) => c.id) }, status: 'sent', sentAt: { gte: new Date(dayStartTr(ms)) } } });
 }
@@ -70,11 +75,11 @@ class BulkRunner {
 
   _db() { if (!this.prisma) this.prisma = require('../../config/database'); return this.prisma; }
 
-  async _client() {
-    if (this.getClient) return this.getClient();
-    const wa = require('./index');
-    const row = await this._db().systemSettings.findUnique({ where: { key: 'waha_session' } }).catch(() => null);
-    return wa.createClient((row && row.value) || 'default');
+  /** The connection of the campaign's sender number. A campaign without one cannot send: it is paused with that sentence. */
+  async _client(c) {
+    if (this.getClient) return this.getClient(c);
+    if (!c.senderId) throw Object.assign(new Error('Gönderici numara seçilmemiş'), { status: 409, userMessage: 'Bu kampanya için gönderici numara seçilmemiş. Kampanyayı düzenleyip bir gönderici seçin.' });
+    return require('./senders').getRegistry().get(c.senderId);
   }
 
   _describe(err) {
@@ -133,8 +138,14 @@ class BulkRunner {
     try {
       await this.heal();
       const running = await this._db().whatsappCampaign.findMany({ where: { status: 'running' }, orderBy: { startedAt: 'asc' } });
-      if (running.length > 0) wake = await this.step(running[0]);        // the oldest one only: the number is shared
-      if (running.length > 1 && wake == null) wake = this.now() + 1000;  // the next one takes over
+      // per sender number only its oldest running campaign sends; different numbers go side by side
+      const bySender = new Map();
+      for (const c of running) { const k = c.senderId || ''; if (!bySender.has(k)) bySender.set(k, []); bySender.get(k).push(c); }
+      const wakes = await Promise.all([...bySender.values()].map(async (list) => {
+        const w = await this.step(list[0]);
+        return list.length > 1 && w == null ? this.now() + 1000 : w;      // the next one of that number takes over
+      }));
+      for (const w of wakes) if (w != null) wake = wake == null ? w : Math.min(wake, w);
     } catch (err) {
       this.log('tur hatası', err && err.message);
       wake = this.now() + 30 * 1000;                                       // e.g. the database blinked: try again
@@ -153,9 +164,9 @@ class BulkRunner {
     const t = this.now();
     if (c.nextSendAt && new Date(c.nextSendAt).getTime() > t) return new Date(c.nextSendAt).getTime();
 
-    if (c.dailyLimit > 0 && (await sentTodayFor(db, c.storeId, t)) >= c.dailyLimit) {
+    if (c.dailyLimit > 0 && (await sentTodayFor(db, c.storeId, t, c.senderId)) >= c.dailyLimit) {
       const resumeAt = dayStartTr(t) + 86400000 + RESUME_HOUR_TR * 3600000;
-      await this._campaign(c, { nextSendAt: new Date(resumeAt), statusNote: `Günlük sınıra (${c.dailyLimit} mesaj) ulaşıldı. Yarın 09:00’da kaldığı yerden kendiliğinden devam edecek.` });
+      await this._campaign(c, { nextSendAt: new Date(resumeAt), statusNote: `Bu numaranın günlük sınırına (${c.dailyLimit} mesaj) ulaşıldı. Yarın 09:00’da kaldığı yerden kendiliğinden devam edecek.` });
       return resumeAt;
     }
 
@@ -182,7 +193,7 @@ class BulkRunner {
 
     let outcome;
     try {
-      const client = await this._client();
+      const client = await this._client(c);
       await client.sendMessage(next.phone, text, { bulk: true });
       outcome = { ok: true };
     } catch (err) {

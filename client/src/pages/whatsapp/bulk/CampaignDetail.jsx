@@ -3,7 +3,7 @@ import { ArrowLeft, Play, Pause, Trash2, Pencil, RotateCcw, Plus, Loader2, Alert
 import toast from 'react-hot-toast';
 import api from '../../../services/api';
 import RecipientImport from './RecipientImport';
-import { STATUS_LABEL, STATUS_STYLE, RECIPIENT_LABEL, RECIPIENT_COLOR, durationText, estimateSeconds, formatTimeSec, secondsBetween, secText, errorText, numText } from './bulkHelpers';
+import { STATUS_LABEL, STATUS_STYLE, RECIPIENT_LABEL, RECIPIENT_COLOR, durationText, estimateSeconds, formatTimeSec, secondsBetween, secText, errorText, numText, senderState } from './bulkHelpers';
 
 const muted = { fontSize: 12, color: 'var(--text-muted)' };
 const POLL_MS = 4000;
@@ -74,7 +74,7 @@ export default function CampaignDetail({ id, overview, onBack, onChanged, onEdit
   const pct = counts.total ? Math.round((finished / counts.total) * 100) : 0;
   const st = STATUS_STYLE[c.status] || STATUS_STYLE.draft;
   const wait = running && c.nextSendAt ? Math.max(0, Math.round((new Date(c.nextSendAt).getTime() - now) / 1000)) : null;
-  const connected = ['authorized', 'starting'].includes(overview.connection.state);
+  const sender = c.sender || null;                                        // the number this campaign sends from (null = none chosen)
   const editable = c.status === 'draft' || c.status === 'paused';
 
   return (
@@ -108,13 +108,16 @@ export default function CampaignDetail({ id, overview, onBack, onChanged, onEdit
             <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 2 }} /> <span>{c.statusNote}</span>
           </div>
         )}
-        {!connected && c.status !== 'done' && (
-          <div style={{ marginTop: 10, fontSize: 13, color: 'var(--danger)' }}>WhatsApp şu an bağlı görünmüyor: {overview.connection.message || 'WhatsApp sayfasından telefonu bağlayın.'}</div>
+        {c.status !== 'done' && !sender && (
+          <div data-testid="no-sender" style={{ marginTop: 10, fontSize: 13, color: 'var(--danger)' }}>Bu kampanya için gönderici numara seçilmemiş. “Düzenle” ile bir numara seçin (numara yoksa sayfanın üstünden ekleyip QR ile bağlayın).</div>
+        )}
+        {c.status !== 'done' && sender && !sender.ready && (
+          <div data-testid="sender-not-ready" style={{ marginTop: 10, fontSize: 13, color: 'var(--danger)' }}>“{sender.name}” numarası bağlı değil: {sender.message || 'sayfanın üstünden QR kodu okutup bağlayın.'}</div>
         )}
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
           {(c.status === 'draft' || c.status === 'paused') && (
-            <button type="button" className="btn btn-primary" disabled={!!busy || counts.pending === 0} onClick={start}>
+            <button type="button" className="btn btn-primary" disabled={!!busy || counts.pending === 0 || !sender} onClick={start}>
               {busy === 'start' ? <Loader2 size={14} className="spinning" /> : <Play size={14} />} {c.status === 'draft' ? 'Başlat' : 'Devam et'}
             </button>
           )}
@@ -135,7 +138,8 @@ export default function CampaignDetail({ id, overview, onBack, onChanged, onEdit
 
       <div className="card" style={{ padding: 20, marginBottom: 16 }}>
         <div style={{ ...muted, marginBottom: 6 }}>
-          Bekleme: <strong>{c.minDelaySec}–{c.maxDelaySec} sn</strong> (rastgele) · Günlük sınır: <strong>{c.dailyLimit > 0 ? numText(c.dailyLimit) : 'yok'}</strong> · Bugün toplu gönderilen: <strong data-testid="sent-today">{numText(c.sentToday)}</strong>
+          Gönderici: <strong data-testid="sender-name">{sender ? sender.name : 'seçilmemiş'}</strong>{sender && <span> ({senderState(sender).label}{sender.message ? ` · ${sender.message.replace('Bağlı numara: ', '')}` : ''})</span>} ·
+          Bekleme: <strong>{c.minDelaySec}–{c.maxDelaySec} sn</strong> (rastgele) · Günlük sınır: <strong>{c.dailyLimit > 0 ? numText(c.dailyLimit) : 'yok'}</strong> · Bu numaradan bugün toplu gönderilen: <strong data-testid="sent-today">{numText(c.sentToday)}</strong>
           {c.status !== 'done' && counts.pending > 0 && <> · Kalan tahmini süre: {durationText(estimateSeconds(counts.pending, c.minDelaySec, c.maxDelaySec))}</>}
         </div>
         {c.observed && (

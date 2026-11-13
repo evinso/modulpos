@@ -2,13 +2,17 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const { ownedParam } = require('../middleware/ownership');
-const wa = require('../services/whatsapp');
+const wa = require('../services/whatsapp');   // only wa.engineName(): the platform's own connection is NEVER used here
+const { getRegistry, MAX_SENDERS } = require('../services/whatsapp/senders');
 const { parseList, cleanPhone, renderMessage, placeholdersOf, fold, NAME_ALIASES, MAX_ROWS } = require('../services/whatsapp/bulkCsv');
 const { getRunner, sentTodayFor, parseVars, gapStats, MIN_DELAY_FLOOR_SEC, MAX_DELAY_CEIL_SEC } = require('../services/whatsapp/bulkRunner');
 
 /**
  * Bulk WhatsApp (admin only): a message to a list of numbers, one after another with a random pause between a minimum and a maximum
  * number of seconds. The list can be typed / pasted or imported from a CSV file. The sending itself is done by services/whatsapp/bulkRunner.js.
+ *
+ * It sends from SENDER numbers (WhatsappSender) that are linked on this page with their own QR code. They are separate connections with
+ * their own saved login: nothing here reads, uses or changes the platform's own WhatsApp number (the one for notifications).
  */
 const router = express.Router();
 router.use(auth);
@@ -16,7 +20,8 @@ router.use((req, res, next) => {
   if (req.user.role !== 'admin' && req.user.role !== 'superadmin') return res.status(403).json({ error: 'Bu işlem için yetkiniz yok' });
   next();
 });
-router.param('id', ownedParam('whatsappCampaign'));
+// :id is a sender under /senders and a campaign everywhere else; both must belong to the caller's store
+router.param('id', (req, res, next, id) => ownedParam(req.path.startsWith('/senders') ? 'whatsappSender' : 'whatsappCampaign')(req, res, next, id));
 
 const MAX_MESSAGE = 4000;
 const MAX_NAME = 100;
@@ -49,11 +54,43 @@ async function countsFor(ids) {
   return out;
 }
 
-const shape = (c, counts) => ({
+const shape = (c, counts, senderName = null) => ({
   id: c.id, name: c.name, message: c.message, minDelaySec: c.minDelaySec, maxDelaySec: c.maxDelaySec, dailyLimit: c.dailyLimit,
+  senderId: c.senderId || null, senderName,
   status: c.status, statusNote: c.statusNote, nextSendAt: c.nextSendAt, startedAt: c.startedAt, finishedAt: c.finishedAt, createdAt: c.createdAt,
   counts: counts || { pending: 0, sending: 0, sent: 0, failed: 0, total: 0 },
 });
+
+// ── sender numbers ────────────────────────────────────────────────────────────────────────────────────────────
+const READY = ['authorized', 'linked', 'starting'];   // a number that can send now (linked = saved login, the connection opens with the first message)
+const embedded = () => wa.engineName() === 'embedded';
+const NOT_EMBEDDED = 'Toplu gönderici numaralar yalnızca yerleşik WhatsApp bağlantısıyla çalışır; bu sunucuda WAHA ayarlı.';
+
+/** { id, name, state, status, message, ready, sentToday } - asked without opening any connection. */
+async function senderView(sender, storeId) {
+  const [st, sentToday] = await Promise.all([getRegistry().get(sender.id).peekStatus(), sentTodayFor(prisma, storeId, Date.now(), sender.id)]);
+  return { id: sender.id, name: sender.name, state: st.stateInstance, status: st.wahaStatus || null, message: st.message || '', ready: READY.includes(st.stateInstance), sentToday };
+}
+async function senderViews(storeId) {
+  const list = await prisma.whatsappSender.findMany({ where: { storeId }, orderBy: { createdAt: 'asc' } });
+  return Promise.all(list.map((x) => senderView(x, storeId)));
+}
+async function senderOf(req) {
+  const store = await storeOf(req);
+  const sender = await prisma.whatsappSender.findFirst({ where: { id: req.params.id, storeId: store.id } });
+  if (!sender) throw fail(404, 'Gönderici bulunamadı');
+  return { store, sender };
+}
+/** A sender id from a request body: null / undefined = none, otherwise it must be one of this store's numbers. */
+async function readSender(storeId, value) {
+  if (value === undefined || value === null || value === '') return { senderId: null };
+  const sender = await prisma.whatsappSender.findFirst({ where: { id: String(value), storeId }, select: { id: true } });
+  return sender ? { senderId: sender.id } : { error: 'Gönderici numara bulunamadı' };
+}
+async function senderNames(storeId) {
+  const list = await prisma.whatsappSender.findMany({ where: { storeId }, select: { id: true, name: true } });
+  return new Map(list.map((x) => [x.id, x.name]));
+}
 
 /** The settings of a campaign from a request body, or an error sentence. */
 function readSettings(body, current = {}) {
@@ -111,27 +148,93 @@ async function insertRecipients(campaignId, rows, startPosition) {
   }
 }
 
-async function connectionState() {
-  try {
-    const row = await prisma.systemSettings.findUnique({ where: { key: 'waha_session' } }).catch(() => null);
-    const s = await wa.createClient((row && row.value) || 'default').getStatus();
-    return { state: s.stateInstance || 'unknown', message: s.message || '' };
-  } catch (err) { return { state: 'error', message: wa.describeError(err) }; }
-}
-
 // ── overview ───────────────────────────────────────────────────────────────────────────────────────────────
 router.get('/overview', async (req, res, next) => {
   try {
     const store = await storeOf(req);
-    const [connection, sentToday, running] = await Promise.all([
-      connectionState(), sentTodayFor(prisma, store.id),
+    const [senders, running] = await Promise.all([
+      embedded() ? senderViews(store.id) : [],
       prisma.whatsappCampaign.findFirst({ where: { storeId: store.id, status: 'running' }, select: { id: true, name: true } }),
     ]);
     res.json({
-      connection, engine: wa.engineName(), sentToday, running,
+      engine: wa.engineName(), senders, maxSenders: MAX_SENDERS, running,
       limits: { minDelayFloorSec: MIN_DELAY_FLOOR_SEC, maxDelayCeilSec: MAX_DELAY_CEIL_SEC, maxRecipients: MAX_ROWS, maxMessage: MAX_MESSAGE, maxDaily: MAX_DAILY },
       defaults: DEFAULTS,
     });
+  } catch (err) { next(err); }
+});
+
+// ── senders: link a number with its own QR ─────────────────────────────────────────────────────────────────
+router.get('/senders', async (req, res, next) => {
+  try { const store = await storeOf(req); res.json(embedded() ? await senderViews(store.id) : []); } catch (err) { next(err); }
+});
+
+router.post('/senders', async (req, res, next) => {
+  try {
+    if (!embedded()) return res.status(409).json({ error: NOT_EMBEDDED });
+    const store = await storeOf(req);
+    const name = String((req.body && req.body.name) || '').trim();
+    if (!name) return send400(res, 'Numaraya bir ad verin (ör. “Kampanya hattı”)');
+    if (name.length > 60) return send400(res, 'Ad en fazla 60 karakter olabilir');
+    const have = await prisma.whatsappSender.count({ where: { storeId: store.id } });
+    if (have >= MAX_SENDERS) return send400(res, `En fazla ${MAX_SENDERS} gönderici numara eklenebilir (her bağlı numara sunucu belleği kullanır). Birini silip yenisini ekleyin.`);
+    const created = await prisma.whatsappSender.create({ data: { storeId: store.id, name } });
+    res.json(await senderView(created, store.id));
+  } catch (err) { next(err); }
+});
+
+router.put('/senders/:id', async (req, res, next) => {
+  try {
+    const { store, sender } = await senderOf(req);
+    const name = String((req.body && req.body.name) || '').trim();
+    if (!name || name.length > 60) return send400(res, 'Ad 1-60 karakter olmalı');
+    const updated = await prisma.whatsappSender.update({ where: { id: sender.id }, data: { name } });
+    res.json(await senderView(updated, store.id));
+  } catch (err) { next(err); }
+});
+
+// Status / QR of ONE sender (the QR panel calls them while it waits for the scan; unlike the list they may bring the connection up)
+router.get('/senders/:id/status', async (req, res, next) => {
+  try {
+    const { sender } = await senderOf(req);
+    if (!embedded()) return res.json({ stateInstance: 'error', message: NOT_EMBEDDED });
+    res.json(await getRegistry().get(sender.id).getStatus());
+  } catch (err) { next(err); }
+});
+
+router.get('/senders/:id/qr', async (req, res, next) => {
+  try {
+    const { sender } = await senderOf(req);
+    if (!embedded()) return res.json({ type: 'error', message: NOT_EMBEDDED });
+    const data = await getRegistry().get(sender.id).getQR();
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate'); res.set('Pragma', 'no-cache');
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+async function runningWith(senderId) {
+  return prisma.whatsappCampaign.findFirst({ where: { senderId, status: 'running' }, select: { name: true } });
+}
+
+// Unlink: the phone is logged out of this number's WhatsApp link and the saved login is deleted (the sender itself stays and can be linked again)
+router.post('/senders/:id/logout', async (req, res, next) => {
+  try {
+    const { sender } = await senderOf(req);
+    const busy = await runningWith(sender.id);
+    if (busy) return res.status(409).json({ error: `“${busy.name}” kampanyası bu numarayla çalışıyor. Önce duraklatın.` });
+    await getRegistry().get(sender.id).logout();
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+router.delete('/senders/:id', async (req, res, next) => {
+  try {
+    const { sender } = await senderOf(req);
+    const busy = await runningWith(sender.id);
+    if (busy) return res.status(409).json({ error: `“${busy.name}” kampanyası bu numarayla çalışıyor. Önce duraklatın.` });
+    await getRegistry().remove(sender.id).catch(() => {});
+    await prisma.whatsappSender.delete({ where: { id: sender.id } });
+    res.json({ success: true });
   } catch (err) { next(err); }
 });
 
@@ -152,8 +255,8 @@ router.get('/campaigns', async (req, res, next) => {
   try {
     const store = await storeOf(req);
     const list = await prisma.whatsappCampaign.findMany({ where: { storeId: store.id }, orderBy: { createdAt: 'desc' }, take: 100 });
-    const counts = await countsFor(list.map((c) => c.id));
-    res.json(list.map((c) => shape(c, counts.get(c.id))));
+    const [counts, names] = await Promise.all([countsFor(list.map((c) => c.id)), senderNames(store.id)]);
+    res.json(list.map((c) => shape(c, counts.get(c.id), names.get(c.senderId) || null)));
   } catch (err) { next(err); }
 });
 
@@ -168,10 +271,12 @@ router.post('/campaigns', async (req, res, next) => {
     const unknown = unknownPlaceholders(s.settings.message, r.rows);
     if (unknown.length) return send400(res, `Mesajda {${unknown[0]}} yazıyor ama listede bu adda bir sütun yok. Sütun adlarıyla aynı yazın (ör. {ad}).`);
 
-    const created = await prisma.whatsappCampaign.create({ data: { storeId: store.id, ...s.settings } });
+    const sd = await readSender(store.id, req.body && req.body.senderId);
+    if (sd.error) return send400(res, sd.error);
+    const created = await prisma.whatsappCampaign.create({ data: { storeId: store.id, senderId: sd.senderId, ...s.settings } });
     await insertRecipients(created.id, r.rows, 1);
-    const counts = await countsFor([created.id]);
-    res.json({ ...shape(created, counts.get(created.id)), skipped: { invalid: r.invalid, duplicates: r.duplicates } });
+    const [counts, names] = await Promise.all([countsFor([created.id]), senderNames(store.id)]);
+    res.json({ ...shape(created, counts.get(created.id), names.get(created.senderId) || null), skipped: { invalid: r.invalid, duplicates: r.duplicates } });
   } catch (err) { next(err); }
 });
 
@@ -179,14 +284,15 @@ router.get('/campaigns/:id', async (req, res, next) => {
   try {
     const store = await storeOf(req);
     const c = await campaignOf(req);
-    const [counts, sentToday, first, lastSent] = await Promise.all([
-      countsFor([c.id]), sentTodayFor(prisma, store.id),
+    const [counts, sender, first, lastSent] = await Promise.all([
+      countsFor([c.id]),
+      c.senderId && embedded() ? prisma.whatsappSender.findFirst({ where: { id: c.senderId, storeId: store.id } }).then((x) => (x ? senderView(x, store.id) : null)) : null,
       prisma.whatsappCampaignRecipient.findMany({ where: { campaignId: c.id }, orderBy: { position: 'asc' }, take: 3 }),
       prisma.whatsappCampaignRecipient.findMany({ where: { campaignId: c.id, status: 'sent' }, orderBy: { sentAt: 'desc' }, take: 200, select: { sentAt: true } }),
     ]);
     if (c.status === 'running') getRunner().ensure();
     res.json({
-      ...shape(c, counts.get(c.id)), sentToday,
+      ...shape(c, counts.get(c.id), sender && sender.name), sender, sentToday: sender ? sender.sentToday : 0,
       observed: gapStats(lastSent.map((x) => x.sentAt), c.maxDelaySec),   // the pauses that really happened (last 200 messages)
       preview: first.map((r) => ({ phone: r.phone, name: r.name, text: renderMessage(c.message, { name: r.name, vars: parseVars(r.vars) }) })),
     });
@@ -219,9 +325,15 @@ router.put('/campaigns/:id', async (req, res, next) => {
       const unknown = unknownPlaceholders(s.settings.message, sample.map((x) => ({ vars: parseVars(x.vars) })));
       if (unknown.length) return send400(res, `Mesajda {${unknown[0]}} yazıyor ama listede bu adda bir sütun yok.`);
     }
-    const updated = await prisma.whatsappCampaign.update({ where: { id: c.id }, data: s.settings });
-    const counts = await countsFor([c.id]);
-    res.json(shape(updated, counts.get(c.id)));
+    const data = { ...s.settings };
+    if (req.body && 'senderId' in req.body) {
+      const sd = await readSender(c.storeId, req.body.senderId);
+      if (sd.error) return send400(res, sd.error);
+      data.senderId = sd.senderId;
+    }
+    const updated = await prisma.whatsappCampaign.update({ where: { id: c.id }, data });
+    const [counts, names] = await Promise.all([countsFor([c.id]), senderNames(c.storeId)]);
+    res.json(shape(updated, counts.get(c.id), names.get(updated.senderId) || null));
   } catch (err) { next(err); }
 });
 
@@ -251,17 +363,20 @@ router.post('/campaigns/:id/start', async (req, res, next) => {
     const c = await campaignOf(req);
     if (c.status === 'running') return res.status(409).json({ error: 'Kampanya zaten çalışıyor.' });
     if (c.status === 'done') return res.status(409).json({ error: 'Bu kampanya bitti. Başarısız olanları yeniden denemek için “Başarısızları yeniden dene”yi kullanın.' });
-    const other = await prisma.whatsappCampaign.findFirst({ where: { storeId: store.id, status: 'running', id: { not: c.id } }, select: { name: true } });
-    if (other) return res.status(409).json({ error: `“${other.name}” kampanyası çalışıyor. Numara tek olduğu için aynı anda yalnızca bir kampanya gönderir; önce onu duraklatın.` });
+    if (!embedded()) return res.status(409).json({ error: NOT_EMBEDDED });
+    const sender = c.senderId ? await prisma.whatsappSender.findFirst({ where: { id: c.senderId, storeId: store.id } }) : null;
+    if (!sender) return res.status(409).json({ error: 'Bu kampanya için gönderici numara seçilmemiş. “Düzenle” ile bir gönderici seçin (numara yoksa önce üstten ekleyip QR ile bağlayın).' });
+    const other = await prisma.whatsappCampaign.findFirst({ where: { senderId: sender.id, status: 'running', id: { not: c.id } }, select: { name: true } });
+    if (other) return res.status(409).json({ error: `“${other.name}” kampanyası “${sender.name}” numarasıyla çalışıyor. Bir numara aynı anda tek kampanya gönderir; önce onu duraklatın ya da başka bir numara seçin.` });
     const counts = (await countsFor([c.id])).get(c.id);
     if (counts.pending === 0) return res.status(409).json({ error: 'Gönderilecek numara kalmadı.' });
-    const conn = await connectionState();
-    if (!['authorized', 'starting'].includes(conn.state)) {
-      return res.status(409).json({ error: conn.message || 'WhatsApp bağlı değil. WhatsApp sayfasında QR kodu okutup telefonu bağlayın, sonra tekrar deneyin.' });
+    const st = await getRegistry().get(sender.id).peekStatus();
+    if (!READY.includes(st.stateInstance)) {
+      return res.status(409).json({ error: `“${sender.name}” numarası bağlı değil. ${st.message || 'QR kodunu okutup telefonu bağlayın.'}` });
     }
     const updated = await prisma.whatsappCampaign.update({ where: { id: c.id }, data: { status: 'running', startedAt: c.startedAt || new Date(), finishedAt: null, nextSendAt: null, statusNote: null } });
     getRunner().kick();
-    res.json(shape(updated, counts));
+    res.json(shape(updated, counts, sender.name));
   } catch (err) { next(err); }
 });
 

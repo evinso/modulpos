@@ -6,7 +6,7 @@
 //
 // Nothing here reads incoming chats. One linked number for the whole platform (the admin's); users only receive messages.
 const WahaService = require('./wahaService');
-const { createDbStore, useStoreAuthState, storeIsLinked } = require('./authStore');
+const { createDbStore, useStoreAuthState, storeIsLinked, storeAccount } = require('./authStore');
 
 /** An error whose message is meant to be shown to the admin as it is. */
 class WhatsappError extends Error {
@@ -67,6 +67,7 @@ class EmbeddedWhatsapp {
     this.sendChain = Promise.resolve(); this.lastSendAt = 0; this.sentAt = [];
     this.saveChain = Promise.resolve();
     this.versionCache = null;
+    this.lastUse = 0;               // when something last asked this connection for a status / QR / send (see suspend())
   }
 
   // ── plumbing ───────────────────────────────────────────────────────────────────────────────────────────
@@ -218,6 +219,7 @@ class EmbeddedWhatsapp {
 
   // ── what the page and the notification code call ───────────────────────────────────────────────────────
   async getStatus() {
+    this.lastUse = this.now();
     try {
       if (this.state === 'open') return { stateInstance: 'authorized', wahaStatus: 'WORKING', message: this._accountLabel() };
       if (this.state === 'qr') return { stateInstance: 'notAuthorized', wahaStatus: 'SCAN_QR_CODE' };
@@ -238,6 +240,7 @@ class EmbeddedWhatsapp {
 
   /** { type: 'qrCode', message: <base64 png>, mimetype } | 'alreadyLogged' | 'loading' (call again) | 'error' */
   async getQR() {
+    this.lastUse = this.now();
     try {
       if (this.state === 'open') return { type: 'alreadyLogged', message: '' };
       if (await this._linked()) {
@@ -274,6 +277,7 @@ class EmbeddedWhatsapp {
   }
 
   async _send(phone, text, opts = {}) {
+    this.lastUse = this.now();
     if (!(await this._linked())) throw new WhatsappError('WhatsApp henüz bağlanmadı. WhatsApp sayfasında “QR Kodu Göster” ile telefonunuzu bağlayın.', 409);
     const cutoff = this.now() - 3600000;
     this.sentAt = this.sentAt.filter((t) => t > cutoff);
@@ -305,6 +309,41 @@ class EmbeddedWhatsapp {
     this.lastSendAt = this.now();
     if (!opts.bulk) this.sentAt.push(this.lastSendAt);
     return { idMessage: (res && res.key && res.key.id) || 'sent' };
+  }
+
+  /**
+   * Like getStatus() but without any side effect: it never opens a connection and does not count as use. For lists that show many
+   * numbers at once. stateInstance: authorized (open now) | linked (a login is saved, the connection opens when something is sent)
+   * | starting | notAuthorized (QR waiting / not linked / refused).
+   */
+  async peekStatus() {
+    try {
+      if (this.state === 'open') return { stateInstance: 'authorized', wahaStatus: 'WORKING', message: this._accountLabel() };
+      if (this.state === 'qr') return { stateInstance: 'notAuthorized', wahaStatus: 'SCAN_QR_CODE', message: 'QR kodunun okutulması bekleniyor.' };
+      if (this.state === 'connecting') return { stateInstance: 'starting', wahaStatus: 'STARTING', message: 'Bağlanılıyor…' };
+      if (this._fatal()) return { stateInstance: 'notAuthorized', wahaStatus: 'FAILED', message: this._notConnected().message };
+      const account = await storeAccount(this._store());
+      if (account) return { stateInstance: 'linked', wahaStatus: 'SAVED', message: `Bağlı numara: ••••${last4(String(account).split(':')[0].split('@')[0])}` };
+      return { stateInstance: 'notAuthorized', wahaStatus: 'NOT_LINKED', message: 'Henüz bağlanmadı. “QR kodu göster” ile telefonunuzu bağlayın.' };
+    } catch (err) {
+      return { stateInstance: 'error', message: describe(err) };
+    }
+  }
+
+  /** How long nothing asked for this connection (ms); Infinity when it is not open at all. */
+  idleFor() {
+    return this.state === 'idle' || this.state === 'closed' ? Infinity : this.now() - this.lastUse;
+  }
+
+  /**
+   * Hangs up WITHOUT logging out: the saved login stays and the next send opens the connection again. Used to free memory of
+   * numbers nobody is using (the free hosting is small).
+   */
+  suspend() {
+    this.wantOnline = false;
+    if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
+    this._endSocket();
+    this.qr = null; this.state = 'idle'; this.attempts = 0;
   }
 
   async logout() {
@@ -340,4 +379,4 @@ function getEmbedded() {
   return instance;
 }
 
-module.exports = { EmbeddedWhatsapp, WhatsappError, getEmbedded, describeEmbeddedError: describe, MIN_GAP_MS, MAX_PER_HOUR, BACKOFF_MS };
+module.exports = { EmbeddedWhatsapp, WhatsappError, getEmbedded, last4, describeEmbeddedError: describe, MIN_GAP_MS, MAX_PER_HOUR, BACKOFF_MS };

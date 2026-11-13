@@ -3,7 +3,7 @@ import { Loader2, Save, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../../services/api';
 import RecipientImport from './RecipientImport';
-import { durationText, estimateSeconds, errorText, numText } from './bulkHelpers';
+import { durationText, estimateSeconds, errorText, numText, senderState } from './bulkHelpers';
 
 const muted = { fontSize: 12, color: 'var(--text-muted)' };
 
@@ -19,6 +19,8 @@ export default function CampaignForm({ overview, initial, onSaved, onCancel }) {
   const [min, setMin] = useState(String(initial ? initial.minDelaySec : overview.defaults.minDelaySec));
   const [max, setMax] = useState(String(initial ? initial.maxDelaySec : overview.defaults.maxDelaySec));
   const [daily, setDaily] = useState(String(initial ? initial.dailyLimit : overview.defaults.dailyLimit));
+  const senders = overview.senders || [];
+  const [senderId, setSenderId] = useState(initial ? (initial.senderId || '') : (senders.length === 1 ? senders[0].id : ''));
   const [imported, setImported] = useState(null);
   const [saving, setSaving] = useState(false);
   const messageRef = useRef(null);
@@ -26,6 +28,7 @@ export default function CampaignForm({ overview, initial, onSaved, onCancel }) {
   const minN = Number(String(min).trim() === '' ? NaN : min); const maxN = Number(String(max).trim() === '' ? NaN : max); const dailyN = Number(daily);
   const problem = (() => {
     if (!name.trim()) return 'Kampanyaya bir ad verin';
+    if (!senderId) return senders.length ? 'Mesajın hangi numaradan gideceğini seçin' : 'Önce sayfanın üstünden bir gönderici numara ekleyip bağlayın';
     if (!message.trim()) return 'Mesajı yazın';
     if (!Number.isInteger(minN) || !Number.isInteger(maxN)) return 'En az ve en çok bekleme süresini tam saniye olarak yazın (ör. 12 ve 20)';
     if (minN < limits.minDelayFloorSec) return `Bekleme en az ${limits.minDelayFloorSec} saniye olmalı`;
@@ -49,7 +52,7 @@ export default function CampaignForm({ overview, initial, onSaved, onCancel }) {
     if (problem) { toast.error(problem); return; }
     setSaving(true);
     try {
-      const settings = { name: name.trim(), message, minDelaySec: minN, maxDelaySec: maxN, dailyLimit: dailyN };
+      const settings = { name: name.trim(), senderId, message, minDelaySec: minN, maxDelaySec: maxN, dailyLimit: dailyN };
       const { data } = edit
         ? await api.put(`/whatsapp-bulk/campaigns/${initial.id}`, settings)
         : await api.post('/whatsapp-bulk/campaigns', { ...settings, recipients: imported.rows });
@@ -75,9 +78,20 @@ export default function CampaignForm({ overview, initial, onSaved, onCancel }) {
         <input className="form-input" value={name} maxLength={100} placeholder="ör. Kasım indirimi duyurusu" onChange={(e) => setName(e.target.value)} />
       </div>
 
+      <div className="form-group">
+        <label className="form-label">Gönderici numara</label>
+        <select className="form-input" aria-label="Gönderici numara" value={senderId} onChange={(e) => setSenderId(e.target.value)} style={{ maxWidth: 360 }}>
+          <option value="">{senders.length ? 'Numara seçin…' : 'Henüz gönderici numara yok'}</option>
+          {senders.map((s) => <option key={s.id} value={s.id}>{s.name} — {senderState(s).label}</option>)}
+        </select>
+        <div style={{ ...muted, marginTop: 4 }}>
+          Mesajlar bu WhatsApp numarasından gider (ModulPOS’un bildirim numarası kullanılmaz). Bağlı olmayan bir numara seçebilirsiniz ama kampanya ancak numara bağlanınca başlar.
+        </div>
+      </div>
+
       {!edit && (
         <div className="form-group">
-          <label className="form-label">Numaralar</label>
+          <label className="form-label">Alıcı numaralar</label>
           <RecipientImport onChange={setImported} />
         </div>
       )}
@@ -115,7 +129,7 @@ export default function CampaignForm({ overview, initial, onSaved, onCancel }) {
         <label className="form-label">Günlük sınır (mesaj)</label>
         <input className="form-input" aria-label="Günlük sınır" type="number" min="0" step="1" value={daily} onChange={(e) => setDaily(e.target.value)} style={{ width: 120 }} />
         <div style={{ ...muted, marginTop: 4 }}>
-          Bu numaradan bir günde (Türkiye saatiyle) toplu gönderilecek en çok mesaj, tüm kampanyalar toplamı. Sınıra gelince gönderim durur, ertesi sabah 09:00’da kendiliğinden devam eder. 0 = sınırsız. Yeni ya da az kullanılan numaralarda günde 100–250 ile başlamanız önerilir.
+          Seçtiğiniz gönderici numaradan bir günde (Türkiye saatiyle) toplu gönderilecek en çok mesaj; o numaranın tüm kampanyalarının toplamı. Sınıra gelince gönderim durur, ertesi sabah 09:00’da kendiliğinden devam eder. 0 = sınırsız. Yeni ya da az kullanılan numaralarda günde 100–250 ile başlamanız önerilir.
         </div>
       </div>
 

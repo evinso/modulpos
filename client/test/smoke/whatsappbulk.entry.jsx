@@ -5,6 +5,7 @@ import WhatsappBulkPage from '../../src/pages/whatsapp/bulk/WhatsappBulkPage.jsx
 import { durationText, estimateSeconds, decodeCsvBytes } from '../../src/pages/whatsapp/bulk/bulkHelpers.js';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../src/store/authStore.js';
+import { QR_TIMING } from '../../src/pages/whatsapp/qrTiming.js';
 import { calls, bulk } from './apiStub.cjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -58,11 +59,30 @@ root = createRoot(document.getElementById('root'));
 await act(async () => { root.render(<MemoryRouter><WhatsappBulkPage /></MemoryRouter>); });
 await wait(150);
 ok('empty list: the page explains how to start', text().includes('Henüz kampanya yok') && !!btn('Yeni kampanya'));
-ok('the linked state and today\'s count are shown', byId('bulk-connection').textContent.includes('WhatsApp bağlı') && byId('overview-sent-today').textContent === '3');
-ok('the warning about the shared number is there', byId('bulk-warning').textContent.includes('bildirimler de durur'));
+ok('no sender number yet: the page says how to add one', !!byId('no-senders') && !!btn('Gönderici ekle') && byId('sender-panel').textContent.includes('ModulPOS’un bildirim WhatsApp’ından'), byId('sender-panel').textContent.slice(0, 160));
+ok('the warning says a restricted sender does not affect the notifications', byId('bulk-warning').textContent.includes('bildirim numarasına bir etkisi olmaz'));
+ok('the platform\'s own connection is not asked for at all', !calls.some((c) => c.url.startsWith('/whatsapp/')) );
+
+// ── add a sender number: own QR, linked here, nothing to do with the platform's WhatsApp ──
+QR_TIMING.statusMs = 60; QR_TIMING.qrMs = 120; QR_TIMING.maxMs = 5000;
+await click(btn('Gönderici ekle'));
+await click(btn('Ekle ve QR göster'), 60);
+ok('an empty name is not sent', !calls.some((c) => c.m === 'POST' && c.url === '/whatsapp-bulk/senders'));
+await setValue(document.querySelector('[aria-label="Numara adı"]'), 'Kampanya hattı');
+bulk.qr = (n) => (n === 1 ? { type: 'loading', message: 'QR hazırlanıyor. Birkaç saniye içinde burada görünecek.' } : { type: 'qrCode', message: 'QR' + n, mimetype: 'image/png' });
+await click(btn('Ekle ve QR göster'), 100);
+ok('the number is added through its own endpoint (not /whatsapp/connections)', calls.some((c) => c.m === 'POST' && c.url === '/whatsapp-bulk/senders' && c.body.name === 'Kampanya hattı') && !calls.some((c) => c.url.startsWith('/whatsapp/')));
+ok('it is listed as not linked and its QR box opens, first with a sentence', document.querySelectorAll('[data-testid="sender-row"]').length === 1 && byId('sender-state').textContent === 'Bağlı değil' && byId('qr-msg') && byId('qr-msg').textContent.includes('hazırlanıyor'), byId('qr-msg') && byId('qr-msg').textContent);
+await wait(500);
+ok('then the QR picture appears and is renewed by itself', !!document.querySelector('img[alt="QR Code"]') && bulk.qrCalls >= 3, `calls=${bulk.qrCalls}`);
+bulk.linked = true;
+await wait(400);
+ok('once scanned the QR box closes and the number shows as connected', !byId('sender-qr') && byId('sender-state').textContent === 'Bağlı' && byId('sender-row').textContent.includes('••••4567'), byId('sender-state') && byId('sender-state').textContent);
+ok('a connected number offers to be disconnected, not to show a QR', !!btn('Bağlantıyı kes') && !btn('QR kodu göster'));
 
 // ── new campaign ──
 await click(btn('Yeni kampanya'));
+ok('the form offers the sender; with one number it is already chosen', document.querySelector('[aria-label="Gönderici numara"]').value === 's1' && document.querySelector('[aria-label="Gönderici numara"]').textContent.includes('Kampanya hattı — Bağlı'));
 ok('the form opens with the default pause range and limit', document.querySelector('[aria-label="En az saniye"]').value === '12' && document.querySelector('[aria-label="En çok saniye"]').value === '20' && document.querySelector('[aria-label="Günlük sınır"]').value === '250');
 ok('nothing can be saved yet and the reason is told', btn('Taslak olarak kaydet').disabled && byId('form-problem').textContent.includes('Kampanyaya bir ad verin'));
 
@@ -99,7 +119,8 @@ ok('a valid form can be saved', !btn('Taslak olarak kaydet').disabled);
 await click(btn('Taslak olarak kaydet'), 200);
 const created = calls.filter((c) => c.m === 'POST' && c.url === '/whatsapp-bulk/campaigns').pop();
 ok('only the good numbers, with name and fields, and the pause range are sent', created && created.body.recipients.length === 4 && created.body.recipients[0].phone === '905331112233' && created.body.recipients[0].name === 'Ayşe Yılmaz' && created.body.recipients[0].vars.sehir === 'İzmir'
-  && created.body.minDelaySec === 12 && created.body.maxDelaySec === 16 && created.body.dailyLimit === 250 && created.body.name === 'Kasım duyurusu', JSON.stringify(created && created.body).slice(0, 200));
+  && created.body.minDelaySec === 12 && created.body.maxDelaySec === 16 && created.body.dailyLimit === 250 && created.body.name === 'Kasım duyurusu' && created.body.senderId === 's1', JSON.stringify(created && created.body).slice(0, 200));
+ok('the detail shows the number it sends from', byId('sender-name').textContent === 'Kampanya hattı');
 ok('it opens as a draft: nothing is sent yet, the finished messages can be checked', byId('campaign-status').textContent === 'Taslak' && byId('preview').textContent.includes('Merhaba Ayşe Yılmaz, hoş geldiniz!') && !calls.some((c) => c.url.endsWith('/start')));
 ok('counts and the pause range are shown', byId('count-pending').textContent === '4' && text().includes('12–16 sn'));
 
@@ -146,25 +167,56 @@ await wait(100);
 ok('the list can be filtered by state', calls.some((c) => c.url.endsWith('/recipients') && c.params && c.params.status === 'sent') && document.querySelectorAll('[data-testid="recipient-row"]').length === 1);
 
 // ── a start the server refuses is told ──
-bulk.startError = 'WhatsApp henüz bağlanmadı. WhatsApp sayfasında QR kodu okutup telefonu bağlayın.';
+bulk.startError = 'Bu numara şu an kullanılamıyor (sunucu mesajı).';
 await click(btn('Devam et'), 150);
-ok('a refused start shows the reason and the campaign stays paused', byId('campaign-status').textContent === 'Duraklatıldı' && toasts.some((t) => t.includes('henüz bağlanmadı')), toasts.join(' | '));
+ok('a refused start shows the reason and the campaign stays paused', byId('campaign-status').textContent === 'Duraklatıldı' && toasts.some((t) => t.includes('şu an kullanılamıyor')), toasts.join(' | '));
 bulk.startError = null;
 
 // ── the list, delete ──
 await click(btn('Kampanyalar'), 150);
 ok('the campaign is in the list with its numbers', byId('campaign-row') && byId('campaign-row').textContent.includes('Kasım duyurusu') && byId('campaign-row').textContent.includes('Duraklatıldı'));
+ok('the list shows which number each campaign sends from', byId('row-sender').textContent === 'Kampanya hattı', byId('row-sender') && byId('row-sender').textContent);
+
+// ── the sender is disconnected: the campaign cannot start and says why; the list shows the sender ──
+bulk.linked = false;   // the second number is not scanned yet
+await click(btn('Gönderici ekle'), 30);
+await setValue(document.querySelector('[aria-label="Numara adı"]'), 'İkinci hat');
+await click(btn('Ekle ve QR göster'), 120);
+ok('a second number can be added', document.querySelectorAll('[data-testid="sender-row"]').length === 2);
+await click(btn('Kapat'), 30);
 await click(byId('campaign-row'), 150);
+ok('a campaign sends from the number it was given', byId('sender-name').textContent === 'Kampanya hattı');
+const unlinkBtn = [...document.querySelectorAll('[data-testid="sender-row"]')][0];
+await click([...unlinkBtn.querySelectorAll('button')].find((b) => b.textContent.includes('Bağlantıyı kes')), 150);
+ok('disconnecting a number: it shows as not connected and the logout call went to ITS endpoint', calls.some((c) => c.m === 'POST' && c.url === '/whatsapp-bulk/senders/s1/logout') && [...document.querySelectorAll('[data-testid="sender-state"]')][0].textContent === 'Bağlı değil');
+await click(btn('Kampanyalar'), 120); await click(byId('campaign-row'), 150);
+ok('the campaign of a disconnected number says so and Devam et asks the server (refused with the reason)', !!byId('sender-not-ready') && byId('sender-not-ready').textContent.includes('Kampanya hattı'));
+bulk.startError = null;
+await click(btn('Devam et'), 150);
+ok('a start of a campaign whose number is not connected is refused', toasts.some((t) => t.includes('numarası bağlı değil')), toasts.slice(-2).join(' | '));
+
+// ── deleting a number leaves the campaign without a sender ──
+await click(btn('Kampanyalar'), 120);
+const rows = [...document.querySelectorAll('[data-testid="sender-row"]')];
+await click(rows[0].querySelector('button[title="Numarayı sil"]'), 150);
+ok('a deleted number is gone and its campaign has no sender (shown, cannot start)', calls.some((c) => c.m === 'DELETE' && c.url === '/whatsapp-bulk/senders/s1') && document.querySelectorAll('[data-testid="sender-row"]').length === 1 && byId('row-sender').textContent.includes('seçilmemiş'));
+await click(byId('campaign-row'), 150);
+ok('the detail asks to choose a sender and Devam et is disabled', !!byId('no-sender') && btn('Devam et').disabled);
 await click(btn('Sil'), 150);
 ok('delete asks and removes the campaign', calls.some((c) => c.m === 'DELETE' && c.url === '/whatsapp-bulk/campaigns/k1') && text().includes('Henüz kampanya yok'));
 
-// ── WhatsApp not linked ──
-bulk.connection = { state: 'notAuthorized', message: 'Henüz bağlanmadı. “QR Kodu Göster” ile telefonunuzu bağlayın.' };
+// ── a server that uses WAHA cannot link bulk senders ──
+bulk.engine = 'waha';
 await act(async () => { root.unmount(); });
 root = createRoot(document.getElementById('root'));
 await act(async () => { root.render(<MemoryRouter><WhatsappBulkPage /></MemoryRouter>); });
 await wait(150);
-ok('not linked: the page says so and points to the WhatsApp page', byId('bulk-connection').textContent.includes('WhatsApp bağlı değil') && !!document.querySelector('a[href="/whatsapp"]'));
+ok('WAHA engine: the panel explains that bulk numbers need the built-in connection', byId('sender-panel').textContent.includes('yalnızca yerleşik WhatsApp bağlantısıyla çalışır'));
+bulk.engine = 'embedded';
+await act(async () => { root.unmount(); });
+root = createRoot(document.getElementById('root'));
+await act(async () => { root.render(<MemoryRouter><WhatsappBulkPage /></MemoryRouter>); });
+await wait(150);
 
 // ── an Excel file is turned away with the way out ──
 await click(btn('Yeni kampanya'));

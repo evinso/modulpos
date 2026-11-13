@@ -32,6 +32,8 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     for (const u of [admin, other]) await c.query(`update app."User" set role='admin' where id=$1`, [u.user.id]);   // before the first authenticated call: no stale role is cached
     const asUser = caller(normal.token), asAdmin = caller(admin.token), asOther = caller(other.token), anon = caller(null);
     const fakeId = '00000000-0000-4000-8000-000000000000';
+    const platformRows = async () => (await c.query(`select count(*)::int n from app."WhatsappAuthState" where key like 'default:%'`)).rows[0].n;
+    const platformBefore = await platformRows();
 
     // ── who may use it ──
     ok('anonymous: refused (401)', (await anon('GET', `${B}/overview`)).s === 401);
@@ -41,6 +43,8 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
       ['GET', `${B}/campaigns/${fakeId}`], ['PUT', `${B}/campaigns/${fakeId}`, { name: 'y' }], ['DELETE', `${B}/campaigns/${fakeId}`],
       ['POST', `${B}/campaigns/${fakeId}/start`], ['POST', `${B}/campaigns/${fakeId}/pause`], ['POST', `${B}/campaigns/${fakeId}/retry-failed`],
       ['POST', `${B}/campaigns/${fakeId}/recipients`, { recipients: [] }], ['GET', `${B}/campaigns/${fakeId}/recipients`],
+      ['GET', `${B}/senders`], ['POST', `${B}/senders`, { name: 'x' }], ['PUT', `${B}/senders/${fakeId}`, { name: 'y' }], ['DELETE', `${B}/senders/${fakeId}`],
+      ['GET', `${B}/senders/${fakeId}/qr`], ['GET', `${B}/senders/${fakeId}/status`], ['POST', `${B}/senders/${fakeId}/logout`],
     ];
     const bad = [];
     for (const [m, u, b] of refused) { const r = await asUser(m, u, b); if (r.s !== 403) bad.push(`${m} ${u} → ${r.s}`); }
@@ -49,7 +53,7 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
 
     // ── overview ──
     const ov = (await asAdmin('GET', `${B}/overview`)).d || {};
-    ok('overview: connection state, limits and defaults', typeof (ov.connection && ov.connection.state) === 'string' && ov.limits && ov.limits.minDelayFloorSec === 5 && ov.limits.maxRecipients === 5000 && ov.defaults && ov.defaults.minDelaySec === 12 && typeof ov.sentToday === 'number', JSON.stringify(ov).slice(0, 220));
+    ok('overview: sender numbers, limits and defaults (and nothing about the platform\'s own connection)', Array.isArray(ov.senders) && ov.maxSenders === 3 && ov.connection === undefined && ov.limits && ov.limits.minDelayFloorSec === 5 && ov.limits.maxRecipients === 5000 && ov.defaults && ov.defaults.minDelaySec === 12 , JSON.stringify(ov).slice(0, 220));
 
     // ── reading a list ──
     const csv = 'Ad;Telefon;Şehir\nAyşe Yılmaz;0533 111 22 33;İzmir\nVeli;0532 000 11 22;Ankara\nAli;05331112233;Van\nHatalı;12345;Bursa\nExcel;5,32E+11;Muğla\n';
@@ -68,8 +72,35 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     const tooMany = await asAdmin('POST', `${B}/parse`, { text: many });
     ok('parse: more than 5000 numbers is refused', tooMany.s === 400 && /5000/.test((tooMany.d && tooMany.d.error) || ''), `${tooMany.s} ${tooMany.d && tooMany.d.error}`);
 
+    // ── sender numbers ──
+    ok('senders: none yet', ((await asAdmin('GET', `${B}/senders`)).d || []).length === 0);
+    const noName = await asAdmin('POST', `${B}/senders`, { name: '  ' });
+    ok('senders: a name is required (400)', noName.s === 400 && /ad verin/.test((noName.d && noName.d.error) || ''));
+    const s1 = (await asAdmin('POST', `${B}/senders`, { name: 'e2e hat 1' })).d || {};
+    ok('senders: a number is added, not linked, with its state', typeof s1.id === 'string' && s1.name === 'e2e hat 1' && s1.state === 'notAuthorized' && s1.ready === false && s1.sentToday === 0 && /QR/.test(s1.message || ''), JSON.stringify(s1).slice(0, 200));
+    const s2 = (await asAdmin('POST', `${B}/senders`, { name: 'e2e hat 2' })).d || {};
+    const s3 = (await asAdmin('POST', `${B}/senders`, { name: 'e2e hat 3' })).d || {};
+    const s4 = await asAdmin('POST', `${B}/senders`, { name: 'e2e hat 4' });
+    ok('senders: at most 3 (each connected number uses server memory)', s3.id && s4.s === 400 && /En fazla 3/.test((s4.d && s4.d.error) || ''), `${s4.s} ${s4.d && s4.d.error}`);
+    const ren = await asAdmin('PUT', `${B}/senders/${s3.id}`, { name: 'e2e hat 3b' });
+    ok('senders: rename', ren.s === 200 && ren.d.name === 'e2e hat 3b');
+    ok('senders: the list shows them in order', ((await asAdmin('GET', `${B}/senders`)).d || []).map((x) => x.name).join() === 'e2e hat 1,e2e hat 2,e2e hat 3b');
+    const sst = (await asAdmin('GET', `${B}/senders/${s1.id}/status`)).d || {};
+    ok('senders: status of an unlinked number says how to link it, and opens nothing', sst.stateInstance === 'notAuthorized' && sst.wahaStatus === 'NOT_LINKED', JSON.stringify(sst));
+    // a real connection to WhatsApp up to the QR code (nothing is linked, nothing is sent)
+    let qr = {};
+    for (let i = 0; i < 5 && qr.type !== 'qrCode'; i++) { qr = (await asAdmin('GET', `${B}/senders/${s1.id}/qr`)).d || {}; if (qr.type !== 'qrCode') await new Promise((r) => setTimeout(r, 3000)); }
+    ok('senders: a number gets its OWN QR code (PNG) from a real WhatsApp connection', qr.type === 'qrCode' && Buffer.from(qr.message || '', 'base64').subarray(0, 4).toString('hex') === '89504e47', JSON.stringify(qr).slice(0, 100));
+    const sst2 = (await asAdmin('GET', `${B}/senders/${s1.id}/status`)).d || {};
+    ok('senders: while the QR is shown the state is "waiting for scan"', sst2.stateInstance === 'notAuthorized' && sst2.wahaStatus === 'SCAN_QR_CODE', JSON.stringify(sst2));
+    const own = (await c.query(`select count(*)::int n from app."WhatsappAuthState" where key like $1`, [`s-${s1.id}:%`])).rows[0].n;
+    ok('senders: whatever it saves lives under its own key prefix, never under the platform\'s', (await platformRows()) === platformBefore, `own rows: ${own}, platform rows ${platformBefore} -> ${await platformRows()}`);
+    const out = await asAdmin('POST', `${B}/senders/${s1.id}/logout`);
+    ok('senders: unlinking works and leaves nothing of its login behind', out.s === 200 && (await c.query(`select count(*)::int n from app."WhatsappAuthState" where key like $1`, [`s-${s1.id}:%`])).rows[0].n === 0);
+    ok('senders: ... and the platform\'s own WhatsApp login is exactly as it was', (await platformRows()) === platformBefore);
+
     // ── checks on a campaign ──
-    const base = { name: 'e2e kampanya', message: 'Merhaba {ad}, {sehir} için fırsat!', minDelaySec: 12, maxDelaySec: 16, dailyLimit: 100,
+    const base = { name: 'e2e kampanya', senderId: s1.id, message: 'Merhaba {ad}, {sehir} için fırsat!', minDelaySec: 12, maxDelaySec: 16, dailyLimit: 100,
       recipients: [
         { phone: '0500 010 00 01', name: 'Ayşe', vars: { sehir: 'İzmir' } },
         { phone: phone(2), name: 'Veli', vars: { sehir: 'Ankara' } },
@@ -81,6 +112,7 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
       ok(`create: ${label} is refused (400)`, r.s === 400 && re.test((r.d && r.d.error) || ''), `${r.s} ${r.d && r.d.error}`);
     };
     await refusal('a missing name', { name: ' ' }, /ad verin/);
+    await refusal('a sender that is not this store\'s', { senderId: fakeId }, /Gönderici numara bulunamadı/);
     await refusal('an empty message', { message: '  ' }, /Mesaj boş/);
     await refusal('a pause under 5 seconds', { minDelaySec: 2, maxDelaySec: 3 }, /en az 5/);
     await refusal('a maximum smaller than the minimum', { minDelaySec: 30, maxDelaySec: 20 }, /küçük olamaz/);
@@ -97,6 +129,7 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     const made = await asAdmin('POST', `${B}/campaigns`, base);
     const camp = made.d || {};
     ok('create: saved as a DRAFT with the good numbers only (a repeated and two bad ones are left out)', made.s === 200 && camp.status === 'draft' && camp.counts.total === 2 && camp.counts.pending === 2 && camp.skipped.invalid === 2 && camp.skipped.duplicates === 1, JSON.stringify(made.d).slice(0, 200));
+    ok('create: the sender number is kept and named', camp.senderId === s1.id && camp.senderName === 'e2e hat 1');
     ok('create: settings are kept', camp.minDelaySec === 12 && camp.maxDelaySec === 16 && camp.dailyLimit === 100 && camp.name === 'e2e kampanya');
     const id = camp.id;
     const rows = (await c.query(`select phone, name, vars, status from app."WhatsappCampaignRecipient" where "campaignId"=$1 order by position`, [id])).rows;
@@ -107,6 +140,7 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     const det = (await asAdmin('GET', `${B}/campaigns/${id}`)).d || {};
     ok('detail: the finished messages are previewed for the first people', det.preview && det.preview[0].text === 'Merhaba Ayşe, İzmir için fırsat!' && det.preview[1].text === 'Merhaba Veli, Ankara için fırsat!', JSON.stringify(det.preview).slice(0, 160));
     ok('detail: nothing was sent, so no pause has been measured yet', det.observed === null);
+    ok('detail: the sender is described', det.sender && det.sender.id === s1.id && det.sender.ready === false && det.senderName === 'e2e hat 1');
     ok('detail: counts and today\'s total', det.counts.total === 2 && typeof det.sentToday === 'number');
     const list = (await asAdmin('GET', `${B}/campaigns`)).d || [];
     ok('list: the campaign is there with its counts', list.some((x) => x.id === id && x.counts.pending === 2));
@@ -123,6 +157,12 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     const edited = await asAdmin('PUT', `${B}/campaigns/${id}`, { name: 'e2e kampanya 2', minDelaySec: 20, maxDelaySec: 45, dailyLimit: 0, message: 'Selam {ad}!' });
     ok('edit: a draft can be changed', edited.s === 200 && edited.d.name === 'e2e kampanya 2' && edited.d.minDelaySec === 20 && edited.d.maxDelaySec === 45 && edited.d.dailyLimit === 0 && edited.d.message === 'Selam {ad}!', JSON.stringify(edited.d).slice(0, 160));
 
+    const swap = await asAdmin('PUT', `${B}/campaigns/${id}`, { senderId: s2.id });
+    ok('edit: the sender can be changed', swap.s === 200 && swap.d.senderId === s2.id && swap.d.senderName === 'e2e hat 2');
+    const swapBad = await asAdmin('PUT', `${B}/campaigns/${id}`, { senderId: fakeId });
+    ok('edit: a foreign sender is refused', swapBad.s === 400);
+    await asAdmin('PUT', `${B}/campaigns/${id}`, { senderId: s1.id });
+
     // ── adding numbers ──
     const add = await asAdmin('POST', `${B}/campaigns/${id}/recipients`, { recipients: [{ phone: phone(3), name: 'Fatma' }, { phone: phone(2) }, { phone: 'zzz' }] });
     ok('add: new numbers are appended, a number already in the list is not added twice', add.s === 200 && add.d.added === 1 && add.d.counts.total === 3, JSON.stringify(add.d).slice(0, 160));
@@ -137,13 +177,15 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     const retry = await asAdmin('POST', `${B}/campaigns/${id}/retry-failed`);
     ok('retry: nothing failed, nothing re-queued', retry.s === 200 && retry.d.requeued === 0);
 
-    // ── starting is only tried when no phone is linked: then it must be refused with the way out, and nothing is sent ──
-    const linked = (await c.query(`select count(*)::int n from app."WhatsappAuthState"`)).rows[0].n;
-    if (linked === 0) {
-      const st = await asAdmin('POST', `${B}/campaigns/${id}/start`);
-      ok('start: with no phone linked it is refused with a sentence (409), the campaign stays a draft', st.s === 409 && /bağlan|bağlı/i.test((st.d && st.d.error) || ''), `${st.s} ${st.d && st.d.error}`);
-      ok('start: the campaign is still a draft', (await c.query(`select status from app."WhatsappCampaign" where id=$1`, [id])).rows[0].status === 'draft');
-    } else console.log('SKIP  a phone is linked on this deployment: "start" is not called by the test (it would send real messages)');
+    // ── starting: refused while the sender is not linked / not chosen (so nothing can be sent from a test) ──
+    const st = await asAdmin('POST', `${B}/campaigns/${id}/start`);
+    ok('start: a sender that is not linked is refused with a sentence (409)', st.s === 409 && /bağlı değil/.test((st.d && st.d.error) || ''), `${st.s} ${st.d && st.d.error}`);
+    const noSender = (await asAdmin('POST', `${B}/campaigns`, { ...base, senderId: null, name: 'e2e gondericisiz' })).d || {};
+    ok('create: a draft without a sender is allowed', noSender.status === 'draft' && noSender.senderId === null);
+    const st2 = await asAdmin('POST', `${B}/campaigns/${noSender.id}/start`);
+    ok('start: without a sender it is refused and says to choose one (409)', st2.s === 409 && /gönderici numara seçilmemiş/.test((st2.d && st2.d.error) || ''), `${st2.s} ${st2.d && st2.d.error}`);
+    ok('start: the campaigns are still drafts', (await c.query(`select count(*)::int n from app."WhatsappCampaign" where id = any($1) and status='draft'`, [[id, noSender.id]])).rows[0].n === 2);
+    await asAdmin('DELETE', `${B}/campaigns/${noSender.id}`);
 
     // ── isolation ──
     const probes = [
@@ -154,6 +196,11 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     for (const [m, u, b] of probes) { const r = await asOther(m, u, b); if (r.s !== 404) leaked.push(`${m} ${u.replace(id, ':id')} → ${r.s}`); }
     ok(`isolation: another admin gets 404 on all ${probes.length} routes of this campaign`, leaked.length === 0, leaked.join('; '));
     ok('isolation: another admin\'s list is empty', ((await asOther('GET', `${B}/campaigns`)).d || []).length === 0);
+    const sp = [['PUT', `${B}/senders/${s1.id}`, { name: 'x' }], ['GET', `${B}/senders/${s1.id}/status`], ['GET', `${B}/senders/${s1.id}/qr`], ['POST', `${B}/senders/${s1.id}/logout`], ['DELETE', `${B}/senders/${s1.id}`]];
+    const seen = [];
+    for (const [m, u, b] of sp) { const r = await asOther(m, u, b); if (r.s !== 404) seen.push(`${m} ${u.replace(s1.id, ':id')} → ${r.s}`); }
+    ok(`isolation: another admin gets 404 on all ${sp.length} routes of this admin\'s sender number`, seen.length === 0, seen.join('; '));
+    ok('isolation: another admin sees no sender numbers and cannot use one in a campaign', ((await asOther('GET', `${B}/senders`)).d || []).length === 0 && (await asOther('POST', `${B}/campaigns`, { ...base, senderId: s1.id })).s === 400);
     ok('isolation: nothing of this campaign changed', (await c.query(`select name from app."WhatsappCampaign" where id=$1`, [id])).rows[0].name === 'e2e kampanya 2');
 
     // ── nothing was sent ──
@@ -164,8 +211,21 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     const del = await asAdmin('DELETE', `${B}/campaigns/${id}`);
     ok('delete: a draft can be deleted', del.s === 200 && del.d.success === true);
     ok('delete: it is gone, with its numbers', (await asAdmin('GET', `${B}/campaigns/${id}`)).s === 404 && (await c.query(`select count(*)::int n from app."WhatsappCampaignRecipient" where "campaignId"=$1`, [id])).rows[0].n === 0);
+    // ── deleting a sender: busy numbers are refused elsewhere (unit tests); here the campaign keeps living without a sender ──
+    const keep = (await asAdmin('POST', `${B}/campaigns`, { ...base, name: 'e2e kalan' })).d || {};
+    const delS = await asAdmin('DELETE', `${B}/senders/${s1.id}`);
+    ok('senders: a number can be deleted', delS.s === 200 && ((await asAdmin('GET', `${B}/senders`)).d || []).length === 2);
+    const left = (await asAdmin('GET', `${B}/campaigns/${keep.id}`)).d || {};
+    ok('senders: its campaign stays, without a sender (it must be chosen again before it can start)', left.id === keep.id && left.senderId === null && left.sender === null);
+    ok('senders: the platform\'s own WhatsApp login was never touched by any of this', (await platformRows()) === platformBefore, `${platformBefore} -> ${await platformRows()}`);
+    for (const x of [s2, s3]) await asAdmin('DELETE', `${B}/senders/${x.id}`);
+    const mine = [s1, s2, s3].filter((x) => x.id).map((x) => `s-${x.id}:%`);
+    ok('senders: all gone, none of their login rows left behind', (await c.query(`select count(*)::int n from app."WhatsappAuthState" where key like any($1)`, [mine])).rows[0].n === 0);
   } catch (e) { console.log('ERROR', e); fails++; } finally {
     for (const id of users) await c.query(`delete from app."User" where id=$1`, [id]).catch((e) => console.log('cleanup:', e.message));
+    // the login rows of senders that no longer exist (deleting a user takes its sender rows with it, but not their login rows)
+    await c.query(`delete from app."WhatsappAuthState" where key like 's-%' and substring(key from 3 for 36) not in (select id from app."WhatsappSender")`).catch((e) => console.log('cleanup:', e.message));
+    console.log('leftover sender login rows without a sender:', (await c.query(`select count(*)::int n from app."WhatsappAuthState" where key like 's-%' and substring(key from 3 for 36) not in (select id from app."WhatsappSender")`)).rows[0].n);
     console.log('leftover temp users:', (await c.query(`select count(*)::int n from app."User" where email like 'tmp-%'`)).rows[0].n);
     console.log('leftover campaigns of temp users:', (await c.query(`select count(*)::int n from app."WhatsappCampaign" w left join app."Store" s on s.id=w."storeId" where s.id is null`)).rows[0].n);
     await c.end(); console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED'); process.exit(fails ? 1 : 0);

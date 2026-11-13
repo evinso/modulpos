@@ -210,7 +210,7 @@ test('daily limit: counts what all campaigns sent today, waits for 09:00 the nex
   await w.runner.tick();
   assert.equal(w.sent.length, 0, 'the other campaign already used the 2 messages of today');
   const tomorrow9 = Date.UTC(2026, 10, 14, 6, 0, 0);                    // 09:00 Turkey = 06:00 UTC
-  assert.equal(ms(c.nextSendAt), tomorrow9); assert.match(c.statusNote, /Günlük sınıra \(2 mesaj\)/); assert.equal(c.status, 'running');
+  assert.equal(ms(c.nextSendAt), tomorrow9); assert.match(c.statusNote, /günlük sınırına \(2 mesaj\)/); assert.equal(c.status, 'running');
   w.set(tomorrow9 - 1000); await w.runner.tick(); assert.equal(w.sent.length, 0);
   w.set(tomorrow9); await w.runner.tick(); assert.equal(w.sent.length, 1, 'a new day: it goes on by itself');
   assert.equal(c.statusNote, null);
@@ -360,4 +360,49 @@ test('gapStats: the pauses that really happened, in any order; stops are not pau
   assert.equal(gapStats([], 20), null);
   const stopped = [t0, t0 + 15000, t0 + 3 * 3600 * 1000, t0 + 3 * 3600 * 1000 + 14000].map((x) => new Date(x));
   assert.deepEqual(gapStats(stopped, 20), { count: 2, minSec: 14, maxSec: 15, avgSec: 14.5 }, 'a 3 hour stop (paused / daily limit) is not counted as a pause');
+});
+
+test('two sender numbers run side by side; per number only its oldest campaign sends', async () => {
+  const w = world();
+  const a = { sent: [], async sendMessage(p, t) { a.sent.push(p); } }; const b = { sent: [], async sendMessage(p, t) { b.sent.push(p); } };
+  w.runner.getClient = async (c) => (c.senderId === 'A' ? a : b);
+  const a1 = w.campaign({ name: 'A1', senderId: 'A', startedAt: new Date(w.at() - 9000) }, ['905321111111', '905322222222']);
+  const a2 = w.campaign({ name: 'A2', senderId: 'A', startedAt: new Date(w.at() - 1000) }, ['905323333333']);
+  const b1 = w.campaign({ name: 'B1', senderId: 'B' }, ['905324444444']);
+  await w.runner.tick();
+  assert.deepEqual(a.sent, ['905321111111'], 'number A: only its oldest campaign, one message');
+  assert.deepEqual(b.sent, ['905324444444'], 'number B sends in the same round, not waiting for A\'s pause');
+  assert.equal(b1.status, 'done'); assert.equal(a1.status, 'running'); assert.equal(a2.status, 'running');
+  w.advance(20000); await w.runner.tick();
+  assert.deepEqual(a.sent, ['905321111111', '905322222222']);
+  assert.equal(a1.status, 'done');
+  await w.runner.tick();
+  assert.deepEqual(a.sent.slice(2), ['905323333333'], 'then the second campaign of A takes its turn');
+});
+
+test('the daily limit belongs to one sender number: another number is not held back by it', async () => {
+  const w = world({ now: Date.UTC(2026, 10, 13, 15, 0, 0) });
+  const a = { sent: [], async sendMessage(p) { a.sent.push(p); } }; const b = { sent: [], async sendMessage(p) { b.sent.push(p); } };
+  w.runner.getClient = async (c) => (c.senderId === 'A' ? a : b);
+  const done = w.campaign({ senderId: 'A', status: 'done' }, ['905320000001', '905320000002']);
+  w.recipients.rows.forEach((r) => { r.status = 'sent'; r.sentAt = new Date(w.at() - 3600000); });   // A already sent 2 today
+  const ca = w.campaign({ senderId: 'A', dailyLimit: 2 }, ['905321111111']);
+  const cb = w.campaign({ senderId: 'B', dailyLimit: 2 }, ['905322222222']);
+  await w.runner.tick();
+  assert.deepEqual(a.sent, [], 'A reached its own limit'); assert.match(ca.statusNote, /günlük sınırına/);
+  assert.deepEqual(b.sent, ['905322222222'], 'B has sent nothing today and goes on');
+  assert.equal(await sentTodayFor(w.prisma, 'st1', w.at(), 'A'), 2); assert.equal(await sentTodayFor(w.prisma, 'st1', w.at(), 'B'), 1);
+  assert.equal(await sentTodayFor(w.prisma, 'st1', w.at()), 3, 'without a sender: the store total');
+  assert.ok(done && cb);
+});
+
+test('a campaign without a sender number is paused with the way out, nothing is sent and nothing falls back to another number', async () => {
+  const w = new BulkRunner({ prisma: null });   // replaced below: the real _client() is under test, no injected client
+  const world2 = world();
+  const real = new BulkRunner({ prisma: world2.prisma, now: () => world2.at(), random: () => 0, log: () => {}, setTimer: () => ({}), clearTimer: () => {} });
+  const c = world2.campaign({ senderId: null }, ['905321111111']);
+  await real.tick();
+  assert.equal(c.status, 'paused'); assert.match(c.statusNote, /gönderici numara seçilmemiş/);
+  assert.equal(world2.rec('905321111111').status, 'pending');
+  assert.ok(w);
 });

@@ -64,3 +64,13 @@ export function downloadSampleCsv() {
 
 /** The error sentence of an API call. */
 export const errorText = (err, fallback) => (err && err.response && err.response.data && err.response.data.error) || fallback;
+
+/** How a sender number is shown: { label, color, bg } from its state (see routes/whatsappBulk.js senderView). */
+export function senderState(s) {
+  if (!s) return { label: 'Seçilmemiş', color: 'var(--danger)', bg: 'rgba(239,68,68,0.12)' };
+  if (s.state === 'authorized') return { label: 'Bağlı', color: 'var(--success)', bg: 'rgba(16,185,129,0.12)' };
+  if (s.state === 'linked') return { label: 'Bağlı (kayıtlı oturum)', color: 'var(--success)', bg: 'rgba(16,185,129,0.12)' };
+  if (s.state === 'starting') return { label: 'Bağlanıyor…', color: 'var(--warning)', bg: 'rgba(245,158,11,0.12)' };
+  if (s.status === 'SCAN_QR_CODE') return { label: 'QR bekleniyor', color: 'var(--warning)', bg: 'rgba(245,158,11,0.12)' };
+  return { label: 'Bağlı değil', color: 'var(--danger)', bg: 'rgba(239,68,68,0.12)' };
+}

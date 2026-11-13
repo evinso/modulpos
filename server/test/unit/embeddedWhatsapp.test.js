@@ -168,6 +168,37 @@ test('send: bulk-page messages neither use up nor are stopped by the hourly valv
   assert.equal(fresh.engine.sentAt.length, 0, 'bulk messages leave the notification budget whole');
 });
 
+test('peekStatus: tells the state without opening anything or counting as use', async () => {
+  const none = makeEngine();
+  let st = await none.engine.peekStatus();
+  assert.equal(st.stateInstance, 'notAuthorized'); assert.equal(st.wahaStatus, 'NOT_LINKED'); assert.match(st.message, /QR kodu göster/);
+  assert.equal(none.loads.n, 0); assert.equal(none.sockets.length, 0); assert.equal(none.engine.lastUse, 0);
+
+  const saved = makeEngine({ linked: true });
+  st = await saved.engine.peekStatus();
+  assert.equal(st.stateInstance, 'linked'); assert.equal(st.wahaStatus, 'SAVED'); assert.match(st.message, /••••4567/);
+  assert.equal(saved.loads.n, 0, 'a saved login is read from one row, Baileys is not even loaded'); assert.equal(saved.sockets.length, 0);
+
+  const live = makeEngine({ linked: true, onSocket: (s) => open(s) });
+  await live.engine.sendMessage('905321234567', 'x');
+  st = await live.engine.peekStatus();
+  assert.equal(st.stateInstance, 'authorized'); assert.match(st.message, /••••4567/);
+});
+
+test('suspend: hangs up without logging out; the saved login stays and the next send opens the connection again', async () => {
+  const t = makeEngine({ linked: true, onSocket: (s) => open(s) });
+  await t.engine.sendMessage('905321234567', 'a');
+  assert.equal(t.engine.idleFor(), 0);
+  t.tick(11 * 60 * 1000);
+  assert.equal(t.engine.idleFor(), 11 * 60 * 1000, 'idle time counts from the last use');
+  t.engine.suspend();
+  assert.equal(t.sockets[0].ended, true); assert.equal(t.sockets[0].loggedOut, false, 'no logout: the phone stays linked');
+  assert.equal(t.engine.idleFor(), Infinity); assert.equal(t.store.m.has('creds'), true, 'the login is still saved');
+  assert.equal((await t.engine.peekStatus()).stateInstance, 'linked');
+  await t.engine.sendMessage('905321234567', 'b');
+  assert.equal(t.sockets.length, 2, 'a new connection was opened for the next message'); assert.equal(t.sockets[1].sent.length, 1);
+});
+
 // ── things that go wrong ───────────────────────────────────────────────────────────────────────────────────
 test('a dropped connection is retried with growing pauses, and the count starts over once it is back', async () => {
   const t = makeEngine({ linked: true, onSocket: (s, n) => { if (n !== 3) open(s); } });
