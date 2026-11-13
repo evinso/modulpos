@@ -30,6 +30,21 @@ export function formatTime(value) {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+/** With seconds: the pause between two messages is only visible that way (WhatsApp itself shows minutes only). */
+export function formatTimeSec(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+/** Seconds between two times (rounded to 0.1), or null. */
+export function secondsBetween(a, b) {
+  const x = new Date(a).getTime(); const y = new Date(b).getTime();
+  return Number.isFinite(x) && Number.isFinite(y) ? Math.round(((y - x) / 1000) * 10) / 10 : null;
+}
+
+export const secText = (n) => String(n).replace('.', ',');
+
 /** A CSV from Excel is often not UTF-8 (Windows-1254 in Turkish Windows): try UTF-8 first, fall back to Windows-1254. */
 export function decodeCsvBytes(buffer) {
   try { return new TextDecoder('utf-8', { fatal: true }).decode(buffer); } catch { /* not UTF-8 */ }

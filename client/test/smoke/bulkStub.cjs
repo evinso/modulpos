@@ -46,7 +46,7 @@ function handle(method, url, body, cfg) {
       bulk.c.nextSendAt = new Date(Date.now() + 14000).toISOString();
       if (!bulk.recipients.some((r) => r.status === 'pending')) { bulk.c.status = 'done'; bulk.c.nextSendAt = null; }
     }
-    return { data: { ...shape(), sentToday: bulk.sentToday, preview: bulk.recipients.slice(0, 3).map((r) => ({ phone: r.phone, name: r.name, text: bulk.c.message.replace(/\{ad\}/g, r.name || '') })) } };
+    return { data: { ...shape(), sentToday: bulk.sentToday, observed: bulk.observed || null, preview: bulk.recipients.slice(0, 3).map((r) => ({ phone: r.phone, name: r.name, text: bulk.c.message.replace(/\{ad\}/g, r.name || '') })) } };
   }
   if (method === 'GET' && sub === '/recipients') {
     const st = cfg && cfg.params && cfg.params.status;

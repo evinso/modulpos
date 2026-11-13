@@ -104,12 +104,16 @@ ok('it opens as a draft: nothing is sent yet, the finished messages can be check
 ok('counts and the pause range are shown', byId('count-pending').textContent === '4' && text().includes('12–16 sn'));
 
 // ── start, progress, pause ──
+bulk.observed = { count: 2, minSec: 15.8, maxSec: 16.5, avgSec: 16.1 };   // what the server measured between the messages that really went
 await click(btn('Başlat'), 200);
 ok('Başlat asks the server to start', calls.some((c) => c.m === 'POST' && c.url === '/whatsapp-bulk/campaigns/k1/start'));
 ok('it runs: status, countdown and the pause button', byId('campaign-status').textContent === 'Çalışıyor' && !!btn('Duraklat') && !btn('Sil') && !btn('Düzenle'), byId('campaign-status').textContent);
 ok('a running campaign cannot be edited or deleted from the page', !btn('Sil') && !btn('Düzenle') && !btn('Numara ekle'));
 await wait(4400);   // the page looks again every 4 seconds
 ok('the page follows the progress by itself', byId('count-sent').textContent !== '0', `sent=${byId('count-sent').textContent}`);
+ok('the time of every sent number shows SECONDS, so the pauses can be seen (WhatsApp itself shows minutes only)', [...document.querySelectorAll('[data-testid="sent-time"]')].some((e) => /\d{2}:\d{2}:\d{2}/.test(e.textContent)), [...document.querySelectorAll('[data-testid="sent-time"]')].map((e) => e.textContent).join(' | '));
+ok('and the gap to the previous message', !!byId('sent-gap') && /önceki mesajdan \+\d+(,\d)? sn/.test(byId('sent-gap').textContent), byId('sent-gap') && byId('sent-gap').textContent);
+ok('the pauses that really happened are summarised, with the note about minutes', byId('observed-gaps') && byId('observed-gaps').textContent.includes('15,8–16,5 sn') && byId('observed-gaps').textContent.includes('son 3 mesaj') && byId('observed-gaps').textContent.includes('aynı dakikada'), byId('observed-gaps') && byId('observed-gaps').textContent.slice(0, 120));
 ok('"next message in N seconds" is shown', /Sıradaki mesaj yaklaşık \d+ sn sonra/.test(byId('next-send') ? byId('next-send').textContent : ''), byId('next-send') && byId('next-send').textContent);
 
 bulk.progressOnRead = false;

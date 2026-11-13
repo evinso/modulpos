@@ -106,6 +106,7 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     // ── detail, preview, numbers ──
     const det = (await asAdmin('GET', `${B}/campaigns/${id}`)).d || {};
     ok('detail: the finished messages are previewed for the first people', det.preview && det.preview[0].text === 'Merhaba Ayşe, İzmir için fırsat!' && det.preview[1].text === 'Merhaba Veli, Ankara için fırsat!', JSON.stringify(det.preview).slice(0, 160));
+    ok('detail: nothing was sent, so no pause has been measured yet', det.observed === null);
     ok('detail: counts and today\'s total', det.counts.total === 2 && typeof det.sentToday === 'number');
     const list = (await asAdmin('GET', `${B}/campaigns`)).d || [];
     ok('list: the campaign is there with its counts', list.some((x) => x.id === id && x.counts.pending === 2));

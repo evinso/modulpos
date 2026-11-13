@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { BulkRunner, dayStartTr, sentTodayFor, FAIL_STREAK_PAUSE, TRANSIENT_STREAK_PAUSE, TRANSIENT_WAIT_MS, STUCK_AFTER_MS, LEASE_MS } = require('../../src/services/whatsapp/bulkRunner');
+const { BulkRunner, dayStartTr, sentTodayFor, FAIL_STREAK_PAUSE, TRANSIENT_STREAK_PAUSE, TRANSIENT_WAIT_MS, STUCK_AFTER_MS, LEASE_MS, gapStats } = require('../../src/services/whatsapp/bulkRunner');
 
 // ── a tiny in-memory database with just the calls the runner makes ────────────────────────────────────────────
 function matches(row, where = {}) {
@@ -350,4 +350,14 @@ test('the right to send is held while a message is on its way, and a dead proces
   assert.equal(w.sent.length, 0, 'another process cannot send meanwhile');
   release(); await first;
   assert.equal(w.sent.length, 1);
+});
+
+test('gapStats: the pauses that really happened, in any order; stops are not pauses', () => {
+  const t0 = Date.UTC(2026, 10, 13, 14, 11, 18, 373);
+  const dates = [t0 + 32277, t0, t0 + 16473].map((x) => new Date(x));         // 14:11:18.373, :34.846, :50.650 (the owner's first real test), shuffled
+  assert.deepEqual(gapStats(dates, 20), { count: 2, minSec: 15.8, maxSec: 16.5, avgSec: 16.1 });
+  assert.equal(gapStats([new Date(t0)], 20), null, 'one message has no pause');
+  assert.equal(gapStats([], 20), null);
+  const stopped = [t0, t0 + 15000, t0 + 3 * 3600 * 1000, t0 + 3 * 3600 * 1000 + 14000].map((x) => new Date(x));
+  assert.deepEqual(gapStats(stopped, 20), { count: 2, minSec: 14, maxSec: 15, avgSec: 14.5 }, 'a 3 hour stop (paused / daily limit) is not counted as a pause');
 });

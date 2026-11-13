@@ -4,7 +4,7 @@ const { auth } = require('../middleware/auth');
 const { ownedParam } = require('../middleware/ownership');
 const wa = require('../services/whatsapp');
 const { parseList, cleanPhone, renderMessage, placeholdersOf, fold, NAME_ALIASES, MAX_ROWS } = require('../services/whatsapp/bulkCsv');
-const { getRunner, sentTodayFor, parseVars, MIN_DELAY_FLOOR_SEC, MAX_DELAY_CEIL_SEC } = require('../services/whatsapp/bulkRunner');
+const { getRunner, sentTodayFor, parseVars, gapStats, MIN_DELAY_FLOOR_SEC, MAX_DELAY_CEIL_SEC } = require('../services/whatsapp/bulkRunner');
 
 /**
  * Bulk WhatsApp (admin only): a message to a list of numbers, one after another with a random pause between a minimum and a maximum
@@ -179,13 +179,15 @@ router.get('/campaigns/:id', async (req, res, next) => {
   try {
     const store = await storeOf(req);
     const c = await campaignOf(req);
-    const [counts, sentToday, first] = await Promise.all([
+    const [counts, sentToday, first, lastSent] = await Promise.all([
       countsFor([c.id]), sentTodayFor(prisma, store.id),
       prisma.whatsappCampaignRecipient.findMany({ where: { campaignId: c.id }, orderBy: { position: 'asc' }, take: 3 }),
+      prisma.whatsappCampaignRecipient.findMany({ where: { campaignId: c.id, status: 'sent' }, orderBy: { sentAt: 'desc' }, take: 200, select: { sentAt: true } }),
     ]);
     if (c.status === 'running') getRunner().ensure();
     res.json({
       ...shape(c, counts.get(c.id)), sentToday,
+      observed: gapStats(lastSent.map((x) => x.sentAt), c.maxDelaySec),   // the pauses that really happened (last 200 messages)
       preview: first.map((r) => ({ phone: r.phone, name: r.name, text: renderMessage(c.message, { name: r.name, vars: parseVars(r.vars) }) })),
     });
   } catch (err) { next(err); }

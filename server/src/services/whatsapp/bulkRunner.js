@@ -37,6 +37,21 @@ async function sentTodayFor(prisma, storeId, ms = Date.now()) {
   return prisma.whatsappCampaignRecipient.count({ where: { campaignId: { in: campaigns.map((c) => c.id) }, status: 'sent', sentAt: { gte: new Date(dayStartTr(ms)) } } });
 }
 
+/**
+ * The pauses that really happened between consecutive sent messages (newest `dates` first or in any order), in seconds.
+ * A gap far longer than the campaign's longest pause is a stop (paused, daily limit, a night) and not a pause between two messages: it is left out.
+ * @returns { count, minSec, maxSec, avgSec } or null when there are fewer than two messages
+ */
+function gapStats(dates, maxDelaySec = 0) {
+  const t = dates.map((d) => new Date(d).getTime()).filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
+  const limit = Math.max(Number(maxDelaySec) * 2 + 60, 120) * 1000;
+  const gaps = [];
+  for (let i = 1; i < t.length; i++) { const g = t[i] - t[i - 1]; if (g <= limit) gaps.push(g / 1000); }
+  if (gaps.length === 0) return null;
+  const r1 = (x) => Math.round(x * 10) / 10;
+  return { count: gaps.length, minSec: r1(Math.min(...gaps)), maxSec: r1(Math.max(...gaps)), avgSec: r1(gaps.reduce((a, b) => a + b, 0) / gaps.length) };
+}
+
 const parseVars = (s) => { try { const o = s ? JSON.parse(s) : {}; return o && typeof o === 'object' ? o : {}; } catch { return {}; } };
 
 class BulkRunner {
@@ -246,6 +261,6 @@ let instance = null;
 function getRunner() { if (!instance) instance = new BulkRunner(); return instance; }
 
 module.exports = {
-  BulkRunner, getRunner, sentTodayFor, dayStartTr, parseVars,
+  BulkRunner, getRunner, sentTodayFor, dayStartTr, parseVars, gapStats,
   FAIL_STREAK_PAUSE, TRANSIENT_STREAK_PAUSE, TRANSIENT_WAIT_MS, STUCK_AFTER_MS, MIN_DELAY_FLOOR_SEC, MAX_DELAY_CEIL_SEC, LEASE_MS,
 };

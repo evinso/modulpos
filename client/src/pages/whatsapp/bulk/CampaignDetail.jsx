@@ -3,7 +3,7 @@ import { ArrowLeft, Play, Pause, Trash2, Pencil, RotateCcw, Plus, Loader2, Alert
 import toast from 'react-hot-toast';
 import api from '../../../services/api';
 import RecipientImport from './RecipientImport';
-import { STATUS_LABEL, STATUS_STYLE, RECIPIENT_LABEL, RECIPIENT_COLOR, durationText, estimateSeconds, formatTime, errorText, numText } from './bulkHelpers';
+import { STATUS_LABEL, STATUS_STYLE, RECIPIENT_LABEL, RECIPIENT_COLOR, durationText, estimateSeconds, formatTimeSec, secondsBetween, secText, errorText, numText } from './bulkHelpers';
 
 const muted = { fontSize: 12, color: 'var(--text-muted)' };
 const POLL_MS = 4000;
@@ -138,6 +138,12 @@ export default function CampaignDetail({ id, overview, onBack, onChanged, onEdit
           Bekleme: <strong>{c.minDelaySec}–{c.maxDelaySec} sn</strong> (rastgele) · Günlük sınır: <strong>{c.dailyLimit > 0 ? numText(c.dailyLimit) : 'yok'}</strong> · Bugün toplu gönderilen: <strong data-testid="sent-today">{numText(c.sentToday)}</strong>
           {c.status !== 'done' && counts.pending > 0 && <> · Kalan tahmini süre: {durationText(estimateSeconds(counts.pending, c.minDelaySec, c.maxDelaySec))}</>}
         </div>
+        {c.observed && (
+          <div data-testid="observed-gaps" style={{ ...muted, marginBottom: 6 }}>
+            Gerçekleşen bekleme (son {numText(c.observed.count + 1)} mesaj): <strong>{secText(c.observed.minSec)}–{secText(c.observed.maxSec)} sn</strong>, ortalama {secText(c.observed.avgSec)} sn.
+            WhatsApp mesaj saatini yalnızca dakikayla gösterir; art arda giden mesajlar aynı dakikada görünebilir. Saniyeler aşağıdaki tabloda.
+          </div>
+        )}
         <div style={{ fontWeight: 600, fontSize: 13, margin: '10px 0 4px' }}>Mesaj</div>
         <div data-testid="message-text" style={{ whiteSpace: 'pre-wrap', fontSize: 13, background: 'var(--bg-tertiary)', borderRadius: 8, padding: '10px 12px' }}>{c.message}</div>
         {c.preview && c.preview.length > 0 && (
@@ -166,16 +172,20 @@ export default function CampaignDetail({ id, overview, onBack, onChanged, onEdit
           <table>
             <thead><tr><th>#</th><th>Numara</th><th>Ad</th><th>Durum</th><th>Zaman</th><th>Not</th></tr></thead>
             <tbody>
-              {list.recipients.map((r) => (
+              {list.recipients.map((r, i) => {
+                const prev = filter === '' && i > 0 ? list.recipients[i - 1] : null;
+                const gap = prev && prev.sentAt && r.sentAt ? secondsBetween(prev.sentAt, r.sentAt) : null;
+                return (
                 <tr key={r.id} data-testid="recipient-row">
                   <td style={{ color: 'var(--text-muted)' }}>{r.position}</td>
                   <td>{r.phone}</td>
                   <td>{r.name || <span style={muted}>—</span>}</td>
                   <td style={{ color: RECIPIENT_COLOR[r.status], fontWeight: 500 }}>{RECIPIENT_LABEL[r.status]}</td>
-                  <td style={muted}>{formatTime(r.sentAt)}</td>
+                  <td style={muted} data-testid="sent-time">{formatTimeSec(r.sentAt)}{gap != null && gap > 0 && gap < 3600 ? <span data-testid="sent-gap"> (önceki mesajdan +{secText(gap)} sn)</span> : null}</td>
                   <td style={{ fontSize: 12, color: 'var(--danger)', maxWidth: 360 }}>{r.error || ''}</td>
                 </tr>
-              ))}
+                );
+              })}
               {list.recipients.length === 0 && <tr><td colSpan={6} style={muted}>Bu durumda numara yok</td></tr>}
             </tbody>
           </table>
