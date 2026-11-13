@@ -20,6 +20,7 @@ const TRANSIENT_STREAK_PAUSE = 5;             // connection attempts that timed 
 const TRANSIENT_WAIT_MS = 60 * 1000;
 const STUCK_AFTER_MS = 3 * 60 * 1000;         // a number "being sent" for longer than this belongs to a dead process
 const HEAL_EVERY_MS = 5 * 60 * 1000;
+const LEASE_MS = 90 * 1000;                   // the right to send the next message is held this long (longer than a send can take)
 const RESUME_HOUR_TR = 9;                     // after the daily limit: next morning at 09:00 (Turkey time)
 const TR_OFFSET_MS = 3 * 3600 * 1000;         // Turkey has no daylight saving time
 
@@ -143,14 +144,24 @@ class BulkRunner {
       return resumeAt;
     }
 
+    // Take the right to send THIS message: a conditional update of the campaign row (only while nobody holds it and its pause is over).
+    // Two processes (the old and the new one during a deploy) can therefore never send within each other's pause.
+    const lease = await db.whatsappCampaign.updateMany({
+      where: { id: c.id, status: 'running', OR: [{ nextSendAt: null }, { nextSendAt: { lte: new Date(t) } }] },
+      data: { nextSendAt: new Date(t + LEASE_MS) },
+    });
+    if (lease.count !== 1) return t + 2000;                                // somebody else holds it (or it was paused meanwhile)
+    const release = () => this._campaign(c, { nextSendAt: null });
+
     const next = await db.whatsappCampaignRecipient.findFirst({ where: { campaignId: c.id, status: 'pending' }, orderBy: { position: 'asc' } });
     if (!next) { await this._finish(c); return null; }
     const claimed = await db.whatsappCampaignRecipient.updateMany({ where: { id: next.id, status: 'pending' }, data: { status: 'sending' } });
-    if (claimed.count !== 1) return t + 1000;                              // another process took it
+    if (claimed.count !== 1) { await release(); return t + 1000; }         // another process took it
 
     const text = renderMessage(c.message, { name: next.name, vars: parseVars(next.vars) });
     if (!text.trim()) {
       await db.whatsappCampaignRecipient.update({ where: { id: next.id }, data: { status: 'failed', error: 'Mesaj bu kişi için boş kaldı' } });
+      await release();
       return t + 500;
     }
 
@@ -162,18 +173,19 @@ class BulkRunner {
     } catch (err) {
       outcome = { ok: false, status: err && err.status, message: this._describe(err) };
     }
+    outcome.at = this.now();                                               // the pause counts from here, not from after the database writes
     return this._after(c, next, outcome);
   }
 
   async _after(c, r, outcome) {
     const db = this._db();
-    const t = this.now();
+    const t = outcome.at;
     const setRecipient = (data) => db.whatsappCampaignRecipient.update({ where: { id: r.id }, data });
 
     if (outcome.ok) {
       this.failStreak.delete(c.id); this.transient.delete(c.id);
       await setRecipient({ status: 'sent', sentAt: new Date(t), error: null });
-      return this._wait(c);
+      return this._wait(c, t);
     }
 
     const status = outcome.status;
@@ -200,7 +212,7 @@ class BulkRunner {
     if (status === 422) {
       this.failStreak.delete(c.id);
       await setRecipient({ status: 'failed', error: outcome.message });
-      return this._wait(c);
+      return this._wait(c, t);
     }
     // the message could not be sent
     await setRecipient({ status: 'failed', error: outcome.message });
@@ -210,14 +222,14 @@ class BulkRunner {
       await this._campaign(c, { status: 'paused', nextSendAt: null, statusNote: `Üst üste ${n} mesaj gönderilemedi, kampanya durduruldu. Numara kısıtlanmış ya da bağlantı bozuk olabilir; WhatsApp sayfasındaki durumu kontrol edin. Son hata: ${outcome.message}` });
       return null;
     }
-    return this._wait(c);
+    return this._wait(c, t);
   }
 
-  /** After a number was dealt with: the random pause, or the end when nobody is left. */
-  async _wait(c) {
+  /** After a number was dealt with: the random pause (counted from `since`, the moment the send ended), or the end when nobody is left. */
+  async _wait(c, since) {
     const left = await this._db().whatsappCampaignRecipient.count({ where: { campaignId: c.id, status: 'pending' } });
     if (left === 0) { await this._finish(c); return null; }
-    const at = this.now() + this.delayMs(c);
+    const at = since + this.delayMs(c);
     await this._campaign(c, { nextSendAt: new Date(at), statusNote: null });
     return at;
   }
@@ -235,5 +247,5 @@ function getRunner() { if (!instance) instance = new BulkRunner(); return instan
 
 module.exports = {
   BulkRunner, getRunner, sentTodayFor, dayStartTr, parseVars,
-  FAIL_STREAK_PAUSE, TRANSIENT_STREAK_PAUSE, TRANSIENT_WAIT_MS, STUCK_AFTER_MS, MIN_DELAY_FLOOR_SEC, MAX_DELAY_CEIL_SEC,
+  FAIL_STREAK_PAUSE, TRANSIENT_STREAK_PAUSE, TRANSIENT_WAIT_MS, STUCK_AFTER_MS, MIN_DELAY_FLOOR_SEC, MAX_DELAY_CEIL_SEC, LEASE_MS,
 };

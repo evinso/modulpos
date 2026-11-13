@@ -23,11 +23,11 @@ export default function CampaignForm({ overview, initial, onSaved, onCancel }) {
   const [saving, setSaving] = useState(false);
   const messageRef = useRef(null);
 
-  const minN = Number(String(min).replace(',', '.')); const maxN = Number(String(max).replace(',', '.')); const dailyN = Number(daily);
+  const minN = Number(String(min).trim() === '' ? NaN : min); const maxN = Number(String(max).trim() === '' ? NaN : max); const dailyN = Number(daily);
   const problem = (() => {
     if (!name.trim()) return 'Kampanyaya bir ad verin';
     if (!message.trim()) return 'Mesajı yazın';
-    if (!Number.isFinite(minN) || !Number.isFinite(maxN)) return 'En az ve en çok bekleme süresini saniye olarak yazın';
+    if (!Number.isInteger(minN) || !Number.isInteger(maxN)) return 'En az ve en çok bekleme süresini tam saniye olarak yazın (ör. 12 ve 20)';
     if (minN < limits.minDelayFloorSec) return `Bekleme en az ${limits.minDelayFloorSec} saniye olmalı`;
     if (maxN < minN) return 'En çok süre, en az süreden küçük olamaz';
     if (!Number.isInteger(dailyN) || dailyN < 0) return 'Günlük sınır 0 ya da pozitif bir tam sayı olmalı';
@@ -107,7 +107,7 @@ export default function CampaignForm({ overview, initial, onSaved, onCancel }) {
           </label>
         </div>
         <div style={{ ...muted, marginTop: 4 }}>
-          Her mesajdan sonra bu iki değerin arasında rastgele bir süre beklenir (ör. bir mesaj gider, 12 sn sonra diğeri, sonra 16 sn, sonra 13,4 sn…). Düzenli aralık WhatsApp’ın otomatik gönderimi fark etmesini kolaylaştırır; ne kadar seyrek ve değişken, o kadar güvenli. En düşük değer {limits.minDelayFloorSec} sn.
+          Her mesajdan sonra bu iki değerin arasında rastgele bir süre beklenir (ör. bir mesaj gider, 12 sn sonra diğeri, sonra 16 sn, sonra 13 sn…); her seferinde bu aralıkta, saniyenin kesirleri dahil rastgele bir an seçilir. Düzenli aralık WhatsApp’ın otomatik gönderimi fark etmesini kolaylaştırır; ne kadar seyrek ve değişken, o kadar güvenli. En düşük değer {limits.minDelayFloorSec} sn.
         </div>
       </div>
 

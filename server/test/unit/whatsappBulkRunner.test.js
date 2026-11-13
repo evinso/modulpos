@@ -1,15 +1,17 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { BulkRunner, dayStartTr, sentTodayFor, FAIL_STREAK_PAUSE, TRANSIENT_STREAK_PAUSE, TRANSIENT_WAIT_MS, STUCK_AFTER_MS } = require('../../src/services/whatsapp/bulkRunner');
+const { BulkRunner, dayStartTr, sentTodayFor, FAIL_STREAK_PAUSE, TRANSIENT_STREAK_PAUSE, TRANSIENT_WAIT_MS, STUCK_AFTER_MS, LEASE_MS } = require('../../src/services/whatsapp/bulkRunner');
 
 // ── a tiny in-memory database with just the calls the runner makes ────────────────────────────────────────────
 function matches(row, where = {}) {
   return Object.entries(where).every(([k, w]) => {
+    if (k === 'OR') return w.some((alt) => matches(row, alt));
     const v = row[k];
     if (w && typeof w === 'object' && !(w instanceof Date)) {
       if ('in' in w) return w.in.includes(v);
       if ('not' in w) return v !== w.not;
       if ('lt' in w) return v != null && v < w.lt;
+      if ('lte' in w) return v != null && v <= w.lte;
       if ('gte' in w) return v != null && v >= w.gte;
     }
     return v === w;
@@ -232,7 +234,7 @@ test('messages sent yesterday do not count today', async () => {
 test('pausing while a message is on its way is not undone by the runner', async () => {
   const w = world();
   let c;
-  w.client.sendMessage = async (phone, text, opts) => { c.status = 'paused'; w.sent.push({ phone, text, opts }); };   // the admin presses “Duraklat” meanwhile
+  w.client.sendMessage = async (phone, text, opts) => { c.status = 'paused'; c.nextSendAt = null; w.sent.push({ phone, text, opts }); };   // the admin presses “Duraklat” meanwhile (the route sets both)
   c = w.campaign();
   await w.runner.tick();
   assert.equal(c.status, 'paused', 'still paused'); assert.equal(c.nextSendAt, null);
@@ -321,4 +323,31 @@ test('the fifth failure on the very last number just ends the campaign (nothing 
   for (let i = 0; i < 5; i++) { await w.runner.tick(); w.advance(20000); }
   assert.equal(c.status, 'done');
   assert.equal(w.recipients.rows.filter((r) => r.status === 'failed').length, 5);
+});
+
+test('a second process that read the campaign before the first one wrote its pause still cannot send inside it', async () => {
+  const w = world();
+  const c = w.campaign({}, ['905321111111', '905322222222']);
+  c.nextSendAt = new Date(w.at() + 5000);                                  // the first process holds the slot / is inside its pause
+  const real = w.campaigns.findMany;
+  w.campaigns.findMany = async (a) => (await real(a)).map((x) => ({ ...x, nextSendAt: null }));   // ...but the second one read an older picture
+  await w.runner.tick();
+  assert.equal(w.sent.length, 0, 'the conditional update of the campaign row refused it');
+  assert.equal(ms(c.nextSendAt), w.at() + 5000, 'and left the other process\'s pause alone');
+  w.campaigns.findMany = real;
+  w.advance(5000); await w.runner.tick();
+  assert.equal(w.sent.length, 1, 'once the pause is over it goes on');
+});
+
+test('the right to send is held while a message is on its way, and a dead process loses it after the lease', async () => {
+  let release; const gate = new Promise((r) => { release = r; });
+  const w = world({ outcomes: { '905321111111': () => gate } });
+  const c = w.campaign({}, ['905321111111', '905322222222']);
+  const first = w.runner.tick();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(ms(c.nextSendAt), w.at() + LEASE_MS, 'while sending, the slot is leased');
+  const other = w.make(); await other.tick();
+  assert.equal(w.sent.length, 0, 'another process cannot send meanwhile');
+  release(); await first;
+  assert.equal(w.sent.length, 1);
 });

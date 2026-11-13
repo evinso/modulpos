@@ -66,12 +66,12 @@ function readSettings(body, current = {}) {
   if (name.length > MAX_NAME) return { error: `Kampanya adı en fazla ${MAX_NAME} karakter olabilir` };
   if (!message) return { error: 'Mesaj boş olamaz' };
   if (message.length > MAX_MESSAGE) return { error: `Mesaj en fazla ${MAX_MESSAGE} karakter olabilir` };
-  if (!Number.isFinite(min) || !Number.isFinite(max)) return { error: 'En az ve en çok bekleme süresini saniye olarak yazın' };
+  if (!Number.isInteger(min) || !Number.isInteger(max)) return { error: 'En az ve en çok bekleme süresini tam saniye olarak yazın (ör. 12 ve 20)' };
   if (min < MIN_DELAY_FLOOR_SEC) return { error: `Mesajlar arası bekleme en az ${MIN_DELAY_FLOOR_SEC} saniye olmalı (daha sık gönderim WhatsApp’ın numarayı kapatmasına yol açar)` };
   if (max < min) return { error: 'En çok süre, en az süreden küçük olamaz' };
   if (max > MAX_DELAY_CEIL_SEC) return { error: `En çok bekleme ${MAX_DELAY_CEIL_SEC} saniyeyi (1 saat) geçemez` };
   if (!Number.isInteger(daily) || daily < 0 || daily > MAX_DAILY) return { error: `Günlük sınır 0 (sınırsız) ile ${MAX_DAILY} arasında bir tam sayı olmalı` };
-  return { settings: { name, message, minDelaySec: Math.round(min * 10) / 10, maxDelaySec: Math.round(max * 10) / 10, dailyLimit: daily } };
+  return { settings: { name, message, minDelaySec: min, maxDelaySec: max, dailyLimit: daily } };
 }
 
 /** Recipients from a request: every number is checked again here (the page's check is only a courtesy). */

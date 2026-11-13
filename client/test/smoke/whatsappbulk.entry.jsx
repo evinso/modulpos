@@ -90,6 +90,8 @@ await setValue(document.querySelector('[aria-label="En az saniye"]'), '2');
 ok('a pause below the floor is refused', btn('Taslak olarak kaydet').disabled && byId('form-problem').textContent.includes('en az 5'));
 await setValue(document.querySelector('[aria-label="En az saniye"]'), '30');
 ok('max smaller than min is refused', btn('Taslak olarak kaydet').disabled && byId('form-problem').textContent.includes('küçük olamaz'));
+await setValue(document.querySelector('[aria-label="En az saniye"]'), '12.5');
+ok('a pause that is not whole seconds is refused', btn('Taslak olarak kaydet').disabled && byId('form-problem').textContent.includes('tam saniye'), byId('form-problem') && byId('form-problem').textContent);
 await setValue(document.querySelector('[aria-label="En az saniye"]'), '12');
 await setValue(document.querySelector('[aria-label="En çok saniye"]'), '16');
 ok('a valid form can be saved', !btn('Taslak olarak kaydet').disabled);

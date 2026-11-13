@@ -84,6 +84,7 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     await refusal('an empty message', { message: '  ' }, /Mesaj boş/);
     await refusal('a pause under 5 seconds', { minDelaySec: 2, maxDelaySec: 3 }, /en az 5/);
     await refusal('a maximum smaller than the minimum', { minDelaySec: 30, maxDelaySec: 20 }, /küçük olamaz/);
+    await refusal('a pause that is not whole seconds', { minDelaySec: 12.5, maxDelaySec: 20 }, /tam saniye/);
     await refusal('a pause over an hour', { maxDelaySec: 4000 }, /1 saat/);
     await refusal('a negative daily limit', { dailyLimit: -1 }, /Günlük sınır/);
     await refusal('a field the list does not have', { message: 'Merhaba {soyad}' }, /\{soyad\}/);
