@@ -46,6 +46,7 @@ const SuperAdminPage      = lazy(() => import('./pages/admin/SuperAdminPage'));
 const CreditAdminPage     = lazy(() => import('./pages/admin/CreditAdminPage'));
 const GuidePage           = lazy(() => import('./pages/guide/GuidePage'));
 const WhatsappPage        = lazy(() => import('./pages/whatsapp/WhatsappPage'));
+const WhatsappBulkPage    = lazy(() => import('./pages/whatsapp/bulk/WhatsappBulkPage'));
 
 function PageLoader() {
   return (
@@ -115,6 +116,7 @@ function App() {
             <Route path="/questions-admin"  element={<AdminRoute><QuestionsAdminPage /></AdminRoute>} />
             <Route path="/guide"            element={<GuidePage />} />
             <Route path="/whatsapp"         element={<AdminRoute><WhatsappPage /></AdminRoute>} />
+            <Route path="/whatsapp-bulk"    element={<AdminRoute><WhatsappBulkPage /></AdminRoute>} />
           </Route>
         </Routes>
       </Suspense>

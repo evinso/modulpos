@@ -89,6 +89,7 @@ model Store {
   dropshipOrders        DropshipOrder[]
   autoReplyRules        AutoReplyRule[]
   whatsappConnections   WhatsappConnection[]
+  whatsappCampaigns     WhatsappCampaign[]
 }
 
 model XmlSource {
@@ -706,6 +707,54 @@ model BuyboxAutoLog {
   connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
   @@index([connectionId, createdAt])
+}
+
+// Bulk WhatsApp (admin page /whatsapp-bulk): ONE message sent to a list of numbers, one after another, with a random pause between
+// `minDelaySec` and `maxDelaySec` after each. Lives in the database so a sleep or a deploy of the free hosting only pauses it (see
+// services/whatsapp/bulkRunner.js). status: draft | running | paused | done. `statusNote` says why the program stopped or delayed it by itself.
+model WhatsappCampaign {
+  id           String    @id @default(uuid())
+  storeId      String
+  name         String
+  message      String                // may contain {ad} and the CSV column names in braces
+  minDelaySec  Int
+  maxDelaySec  Int
+  dailyLimit   Int       @default(0) // bulk messages per day for the whole number (all campaigns); 0 = no limit
+  status       String    @default("draft")
+  statusNote   String?
+  nextSendAt   DateTime?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  store      Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  recipients WhatsappCampaignRecipient[]
+
+  @@index([storeId])
+  @@index([status])
+}
+
+// One number of a campaign. status: pending | sending | sent | failed. `phone` is the normalised number (905XXXXXXXXX).
+// `vars` is JSON with the other CSV columns ({ "sehir": "Ankara" }) for the placeholders of the message.
+model WhatsappCampaignRecipient {
+  id         String    @id @default(uuid())
+  campaignId String
+  position   Int
+  phone      String
+  name       String?
+  vars       String?
+  status     String    @default("pending")
+  error      String?
+  sentAt     DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  campaign WhatsappCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, phone])
+  @@index([campaignId, status, position])
+  @@index([sentAt])
 }
 
 model WhatsappAuthState {

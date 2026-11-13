@@ -155,6 +155,19 @@ test(`send: at most ${MAX_PER_HOUR} messages an hour (a runaway loop must not ge
   assert.deepEqual(await t.engine.sendMessage('905321234567', 'yine'), { idMessage: 'M2' });
 });
 
+test('send: bulk-page messages neither use up nor are stopped by the hourly valve of the notifications', async () => {
+  const t = makeEngine({ linked: true, onSocket: (s) => open(s) });
+  await t.engine.sendMessage('905321234567', 'ilk');
+  t.engine.sentAt = Array.from({ length: MAX_PER_HOUR }, () => 1_000_000);               // the notifications have used their whole hour
+  const out = await t.engine.sendMessage('905321234567', 'toplu', { bulk: true });
+  assert.deepEqual(out, { idMessage: 'M2' }, 'a bulk message still goes out (it paces itself)');
+  assert.equal(t.engine.sentAt.length, MAX_PER_HOUR, 'and it is not counted against the notifications');
+  await assert.rejects(t.engine.sendMessage('905321234567', 'bildirim'), (e) => e.status === 429);   // the valve for everything else is untouched
+  const fresh = makeEngine({ linked: true, onSocket: (s) => open(s) });
+  for (let i = 0; i < 3; i++) await fresh.engine.sendMessage('905321234567', 'toplu', { bulk: true });
+  assert.equal(fresh.engine.sentAt.length, 0, 'bulk messages leave the notification budget whole');
+});
+
 // ── things that go wrong ───────────────────────────────────────────────────────────────────────────────────
 test('a dropped connection is retried with growing pauses, and the count starts over once it is back', async () => {
   const t = makeEngine({ linked: true, onSocket: (s, n) => { if (n !== 3) open(s); } });

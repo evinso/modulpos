@@ -9,6 +9,7 @@ const mk = (i, over = {}) => ({
     : { salePrice: 250.9 + i, rule: i === 3 ? 'Elle girilen fiyat' : 'genel', manual: i === 3, loss: i === 3, templatePrice: i === 3 ? 300 : null, profit: i === 3 ? -8 : 50 + i, ready: i % 2 === 1, issues: i % 2 ? [] : [{ code: 'no_category_mapping', message: 'Kategori eşleştirmesi yok' }], mapName: 'Aksesuar > Elbise' },
   ...over,
 });
+const bulkStub = require('./bulkStub.cjs');
 const calls = [];
 const sendBehaviour = { failAt150: false, allBelowStock: false };
 const pc = { aiError: null, aiMatched: 2, saved: [], attrAiError: null };   // saved: category mappings the page saved during the test
@@ -29,6 +30,7 @@ const detail = {
 };
 const get = async (url, cfg = {}) => {
   calls.push({ m: 'GET', url, params: cfg.params });
+  { const b = bulkStub.handle('GET', url, null, cfg); if (b) return b; }
   if (url === '/xml-sources') return { data: [{ id: 's1', name: 'Tedarikçi A', totalProducts: 8, status: 'active', url: 'https://example.invalid/a.xml', syncIntervalMin: 60, mappingConfig: '{"title":"t"}', _count: { products: 8 } }] };
   if (url === '/marketplace/connections/c1/category-mappings') return { data: [{ id: 'cm1', xmlSourceId: 's1', localCategory: 'Giyim' }, { id: 'cm2', xmlSourceId: 's1', localCategory: 'Aksesuar' }, ...pc.saved] };
   if (/^\/products\/[^/]+\/price-preview$/.test(url)) { const price = Number(cfg.params.price); return { data: { salePrice: price, templatePrice: 251.9, hasTemplate: true, ruleName: 'genel', purchase: 101, profit: Math.round((price * 0.5 - 120) * 100) / 100, profitPct: 30, marginOnPricePct: 12, commissionAmount: 20, fixedCosts: 10, vatAmount: 40, loss: price < 120 } }; }
@@ -126,6 +128,7 @@ const get = async (url, cfg = {}) => {
 };
 const post = async (url, body) => {
   calls.push({ m: 'POST', url, body });
+  { const b = bulkStub.handle('POST', url, body); if (b) return b; }
   if (url === '/xml-converter/feeds/status') { const feeds = {}; for (const u of body.urls) feeds[u] = conv.feeds[u] === undefined ? null : conv.feeds[u]; return { data: { feeds } }; }
   if (url === '/xml-converter/preview') return { data: { success: true, totalProducts: 4161, sample: [{ stok_kodu: 'A1', adi: 'Örnek ürün', fiyat: { son_kullanici: '10', bayi_fiyati: '8' }, miktar: '3', marka: 'M', kategori: 'K' }], feed: conv.previewFeed, convertedUrl: '/api/xml-converter/proxy?url=x&sig=y' } };
   if (url === '/orders/profit/refresh') return { data: { message: '5 siparişten 0 komisyon, 0 kargo bilgisi Trendyol\'dan alındı', pending: 5 } };
@@ -167,6 +170,7 @@ const post = async (url, body) => {
   return { data: { message: 'ok', updated: 0, errors: [] } }; };
 const put = async (url, body) => {
   calls.push({ m: 'PUT', url, body });
+  { const b = bulkStub.handle('PUT', url, body); if (b) return b; }
   if (url === '/orders/profit/cost' || url === '/orders/profit/settings') return { data: { ok: true } };
   if (/product-categories\/attribute-defaults$/.test(url)) return { data: { saved: true, categories: 3, products: 12, pending: 0, unresolved: [{ name: 'Cinsiyet', categories: 2 }] } };
   if (/product-categories$/.test(url)) return { data: { saved: body.assignments.length, skipped: 0 } };
@@ -177,6 +181,6 @@ const put = async (url, body) => {
     return { data: { ok: true, pricing: { salePrice: body.price, manual: true } } };
   }
   if (/send-settings$/.test(url)) return { data: { settings: body.settings, summary: [] } }; return { data: {} }; };
-const del = async (url, cfg) => { calls.push({ m: 'DELETE', url, params: cfg && cfg.params, body: cfg && cfg.data }); return { data: /sale-price$/.test(url) ? { ok: true, removed: 1 } : (/product-categories$/.test(url) ? { removed: (cfg.data.productIds || []).length } : {}) }; };
-module.exports = { get, post, put, delete: del, calls, wa, sendBehaviour, pc, profitTax, conv };
+const del = async (url, cfg) => { calls.push({ m: 'DELETE', url, params: cfg && cfg.params, body: cfg && cfg.data }); { const b = bulkStub.handle('DELETE', url, null, cfg); if (b) return b; } return { data: /sale-price$/.test(url) ? { ok: true, removed: 1 } : (/product-categories$/.test(url) ? { removed: (cfg.data.productIds || []).length } : {}) }; };
+module.exports = { get, post, put, delete: del, calls, wa, sendBehaviour, pc, profitTax, conv, bulk: bulkStub.bulk };
 module.exports.default = module.exports;

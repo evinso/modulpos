@@ -33,6 +33,7 @@ const dropshipOrderRoutes = require('./routes/dropshipOrders');
 const supportRoutes = require('./routes/support');
 const aiRoutes = require('./routes/ai');
 const whatsappRoutes = require('./routes/whatsapp');
+const whatsappBulkRoutes = require('./routes/whatsappBulk');
 const webhookRoutes = require('./routes/webhooks');
 
 const { errorHandler } = require('./middleware/errorHandler');
@@ -157,6 +158,7 @@ app.use('/api/dropship-orders', dropshipOrderRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/whatsapp-bulk', whatsappBulkRoutes);
 app.use('/api/webhooks', webhookRoutes);
 
 // Health check
@@ -207,6 +209,7 @@ process.on('uncaughtException', (err) => console.error('[uncaughtException]', er
 
 const cronService = require('./services/cronService');
 cronService.start();
+require('./services/whatsapp/bulkRunner').getRunner().resume();   // bulk WhatsApp campaigns that were running when the process stopped carry on
 
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';

@@ -261,19 +261,23 @@ class EmbeddedWhatsapp {
     }
   }
 
-  /** Messages go out one at a time with a pause in between, whatever the callers do in parallel. */
-  sendMessage(phone, text) {
-    const run = () => this._send(phone, text);
+  /**
+   * Messages go out one at a time with a pause in between, whatever the callers do in parallel.
+   * opts.bulk: a message of the bulk page (services/whatsapp/bulkRunner.js). It paces itself (random pause, daily limit), so it neither
+   * counts against the hourly safety valve nor is stopped by it: the platform's own notifications keep their whole allowance.
+   */
+  sendMessage(phone, text, opts = {}) {
+    const run = () => this._send(phone, text, opts);
     const p = this.sendChain.then(run, run);
     this.sendChain = p.catch(() => {});
     return p;
   }
 
-  async _send(phone, text) {
+  async _send(phone, text, opts = {}) {
     if (!(await this._linked())) throw new WhatsappError('WhatsApp henüz bağlanmadı. WhatsApp sayfasında “QR Kodu Göster” ile telefonunuzu bağlayın.', 409);
     const cutoff = this.now() - 3600000;
     this.sentAt = this.sentAt.filter((t) => t > cutoff);
-    if (this.sentAt.length >= MAX_PER_HOUR) throw new WhatsappError(`Saatlik mesaj sınırına (${MAX_PER_HOUR}) ulaşıldı. Numarayı korumak için gönderim bir süre durduruldu.`, 429);
+    if (!opts.bulk && this.sentAt.length >= MAX_PER_HOUR) throw new WhatsappError(`Saatlik mesaj sınırına (${MAX_PER_HOUR}) ulaşıldı. Numarayı korumak için gönderim bir süre durduruldu.`, 429);
 
     if (this.state !== 'open') {
       this.wantOnline = true;
@@ -298,7 +302,8 @@ class EmbeddedWhatsapp {
     let res;
     try { res = await this.sock.sendMessage(jid, { text }); }
     catch (err) { throw new WhatsappError(`WhatsApp mesajı gönderemedi: ${String(err && err.message || err).slice(0, 140)}`, 502); }
-    this.lastSendAt = this.now(); this.sentAt.push(this.lastSendAt);
+    this.lastSendAt = this.now();
+    if (!opts.bulk) this.sentAt.push(this.lastSendAt);
     return { idMessage: (res && res.key && res.key.id) || 'sent' };
   }
 
