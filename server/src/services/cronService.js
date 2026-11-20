@@ -12,6 +12,7 @@ const whatsappService = require('./whatsappService');
 const { startXmlSync, failStaleSyncs, failAbandonedSyncs, isRunning } = require('./xml/syncService');
 const { runRetention } = require('./retentionService');
 const SS = require('./sendSettings');
+const hostedImages = require('./hostedImages');
 const { pushInBatches } = require('./batchPush');
 
 class CronService {
@@ -45,6 +46,15 @@ class CronService {
           if (r.saved > 0) console.log(`[CRON/OrderFinance] store ${st.id}: ${r.saved} sipariş için Trendyol komisyon/kargo bilgisi alındı`);
         }
       } catch (e) { console.error('[CRON/OrderFinance]', e.message); }
+    });
+
+    // Uploaded product pictures are only a loan: delete them once Trendyol shows its own addresses for the product (and the unused ones after a day)
+    cron.schedule('*/15 * * * *', async () => {
+      try {
+        const purged = await hostedImages.purgeOrphans(prisma);
+        const r = await hostedImages.releaseAll(prisma, (conn) => new TrendyolService(conn), (m) => console.log('[CRON/Images]', m));
+        if (purged || r.released) console.log(`[CRON/Images] ${purged} kullanılmayan, ${r.released} Trendyol'a geçen ürünün fotoğrafı silindi`);
+      } catch (e) { console.error('[CRON/Images]', e.message); }
     });
 
     // Subscription about to end / just ended (once per end date, see services/subscriptionAlerts.js)
@@ -132,7 +142,7 @@ class CronService {
         await this.autoSendToMarketplaces(xmlSource.storeId, xmlSource.id);
       }
     } catch (error) {
-      if (error.code !== 'SYNC_RUNNING') console.error(`[CRON] XML Sync failed for ${xmlSource.name}:`, error.message);
+      if (!['SYNC_RUNNING', 'SOURCE_PAUSED'].includes(error.code)) console.error(`[CRON] XML Sync failed for ${xmlSource.name}:`, error.message);
     }
   }
 

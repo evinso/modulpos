@@ -2,9 +2,11 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import ProductsPage from '../../src/pages/products/ProductsPage.jsx';
 import { MemoryRouter } from 'react-router-dom';
-import { calls, handCfg } from './apiStub.cjs';
+import toast from 'react-hot-toast';
+import { calls, handCfg, uploads } from './apiStub.cjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+globalThis.FileReader = window.FileReader;   // the harness copies only a few browser globals; the form reads a chosen photo with FileReader
 const wait = (ms = 30) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
 const text = () => document.body.textContent;
 let fails = 0; const ok = (n, c, x) => { console.log((c ? 'PASS' : 'FAIL') + '  ' + n + (x ? '  → ' + x : '')); if (!c) fails++; };
@@ -198,7 +200,7 @@ ok('Trendyol live view is a separate tab', text().includes('Trendyol hesabınız
 // ---- a product added by hand: its "price" is the NET amount to keep; images, brand and barcode are needed for the marketplace ----
 const field = (label) => [...document.querySelectorAll('.modal .form-group')].find((g) => g.querySelector('label') && g.querySelector('label').textContent.startsWith(label));
 const put = async (g, v) => {
-  const el = g.querySelector('input, textarea, select');
+  const el = g.tagName === 'TEXTAREA' || g.tagName === 'INPUT' || g.tagName === 'SELECT' ? g : g.querySelector('input:not([type="file"]), textarea, select');
   const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : (el.tagName === 'SELECT' ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype);
   await act(async () => { Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v); el.dispatchEvent(new window.Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); });
   await wait(10);
@@ -206,7 +208,7 @@ const put = async (g, v) => {
 await click(btn('Yeni ürün'));
 ok('the new-product form says the price is the net amount to keep', !!q('hand-note') && field('Elime kalacak net tutar') && q('hand-note').textContent.includes('satıştan sonra size kalması gereken net tutardır'));
 ok('a template exists for hand-added products (the shop has an unscoped one): no warning', !q('no-template-note'));
-ok('the marketplace needs these: barcode, brand and picture addresses are required fields', field('Barkod').querySelector('input').required && field('Marka').querySelector('input').required && q('description').required && !!q('image-urls') && !!field('Görsel adresleri'));
+ok('the marketplace needs these: barcode, brand, description and pictures are required fields', field('Barkod').querySelector('input').required && field('Marka').querySelector('input').required && q('description').required && !!q('image-urls') && !!field('Görseller'));
 await click(btn('İptal'));
 
 handCfg.scoped = true;      // now every template is limited to one XML source: nothing would price a hand-added product
@@ -215,14 +217,45 @@ await wait(100);
 ok('without a template for hand-added products the form says what to create and where', !!q('no-template-note') && q('no-template-note').textContent.includes('Elle eklenen ürünler') && !!q('no-template-note').querySelector('a[href="/pricing"]'));
 await put(field('SKU'), 'EL-1'); await put(field('Barkod'), '8691234567890'); await put(field('Ürün adı'), 'El yapımı kupa');
 await put(field('Elime kalacak net tutar'), '100'); await put(field('Marka'), 'Atölye'); await put(field('Stok'), '5'); await put(field('Açıklama'), 'Elde boyanmış seramik kupa');
+const toasts = []; const realToastError = toast.error; toast.error = (m, o) => { toasts.push(String(m)); return realToastError(m, o); };
+const saves = () => calls.filter((c) => c.m === 'POST' && c.url === '/products' && c.body && c.body.sku === 'EL-1');
 await click(btn('Kaydet'));
-ok('no picture address: not saved, and it says why', !calls.some((c) => c.m === 'POST' && c.url === '/products' && c.body && c.body.sku === 'EL-1'));
-await put(field('Görsel adresleri'), 'https://example.com/a.jpg\n\nhttps://example.com/b.jpg\n');
+ok('no picture: not saved, and it says why', saves().length === 0 && toasts.some((t) => t.includes('En az bir görsel')), toasts.join(' | '));
+
+// a photo from this device: uploaded, its public address lands in the list, a thumbnail shows
+const photo = document.querySelector('[data-testid="photo-input"]');
+const sendFiles = async (files) => { Object.defineProperty(photo, 'files', { value: files, configurable: true }); await act(async () => { photo.dispatchEvent(new window.Event('change', { bubbles: true })); }); await wait(200); };
+await sendFiles([new window.File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4])], 'kupa.jpg', { type: 'image/jpeg' })]);
+ok('a photo is uploaded as base64 and its address is added to the list', uploads.length === 1 && uploads[0].size > 0 && q('image-urls').value === 'https://api.modulpos.com/api/uploads/000000000-0000-4000-8000-000000000001.jpg'.replace('000000000-', '00000000-'), q('image-urls').value);
+ok('a thumbnail is shown, the first one is marked as the main picture', document.querySelectorAll('[data-testid="thumb"]').length === 1 && q('thumbs').textContent.includes('Ana'));
+await sendFiles([new window.File([new Uint8Array([1, 2, 3])], 'not-a-picture.pdf', { type: 'application/pdf' })]);
+ok('a file that is not a JPG/PNG/WebP is refused with a sentence and nothing is uploaded', uploads.length === 1 && toasts.some((t) => t.includes('not-a-picture.pdf') && t.includes('JPG, PNG ya da WebP')), toasts.slice(-1)[0]);
+await put(q('image-urls'), q('image-urls').value + '\nhttps://example.com/b.jpg\n');
+ok('a typed link and the uploaded photo live in the same list', document.querySelectorAll('[data-testid="thumb"]').length === 2);
+
+// the Trendyol category is chosen in the same form
+ok('the form has a Trendyol category field (required for a new product) and nothing is chosen yet', !!q('trendyol-category') && q('chosen-category').textContent === 'Henüz seçilmedi' && q('trendyol-category').textContent.includes('Trendyol kategorisi *'));
 await click(btn('Kaydet'));
-await wait(100);
-const created = calls.filter((c) => c.m === 'POST' && c.url === '/products').pop();
-ok('saved: the net amount as the price, the picture addresses as a list (empty lines dropped)', created && created.body.sku === 'EL-1' && created.body.price === 100 && created.body.brand === 'Atölye' && created.body.barcode === '8691234567890'
-  && JSON.stringify(created.body.images) === JSON.stringify(['https://example.com/a.jpg', 'https://example.com/b.jpg']), created && JSON.stringify(created.body).slice(0, 220));
+ok('no category: not saved, and it says why', saves().length === 0 && toasts.some((t) => t.includes('Trendyol kategorisini seçin')), toasts.slice(-1)[0]);
+await click(q('pick-category'));
+ok('the picker opens above the form', !!document.querySelector('[role="dialog"][aria-label="Trendyol kategorisi seç"]') && document.querySelector('[role="dialog"]').style.zIndex === '1200');
+await setVal(document.querySelector('[aria-label="Kategori ara"]'), 'pense');
+await wait(400);
+ok('typing finds categories in the Trendyol tree', document.querySelectorAll('[data-testid="picker-result"]').length >= 1, text().slice(-120));
+await click(document.querySelector('[data-testid="picker-result"]'));
+ok('the chosen category is shown with its full path and the picker is closed', q('chosen-category').textContent.includes('Hırdavat > Manuel El Aletleri > Pense') && !document.querySelector('[role="dialog"]') && field('Kategori (kendi notunuz)').querySelector('input').value === 'Pense');
+ok('the picker did not submit the product', saves().length === 0);
+
+// remove the typed link again, then save
+await click(document.querySelectorAll('[data-testid="remove-thumb"]')[1]);
+ok('removing a thumbnail removes that address from the list', document.querySelectorAll('[data-testid="thumb"]').length === 1 && !q('image-urls').value.includes('example.com'));
+await click(btn('Kaydet'));
+await wait(150);
+const created = saves().pop();
+ok('saved: the net amount as the price and the uploaded photo address as the picture', created && created.body.price === 100 && created.body.brand === 'Atölye' && created.body.barcode === '8691234567890'
+  && created.body.images.length === 1 && /\/api\/uploads\/[0-9a-f-]{36}\.jpg$/.test(created.body.images[0]), created && JSON.stringify(created.body).slice(0, 220));
+const assign = calls.filter((c) => c.m === 'PUT' && c.url === '/marketplace/connections/c1/product-categories').pop();
+ok('and the chosen Trendyol category is assigned to the new product in the same step', assign && assign.body.assignments.length === 1 && assign.body.assignments[0].productId === 'new1' && assign.body.assignments[0].categoryId === '10' && assign.body.assignments[0].source === 'manual', JSON.stringify(assign && assign.body));
 handCfg.scoped = false;
 
 console.error = origErr;

@@ -1,5 +1,6 @@
 const express = require('express');
 const prisma = require('../config/database');
+const hostedImages = require('../services/hostedImages');
 const { auth } = require('../middleware/auth');
 const { checkProductLimit } = require('../utils/quotaHelper');
 const { getReadinessContext } = require('../services/readiness');
@@ -513,6 +514,30 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
+/** Picture addresses from a request: [{ list }] or { error }. Only http(s) addresses (our own uploads included), at most 12. */
+function readImages(images) {
+  if (images === undefined || images === null) return { list: [] };
+  const list = (Array.isArray(images) ? images : []).map((u) => String(u || '').trim()).filter(Boolean);
+  if (list.length > 12) return { error: 'En fazla 12 görsel eklenebilir' };
+  const bad = list.find((u) => !/^https?:\/\/\S+$/i.test(u));
+  if (bad) return { error: `Görsel adresi http:// ya da https:// ile başlamalı: ${bad.slice(0, 60)}` };
+  return { list };
+}
+
+// Upload one picture for a product (the page shrinks photos first). Answer: { id, url, size }. The picture is only a loan: see services/hostedImages.js
+router.post('/images', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const base = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`;
+    const saved = await hostedImages.save(prisma, store.id, req.body && req.body.data, base);
+    res.status(201).json({ id: saved.id, url: saved.url, size: saved.size });
+  } catch (error) {
+    if (error.status && error.status < 500) return res.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
 // Create product
 router.post('/', async (req, res, next) => {
   try {
@@ -529,13 +554,9 @@ router.post('/', async (req, res, next) => {
     }
     // Added by hand: "price" is the NET amount to keep per sale (see pricingEngine.netExplain), so it must be a real amount
     if (price !== undefined && !(Number.isFinite(Number(price)) && Number(price) >= 0)) return res.status(400).json({ error: 'Fiyat 0 veya daha büyük bir sayı olmalı' });
-    let imageList = [];
-    if (images !== undefined && images !== null) {
-      imageList = (Array.isArray(images) ? images : []).map((u) => String(u || '').trim()).filter(Boolean);
-      if (imageList.length > 12) return res.status(400).json({ error: 'En fazla 12 görsel eklenebilir' });
-      const badUrl = imageList.find((u) => !/^https?:\/\/\S+$/i.test(u));
-      if (badUrl) return res.status(400).json({ error: `Görsel adresi http:// ya da https:// ile başlamalı: ${badUrl.slice(0, 60)}` });
-    }
+    const imgs = readImages(images);
+    if (imgs.error) return res.status(400).json({ error: imgs.error });
+    const imageList = imgs.list;
     const dupSku = await prisma.product.findFirst({ where: { storeId: store.id, sku: String(sku).trim() }, select: { id: true } });
     if (dupSku) return res.status(409).json({ error: 'Bu SKU ile kayıtlı bir ürün zaten var' });
 
@@ -562,6 +583,7 @@ router.post('/', async (req, res, next) => {
       },
       include: { variants: true }
     });
+    await hostedImages.attach(prisma, store.id, product.id, imageList).catch((e) => console.error('[Images] attach:', e.message));
 
     res.status(201).json(product);
   } catch (error) {
@@ -593,7 +615,13 @@ router.put('/:id', async (req, res, next) => {
     if (stock !== undefined) data.stock = Number(stock);
     if (brand !== undefined) data.brand = brand;
     if (category !== undefined) data.category = category;
-    if (images !== undefined) data.images = JSON.stringify(images);
+    let imageList = null;
+    if (images !== undefined) {
+      const imgs = readImages(images);
+      if (imgs.error) return bad(imgs.error);
+      imageList = imgs.list;
+      data.images = JSON.stringify(imageList);
+    }
     if (attributes !== undefined) data.attributes = JSON.stringify(attributes);
     if (weight !== undefined) data.weight = weight;
     if (desi !== undefined) data.desi = desi;
@@ -605,6 +633,7 @@ router.put('/:id', async (req, res, next) => {
       data,
       include: { variants: true, marketplaceProducts: true }
     });
+    if (imageList) await hostedImages.attach(prisma, product.storeId, product.id, imageList).catch((e) => console.error('[Images] attach:', e.message));
 
     res.json(product);
   } catch (error) {

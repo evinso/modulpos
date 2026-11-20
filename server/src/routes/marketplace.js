@@ -2624,6 +2624,11 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
         errorMessages.push(`Satıştan kaldırılan ürünler kontrol edilemedi: ${err.message}`);
       }
 
+      // Pictures uploaded for hand-added products are deleted from our server once Trendyol shows its own addresses for them (best effort)
+      let imagesReleased = 0;
+      try { imagesReleased = (await require('../services/hostedImages').releaseSent(prisma, connection, service, { log: (m) => console.log('[Images]', m) })).released; }
+      catch (err) { console.error('[Trendyol Image Release]', err.message); }
+
       const warnMsg = errorMessages.length > 0 ? ` (${errorMessages.length} hata oluştu)` : '';
       const discoverMsg = discovered > 0 ? ` ${discovered} yeni ürün Trendyol'da bulundu.` : '';
       return res.json({
@@ -2636,6 +2641,7 @@ router.post('/connections/:id/sync-status', async (req, res, next) => {
         revivedPending: revived.pending,
         batchChecked,
         fallbackChecked,
+        imagesReleased,
         errors: errorMessages
       });
     } else {

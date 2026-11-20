@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Upload, X, Loader2, FolderTree } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+import CategoryPicker from '../marketplaces/productcat/CategoryPicker';
+import { fileToUploadData, ACCEPT } from './imageTools';
 
 const EMPTY = { sku: '', barcode: '', title: '', price: '', stock: '', brand: '', category: '', description: '', status: 'active', vatRate: '20', images: '' };
 
@@ -12,7 +15,10 @@ function imageLines(images) {
   return Array.isArray(list) ? list.filter((u) => typeof u === 'string').join('\n') : '';
 }
 
-export default function ProductFormModal({ product, onClose, onSaved }) {
+const MAX_IMAGES = 12;
+const linesOf = (text) => String(text || '').split(/\r?\n/).map((u) => u.trim()).filter(Boolean);
+
+export default function ProductFormModal({ product, connection = null, onClose, onSaved }) {
   const editing = !!product;
   const fromXml = !!product?.xmlSourceId;
   // Added by hand (no XML source, no feed price): its "price" is the NET amount the owner wants to keep per sale; the marketplace price is
@@ -27,6 +33,37 @@ export default function ProductFormModal({ product, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [descTouched, setDescTouched] = useState(false);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+
+  // The Trendyol category is chosen right here (product-level category: it wins over any XML-category mapping); needs a Trendyol connection
+  const trendyol = hand && !!connection && connection.marketplaceType === 'trendyol';
+  const [cat, setCat] = useState(null);                       // { id, name, path } chosen in this form
+  const [showPicker, setShowPicker] = useState(false);
+  const currentCat = editing && product.pricing && product.pricing.mapName ? product.pricing.mapName : '';
+
+  // Pictures: addresses typed / pasted, and photos uploaded from this device (the upload answers with a public address that is added to the list)
+  const [uploading, setUploading] = useState(0);
+  const fileRef = useRef(null);
+  const urls = linesOf(form.images);
+  const removeUrl = (i) => set({ images: urls.filter((_, k) => k !== i).join('\n') });
+  const onFiles = async (e) => {
+    const files = [...(e.target.files || [])];
+    e.target.value = '';
+    if (files.length === 0) return;
+    const room = MAX_IMAGES - linesOf(form.images).length;
+    if (files.length > room) toast.error(`En fazla ${MAX_IMAGES} görsel eklenebilir${room > 0 ? `; ilk ${room} fotoğraf alınıyor` : ''}`);
+    const todo = files.slice(0, Math.max(0, room));
+    setUploading((n) => n + todo.length);
+    const added = [];
+    for (const f of todo) {
+      try {
+        const data = await fileToUploadData(f);
+        const { data: r } = await api.post('/products/images', { data });
+        added.push(r.url);
+      } catch (err) { toast.error(`${f.name}: ${err.response?.data?.error || err.message || 'yüklenemedi'}`); }
+      finally { setUploading((n) => n - 1); }
+    }
+    if (added.length) setForm((f) => ({ ...f, images: [...linesOf(f.images), ...added].join('\n') }));
+  };
 
   useEffect(() => {
     if (!hand) return undefined;
@@ -48,23 +85,32 @@ export default function ProductFormModal({ product, onClose, onSaved }) {
     e.preventDefault();
     setSaving(true);
     try {
-      const urls = form.images.split(/\r?\n/).map((u) => u.trim()).filter(Boolean);
+      const list = linesOf(form.images);
       if (hand) {
-        if (urls.length === 0) { toast.error('En az bir görsel adresi yazın (Trendyol görselsiz ürün kabul etmez)'); setSaving(false); return; }
-        const bad = urls.find((u) => !/^https?:\/\/\S+$/i.test(u));
+        if (uploading > 0) { toast.error('Fotoğraflar yükleniyor, bitmesini bekleyin'); setSaving(false); return; }
+        if (list.length === 0) { toast.error('En az bir görsel ekleyin: bir adres yazın ya da fotoğraf yükleyin (Trendyol görselsiz ürün kabul etmez)'); setSaving(false); return; }
+        const bad = list.find((u) => !/^https?:\/\/\S+$/i.test(u));
         if (bad) { toast.error(`Görsel adresi http:// ya da https:// ile başlamalı: ${bad.slice(0, 50)}`); setSaving(false); return; }
         if (!(parseFloat(form.price) > 0)) { toast.error('Elinize kalacak net tutarı yazın'); setSaving(false); return; }
+        if (trendyol && !editing && !cat) { toast.error('Trendyol kategorisini seçin'); setSaving(false); return; }
       }
       const body = {
-        ...(hand ? { images: urls } : {}),
+        ...(hand ? { images: list } : {}),
         title: form.title.trim(), barcode: form.barcode, brand: form.brand, category: form.category,
         // an untouched description is not sent, so it can never be overwritten by accident
         ...(!editing || descTouched ? { description: form.description } : {}),
         price: parseFloat(form.price) || 0, stock: parseInt(form.stock, 10) || 0, status: form.status, vatRate: parseInt(form.vatRate, 10),
       };
+      let productId = product && product.id;
       if (editing) await api.put(`/products/${product.id}`, body);
-      else await api.post('/products', { ...body, sku: form.sku.trim() });
+      else productId = (await api.post('/products', { ...body, sku: form.sku.trim() })).data.id;
+      let categoryOk = true;
+      if (trendyol && cat) {
+        try { await api.put(`/marketplace/connections/${connection.id}/product-categories`, { assignments: [{ productId, categoryId: cat.id, source: 'manual' }] }); }
+        catch (err) { categoryOk = false; toast.error(`Ürün kaydedildi ama Trendyol kategorisi atanamadı (${err.response?.data?.error || 'hata'}). “Kategori eşleştirme › Ürün bazlı kategori” sekmesinden seçin.`, { duration: 9000 }); }
+      }
       toast.success(editing ? 'Ürün güncellendi' : 'Ürün eklendi');
+      if (trendyol && cat && categoryOk) toast('Trendyol kategorisi atandı. Zorunlu özellikler varsayılan cevaplarla ve ürün metninden dolduruldu; eksik kalanlar “Ürün bazlı kategori” sekmesinde görünür.', { icon: 'ℹ️', duration: 8000 });
       onSaved();
     } catch (err) { toast.error(err.response?.data?.error || 'Kaydedilemedi'); }
     finally { setSaving(false); }
@@ -116,8 +162,20 @@ export default function ProductFormModal({ product, onClose, onSaved }) {
                 {hand && <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Trendyol’daki marka adıyla yazın</small>}</div>
               <div className="form-group"><label className="form-label">Kategori{hand ? ' (kendi notunuz)' : ''}</label>
                 <input className="form-input" value={form.category} onChange={(e) => set({ category: e.target.value })} />
-                {hand && <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Trendyol kategorisini “Kategori eşleştirme › Ürün bazlı kategori” sekmesinden seçersiniz</small>}</div>
+                {hand && !trendyol && <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Trendyol kategorisini “Kategori eşleştirme › Ürün bazlı kategori” sekmesinden seçersiniz</small>}</div>
             </div>
+            {trendyol && (
+              <div className="form-group" data-testid="trendyol-category">
+                <label className="form-label">Trendyol kategorisi{!editing ? ' *' : ''}</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn btn-secondary" data-testid="pick-category" onClick={() => setShowPicker(true)}><FolderTree size={14} /> {cat ? 'Değiştir' : 'Kategori seç'}</button>
+                  <span data-testid="chosen-category" style={{ fontSize: 13, color: cat || currentCat ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                    {cat ? cat.path : (currentCat ? `Mevcut: ${currentCat}` : 'Henüz seçilmedi')}
+                  </span>
+                </div>
+                <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Trendyol’un kendi kategori ağacından seçilir; ürün kaydedilince bu kategoriye bağlanır. Zorunlu özellikler (renk, menşei…) varsayılan cevaplardan ve ürün metninden otomatik doldurulur.</small>
+              </div>
+            )}
             <div className="grid grid-2">
               <div className="form-group"><label className="form-label">Durum</label>
                 <select className="form-select" value={form.status} onChange={(e) => set({ status: e.target.value })}>
@@ -129,9 +187,33 @@ export default function ProductFormModal({ product, onClose, onSaved }) {
                 </select></div>
             </div>
             {hand && (
-              <div className="form-group"><label className="form-label">Görsel adresleri * <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(her satıra bir adres, ilki ana görsel)</span></label>
-                <textarea className="form-textarea" rows={4} data-testid="image-urls" placeholder={'https://.../urun-1.jpg\nhttps://.../urun-2.jpg'} value={form.images} onChange={(e) => set({ images: e.target.value })} />
-                <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Resmin internetteki doğrudan adresi (http:// ya da https:// ile başlayan); en fazla 12.</small></div>
+              <div className="form-group" data-testid="images">
+                <label className="form-label">Görseller * <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(adres yazın ve/veya fotoğraf yükleyin; ilki ana görsel)</span></label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                  <button type="button" className="btn btn-secondary" data-testid="upload-photo" disabled={uploading > 0 || urls.length >= MAX_IMAGES} onClick={() => fileRef.current && fileRef.current.click()}>
+                    {uploading > 0 ? <Loader2 size={14} className="spinning" /> : <Upload size={14} />} Fotoğraf yükle
+                  </button>
+                  <input ref={fileRef} type="file" accept={ACCEPT} multiple onChange={onFiles} style={{ display: 'none' }} data-testid="photo-input" aria-label="Fotoğraf seç" />
+                  {uploading > 0 && <span data-testid="uploading" style={{ fontSize: 12, color: 'var(--text-muted)' }}>{uploading} fotoğraf yükleniyor…</span>}
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>{urls.length}/{MAX_IMAGES}</span>
+                </div>
+                <textarea className="form-textarea" rows={3} data-testid="image-urls" placeholder={'https://.../urun-1.jpg\nhttps://.../urun-2.jpg'} value={form.images} onChange={(e) => set({ images: e.target.value })} />
+                <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Her satıra bir görsel adresi (http:// ya da https:// ile başlayan). Yüklediğiniz fotoğrafların adresi buraya kendiliğinden eklenir.</small>
+                {urls.length > 0 && (
+                  <div data-testid="thumbs" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                    {urls.map((u, i) => (
+                      <div key={`${u}-${i}`} data-testid="thumb" style={{ position: 'relative', width: 64, height: 64, borderRadius: 8, overflow: 'hidden', background: 'var(--bg-tertiary)', border: i === 0 ? '2px solid var(--accent-primary)' : '1px solid var(--border-color)' }}>
+                        <img src={u} alt="" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.opacity = 0.2; }} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        {i === 0 && <span style={{ position: 'absolute', left: 0, bottom: 0, fontSize: 9, background: 'var(--accent-primary)', color: '#fff', padding: '0 4px' }}>Ana</span>}
+                        <button type="button" aria-label="Görseli kaldır" data-testid="remove-thumb" onClick={() => removeUrl(i)} style={{ position: 'absolute', right: 0, top: 0, border: 'none', background: 'rgba(0,0,0,0.55)', color: '#fff', cursor: 'pointer', padding: 1, lineHeight: 0 }}><X size={12} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <small style={{ display: 'block', fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>
+                  Yüklediğiniz fotoğraflar yalnızca Trendyol’un indirebilmesi için geçici olarak sunucumuzda durur; ürün Trendyol’a gönderilip kendi adreslerini gösterdiğinde otomatik silinir (ürününüz o zaman Trendyol’un adreslerini kullanır).
+                </small>
+              </div>
             )}
             <div className="form-group"><label className="form-label">Açıklama{hand ? ' *' : ''}</label>
               <textarea className="form-textarea" rows={5} data-testid="description" required={hand} value={form.description} onChange={(e) => { setDescTouched(true); set({ description: e.target.value }); }} />
@@ -142,6 +224,9 @@ export default function ProductFormModal({ product, onClose, onSaved }) {
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Kaydediliyor…' : editing ? 'Güncelle' : 'Kaydet'}</button>
           </div>
         </form>
+        {/* outside the <form>: the picker's own buttons must never submit the product */}
+        {showPicker && <CategoryPicker connId={connection.id} zIndex={1200} onClose={() => setShowPicker(false)}
+          onPick={(r) => { setCat(r); if (!form.category.trim()) set({ category: r.name }); setShowPicker(false); }} />}
       </div>
     </div>
   );

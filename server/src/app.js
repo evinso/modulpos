@@ -34,6 +34,7 @@ const supportRoutes = require('./routes/support');
 const aiRoutes = require('./routes/ai');
 const whatsappRoutes = require('./routes/whatsapp');
 const whatsappBulkRoutes = require('./routes/whatsappBulk');
+const uploadRoutes = require('./routes/uploads');
 const webhookRoutes = require('./routes/webhooks');
 
 const { errorHandler } = require('./middleware/errorHandler');
@@ -159,6 +160,7 @@ app.use('/api/support', supportRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/whatsapp-bulk', whatsappBulkRoutes);
+app.use('/api/uploads', uploadRoutes);   // public: the marketplace downloads uploaded product pictures from here
 app.use('/api/webhooks', webhookRoutes);
 
 // Health check

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, RefreshCw, Trash2, FileCode2, Clock, CheckCircle, XCircle, Settings, Eye, ArrowRight, Link2, Send, Tag, DollarSign, Search, Check, FolderTree, Loader2, AlertCircle, ImageOff, X, History, Sparkles } from 'lucide-react';
+import { Plus, RefreshCw, Trash2, FileCode2, Clock, CheckCircle, XCircle, Settings, Eye, ArrowRight, Link2, Send, Tag, DollarSign, Search, Check, FolderTree, Loader2, AlertCircle, ImageOff, X, History, Sparkles, Pause, Play } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 import LoadingOverlay from '../../components/LoadingOverlay';
@@ -23,6 +23,7 @@ export default function XmlSourcesPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showMappingModal, setShowMappingModal] = useState(null); // source id
   const [syncing, setSyncing] = useState(null);
+  const [toggling, setToggling] = useState(null);   // id of the source whose active/passive switch is being saved
   const [syncProgress, setSyncProgress] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [xmlPreviewSource, setXmlPreviewSource] = useState(null);
@@ -373,6 +374,7 @@ export default function XmlSourcesPage() {
 
   // ===== SYNC & DELETE =====
   const handleSync = async (id) => {
+    if (sources.find((x) => x.id === id)?.status === 'paused') { toast.error('Bu kaynak pasif. Çekmek için önce “Aktif yap”a basın.'); return; }
     setSyncing(id);
     setSyncProgress('');
     try {
@@ -409,7 +411,21 @@ export default function XmlSourcesPage() {
   const statusIcon = (status) => {
     if (status === 'active') return <CheckCircle size={14} style={{ color: 'var(--success)' }} />;
     if (status === 'error') return <XCircle size={14} style={{ color: 'var(--danger)' }} />;
+    if (status === 'paused') return <Pause size={14} style={{ color: 'var(--text-muted)' }} />;
     return <Clock size={14} style={{ color: 'var(--warning)' }} />;
+  };
+
+  // Passive: nothing is pulled from the supplier and nothing is updated (by hand or by the schedule) until it is made active again
+  const toggleActive = async (s) => {
+    const pausing = s.status !== 'paused';
+    if (pausing && !window.confirm(`“${s.name}” pasif yapılsın mı?\n\nPasifken tedarikçiden hiçbir şey çekilmez ve ürünler güncellenmez (otomatik güncelleme de durur). Kaynaktaki ürünler, son bilinen fiyat ve stokla olduğu gibi kalır; stokları sıfırlanmaz.\n\nİstediğiniz zaman “Aktif yap” ile yeniden açabilirsiniz.`)) return;
+    setToggling(s.id);
+    try {
+      await api.put(`/xml-sources/${s.id}`, { status: pausing ? 'paused' : 'active' });
+      toast.success(pausing ? `“${s.name}” pasif yapıldı: artık çekilmez ve güncellenmez` : `“${s.name}” aktif: zamanı gelince yeniden çekilir`);
+      fetchSources();
+    } catch (err) { toast.error(err.response?.data?.error || 'Durum değiştirilemedi'); }
+    finally { setToggling(null); }
   };
 
   // ===== MAPPING UI COMPONENT =====
@@ -616,7 +632,7 @@ export default function XmlSourcesPage() {
             const hasMapping = s.mappingConfig && s.mappingConfig !== '{}' && s.mappingConfig !== 'null';
             const isGlobal = !!s.globalProviderId;
             return (
-              <div key={s.id} className="card">
+              <div key={s.id} className="card" data-testid="source-card" style={s.status === 'paused' ? { opacity: 0.82 } : undefined}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
                   <div>
                     <h3 style={{ fontSize: 16, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -630,8 +646,8 @@ export default function XmlSourcesPage() {
                     <span className={`badge ${hasMapping || isGlobal ? 'badge-success' : 'badge-warning'}`}>
                       {isGlobal ? '✓ Hazır Şablon' : (hasMapping ? '✓ Eşleştirildi' : '⚠ Eşleştirme Yok')}
                     </span>
-                    <span className={`badge ${s.status === 'active' ? 'badge-success' : s.status === 'error' ? 'badge-danger' : 'badge-warning'}`}>
-                      {s.status === 'active' ? 'Aktif' : s.status === 'error' ? 'Hata' : 'Bekliyor'}
+                    <span data-testid="source-status" className={`badge ${s.status === 'active' ? 'badge-success' : s.status === 'error' ? 'badge-danger' : 'badge-warning'}`}>
+                      {s.status === 'active' ? 'Aktif' : s.status === 'error' ? 'Hata' : s.status === 'paused' ? 'Pasif' : 'Bekliyor'}
                     </span>
                   </div>
                 </div>
@@ -640,6 +656,11 @@ export default function XmlSourcesPage() {
                   <span>⏱ Her {s.syncIntervalMin} dk</span>
                   <span>🕐 {s.lastSyncedAt ? new Date(s.lastSyncedAt).toLocaleString('tr-TR') : 'Henüz yok'}</span>
                 </div>
+                {s.status === 'paused' && (
+                  <div data-testid="paused-note" style={{ marginBottom: 12, fontSize: 12, color: 'var(--text-secondary)', background: 'var(--bg-tertiary)', borderRadius: 8, padding: '8px 12px' }}>
+                    <strong>Pasif:</strong> bu kaynak tedarikçiden çekilmiyor ve güncellenmiyor (otomatik güncelleme de durdu). Ürünleri son bilinen fiyat ve stokla duruyor.
+                  </div>
+                )}
                 {s.errorMessage && <div className="alert alert-error" style={{ marginBottom: 12 }}>{s.errorMessage}</div>}
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {!isGlobal && (
@@ -653,9 +674,14 @@ export default function XmlSourcesPage() {
                     <button className="btn btn-secondary btn-sm" onClick={() => openHistory(s)} title="Senkronizasyon Geçmişi">
                       <History size={14} /> Geçmiş
                     </button>
-                    <button className="btn btn-primary btn-sm" onClick={() => handleSync(s.id)} disabled={syncing === s.id}>
+                    <button className="btn btn-primary btn-sm" data-testid="sync-now" onClick={() => handleSync(s.id)} disabled={syncing === s.id || s.status === 'paused'}
+                      title={s.status === 'paused' ? 'Kaynak pasif: önce “Aktif yap”a basın' : undefined}>
                       <RefreshCw size={14} className={syncing === s.id ? 'spinning' : ''} />
                       {syncing === s.id ? `Çekiliyor... ${syncProgress}` : 'Şimdi Çek'}
+                    </button>
+                    <button className="btn btn-secondary btn-sm" data-testid="toggle-active" onClick={() => toggleActive(s)} disabled={toggling === s.id || syncing === s.id}
+                      title={s.status === 'paused' ? 'Yeniden çekmeye ve güncellemeye başla' : 'Çekmeyi ve güncellemeyi durdur'}>
+                      {s.status === 'paused' ? <><Play size={14} /> Aktif yap</> : <><Pause size={14} /> Pasif yap</>}
                     </button>
                     <button className="btn btn-danger btn-sm" onClick={() => setDeleteConfirm(s.id)}><Trash2 size={14} /> Sil</button>
                   </div>

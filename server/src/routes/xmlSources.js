@@ -58,11 +58,20 @@ router.post('/analyze', async (req, res, next) => {
   }
 });
 
+// A passive source does not touch the supplier at all: no sync, no preview, no analysis
+const PAUSED_MSG = 'Bu XML kaynağı pasif; tedarikçiden hiçbir şey çekilmez. Önce “Aktif yap”a basın.';
+const refusePaused = (xmlSource, res) => {
+  if (xmlSource.status !== 'paused') return false;
+  res.status(409).json({ error: PAUSED_MSG, paused: true });
+  return true;
+};
+
 // Preview with mapping (for existing sources)
 router.post('/:id/preview', async (req, res, next) => {
   try {
     const xmlSource = await prisma.xmlSource.findUnique({ where: { id: req.params.id } });
     if (!xmlSource) return res.status(404).json({ error: 'XML kaynağı bulunamadı' });
+    if (refusePaused(xmlSource, res)) return;
 
     // Geçici mapping ile önizleme
     const tempMapping = req.body.mappingConfig || xmlSource.mappingConfig;
@@ -82,6 +91,7 @@ router.post('/:id/analyze', async (req, res, next) => {
   try {
     const xmlSource = await prisma.xmlSource.findUnique({ where: { id: req.params.id } });
     if (!xmlSource) return res.status(404).json({ error: 'XML kaynağı bulunamadı' });
+    if (refusePaused(xmlSource, res)) return;
 
     let categoryField = null;
     if (xmlSource.mappingConfig) {
@@ -143,7 +153,12 @@ router.put('/:id', async (req, res, next) => {
     if (url !== undefined) data.url = url;
     if (format !== undefined) data.format = format;
     if (syncIntervalMin !== undefined) data.syncIntervalMin = syncIntervalMin;
-    if (status !== undefined) data.status = status;
+    if (status !== undefined) {
+      // the page switches a source between "active" and "paused" (passive); "error" is only ever written by the program itself
+      if (!['active', 'paused'].includes(status)) return res.status(400).json({ error: 'Durum “active” (aktif) ya da “paused” (pasif) olmalı' });
+      data.status = status;
+      if (status === 'active') data.errorMessage = null;
+    }
     if (mappingConfig !== undefined) {
       data.mappingConfig = typeof mappingConfig === 'string' ? mappingConfig : JSON.stringify(mappingConfig);
     }
@@ -169,6 +184,7 @@ router.post('/:id/sync', async (req, res, next) => {
     if (error.code === 'SYNC_RUNNING') {
       return res.status(409).json({ error: error.message, running: true, syncLogId: error.syncLogId });
     }
+    if (error.code === 'SOURCE_PAUSED') return res.status(409).json({ error: error.message, paused: true });
     next(error);
   }
 });
@@ -189,6 +205,7 @@ router.get('/:id/xml-preview', async (req, res, next) => {
   try {
     const xmlSource = await prisma.xmlSource.findUnique({ where: { id: req.params.id } });
     if (!xmlSource) return res.status(404).json({ error: 'XML kaynağı bulunamadı' });
+    if (refusePaused(xmlSource, res)) return;
 
     const products = await parseXml(xmlSource.url, xmlSource.mappingConfig, { preview: true });
 

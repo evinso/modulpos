@@ -67,6 +67,7 @@ export const XML = [
             'Her yenilemeden sonra, bu kaynaktan **Trendyol’da satışta olan** ürünlerin fiyat ve stoğu otomatik güncellenir (yalnızca değişenler).',
             'Elle fiyat girdiğiniz bir ürünün alış fiyatı artarsa ve elle fiyatınız **zarara** düşerse bildirim alırsınız.',
             'XML’i değiştirmeden önce [[Önizle]] ile kaynağın ilk ürünlerine ve kategorilerine bakabilirsiniz.',
+            'Bir kaynağı geçici olarak durdurmak için kartındaki [[Pasif yap]]’a basın: **pasifken tedarikçiden hiçbir şey çekilmez, ürünler güncellenmez** (otomatik yenileme, [[Şimdi Çek]], önizleme ve analiz de kapanır). Kaynağın ürünleri silinmez, stokları sıfırlanmaz; son bilinen fiyat ve stokla durur. [[Aktif yap]] ile yeniden açarsınız.',
           ] },
           { t: 'p', x: '**Kaynaktan kalkan ürünler** silinmez: stokları **0** yapılır ve ürün XML’e geri dönerse stok geri gelir. Bu 0, Trendyol’a bir sonraki otomatik güncellemede gider.' },
           { t: 'note', tone: 'info', x: '**Bozuk liste koruması:** XML boş geliyorsa, okunamayan satırlar varsa ya da canlı ürünlerin %10’undan fazlası (ve 25’ten fazla ürün) bir anda kayboluyorsa sistem bunu **bozuk indirme** sayar; hiçbir ürünün stoğunu sıfırlamaz ve bildirimde bunu belirtir. Böylece tedarikçinin geçici bir hatası mağazanızı satışa kapatmaz.' },

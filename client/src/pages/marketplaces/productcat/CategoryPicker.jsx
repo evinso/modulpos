@@ -3,7 +3,7 @@ import { Search, X, Loader2 } from 'lucide-react';
 import api from '../../../services/api';
 
 /** Pick any Trendyol leaf category by typing words of its name (free, searched in the bundled tree). */
-export default function CategoryPicker({ connId, title, onPick, onClose }) {
+export default function CategoryPicker({ connId, title, onPick, onClose, zIndex = 1000 }) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -24,7 +24,7 @@ export default function CategoryPicker({ connId, title, onPick, onClose }) {
   const shown = typed ? results : [];
 
   return (
-    <div role="dialog" aria-label="Trendyol kategorisi seç" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 80 }} onClick={onClose}>
+    <div role="dialog" aria-label="Trendyol kategorisi seç" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 80 }} onClick={onClose}>
       <div className="card" style={{ width: 640, maxWidth: '94vw', padding: 20 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <strong style={{ fontSize: 15 }}>{title || 'Trendyol kategorisi seç'}</strong>

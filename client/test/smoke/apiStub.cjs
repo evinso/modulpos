@@ -11,6 +11,8 @@ const mk = (i, over = {}) => ({
 });
 const bulkStub = require('./bulkStub.cjs');
 const calls = [];
+const uploads = [];   // the pictures the product form uploaded
+const xmlSrc = { status: 'active' };   // the one XML source of the stub: the page switches it between active and paused (passive)
 const handCfg = { scoped: false };   // true: every template is limited to the XML source s1, so nothing prices the products added by hand
 const sendBehaviour = { failAt150: false, allBelowStock: false };
 const pc = { aiError: null, aiMatched: 2, saved: [], attrAiError: null };   // saved: category mappings the page saved during the test
@@ -32,7 +34,7 @@ const detail = {
 const get = async (url, cfg = {}) => {
   calls.push({ m: 'GET', url, params: cfg.params });
   { const b = bulkStub.handle('GET', url, null, cfg); if (b) return b; }
-  if (url === '/xml-sources') return { data: [{ id: 's1', name: 'Tedarikçi A', totalProducts: 8, status: 'active', url: 'https://example.invalid/a.xml', syncIntervalMin: 60, mappingConfig: '{"title":"t"}', _count: { products: 8 } }] };
+  if (url === '/xml-sources') return { data: [{ id: 's1', name: 'Tedarikçi A', totalProducts: 8, status: xmlSrc.status, url: 'https://example.invalid/a.xml', syncIntervalMin: 60, mappingConfig: '{"title":"t"}', _count: { products: 8 } }] };
   if (url === '/marketplace/connections/c1/category-mappings') return { data: [{ id: 'cm1', xmlSourceId: 's1', localCategory: 'Giyim' }, { id: 'cm2', xmlSourceId: 's1', localCategory: 'Aksesuar' }, ...pc.saved] };
   if (/^\/products\/[^/]+\/price-preview$/.test(url)) { const price = Number(cfg.params.price); return { data: { salePrice: price, templatePrice: 251.9, hasTemplate: true, ruleName: 'genel', purchase: 101, profit: Math.round((price * 0.5 - 120) * 100) / 100, profitPct: 30, marginOnPricePct: 12, commissionAmount: 20, fixedCosts: 10, vatAmount: 40, loss: price < 120 } }; }
   if (url === '/marketplace/connections') return { data: [{ id: 'c1', marketplaceType: 'trendyol', status: 'active', supplierName: 'Mağazam', config: JSON.stringify({ buyboxAutoAdjust: true, buyboxAutoMode: 'undercut', buyboxAutoAmount: 2 }) }] };
@@ -130,6 +132,8 @@ const get = async (url, cfg = {}) => {
 const post = async (url, body) => {
   calls.push({ m: 'POST', url, body });
   { const b = bulkStub.handle('POST', url, body); if (b) return b; }
+  if (url === '/products') return { data: { id: 'new1', ...body } };
+  if (url === '/products/images') { uploads.push({ size: String(body.data || '').length }); return { data: { id: 'u' + uploads.length, url: `https://api.modulpos.com/api/uploads/00000000-0000-4000-8000-00000000000${uploads.length}.jpg`, size: 100 } }; }
   if (url === '/xml-converter/feeds/status') { const feeds = {}; for (const u of body.urls) feeds[u] = conv.feeds[u] === undefined ? null : conv.feeds[u]; return { data: { feeds } }; }
   if (url === '/xml-converter/preview') return { data: { success: true, totalProducts: 4161, sample: [{ stok_kodu: 'A1', adi: 'Örnek ürün', fiyat: { son_kullanici: '10', bayi_fiyati: '8' }, miktar: '3', marka: 'M', kategori: 'K' }], feed: conv.previewFeed, convertedUrl: '/api/xml-converter/proxy?url=x&sig=y' } };
   if (url === '/orders/profit/refresh') return { data: { message: '5 siparişten 0 komisyon, 0 kargo bilgisi Trendyol\'dan alındı', pending: 5 } };
@@ -172,6 +176,7 @@ const post = async (url, body) => {
 const put = async (url, body) => {
   calls.push({ m: 'PUT', url, body });
   { const b = bulkStub.handle('PUT', url, body); if (b) return b; }
+  if (url === '/xml-sources/s1' && body && body.status) { xmlSrc.status = body.status; return { data: { id: 's1', status: xmlSrc.status } }; }
   if (url === '/orders/profit/cost' || url === '/orders/profit/settings') return { data: { ok: true } };
   if (/product-categories\/attribute-defaults$/.test(url)) return { data: { saved: true, categories: 3, products: 12, pending: 0, unresolved: [{ name: 'Cinsiyet', categories: 2 }] } };
   if (/product-categories$/.test(url)) return { data: { saved: body.assignments.length, skipped: 0 } };
@@ -183,5 +188,5 @@ const put = async (url, body) => {
   }
   if (/send-settings$/.test(url)) return { data: { settings: body.settings, summary: [] } }; return { data: {} }; };
 const del = async (url, cfg) => { calls.push({ m: 'DELETE', url, params: cfg && cfg.params, body: cfg && cfg.data }); { const b = bulkStub.handle('DELETE', url, null, cfg); if (b) return b; } return { data: /sale-price$/.test(url) ? { ok: true, removed: 1 } : (/product-categories$/.test(url) ? { removed: (cfg.data.productIds || []).length } : {}) }; };
-module.exports = { get, post, put, delete: del, calls, handCfg, wa, sendBehaviour, pc, profitTax, conv, bulk: bulkStub.bulk };
+module.exports = { get, post, put, delete: del, calls, uploads, handCfg, xmlSrc, wa, sendBehaviour, pc, profitTax, conv, bulk: bulkStub.bulk };
 module.exports.default = module.exports;

@@ -309,8 +309,10 @@ async function execute(source, syncLog, trigger, ctl = { aborted: false }) {
     },
   });
   await prisma.xmlSource.update({
-    where: { id: source.id }, data: { lastSyncedAt: new Date(), totalProducts: feed.length, status: 'active' },
+    where: { id: source.id }, data: { lastSyncedAt: new Date(), totalProducts: feed.length },
   });
+  // "active" again after a good run, but never un-pause a source that was made passive while this sync was running
+  await prisma.xmlSource.updateMany({ where: { id: source.id, status: { not: 'paused' } }, data: { status: 'active' } });
 
   productListCache.invalidate(storeId);
   const result = { total: feed.length, created, updated, unchanged, skipped, errors, removed, removedHeld: gone.held };
@@ -344,6 +346,8 @@ async function startXmlSync(xmlSourceId, { trigger = 'manual', userId = null } =
   }
   const source = await prisma.xmlSource.findUnique({ where: { id: xmlSourceId }, include: { store: { include: { user: { select: { phone: true } } } } } });
   if (!source) { const e = new Error('XML kaynağı bulunamadı'); e.status = 404; throw e; }
+  // A passive source is never pulled or updated, by hand or by the schedule
+  if (source.status === 'paused') { const e = new Error('Bu XML kaynağı pasif; çekilmez ve güncellenmez. Çekmek için önce “Aktif yap”a basın.'); e.code = 'SOURCE_PAUSED'; e.status = 409; throw e; }
 
   // The in-memory lock only knows this process; also honour a sync another instance has started recently
   const candidates = await prisma.syncLog.findMany({

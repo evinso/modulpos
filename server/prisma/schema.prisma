@@ -91,6 +91,7 @@ model Store {
   whatsappConnections   WhatsappConnection[]
   whatsappCampaigns     WhatsappCampaign[]
   whatsappSenders       WhatsappSender[]
+  imageUploads          ProductImageUpload[]
 }
 
 model XmlSource {
@@ -185,6 +186,7 @@ model Product {
   @@index([xmlSourceId])
   @@index([barcode])
   @@index([sku])
+  imageUploads ProductImageUpload[]
 }
 
 // A sale price typed in by hand for ONE product on ONE marketplace connection. It wins over the price template
@@ -775,6 +777,27 @@ model WhatsappCampaignRecipient {
   @@unique([campaignId, phone])
   @@index([campaignId, status, position])
   @@index([sentAt])
+}
+
+// A picture the owner uploaded for a product added by hand. It is only a loan: served publicly (routes/uploads.js) so the marketplace can
+// download it, deleted as soon as the marketplace shows its own address for it, or after a day when no product ever used it.
+// See services/hostedImages.js. `productId` is set when the product that uses it is saved.
+model ProductImageUpload {
+  id        String   @id @default(uuid())
+  storeId   String
+  productId String?
+  mime      String
+  ext       String
+  size      Int
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  store   Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, productId])
+  @@index([productId])
+  @@index([createdAt])
 }
 
 model WhatsappAuthState {

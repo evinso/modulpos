@@ -45,7 +45,7 @@ export const CATALOG = [
             '[[Şablon fiyatına döndür]]: elle fiyatları şablona bağlar (hiçbir şablonun kapsamadığı ürünler fiyatını korur).',
             '[[Sil]]: seçili ürünleri siler.',
           ] },
-          { t: 'p', x: '[[Yeni ürün]] ile XML’de olmayan bir ürünü elle ekleyebilirsiniz; böyle ürünler için XML seçiminde “elle eklenenler” seçeneği kullanılır. Elle eklenen üründe fiyat alanı **elinize kalacak net tutardır**; satış fiyatı bunun üstüne giderler eklenerek hesaplanır ({{#sablon-elle-eklenen|nasıl çalışır?}}).' },
+          { t: 'p', x: '[[Yeni ürün]] ile XML’de olmayan bir ürünü elle ekleyebilirsiniz; böyle ürünler için XML seçiminde “elle eklenenler” seçeneği kullanılır. Elle eklenen üründe fiyat alanı **elinize kalacak net tutardır**; satış fiyatı bunun üstüne giderler eklenerek hesaplanır ({{#sablon-elle-eklenen|nasıl çalışır?}}). Aynı formda **Trendyol kategorisini** ([[Kategori seç]]) seçersiniz; ürün kaydedilince o kategoriye bağlanır. Görseller için adres yazabilir ya da [[Fotoğraf yükle]] ile bilgisayarınızdan / telefonunuzdan fotoğraf seçebilirsiniz (JPG, PNG, WebP; büyük fotoğraflar kendiliğinden küçültülür). Yüklediğiniz fotoğraflar yalnızca Trendyol’un indirebilmesi için geçici olarak sunucumuzda durur; ürün Trendyol’a gönderilip kendi adreslerini gösterdiğinde otomatik silinir.' },
         ],
       },
     ],
