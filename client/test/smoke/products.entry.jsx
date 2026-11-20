@@ -1,7 +1,8 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import ProductsPage from '../../src/pages/products/ProductsPage.jsx';
-import { calls } from './apiStub.cjs';
+import { MemoryRouter } from 'react-router-dom';
+import { calls, handCfg } from './apiStub.cjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const wait = (ms = 30) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
@@ -22,7 +23,7 @@ const setVal = async (el, v) => {
 const productCalls = () => calls.filter((c) => c.url === '/products');
 
 const root = createRoot(document.getElementById('root'));
-await act(async () => { root.render(<ProductsPage />); });
+await act(async () => { root.render(<MemoryRouter><ProductsPage /></MemoryRouter>); });
 await wait(150);
 
 // ---- 1) the marketplace is chosen first, then its XML source; nothing is loaded before that
@@ -193,6 +194,36 @@ ok('confirmed delete calls the API', calls.some((c) => c.m === 'DELETE' && c.url
 // view switch
 await click(btn('Trendyol’daki canlı liste'));
 ok('Trendyol live view is a separate tab', text().includes('Trendyol hesabınızdan canlı') || text().includes('Trendyol bağlantısı yok') || text().includes('Satışta'));
+
+// ---- a product added by hand: its "price" is the NET amount to keep; images, brand and barcode are needed for the marketplace ----
+const field = (label) => [...document.querySelectorAll('.modal .form-group')].find((g) => g.querySelector('label') && g.querySelector('label').textContent.startsWith(label));
+const put = async (g, v) => {
+  const el = g.querySelector('input, textarea, select');
+  const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : (el.tagName === 'SELECT' ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype);
+  await act(async () => { Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v); el.dispatchEvent(new window.Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); });
+  await wait(10);
+};
+await click(btn('Yeni ürün'));
+ok('the new-product form says the price is the net amount to keep', !!q('hand-note') && field('Elime kalacak net tutar') && q('hand-note').textContent.includes('satıştan sonra size kalması gereken net tutardır'));
+ok('a template exists for hand-added products (the shop has an unscoped one): no warning', !q('no-template-note'));
+ok('the marketplace needs these: barcode, brand and picture addresses are required fields', field('Barkod').querySelector('input').required && field('Marka').querySelector('input').required && !!q('image-urls') && !!field('Görsel adresleri'));
+await click(btn('İptal'));
+
+handCfg.scoped = true;      // now every template is limited to one XML source: nothing would price a hand-added product
+await click(btn('Yeni ürün'));
+await wait(100);
+ok('without a template for hand-added products the form says what to create and where', !!q('no-template-note') && q('no-template-note').textContent.includes('Elle eklenen ürünler') && !!q('no-template-note').querySelector('a[href="/pricing"]'));
+await put(field('SKU'), 'EL-1'); await put(field('Barkod'), '8691234567890'); await put(field('Ürün adı'), 'El yapımı kupa');
+await put(field('Elime kalacak net tutar'), '100'); await put(field('Marka'), 'Atölye'); await put(field('Stok'), '5');
+await click(btn('Kaydet'));
+ok('no picture address: not saved, and it says why', !calls.some((c) => c.m === 'POST' && c.url === '/products' && c.body && c.body.sku === 'EL-1'));
+await put(field('Görsel adresleri'), 'https://example.com/a.jpg\n\nhttps://example.com/b.jpg\n');
+await click(btn('Kaydet'));
+await wait(100);
+const created = calls.filter((c) => c.m === 'POST' && c.url === '/products').pop();
+ok('saved: the net amount as the price, the picture addresses as a list (empty lines dropped)', created && created.body.sku === 'EL-1' && created.body.price === 100 && created.body.brand === 'Atölye' && created.body.barcode === '8691234567890'
+  && JSON.stringify(created.body.images) === JSON.stringify(['https://example.com/a.jpg', 'https://example.com/b.jpg']), created && JSON.stringify(created.body).slice(0, 220));
+handCfg.scoped = false;
 
 console.error = origErr;
 const real = errors.filter((e) => !/not wrapped in act|Warning: An update|ReactDOMTestUtils|act\(/.test(e));

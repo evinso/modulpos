@@ -33,6 +33,12 @@ cd client && npm run test:smoke                 # renders the products screen in
   A sale price typed in by hand for one product on one marketplace lives in `ProductPriceOverride` and is applied INSIDE
   `PricingContext` (`priceFor` / `explainFor`), so the list, readiness, sends and the automatic updates all use the same
   number. Never compute or store a sale price anywhere else. If the table cannot be read, pricing falls back to templates.
+  **Products added by hand** (no XML source and no feed price: `isHandAdded()` = `xmlSourceId === null && !(xmlPrice > 0)`, strictly null so a caller that did not load the column is never taken for one; a product whose XML source was deleted keeps its feed price and stays an
+  ordinary purchase-price product): their `price` is the NET amount the owner wants to keep per sale (the form says so: "Elime kalacak net tutar"), NOT a purchase price. The marketplace price is the same solver asked backwards (`netExplain`, used by
+  `PricingContext._resolve` / `priceFor` and `summarizeCoverage`): the template that matches supplies shipping, commission (ONE rate, no per-category rates: the owner chose that), service fee, stopaj and the tax options; its profit settings are ignored. The template's
+  `netMode` is the owner's setting for what "100 TL" means: `cash` (default; exactly that stays after commission, shipping, fee, stopaj and the VAT to pay; no purchase) or `purchase` (the amount is a purchase price, profit 0, so the VAT inside it is deducted: cheaper).
+  Owner's real values, amount 100: cash 302.84 TL, purchase 276.87 TL. Scope: `xmlSourceIds: ['none']` ("Elle eklenen ürünler" in the template screen, which then replaces the profit inputs by the net choice); an unscoped template also prices hand-added products (as net, cash by default); a
+  template of one XML source never does. No amount (0 TL) = no price. A hand-typed sale price still wins; the profit shown at it is what stays. To be sendable such a product also needs barcode, brand and picture URLs (the form requires them) and a Trendyol category from the product-level tab.
 * **Products screen** (`client/src/pages/products/`): marketplace first, then its XML source (`SourceGate`); nothing is loaded
   before both are chosen. `xmlSourceId=none` = products added by hand. The price dialog (`PriceModal`) saves a hand-typed
   price and can send it (`priceActions.js`: on sale -> `sync-price-stock`, never sent -> `send-products`).

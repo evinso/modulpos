@@ -135,6 +135,33 @@ const put = calls.find((c) => c.m === 'PUT' && c.url === '/pricing/r2');
 ok('saving an older template does NOT switch the tax options on by itself', put && put.body.conditions.inputVat === false && put.body.conditions.withholdingPct === 0 && put.body.conditions.serviceFee === 0);
 ok('saving the older template drops what the screen does not offer', put && put.body.conditions.shippingTiers.length === 0 && put.body.conditions.minPurchasePrice === null && put.body.conditions.profitMode === 'percent_of_purchase', put && JSON.stringify(put.body.conditions).slice(0, 200));
 
+// ---- a template for the products added by hand: priced backwards from the net amount to keep ----
+await click(btn('Şablon Ekle'));
+const scopeSel = [...document.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === '__none'));
+ok('the XML source list offers "Elle eklenen ürünler"', !!scopeSel && [...scopeSel.options].some((o) => o.textContent === 'Elle eklenen ürünler'));
+ok('before it is chosen the profit section is there and the net section is not', !!q('profit-value') && !q('net-section'));
+await setVal(scopeSel, '__none');
+ok('for hand-added products the profit inputs are replaced by the net-amount choice', !q('profit-value') && !q('mode-single') && !!q('net-section') && q('net-cash').getAttribute('aria-pressed') === 'true' && q('net-purchase').getAttribute('aria-pressed') === 'false');
+ok('the choice is explained in plain words', q('net-section').textContent.includes('elime tam bu tutar kalsın') && q('net-section').textContent.includes('Kâr alanı kullanılmaz'));
+ok('the result panel talks about the net amount, not the purchase price', !!q('bands') && q('bands').textContent.includes('Net tutar') && !q('bands').textContent.includes('Alış fiyatı'));
+const hn = document.querySelector('input[required]');
+await setVal(hn, 'Elle eklenenler');
+await setVal(q('cost-shipping'), '100'); await setVal(q('cost-commission'), '22'); await setVal(q('cost-service'), '13.19');
+await click(q('open-try'));
+ok('the try-out asks for the net amount', text().includes('Elime kalacak net tutar (₺)'));
+const netTry = [...document.querySelectorAll('input[type="number"]')].find((x) => x.parentElement && x.parentElement.textContent.includes('Elime kalacak net tutar (₺)') && !x.dataset.testid);
+await setVal(netTry, '100');
+const calc = calls.filter((c) => c.url === '/pricing/calculate').pop();
+ok('the calculator is asked with the hand scope and the chosen mode', calc && calc.body.conditions.xmlSourceIds[0] === 'none' && calc.body.conditions.netMode === 'cash' && calc.body.conditions.profitMode === 'fixed', calc && JSON.stringify(calc.body.conditions).slice(0, 160));
+await click(q('net-purchase'));
+ok('the second choice can be selected', q('net-purchase').getAttribute('aria-pressed') === 'true' && q('net-cash').getAttribute('aria-pressed') === 'false');
+await click(q('net-cash'));
+await click(btn('Kaydet'));
+await wait(100);
+const made = calls.filter((c) => c.m === 'POST' && c.url === '/pricing').pop();
+ok('saved: scope "none", net mode, no profit, costs as typed', made && made.body.conditions.xmlSourceIds.length === 1 && made.body.conditions.xmlSourceIds[0] === 'none' && made.body.conditions.netMode === 'cash'
+  && made.body.conditions.profitMode === 'fixed' && made.body.value === 0 && made.body.conditions.profitTiers.length === 0 && made.body.conditions.shippingCost === 100 && made.body.conditions.commissionPct === 22 && made.body.conditions.serviceFee === 13.19, made && JSON.stringify(made.body).slice(0, 260));
+
 console.error = () => {};
 const real = errors.filter((e) => !/not wrapped in act|Warning: An update|ReactDOMTestUtils|act\(/.test(e));
 ok('no React errors/warnings while rendering', real.length === 0, real.slice(0, 3).join(' | '));

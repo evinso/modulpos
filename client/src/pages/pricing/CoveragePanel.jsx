@@ -12,7 +12,7 @@ export const bandLabel = (b) => (b.to === null ? `₺${short(b.from)} üstü` : 
  * Result of a template over the user's real products: totals, a table per purchase-price band
  * (boundaries chosen by the server from the products themselves), warnings and an optional single-product try-out.
  */
-export default function CoveragePanel({ summary, preview, previewError, samplePrice, setSamplePrice, previewVat, rowsIncomplete }) {
+export default function CoveragePanel({ summary, preview, previewError, samplePrice, setSamplePrice, previewVat, rowsIncomplete, hand = false }) {
   const [showLosers, setShowLosers] = useState(false);
   const [showTry, setShowTry] = useState(false);
   const [showCalc, setShowCalc] = useState(false);
@@ -27,11 +27,13 @@ export default function CoveragePanel({ summary, preview, previewError, samplePr
 
       {rowsIncomplete && <p style={{ color: 'var(--warning)', fontSize: 12, margin: '0 0 10px' }}>Kademe tablosunu tamamlayınca hesap buna göre güncellenir.</p>}
 
-      {!summary && <p style={{ color: 'var(--text-muted)', fontSize: 12 }}>Kâr değerini girince şablonun ürünlerinize etkisi burada görünür.</p>}
+      {!summary && <p style={{ color: 'var(--text-muted)', fontSize: 12 }}>{hand ? 'Maliyetleri girince şablonun elle eklenen ürünlerinize etkisi burada görünür.' : 'Kâr değerini girince şablonun ürünlerinize etkisi burada görünür.'}</p>}
 
       {summary && summary.covered === 0 && (
         <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-          {summary.total === 0 ? 'Henüz ürününüz yok. XML ekleyince burada tüm ürünlerinizin kazancı görünür; aşağıdan tek bir fiyatla deneyebilirsiniz.' : 'Bu ayarlarla eşleşen ürün yok.'}
+          {hand
+            ? 'Henüz elle eklenmiş ürününüz yok. “Ürünler” sayfasından “Yeni ürün” ile ekleyebilirsiniz; aşağıdan tek bir net tutarla deneyebilirsiniz.'
+            : (summary.total === 0 ? 'Henüz ürününüz yok. XML ekleyince burada tüm ürünlerinizin kazancı görünür; aşağıdan tek bir fiyatla deneyebilirsiniz.' : 'Bu ayarlarla eşleşen ürün yok.')}
         </p>
       )}
 
@@ -48,7 +50,7 @@ export default function CoveragePanel({ summary, preview, previewError, samplePr
           <div className="table-container" style={{ marginBottom: 10 }}>
             <table data-testid="bands" style={{ fontSize: 12 }}>
               <thead><tr>
-                <th>Alış fiyatı</th><th style={{ textAlign: 'right' }}>Ürün</th><th style={{ textAlign: 'right' }}>Satış</th>
+                <th>{hand ? 'Net tutar' : 'Alış fiyatı'}</th><th style={{ textAlign: 'right' }}>Ürün</th><th style={{ textAlign: 'right' }}>Satış</th>
                 {hasShipTiers && <th>Kargo</th>}
                 <th style={{ textAlign: 'right' }}>Net kazanç</th><th style={{ textAlign: 'right' }}>Marj</th>
               </tr></thead>
@@ -103,12 +105,12 @@ export default function CoveragePanel({ summary, preview, previewError, samplePr
         </button>
         {showTry && (
           <div style={{ marginTop: 8 }}>
-            <label className="form-label">Alış fiyatı (₺)</label>
+            <label className="form-label">{hand ? 'Elime kalacak net tutar (₺)' : 'Alış fiyatı (₺)'}</label>
             <input type="number" min="0" step="0.01" className="form-input" value={samplePrice} onChange={(e) => setSamplePrice(e.target.value)} />
             {previewError && <p style={{ color: 'var(--danger)', fontSize: 12, marginTop: 8 }}>{previewError}</p>}
             {preview && (
               <div style={{ marginTop: 10, fontSize: 13 }}>
-                <div data-testid="try-result">Satış fiyatı <strong>₺{money(preview.price)}</strong> · net kazanç <strong style={{ color: earnClass(preview.profit) }}>₺{money(preview.profit)}</strong> (satışın %{preview.marginOnPricePct}’i)</div>
+                <div data-testid="try-result">Satış fiyatı <strong>₺{money(preview.price)}</strong> · {preview.net && preview.net.mode === 'cash' ? 'elinize kalan' : 'net kazanç'} <strong style={{ color: earnClass(preview.profit) }}>₺{money(preview.profit)}</strong> (satışın %{preview.marginOnPricePct}’i)</div>
                 {(preview.shippingTier || preview.profitTier) && (
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                     {preview.shippingTier ? `Uygulanan kargo: ${preview.shippingTier}. satır (₺${money(preview.shippingCost)})` : ''}
@@ -119,7 +121,7 @@ export default function CoveragePanel({ summary, preview, previewError, samplePr
                 <button type="button" onClick={() => setShowCalc(!showCalc)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12, marginTop: 4, fontFamily: 'inherit' }}>
                   {showCalc ? '▾' : '▸'} Hesabı göster
                 </button>
-                {showCalc && <div style={{ marginTop: 6 }}><ProfitBreakdown b={preview} vatRate={previewVat} fontSize={12} /></div>}
+                {showCalc && <div style={{ marginTop: 6 }}><ProfitBreakdown b={preview} vatRate={previewVat} fontSize={12} net={preview.net} /></div>}
               </div>
             )}
           </div>

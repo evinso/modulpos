@@ -203,11 +203,11 @@ function PriceTab({ data }) {
                   <div style={{ fontSize: 22, fontWeight: 800 }}>₺{money(m.pricing.salePrice)}</div>
                 </div>
                 <div style={{ background: 'var(--bg-tertiary)', borderRadius: 10, padding: '10px 12px' }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Net kazancınız</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{m.pricing.net && m.pricing.net.mode === 'cash' ? 'Elinize kalan' : 'Net kazancınız'}</div>
                   {m.pricing.breakdown ? (
                     <>
                       <div style={{ fontSize: 22, fontWeight: 800, color: earn(m.pricing.breakdown.profit) }}>₺{money(m.pricing.breakdown.profit)}</div>
-                      <div style={{ fontSize: 11, color: earn(m.pricing.breakdown.profit) }}>alışın %{m.pricing.breakdown.profitPct}’i</div>
+                      {!(m.pricing.net && m.pricing.net.mode === 'cash') && <div style={{ fontSize: 11, color: earn(m.pricing.breakdown.profit) }}>alışın %{m.pricing.breakdown.profitPct}’i</div>}
                     </>
                   ) : <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{m.pricing.manual ? 'Şablon olmadığı için kâr hesaplanamadı' : 'Eski tip kural: kâr dökümü yok'}</div>}
                 </div>
@@ -222,7 +222,12 @@ function PriceTab({ data }) {
                   Bu fiyatta zarar ediyorsunuz (alış fiyatı arttıysa elle girdiğiniz fiyat buna uymuyor olabilir). Fiyatı güncelleyin veya şablon fiyatına dönün.
                 </div>
               )}
-              {m.pricing.breakdown && <ProfitBreakdown b={m.pricing.breakdown} price={m.pricing.salePrice} vatRate={m.pricing.vatRate} />}
+              {m.pricing.net && (
+                <div data-testid="net-note" style={{ marginBottom: 10, fontSize: 12, color: 'var(--text-secondary)' }}>
+                  Elle eklenen ürün: yazdığınız <strong>₺{money(m.pricing.net.amount)}</strong> {m.pricing.net.mode === 'cash' ? 'satıştan sonra elinize kalacak net tutardır' : 'alış fiyatı sayılır (kâr 0)'}; satış fiyatı şablondaki kargo, komisyon, hizmet bedeli ve vergiler eklenerek hesaplandı.
+                </div>
+              )}
+              {m.pricing.breakdown && <ProfitBreakdown b={m.pricing.breakdown} price={m.pricing.salePrice} vatRate={m.pricing.vatRate} net={m.pricing.net} />}
               {m.listing && m.listing.marketplacePrice != null && Math.abs(m.listing.marketplacePrice - m.pricing.salePrice) > 0.005 && (
                 <div style={{ marginTop: 10, fontSize: 12, color: 'var(--warning)', display: 'flex', gap: 6, alignItems: 'center' }}>
                   <AlertTriangle size={14} /> {m.name}’da şu an ₺{money(m.listing.marketplacePrice)} görünüyor; hesaplanan fiyatla farklı. Fiyatı güncellemek için “Trendyol fiyat/stok gönder” işlemini kullanın.

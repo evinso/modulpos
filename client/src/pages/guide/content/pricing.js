@@ -27,6 +27,24 @@ export const PRICING = [
         ],
       },
       {
+        id: 'sablon-elle-eklenen', title: 'Elle eklenen ürünler: elinize kalacak tutar',
+        blocks: [
+          { t: 'p', x: 'XML’den gelmeyen, [[Yeni ürün]] ile **elle eklediğiniz** ürünlerde alış fiyatı ve kâr yoktur. Bunun yerine ürüne, **satıştan sonra elinize kalmasını istediğiniz net tutarı** yazarsınız (ör. 100 ₺). Pazaryerindeki satış fiyatı, kargo, komisyon, hizmet bedeli, stopaj ve KDV bu tutarın **üstüne eklenerek** hesaplanır; böylece ürün satılınca size yazdığınız tutar kalır.' },
+          { t: 'steps', x: [
+            '{{/pricing|Fiyat Şablonları}} sayfasında [[Şablon Ekle]]’ye basın.',
+            '“XML kaynağı” kutusundan [[Elle eklenen ürünler]]’i seçin. Kâr alanları kalkar, yerine net tutar seçimi gelir.',
+            'Kargo, komisyon, hizmet bedeli ve vergi bilgilerinizi yazın (komisyon tek bir orandır; kategoriye göre değişmez).',
+            'Net tutarın nasıl hesaplanacağını seçin (aşağıdaki tablo) ve [[Kaydet]]’e basın.',
+            '{{/products|Ürünler}} sayfasında [[Yeni ürün]] ile ürünü ekleyin: **net tutar, barkod, marka ve görsel adresleri** zorunludur. Trendyol kategorisini [[Ürün bazlı kategori]] sekmesinden seçin.',
+          ] },
+          { t: 'table', head: ['Seçim', 'Ne yapar', 'Örnek (komisyon %22, kargo 100 ₺, hizmet bedeli 13,19 ₺, stopaj %1)'], rows: [
+            ['[[Her şeyden sonra elime tam bu tutar kalsın]]', 'Komisyon, kargo, hizmet bedeli, stopaj **ve ödenecek KDV** düşüldükten sonra elinize tam yazdığınız tutar geçer. Alış maliyeti yoktur.', '100 ₺ → yaklaşık 302,84 ₺ satış fiyatı'],
+            ['[[Tutar alış fiyatım olsun, kâr 0]]', 'Tutar ürünün alış fiyatı sayılır, kâr sıfır olur. “KDV mükellefiyim” açıksa alış KDV’si indirildiği için fiyat daha düşük çıkar.', '100 ₺ → yaklaşık 276,87 ₺ satış fiyatı'],
+          ] },
+          { t: 'note', tone: 'info', x: 'Ürünler sayfasında ve ürün ayrıntısında hesaplanan satış fiyatını ve kesintilerin dökümünü görürsünüz. Şablon yoksa ürünün fiyatı çıkmaz ve gönderilemez; Yeni ürün formu bunu uyarır. Bir ürün için fiyatı elle de yazabilirsiniz; o zaman o ürünün fiyatı sabit kalır.' },
+        ],
+      },
+      {
         id: 'sablon-maliyet', title: 'Maliyetlerim',
         blocks: [
           { t: 'table', head: ['Alan', 'Ne yazılır'], rows: [

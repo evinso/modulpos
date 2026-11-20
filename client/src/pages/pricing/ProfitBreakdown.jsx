@@ -7,9 +7,10 @@ const money = (n) => (Number(n) || 0).toLocaleString('tr-TR', { minimumFractionD
  * (Komisyon, Hizmet bedeli, Stopaj, Ödenecek KDV, Kargo, Alış maliyeti, Net kâr + "KDV dökümü"); the earlier list otherwise.
  * `b` is the server's breakdown (explainTemplatePrice / explainAtPrice).
  */
-export default function ProfitBreakdown({ b, price, vatRate, fontSize = 13, testId = 'profit-breakdown' }) {
+export default function ProfitBreakdown({ b, price, vatRate, fontSize = 13, testId = 'profit-breakdown', net = null }) {
   const [showVat, setShowVat] = useState(false);
   if (!b) return null;
+  const cash = !!net && net.mode === 'cash';      // a hand-added product priced from the net amount to keep: there is no purchase cost, the result is what stays
   const sale = price ?? b.price;
   const row = (k, v, strong) => (
     <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize, padding: '3px 0', fontWeight: strong ? 700 : 400 }}>
@@ -26,10 +27,10 @@ export default function ProfitBreakdown({ b, price, vatRate, fontSize = 13, test
           [`KDV (%${vatRate})`, `−₺${money(b.vatAmount)}`],
           ['Komisyon', `−₺${money(b.commissionAmount)}`],
           ['Kargo ve diğer giderler', `−₺${money(b.fixedCosts)}`],
-          ['Alış fiyatı', `−₺${money(b.purchase)}`],
-        ].map(([k, v]) => row(k, v))}
+          !cash && ['Alış fiyatı', `−₺${money(b.purchase)}`],
+        ].filter(Boolean).map(([k, v]) => row(k, v))}
         <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: fontSize + 1, borderTop: '1px solid var(--border-color)', marginTop: 6, paddingTop: 8 }}>
-          <span>Elinize kalan</span><span style={{ color: profitColor }}>₺{money(b.profit)}</span>
+          <span>Elinize kalan</span><span data-testid="net-left" style={{ color: profitColor }}>₺{money(b.profit)}</span>
         </div>
       </div>
     );
@@ -44,7 +45,7 @@ export default function ProfitBreakdown({ b, price, vatRate, fontSize = 13, test
     ['Ödenecek KDV', `−₺${money(b.payableVat)}`],
     ['Kargo', `−₺${money(shipping)}`],
     b.otherCost > 0 && ['Diğer gider', `−₺${money(b.otherCost)}`],
-    ['Alış maliyeti', `−₺${money(b.purchase)}`],
+    !cash && ['Alış maliyeti', `−₺${money(b.purchase)}`],
   ].filter(Boolean);
   const d = b.vatDetail || {};
   const vatRows = [
@@ -60,7 +61,7 @@ export default function ProfitBreakdown({ b, price, vatRate, fontSize = 13, test
     <div data-testid={testId}>
       {rows.map(([k, v]) => row(k, v))}
       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: fontSize + 1, borderTop: '1px solid var(--border-color)', marginTop: 6, paddingTop: 8 }}>
-        <span>Net kâr</span><span style={{ color: profitColor }}>₺{money(b.profit)}</span>
+        <span>{cash ? 'Elinize kalan (net)' : 'Net kâr'}</span><span data-testid="net-left" style={{ color: profitColor }}>₺{money(b.profit)}</span>
       </div>
       <button type="button" data-testid="vat-toggle" onClick={() => setShowVat(!showVat)}
         style={{ background: 'none', border: 'none', padding: 0, marginTop: 8, cursor: 'pointer', color: 'var(--text-muted)', fontSize: fontSize - 1, fontFamily: 'inherit' }}>

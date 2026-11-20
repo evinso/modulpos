@@ -2,7 +2,7 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const productListCache = require('../services/productListCache');
-const { explainTemplatePrice, summarizeCoverage, validateTiers } = require('../services/pricingEngine');
+const { explainTemplatePrice, summarizeCoverage, validateTiers, netExplain, isHandScope } = require('../services/pricingEngine');
 
 const router = express.Router();
 router.use(auth);
@@ -22,6 +22,7 @@ function assertTiers(c) {
 async function assertConditionsOwned(storeId, conditions) {
   const c = conditions || {};
   assertTiers(c);
+  if (c.netMode !== undefined && c.netMode !== null && !['cash', 'purchase'].includes(c.netMode)) { const e = new Error('Net tutar hesabı “cash” ya da “purchase” olmalı'); e.status = 400; throw e; }
   if (c.connectionId) {
     const ok = await prisma.marketplaceConnection.findFirst({ where: { id: c.connectionId, storeId }, select: { id: true } });
     if (!ok) { const e = new Error('Geçersiz pazaryeri bağlantısı'); e.status = 400; throw e; }
@@ -37,7 +38,8 @@ router.post('/calculate', async (req, res, next) => {
   try {
     const { purchasePrice, value, conditions } = req.body;
     assertTiers(conditions || {});
-    const out = explainTemplatePrice(purchasePrice, value, conditions || {});
+    // a template for hand-added products prices backwards from the NET amount (purchasePrice = that amount here)
+    const out = isHandScope(conditions) ? netExplain(purchasePrice, conditions || {}) : explainTemplatePrice(purchasePrice, value, conditions || {});
     if (!out) return res.status(400).json({ error: 'Bu değerlerle geçerli bir fiyat hesaplanamıyor (komisyon + kâr çok yüksek olabilir)' });
     res.json(out);
   } catch (error) { next(error); }

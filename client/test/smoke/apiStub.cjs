@@ -11,6 +11,7 @@ const mk = (i, over = {}) => ({
 });
 const bulkStub = require('./bulkStub.cjs');
 const calls = [];
+const handCfg = { scoped: false };   // true: every template is limited to the XML source s1, so nothing prices the products added by hand
 const sendBehaviour = { failAt150: false, allBelowStock: false };
 const pc = { aiError: null, aiMatched: 2, saved: [], attrAiError: null };   // saved: category mappings the page saved during the test
 const conv = { feeds: {}, previewFeed: null };   // XML converter page: what /xml-converter/feeds/status answers per address, and the feed row a new conversion returns
@@ -44,10 +45,10 @@ const get = async (url, cfg = {}) => {
   if (/^\/products\/[^/]+\/detail$/.test(url)) return { data: detail };
   if (/^\/products\/[^/]+$/.test(url)) return { data: { ...mk(1), description: 'Tam açıklama' } };
   if (url === '/marketplace/connections/c1/send-settings') return { data: { settings: { minStock: 0, maxStock: null, requireImage: false, titlePrefix: '', titleSuffix: '', titleCase: 'none', maxImages: null, removeWords: ['Çeyrek', 'Reşat'] }, summary: ['2 kelime çıkarılır'] } };
-  if (url === '/pricing') return { data: [
+  if (url === '/pricing') { const rules = [
     { id: 'r1', name: 'Genel fiyat', value: 30, type: 'percentage', applyTo: 'price_template', isActive: true, priority: 0, conditions: JSON.stringify({ connectionId: null, xmlSourceIds: [], shippingCost: 60, packagingCost: 10, commissionPct: 23, commissionBasis: 'gross', profitMode: 'fixed', roundingMode: 'ending', roundingEnding: 0.9, profitTiers: [] }) },
     { id: 'r2', name: 'Eski taslak', value: 10, type: 'percentage', applyTo: 'price_template', isActive: false, priority: 0, conditions: JSON.stringify({ shippingTiers: [{ upTo: 199.99, cost: 48.33 }, { upTo: null, cost: 88.96 }], shippingTiersExVat: true, profitMode: 'margin_on_gross', commissionPct: 22.37, packagingCost: 16.39, commissionBasis: 'gross', minPurchasePrice: 10, maxPurchasePrice: 500 }) },
-  ] };
+  ]; return { data: handCfg.scoped ? rules.map((r) => ({ ...r, conditions: JSON.stringify({ ...JSON.parse(r.conditions), xmlSourceIds: ['s1'] }) })) : rules }; }
   if (url === '/pricing/summaries') return { data: { total: 0, rules: {} } };
   if (url === '/marketplace/connections/c1/buybox-auto-log') return { data: [
     { id: 'l1', kind: 'auto', status: 'ok', createdAt: '2026-11-09T19:00:00Z', note: 'Otomatik fiyat: 2 ürünün fiyatı düşürüldü (BuyBox fiyatına eşit). 1 ürün zarara düşeceği için atlandı. 0,2 kredi kullanıldı.', updated: 2, skippedNotLower: 0, skippedLoss: 1, skippedOther: 0, items: [{ barcode: 'bx1', title: 'Gümüş Yüzük', oldPrice: 120, newPrice: 110.5 }, { barcode: 'bx2', title: 'Çelik Kolye', oldPrice: 99, newPrice: 95 }] },
@@ -182,5 +183,5 @@ const put = async (url, body) => {
   }
   if (/send-settings$/.test(url)) return { data: { settings: body.settings, summary: [] } }; return { data: {} }; };
 const del = async (url, cfg) => { calls.push({ m: 'DELETE', url, params: cfg && cfg.params, body: cfg && cfg.data }); { const b = bulkStub.handle('DELETE', url, null, cfg); if (b) return b; } return { data: /sale-price$/.test(url) ? { ok: true, removed: 1 } : (/product-categories$/.test(url) ? { removed: (cfg.data.productIds || []).length } : {}) }; };
-module.exports = { get, post, put, delete: del, calls, wa, sendBehaviour, pc, profitTax, conv, bulk: bulkStub.bulk };
+module.exports = { get, post, put, delete: del, calls, handCfg, wa, sendBehaviour, pc, profitTax, conv, bulk: bulkStub.bulk };
 module.exports.default = module.exports;

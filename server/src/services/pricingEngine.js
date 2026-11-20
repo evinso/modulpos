@@ -28,6 +28,10 @@ const prisma = require('../config/database');
  *                                     commission, service fee and other costs (20%) is deducted from the VAT payable on the sale
  *   withholdingPct                    income-tax withholding ("stopaj", 1) charged on the VAT-EXCLUSIVE sale price
  *   Both need the gross commission basis (the template screen always sets it). Absent = the earlier calculation, unchanged.
+ *   xmlSourceIds may contain 'none' = products added by hand (no XML source). Such a product's "price" is the NET amount the owner wants
+ *   to keep per sale and is priced backwards from it (see netExplain):
+ *   netMode: 'cash' (default) the amount stays in hand after commission, shipping, service fee, stopaj and the VAT to pay (no purchase involved)
+ *            'purchase'       the amount is a purchase price, profit 0 (the VAT inside it is deducted when inputVat is on)
  */
 
 const KINDS = ['price_template', 'price_range', 'marketplace_xml'];
@@ -144,7 +148,7 @@ function computeTemplatePrice(purchasePrice, value, c) {
  */
 function resolveTemplate(purchasePrice, value, c) {
   const P = num(purchasePrice);
-  if (!(P > 0)) return null;
+  if (!(P > 0) && !c.netCash) return null;      // netCash: a net-amount price has no purchase price (see netExplain)
   const profit = pickProfitValue(P, value, c);
   const tiers = grossTiers(activeTiers(c.shippingTiers, 'cost'), c);
   if (!tiers.length) {
@@ -250,7 +254,7 @@ function finishPrice(rawPrice, c) {
 function matches(rule, c, product, connectionId) {
   if (c.connectionId && c.connectionId !== connectionId) return false;
   const srcIds = c.xmlSourceIds && c.xmlSourceIds.length ? c.xmlSourceIds : (c.xmlSourceId ? [c.xmlSourceId] : []);
-  if (srcIds.length && !srcIds.includes(product.xmlSourceId)) return false;
+  if (srcIds.length && !srcIds.includes(isHandAdded(product) ? HAND_SCOPE : product.xmlSourceId)) return false;
 
   if (c.categories && c.categories.length) {
     const wanted = new Set(c.categories.map((x) => String(x).trim().toLowerCase()));
@@ -391,9 +395,11 @@ class PricingContext {
       const purchase = num(product.xmlPrice) || num(product.price);
       const hasOwnVat = conds.vatRate !== null && conds.vatRate !== undefined && conds.vatRate !== '';
       const effective = hasOwnVat ? conds : { ...conds, vatRate: product.vatRate };
-      const breakdown = explainTemplatePrice(purchase, rule.value, effective);
+      const hand = isHandAdded(product);
+      const breakdown = hand ? netExplain(purchase, effective) : explainTemplatePrice(purchase, rule.value, effective);
       if (breakdown) {
-        return { price: breakdown.price, ruleId: rule.id, ruleName: rule.name, kind: 'template', vatRate: num(effective.vatRate), breakdown, conds: effective, purchase };
+        // for a hand-added product the "purchase" of the breakdown is 0 in cash mode (the amount is what stays, not what was paid)
+        return { price: breakdown.price, ruleId: rule.id, ruleName: rule.name, kind: 'template', vatRate: num(effective.vatRate), breakdown, conds: effective, purchase: hand ? breakdown.purchase : purchase, net: hand ? breakdown.net : null };
       }
     }
     return null;
@@ -428,7 +434,7 @@ class PricingContext {
     const pv = this.previewAt(product, manual);
     return {
       price: manual, ruleId: base ? base.ruleId : null, ruleName: MANUAL_RULE_NAME, kind: 'manual',
-      vatRate: pv.vatRate, breakdown: pv.breakdown, manual: true, templatePrice: pv.templatePrice, purchase: pv.purchase,
+      vatRate: pv.vatRate, breakdown: pv.breakdown, manual: true, templatePrice: pv.templatePrice, purchase: pv.purchase, net: base ? base.net : null,
     };
   }
 
@@ -453,7 +459,7 @@ class PricingContext {
       // Sale VAT: use the rule's own vatRate when set, otherwise the product's VAT (chosen when the XML source was added)
       const hasOwnVat = conds.vatRate !== null && conds.vatRate !== undefined && conds.vatRate !== '';
       const effective = hasOwnVat ? conds : { ...conds, vatRate: product.vatRate };
-      const price = computeTemplatePrice(purchase, rule.value, effective);
+      const price = isHandAdded(product) ? ((netExplain(purchase, effective) || {}).price ?? null) : computeTemplatePrice(purchase, rule.value, effective);
       if (price !== null) return { price, ruleId: rule.id, ruleName: rule.name };
     }
     return null;
@@ -495,6 +501,34 @@ function explainTemplatePrice(purchasePrice, value, c) {
   };
 }
 
+// ── products added by hand: the price is the NET amount to keep ──────────────────────────────────────────────
+const HAND_SCOPE = 'none';
+
+/**
+ * A product added by hand: no XML source AND no feed price (a hand-added product never has one; a product whose XML source was
+ * removed keeps its feed price and stays an ordinary purchase-price product). Strictly null: a caller that did not load the
+ * column (undefined) is never mistaken for one.
+ */
+const isHandAdded = (p) => !!p && p.xmlSourceId === null && !(num(p.xmlPrice) > 0);
+
+/** Does this template's source scope name the hand-added products? */
+const isHandScope = (c) => ((c && c.xmlSourceIds) || []).includes(HAND_SCOPE);
+
+/**
+ * Sale price (and where it goes) for a product whose "price" is the net amount the owner wants to keep.
+ * It is the same solver as every other template, asked backwards:
+ *   cash     (default) profit = the amount, no purchase: exactly that much stays after commission, service fee, shipping, stopaj and VAT to pay
+ *   purchase the amount is the purchase price and the profit is 0 (VAT inside it is deducted when the template says inputVat)
+ * Profit tables / margin modes of the template are ignored. Returns explainTemplatePrice's shape plus { net: { amount, mode } }, or null.
+ */
+function netExplain(amount, c) {
+  if (!(num(amount) > 0)) return null;        // no amount typed yet: no price (a 0 TL net amount would still price the costs alone)
+  const mode = c.netMode === 'purchase' ? 'purchase' : 'cash';
+  const cc = { ...c, profitMode: 'fixed', profitTiers: [], netCash: mode === 'cash' };
+  const e = mode === 'cash' ? explainTemplatePrice(0, amount, cc) : explainTemplatePrice(amount, 0, cc);
+  return e ? { ...e, net: { amount: round2(num(amount)), mode } } : null;
+}
+
 /** A readable edge for a band boundary: 47.3 -> 50, 183 -> 200 (<100: nearest 10, <500: nearest 50, else nearest 100). */
 function niceEdge(x) {
   const step = x < 100 ? 10 : x < 500 ? 50 : 100;
@@ -531,14 +565,17 @@ function summarizeCoverage(products, value, conds) {
     if (!matches({ applyTo: 'price_template' }, conds, p, conds.connectionId || null)) continue;
     covered++;
     const purchase = num(p.xmlPrice) || num(p.price);
-    const e = explainTemplatePrice(purchase, value, hasOwnVat ? conds : { ...conds, vatRate: p.vatRate });
+    const eff = hasOwnVat ? conds : { ...conds, vatRate: p.vatRate };
+    const hand = isHandAdded(p);
+    const e = hand ? netExplain(purchase, eff) : explainTemplatePrice(purchase, value, eff);
     if (!e) continue;
     priced++;
-    totalProfit += e.profit; totalRevenue += e.price; totalPurchase += e.purchase;
+    const basis = hand ? purchase : e.purchase;       // bands are by the amount the owner typed (the net amount for hand-added products)
+    totalProfit += e.profit; totalRevenue += e.price; totalPurchase += basis;
     if (e.profit < minProfit) minProfit = e.profit;
     if (e.profit > maxProfit) maxProfit = e.profit;
     if (e.profit < 0) losing++;
-    rows.push({ id: p.id, title: p.title, purchase: e.purchase, price: e.price, profit: e.profit, tier: e.shippingTier });
+    rows.push({ id: p.id, title: p.title, purchase: basis, price: e.price, profit: e.profit, tier: e.shippingTier });
   }
 
   const edges = autoBandEdges(rows.map((r) => r.purchase));
@@ -578,4 +615,4 @@ function summarizeCoverage(products, value, conds) {
   };
 }
 
-module.exports = { autoBandEdges, taxModel, explainAtPrice, sellsAtLoss, MANUAL_RULE_NAME, PricingContext, loadPricingContext, computeTemplatePrice, resolveTemplate, validateTiers, MAX_TIERS, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };
+module.exports = { HAND_SCOPE, isHandAdded, isHandScope, netExplain, autoBandEdges, taxModel, explainAtPrice, sellsAtLoss, MANUAL_RULE_NAME, PricingContext, loadPricingContext, computeTemplatePrice, resolveTemplate, validateTiers, MAX_TIERS, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };

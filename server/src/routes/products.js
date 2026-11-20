@@ -152,6 +152,7 @@ router.get('/', async (req, res, next) => {
         };
         const ex = ctx.priceCtx.explainFor(p);
         if (ex && ex.breakdown) out.pricing.profit = ex.breakdown.profit;
+        out.pricing.net = ex && ex.net ? ex.net : null;                  // hand-added product: the "price" is the net amount to keep ({ amount, mode })
         out.pricing.manual = !!(ex && ex.manual);                       // a price typed in by hand wins over the template
         out.pricing.templatePrice = ex && ex.manual ? ex.templatePrice : null;
         out.pricing.loss = !!(ex && ex.manual && sellsAtLoss(ex));       // a hand-typed price does not follow the purchase price: it can start to lose money
@@ -287,7 +288,7 @@ router.get('/:id/detail', async (req, res, next) => {
         ready: ev.ready,
         issues: ev.issues,
         categoryMapping: ev.mapping ? (ev.mapping.marketplaceCategoryName || String(ev.mapping.marketplaceCategoryId)) : null,
-        pricing: ex ? { salePrice: ex.price, rule: ex.ruleName, kind: ex.kind, vatRate: ex.vatRate, breakdown: ex.breakdown, manual: !!ex.manual, templatePrice: ex.manual ? ex.templatePrice : null, loss: !!(ex.manual && sellsAtLoss(ex)) } : null,
+        pricing: ex ? { salePrice: ex.price, rule: ex.ruleName, kind: ex.kind, vatRate: ex.vatRate, breakdown: ex.breakdown, net: ex.net || null, manual: !!ex.manual, templatePrice: ex.manual ? ex.templatePrice : null, loss: !!(ex.manual && sellsAtLoss(ex)) } : null,
         listing: mp,
       });
     }
@@ -526,23 +527,34 @@ router.post('/', async (req, res, next) => {
     if (!sku || !title) {
       return res.status(400).json({ error: 'SKU ve başlık zorunludur' });
     }
+    // Added by hand: "price" is the NET amount to keep per sale (see pricingEngine.netExplain), so it must be a real amount
+    if (price !== undefined && !(Number.isFinite(Number(price)) && Number(price) >= 0)) return res.status(400).json({ error: 'Fiyat 0 veya daha büyük bir sayı olmalı' });
+    let imageList = [];
+    if (images !== undefined && images !== null) {
+      imageList = (Array.isArray(images) ? images : []).map((u) => String(u || '').trim()).filter(Boolean);
+      if (imageList.length > 12) return res.status(400).json({ error: 'En fazla 12 görsel eklenebilir' });
+      const badUrl = imageList.find((u) => !/^https?:\/\/\S+$/i.test(u));
+      if (badUrl) return res.status(400).json({ error: `Görsel adresi http:// ya da https:// ile başlamalı: ${badUrl.slice(0, 60)}` });
+    }
+    const dupSku = await prisma.product.findFirst({ where: { storeId: store.id, sku: String(sku).trim() }, select: { id: true } });
+    if (dupSku) return res.status(409).json({ error: 'Bu SKU ile kayıtlı bir ürün zaten var' });
 
     await checkProductLimit(req.user.id, store.id, 1);
 
     const product = await prisma.product.create({
       data: {
         storeId: store.id,
-        sku,
-        barcode,
+        sku: String(sku).trim(),
+        barcode: barcode ? String(barcode).trim() : barcode,
         title,
         description,
-        price: price || 0,
+        price: Number(price) || 0,
         cost: cost || 0,
         listPrice: listPrice || 0,
         stock: stock || 0,
         brand,
         category,
-        images: images ? JSON.stringify(images) : null,
+        images: imageList.length ? JSON.stringify(imageList) : null,
         attributes: attributes ? JSON.stringify(attributes) : null,
         weight,
         desi,
