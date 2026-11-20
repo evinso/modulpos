@@ -5,6 +5,7 @@ import api from '../../services/api';
 import toast from 'react-hot-toast';
 import CategoryPicker from '../marketplaces/productcat/CategoryPicker';
 import { fileToUploadData, ACCEPT } from './imageTools';
+import { storeBrandOf } from './storeBrand';
 
 const EMPTY = { sku: '', barcode: '', title: '', price: '', stock: '', brand: '', category: '', description: '', status: 'active', vatRate: '20', images: '' };
 
@@ -24,11 +25,13 @@ export default function ProductFormModal({ product, connection = null, onClose, 
   // Added by hand (no XML source, no feed price): its "price" is the NET amount the owner wants to keep per sale; the marketplace price is
   // worked out backwards from it by the price template of the scope "Elle eklenen ürünler" (see pricingEngine.js netExplain).
   const hand = editing ? (!product.xmlSourceId && !(Number(product.xmlPrice) > 0)) : true;
+  // The brand of the Trendyol store settings is filled in for a NEW product ("Kendi markam": fixed, it is used for every product anyway; "XML markası": the fallback, editable)
+  const storeBrand = hand ? storeBrandOf(connection) : null;
   const [form, setForm] = useState(editing ? {
     sku: product.sku, barcode: product.barcode || '', title: product.title, price: product.price, stock: product.stock,
     brand: product.brand || '', category: product.category || '', description: product.description || '',
     status: product.status || 'active', vatRate: String(product.vatRate ?? 20), images: imageLines(product.images),
-  } : EMPTY);
+  } : { ...EMPTY, brand: storeBrand ? storeBrand.name : '' });
   const [hasTemplate, setHasTemplate] = useState(true);     // is there an active template that prices hand-added products?
   const [saving, setSaving] = useState(false);
   const [descTouched, setDescTouched] = useState(false);
@@ -158,8 +161,19 @@ export default function ProductFormModal({ product, connection = null, onClose, 
             </div>
             <div className="grid grid-2">
               <div className="form-group"><label className="form-label">Marka{hand ? ' *' : ''}</label>
-                <input className="form-input" value={form.brand} onChange={(e) => set({ brand: e.target.value })} required={hand} />
-                {hand && <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Trendyol’daki marka adıyla yazın</small>}</div>
+                <input className="form-input" data-testid="brand" value={form.brand} onChange={(e) => set({ brand: e.target.value })} required={hand}
+                  readOnly={!!storeBrand && storeBrand.strategy === 'override' && !editing} />
+                {hand && !storeBrand && <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Trendyol’daki marka adıyla yazın</small>}
+                {storeBrand && storeBrand.strategy === 'override' && (
+                  <small data-testid="brand-note" style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                    Trendyol mağaza ayarınızda <strong>“Kendi markam”</strong> seçili ({storeBrand.name}): ürün her zaman bu markayla gönderilir{!editing ? ', bu yüzden otomatik seçildi' : ''}. Değiştirmek için <Link to="/marketplace" onClick={onClose}>Pazaryeri ayarları</Link>.
+                  </small>
+                )}
+                {storeBrand && storeBrand.strategy === 'xml' && (
+                  <small data-testid="brand-note" style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                    Trendyol mağaza ayarındaki yedek marka ({storeBrand.name}){!editing ? ' otomatik yazıldı; farklı bir marka için değiştirebilirsiniz' : ' kullanılır, bu ürünün markası Trendyol’da bulunamazsa'}. <Link to="/marketplace" onClick={onClose}>Pazaryeri ayarları</Link>
+                  </small>
+                )}</div>
               <div className="form-group"><label className="form-label">Kategori{hand ? ' (kendi notunuz)' : ''}</label>
                 <input className="form-input" value={form.category} onChange={(e) => set({ category: e.target.value })} />
                 {hand && !trendyol && <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Trendyol kategorisini “Kategori eşleştirme › Ürün bazlı kategori” sekmesinden seçersiniz</small>}</div>
