@@ -206,7 +206,7 @@ const put = async (g, v) => {
 await click(btn('Yeni ürün'));
 ok('the new-product form says the price is the net amount to keep', !!q('hand-note') && field('Elime kalacak net tutar') && q('hand-note').textContent.includes('satıştan sonra size kalması gereken net tutardır'));
 ok('a template exists for hand-added products (the shop has an unscoped one): no warning', !q('no-template-note'));
-ok('the marketplace needs these: barcode, brand and picture addresses are required fields', field('Barkod').querySelector('input').required && field('Marka').querySelector('input').required && !!q('image-urls') && !!field('Görsel adresleri'));
+ok('the marketplace needs these: barcode, brand and picture addresses are required fields', field('Barkod').querySelector('input').required && field('Marka').querySelector('input').required && q('description').required && !!q('image-urls') && !!field('Görsel adresleri'));
 await click(btn('İptal'));
 
 handCfg.scoped = true;      // now every template is limited to one XML source: nothing would price a hand-added product
@@ -214,7 +214,7 @@ await click(btn('Yeni ürün'));
 await wait(100);
 ok('without a template for hand-added products the form says what to create and where', !!q('no-template-note') && q('no-template-note').textContent.includes('Elle eklenen ürünler') && !!q('no-template-note').querySelector('a[href="/pricing"]'));
 await put(field('SKU'), 'EL-1'); await put(field('Barkod'), '8691234567890'); await put(field('Ürün adı'), 'El yapımı kupa');
-await put(field('Elime kalacak net tutar'), '100'); await put(field('Marka'), 'Atölye'); await put(field('Stok'), '5');
+await put(field('Elime kalacak net tutar'), '100'); await put(field('Marka'), 'Atölye'); await put(field('Stok'), '5'); await put(field('Açıklama'), 'Elde boyanmış seramik kupa');
 await click(btn('Kaydet'));
 ok('no picture address: not saved, and it says why', !calls.some((c) => c.m === 'POST' && c.url === '/products' && c.body && c.body.sku === 'EL-1'));
 await put(field('Görsel adresleri'), 'https://example.com/a.jpg\n\nhttps://example.com/b.jpg\n');

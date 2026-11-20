@@ -133,8 +133,9 @@ export default function ProductFormModal({ product, onClose, onSaved }) {
                 <textarea className="form-textarea" rows={4} data-testid="image-urls" placeholder={'https://.../urun-1.jpg\nhttps://.../urun-2.jpg'} value={form.images} onChange={(e) => set({ images: e.target.value })} />
                 <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Resmin internetteki doğrudan adresi (http:// ya da https:// ile başlayan); en fazla 12.</small></div>
             )}
-            <div className="form-group"><label className="form-label">Açıklama</label>
-              <textarea className="form-textarea" rows={5} value={form.description} onChange={(e) => { setDescTouched(true); set({ description: e.target.value }); }} /></div>
+            <div className="form-group"><label className="form-label">Açıklama{hand ? ' *' : ''}</label>
+              <textarea className="form-textarea" rows={5} data-testid="description" required={hand} value={form.description} onChange={(e) => { setDescTouched(true); set({ description: e.target.value }); }} />
+              {hand && <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Trendyol açıklamasız ürün kabul etmez</small>}</div>
           </div>
           <div className="modal-footer">
             <button type="button" className="btn btn-secondary" onClick={onClose}>İptal</button>
