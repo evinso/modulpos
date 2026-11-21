@@ -3,6 +3,7 @@ const V = require('../lib/validate');
 const { HttpError, bad } = require('../lib/http');
 const { toCsv } = require('../lib/csv');
 const { fold } = require('../lib/text');
+const { parseKeywordFile } = require('../lib/keywordFile');
 const settings = require('./settings');
 const limits = require('./limits');
 const providers = require('./providers');
@@ -49,7 +50,7 @@ async function add(projectId, list, { origin = 'manual', country = 'US', languag
   return { added, existing: clean.length - added, invalid };
 }
 
-const metricShape = (r) => (r.m_id ? { fetchedAt: r.fetched_at, found: r.found, searchVolume: r.search_volume, cpc: r.cpc === null ? null : Number(r.cpc), paidCompetition: r.paid_competition === null ? null : Number(r.paid_competition),
+const metricShape = (r) => (r.m_id ? { provider: r.m_provider, fetchedAt: r.fetched_at, found: r.found, searchVolume: r.search_volume, cpc: r.cpc === null ? null : Number(r.cpc), paidCompetition: r.paid_competition === null ? null : Number(r.paid_competition),
   competitionLevel: r.competition_level, keywordDifficulty: r.keyword_difficulty, intent: r.intent, monthlySearches: r.monthly_searches, trendPct: r.trend_pct === null ? null : Number(r.trend_pct) } : null);
 
 function shape(r, cacheDays, now) {
@@ -84,7 +85,7 @@ async function list(projectId, q = {}, { now = new Date() } = {}) {
     LEFT JOIN LATERAL (SELECT * FROM keyword_metrics x WHERE x.keyword_id = k.id ORDER BY x.fetched_at DESC LIMIT 1) m ON true
     LEFT JOIN LATERAL (SELECT id, competition, fetched_at FROM serp_analyses y WHERE y.keyword_id = k.id ORDER BY y.fetched_at DESC LIMIT 1) s ON true WHERE ${w.join(' AND ')}`;
   const total = (await db.query(`SELECT count(*)::int n ${from}`, p)).rows[0].n;
-  const rows = (await db.query(`SELECT k.*, c.name_en AS category_name, m.id AS m_id, m.fetched_at, m.found, m.search_volume, m.cpc, m.paid_competition, m.competition_level, m.keyword_difficulty, m.intent, m.monthly_searches, m.trend_pct,
+  const rows = (await db.query(`SELECT k.*, c.name_en AS category_name, m.id AS m_id, m.provider AS m_provider, m.fetched_at, m.found, m.search_volume, m.cpc, m.paid_competition, m.competition_level, m.keyword_difficulty, m.intent, m.monthly_searches, m.trend_pct,
     s.id AS serp_id, s.competition AS serp_competition, s.fetched_at AS serp_at ${from} ORDER BY ${sort} ${dir} NULLS LAST, k.id LIMIT $${p.length + 1} OFFSET $${p.length + 2}`, [...p, size, (page - 1) * size])).rows;
   return { total, page, pageSize: size, cacheDays, items: rows.map((r) => shape(r, cacheDays, now)) };
 }
@@ -127,11 +128,49 @@ async function plan(projectId, { ids, now = new Date() } = {}) {
     limit: { limit: st.limit, done: st.done, remaining: st.remaining }, configured: p.configured && !!p.extra.login, cacheDays: cfg.cacheDays };
 }
 
-async function saveMetrics(keywordId, rec, { endpoint, cost }) {
+async function saveMetrics(keywordId, rec, { endpoint, cost, provider = 'dataforseo' }) {
   const trend = rec.found ? dfs.trendPct(rec.monthly) : null;
-  await db.query(`INSERT INTO keyword_metrics (keyword_id, endpoint, found, search_volume, cpc, paid_competition, competition_level, keyword_difficulty, intent, monthly_searches, trend_pct, avg_referring_domains, cost_micros)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-  [keywordId, endpoint, rec.found, rec.searchVolume, rec.cpc, rec.paidCompetition, rec.competitionLevel, rec.keywordDifficulty, rec.intent, JSON.stringify(rec.monthly), trend, rec.avgReferringDomains, cost === null || cost === undefined ? null : Math.round(cost * 1e6)]);
+  await db.query(`INSERT INTO keyword_metrics (keyword_id, endpoint, found, search_volume, cpc, paid_competition, competition_level, keyword_difficulty, intent, monthly_searches, trend_pct, avg_referring_domains, cost_micros, provider)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+  [keywordId, endpoint, rec.found, rec.searchVolume, rec.cpc, rec.paidCompetition, rec.competitionLevel, rec.keywordDifficulty, rec.intent, JSON.stringify(rec.monthly), trend, rec.avgReferringDomains, cost === null || cost === undefined ? null : Math.round(cost * 1e6), provider]);
+}
+
+/**
+ * Search volumes from a FILE the owner exported elsewhere (Google Ads Keyword Planner, Keywords Everywhere, a spreadsheet ...): the free way to real demand data.
+ *  - only EXACT volumes are imported (ranges like "1K - 10K" and rounded "10K" are skipped and counted, see lib/keywordFile.js); nothing is estimated
+ *  - the keywords are added when the project does not have them yet; the rows are stored as the newest metrics (provider "csv"), so they replace older data of the same keyword
+ *  - no paid call, so no provider budget and no daily `seo_keywords` limit is touched; the whole import is a fixed number of statements however long the file is
+ * @returns { rows, imported, added, updated, skipped, examples, columns, trendRows }
+ */
+async function importMetrics(projectId, text, { country = 'US', language = 'en', userId = null, now = new Date() } = {}) {
+  const cc = V.str(country, 'Ülke', { max: 2 }).toUpperCase();
+  if (!dfs.LOCATIONS[cc]) throw bad(`Desteklenen ülkeler: ${Object.keys(dfs.LOCATIONS).join(', ')}`);
+  if (typeof text !== 'string' || !text.trim()) throw bad('Dosya boş');
+  if (text.length > 2_000_000) throw bad('Dosya çok büyük (en fazla yaklaşık 2 MB)');
+  let parsed;
+  try { parsed = parseKeywordFile(text, { maxRows: 2000 }); } catch (err) { if (err.code) throw bad(err.message); throw err; }
+  const byKw = new Map();                                                         // the same phrase twice in a file: the later row wins
+  let invalid = 0;
+  for (const r of parsed.rows) { const k = normalize(r.keyword); if (!k) { invalid++; continue; } byKw.set(k, r); }
+  const phrases = [...byKw.keys()];
+  const out = { rows: parsed.rows.length + parsed.skipped.range + parsed.skipped.rounded + parsed.skipped.empty + parsed.skipped.bad, imported: 0, added: 0, updated: 0, trendRows: 0,
+    skipped: { ...parsed.skipped, invalid }, examples: parsed.examples, columns: parsed.columns, delimiter: parsed.delimiter };
+  if (!phrases.length) return { ...out, message: 'İçe aktarılacak, kesin hacmi olan satır bulunamadı' };
+  const run = await runs.start(BOT, { projectId, trigger: 'manual', userId });
+  try {
+    const before = new Set((await db.query('SELECT keyword FROM keywords WHERE project_id = $1 AND country = $2 AND language = $3 AND keyword = ANY($4)', [projectId, cc, language, phrases])).rows.map((r) => r.keyword));
+    await db.query(`INSERT INTO keywords (project_id, keyword, country, language, origin) SELECT $1, k, $2, $3, 'manual' FROM unnest($4::text[]) AS k ON CONFLICT (project_id, keyword, country, language) DO NOTHING`, [projectId, cc, language, phrases]);
+    const ids = new Map((await db.query('SELECT id, keyword FROM keywords WHERE project_id = $1 AND country = $2 AND language = $3 AND keyword = ANY($4)', [projectId, cc, language, phrases])).rows.map((r) => [r.keyword, r.id]));
+    const rows = phrases.map((k) => { const r = byKw.get(k); const trend = dfs.trendPct(r.monthly); if (trend !== null) out.trendRows++;
+      return { keyword_id: ids.get(k), found: true, search_volume: r.volume, cpc: r.cpc, paid_competition: r.competition, competition_level: r.competitionLevel, keyword_difficulty: r.difficulty, monthly: r.monthly, trend_pct: trend }; });
+    await db.query(`INSERT INTO keyword_metrics (keyword_id, provider, endpoint, found, search_volume, cpc, paid_competition, competition_level, keyword_difficulty, monthly_searches, trend_pct, fetched_at)
+      SELECT x.keyword_id, 'csv', 'csv-import', x.found, x.search_volume, x.cpc, x.paid_competition, x.competition_level, x.keyword_difficulty, x.monthly, x.trend_pct, $2
+      FROM jsonb_to_recordset($1::jsonb) AS x(keyword_id uuid, found boolean, search_volume int, cpc numeric, paid_competition numeric, competition_level text, keyword_difficulty int, monthly jsonb, trend_pct numeric)`, [JSON.stringify(rows), now]);
+    out.imported = phrases.length; out.updated = [...before].length; out.added = phrases.length - out.updated;
+    await runs.finish(run.id, { status: 'ok', stats: { source: 'csv', imported: out.imported, added: out.added, updated: out.updated, skipped: out.skipped } });
+  } catch (err) { await runs.finish(run.id, { status: 'error', stats: { source: 'csv' }, error: err.message }); throw err; }
+  const sk = out.skipped; const skippedTotal = sk.range + sk.rounded + sk.empty + sk.bad + sk.noKeyword + sk.invalid;
+  return { ...out, message: `${out.imported} anahtar kelimenin hacmi içe aktarıldı (${out.added} yeni kelime, ${out.updated} mevcut kelime güncellendi)${skippedTotal ? `; ${skippedTotal} satır atlandı` : ''}` };
 }
 
 /**
@@ -297,4 +336,4 @@ async function generateForTopic(topicId) {
   return { ...r, candidates: cands };
 }
 
-module.exports = { BOT, normalize, add, list, exportCsv, remove, plan, fetchMetrics, suggest, candidatesFor, generateForTopic, MAX_PER_CALL };
+module.exports = { BOT, normalize, add, list, exportCsv, remove, plan, fetchMetrics, importMetrics, suggest, candidatesFor, generateForTopic, MAX_PER_CALL };

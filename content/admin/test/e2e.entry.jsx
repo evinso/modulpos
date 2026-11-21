@@ -199,6 +199,14 @@ await click(nav('API Kullanımı ve Maliyetler'), 500);
 const dfsCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'DataForSEO');
 await setVal(input('API şifresi', dfsCard), 'dfs-pass-123'); await setVal(input('API oturum e-postası', dfsCard), 'me@example.com'); await click(btn('Kaydet', dfsCard), 700);
 ok('DataForSEO is saved (key encrypted, only the end shown)', txt().includes('Kayıtlı · …-123') && !document.body.innerHTML.includes('dfs-pass-123') || txt().includes('Kayıtlı'));
+// the free source is the default: nothing is connected yet, the page and the settings say so; then this scenario pays for DataForSEO (the free mode follows at the end)
+await click(nav('Anahtar Kelime Araştırması'), 500);
+ok('the default SERP source (Serper.dev) is not connected: the page says so and the SERP button is off', txt().includes('SERP kaynağı bağlı değil: Serper.dev') && txt().includes('Dosyadan hacim aktar') && !!btn('Kelime ekle'));
+await click(nav('Sistem Ayarları'), 500);
+const seoCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('SEO araştırması'));
+ok('SEO settings: Serper.dev is the default SERP source and the partial-score switch is on', input('SERP veri kaynağı', seoCard).value === 'serper' && txt().includes('Aranma hacmi yokken onayla kısmi puanla üretime izin ver') && $$('input[type=checkbox]', seoCard).filter((c) => c.checked).length >= 2);
+await setVal(input('SERP veri kaynağı', seoCard), 'dataforseo'); await click(btn('Kaydet', seoCard), 700);
+ok('choosing DataForSEO as the SERP source is saved', (await q1("SELECT value->>'serpProvider' AS p FROM automation_settings WHERE key = 'seo' AND scope = 'global'")).p === 'dataforseo');
 await click(nav('Anahtar Kelime Araştırması'), 600);
 await click(btn('Verisi olmayanların verisini çek'), 700);
 ok('before spending money it shows how many are asked, the cache and a rough price', txt().includes('Sorgulanacak') && txt().includes('Zaten güncel') && txt().includes('Tahmini maliyet') && txt().includes('Tahmindir; gerçek tutar'));
@@ -224,6 +232,45 @@ ok('opening an idea shows each part, its weight and why it is not eligible', txt
 await click(btn('Bugün ne yazılırdı?'), 700);
 ok('the dry run says nothing is reserved and that weak ideas never pad the quota', txt().includes('kuru denemedir') && txt().includes('Bugün yazılacak yeterince nitelikli fikir yok'));
 await click(btn('Kapat', $('.modal')) || aria('Kapat'), 300);
+
+// ── FREE MODE: Serper.dev for the SERP, a pasted volume file, a partial score that only the shortlist turns into production ─────────────────────
+await S.db.query('UPDATE niche_profiles SET min_opportunity_score = 10');
+await click(nav('Sistem Ayarları'), 500);
+const seoCard2 = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('SEO araştırması'));
+await setVal(input('SERP veri kaynağı', seoCard2), 'serper'); await click(btn('Kaydet', seoCard2), 700);
+await click(nav('API Kullanımı ve Maliyetler'), 500);
+const serperCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'Serper.dev');
+ok('the Serper.dev card explains the free start and the 1-credit test', !!serperCard && serperCard.textContent.includes('2.500 ücretsiz sorgu') && serperCard.textContent.includes('1 sorgu (1 kredi)'));
+await setVal(input('API anahtarı', serperCard), 'serper-key-0123456789abcdef'); await click(btn('Kaydet', serperCard), 700);
+await click(btn('Bağlantıyı test et', serperCard), 800);
+ok('the Serper key is saved (only the end shown) and the connection test works', txt().includes('Kayıtlı · …cdef') && txt().includes('Serper bağlantısı çalışıyor') && !document.body.innerHTML.includes('serper-key-0123456789abcdef') && globalThis.__serper.length === 1 && globalThis.__serper[0].key === 'serper-key-0123456789abcdef');
+
+await click(nav('Anahtar Kelime Araştırması'), 600);
+ok('with Serper connected the SERP banner is gone', !txt().includes('SERP kaynağı bağlı değil'));
+await click(btn('Dosyadan hacim aktar'), 400);
+ok('the import dialog explains where to get the file and that ranges are skipped', txt().includes('Anahtar Kelime Planlayıcı') && txt().includes('aralıklar ve “10K” gibi yuvarlak değerler atlanır'));
+await setVal($('.modal textarea'), 'Keyword,Volume\nchrome flags,5400\nbig range keyword,1K - 10K\nrounded keyword,10K\n,50'); await click(btn('İçe aktar', $('.modal')), 800);
+ok('the result names what was imported and every skipped kind with an example', txt().includes('1 anahtar kelimenin hacmi içe aktarıldı') && txt().includes('hacim aralık olarak geldi (ör. big range keyword)') && txt().includes('yuvarlak değer var (ör. rounded keyword)') && txt().includes('geçerli bir kelime yok'));
+ok('only the exact number is stored, as real data from the file', (await q1("SELECT search_volume, provider FROM keyword_metrics m JOIN keywords k ON k.id = m.keyword_id WHERE k.keyword = 'chrome flags'")).search_volume === 5400 && (await q1("SELECT count(*)::int n FROM keywords WHERE keyword IN ('big range keyword', 'rounded keyword')")).n === 0 && (await q1("SELECT count(*)::int n FROM api_usage WHERE provider = 'serper'")).n === 0, JSON.stringify([await q1("SELECT search_volume, provider FROM keyword_metrics m JOIN keywords k ON k.id = m.keyword_id WHERE k.keyword = 'chrome flags'"), await q1("SELECT count(*)::int n FROM api_usage WHERE provider = 'serper'")]));
+await click(btn('Kapat', $('.modal')), 300);
+ok('the keyword table shows the volume with its source (file)', txt().includes('chrome flags') && txt().includes('5.400') && txt().includes('dosyadan'));
+
+await click(nav('İçerik Fırsatları'), 600);
+await click(btn('Yenile ve puanla'), 1500);
+const serpBtn = $$('tbody button').find((b) => b.textContent.trim() === 'SERP');
+ok('an idea without any volume offers the SERP check on its most specific candidate phrase', !!serpBtn);
+await click(serpBtn, 1200);
+ok('the SERP check ran on Serper (1 call, the key sent) and the idea now carries a PARTIAL score, not a total', globalThis.__serper.length === 2 && globalThis.__serper[1].key === 'serper-key-0123456789abcdef' && (await q1("SELECT count(*)::int n FROM content_opportunities WHERE (explain->>'partial') = 'true' AND total_score IS NULL AND provisional_score IS NOT NULL")).n === 1 && txt().includes('kısmi puan · hacim yok'));
+await click($$('tbody tr').find((r) => r.textContent.includes('kısmi puan')), 400);
+ok('opening it explains the partial score and that the person must approve', txt().includes('KISMİ PUAN') && txt().includes('“Kısa liste”ye alın') && txt().includes('dört bileşenin ortalaması'));
+await click($$('tbody button').find((b) => b.textContent.trim() === 'Onayla (kısa liste)'), 800);
+ok('the shortlist call is the approval: the idea becomes eligible, still without a total', (await q1("SELECT count(*)::int n FROM content_opportunities WHERE eligible AND total_score IS NULL AND status = 'shortlisted'")).n === 1 && txt().includes('uygun (onaylı)'));
+await S.limits.setGlobalLimits({ new_article: 5 });                                  // the earlier limit scenario used today's single place up
+await click(btn('Bugün ne yazılırdı?'), 800);
+ok('the dry run lists it as a partial score chosen with the person\'s approval', $('.modal') && $('.modal').textContent.includes('kısmi') && $('.modal').textContent.includes('hacim verisi yok, sizin onayınızla'), $('.modal') && $('.modal').textContent.slice(0, 500));
+await click(btn('Kapat', $('.modal')) || aria('Kapat'), 300);
+await click(nav('SEO Rekabet Analizi'), 600);
+ok('the SERP page shows the source of each analysis and says the cost is a credit amount, not a made-up dollar figure', txt().includes('Serper.dev') && txt().includes('Serper kredisi (tutar bilinmiyor)'));
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);

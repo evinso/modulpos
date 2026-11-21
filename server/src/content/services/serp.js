@@ -7,13 +7,14 @@ const limits = require('./limits');
 const providers = require('./providers');
 const runs = require('./runs');
 const dfs = require('./dataforseo');
+const serper = require('./serper');
 
 /**
- * Organic competition analysis of a query from Google's real top results (DataForSEO SERP, up to 10 results).
+ * Organic competition analysis of a query from Google's real top results (up to 10 results, from Serper.dev or DataForSEO: `seo.serpProvider`).
  * The score (0-100, higher = harder for a NEW site) is OUR estimate built from visible facts of the result page. It is NOT Google's difficulty metric and
  * not DataForSEO's keyword difficulty (that one is shown separately, as the provider's own number). Every factor, its value and its weight are stored and shown.
  */
-const DISCLAIMER = 'Bu puan, DataForSEO’dan alınan Google ilk-10 sonuçlarına dayanan tahmini bir rekabet göstergesidir; Google’ın resmî zorluk metriği değildir.';
+const DISCLAIMER = 'Bu puan, Google ilk-10 sonuçlarına (Serper.dev ya da DataForSEO) dayanan tahmini bir rekabet göstergesidir; Google’ın resmî zorluk metriği değildir.';
 const BOT = 'seo_competition';
 
 const root = (d) => String(d || '').toLowerCase().replace(/^www\./, '');
@@ -76,11 +77,36 @@ function scoreSerp(organic, { keyword = '', avgReferringDomains = null, now = ne
   return { competition, label, factors, results: top, reducers, small: n < 5 };
 }
 
+/**
+ * Where the top-10 results come from. Each source: how to open it (its key, or a readable refusal), the price estimate for the budget guard and `search()`, which returns
+ * the same shape whatever the vendor ({ organic, questions, related, features, resultsCount, cost (USD or null), units }).
+ */
+const SOURCES = {
+  serper: {
+    label: 'Serper.dev', endpoint: serper.EP.search, estimateUsd: serper.ESTIMATE_USD,
+    async open(fetchImpl) {
+      const secret = await providers.secretFor('serper');
+      if (!secret) throw new HttpError(409, 'Serper henüz ayarlanmadı: API Kullanımı sayfasından Serper API anahtarını kaydedip bağlantıyı test edin (serper.dev’de ücretsiz hesap, 2.500 sorgu)');
+      const c = serper.createClient({ apiKey: secret, fetchImpl });
+      return (q) => c.serpOrganic({ keyword: q.keyword, country: q.country, language: q.language, now: q.now });
+    },
+  },
+  dataforseo: {
+    label: 'DataForSEO', endpoint: dfs.EP.serp, estimateUsd: dfs.ESTIMATE_USD.serp,
+    async open(fetchImpl) {
+      const secret = await providers.secretFor('dataforseo'); const p = await providers.get('dataforseo');
+      if (!secret || !p.extra.login) throw new HttpError(409, 'DataForSEO henüz ayarlanmadı: API Kullanımı sayfasından login ve API şifresini girip bağlantıyı test edin');
+      const c = dfs.createClient({ login: p.extra.login, password: secret, fetchImpl });
+      return async (q) => ({ ...(await c.serpOrganic({ keyword: q.keyword, country: q.country, language: q.language, device: q.device })), units: 1 });
+    },
+  },
+};
+
 async function latest(keywordId) {
   const r = (await db.query('SELECT * FROM serp_analyses WHERE keyword_id = $1 ORDER BY fetched_at DESC LIMIT 1', [keywordId])).rows[0];
   return r ? shape(r) : null;
 }
-const shape = (r) => ({ id: r.id, keywordId: r.keyword_id, device: r.device, competition: r.competition, factors: r.factors.factors || [], reducers: r.factors.reducers || [], label: r.factors.label, results: r.results, questions: r.questions,
+const shape = (r) => ({ id: r.id, keywordId: r.keyword_id, provider: r.provider, providerLabel: (SOURCES[r.provider] || { label: r.provider }).label, device: r.device, competition: r.competition, factors: r.factors.factors || [], reducers: r.factors.reducers || [], label: r.factors.label, results: r.results, questions: r.questions,
   related: r.related, features: r.features, resultsCount: r.results_count === null ? null : Number(r.results_count), costUsd: r.cost_micros === null ? null : Number(r.cost_micros) / 1e6, fetchedAt: r.fetched_at, disclaimer: DISCLAIMER });
 
 /**
@@ -93,29 +119,29 @@ async function analyze(keywordId, { force = false, userId = null, manual = true,
   const cfg = (await settings.get('seo', kw.project_id)).value;
   const prev = await latest(kw.id);
   if (prev && !force && (now - new Date(prev.fetchedAt)) / 86400000 <= cfg.cacheDays) return { analysis: prev, cached: true };
-  const secret = await providers.secretFor('dataforseo'); const p = await providers.get('dataforseo');
-  if (!secret || !p.extra.login) throw new HttpError(409, 'DataForSEO henüz ayarlanmadı: API Kullanımı sayfasından login ve API şifresini girip bağlantıyı test edin');
-  const guard = await providers.guard('dataforseo', dfs.ESTIMATE_USD.serp, { projectId: kw.project_id, now, operation: 'serp_organic' });
+  const key = cfg.serpProvider; const src = SOURCES[key];
+  const search = await src.open(fetchImpl);                                   // refuses with a readable message when the source has no key
+  const guard = await providers.guard(key, src.estimateUsd, { projectId: kw.project_id, now, operation: 'serp_organic' });
   if (!guard.ok) return { analysis: prev, cached: false, stopped: guard.message };
   const grant = await limits.reserve({ workType: 'serp_queries', projectId: kw.project_id, amount: 1, manual, now });
   if (!grant.ok) return { analysis: prev, cached: false, stopped: grant.message };
   const run = await runs.start(BOT, { projectId: kw.project_id, trigger, userId });
   let res;
-  try { res = await dfs.createClient({ login: p.extra.login, password: secret, fetchImpl }).serpOrganic({ keyword: kw.keyword, country: kw.country, language: kw.language, device: cfg.serpDevice }); }
+  try { res = await search({ keyword: kw.keyword, country: kw.country, language: kw.language, device: cfg.serpDevice, now }); }
   catch (err) {
-    await providers.recordUsage({ provider: 'dataforseo', endpoint: dfs.EP.serp, operation: 'serp_organic', requests: 1, units: 1, costUsd: null, result: 'error', projectId: kw.project_id, meta: { code: err.code } });
+    await providers.recordUsage({ provider: key, endpoint: src.endpoint, operation: 'serp_organic', requests: 1, units: 1, costUsd: null, result: 'error', projectId: kw.project_id, meta: { code: err.code } });
     if (!err.maybeBilled) await limits.release({ workType: 'serp_queries', projectId: kw.project_id, amount: 1, day: grant.day });
-    await runs.finish(run.id, { status: 'error', stats: { keyword: kw.keyword }, error: err.message });
+    await runs.finish(run.id, { status: 'error', stats: { keyword: kw.keyword, provider: key }, error: err.message });
     throw new HttpError(err.code === 'auth' ? 401 : 502, err.message, { code: err.code });
   }
   const metrics = (await db.query('SELECT avg_referring_domains FROM keyword_metrics WHERE keyword_id = $1 AND found ORDER BY fetched_at DESC LIMIT 1', [kw.id])).rows[0];
   const score = scoreSerp(res.organic, { keyword: kw.keyword, avgReferringDomains: metrics ? metrics.avg_referring_domains : null, now });
-  const row = (await db.query(`INSERT INTO serp_analyses (project_id, keyword_id, device, competition, factors, results, questions, related, features, results_count, cost_micros)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-  [kw.project_id, kw.id, cfg.serpDevice, score.competition, JSON.stringify({ factors: score.factors, reducers: score.reducers, label: score.label }), JSON.stringify(score.results), JSON.stringify([...new Set(res.questions)].slice(0, 12)),
-    JSON.stringify([...new Set(res.related)].slice(0, 12)), JSON.stringify(res.features), res.resultsCount, res.cost === null || res.cost === undefined ? null : Math.round(res.cost * 1e6)])).rows[0];
-  await providers.recordUsage({ provider: 'dataforseo', endpoint: dfs.EP.serp, operation: 'serp_organic', requests: 1, units: 1, costUsd: res.cost, projectId: kw.project_id, meta: { keyword: kw.keyword } });
-  await runs.finish(run.id, { status: 'ok', stats: { keyword: kw.keyword, competition: score.competition, costUsd: res.cost } });
+  const row = (await db.query(`INSERT INTO serp_analyses (project_id, keyword_id, device, competition, factors, results, questions, related, features, results_count, cost_micros, provider)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+  [kw.project_id, kw.id, key === 'dataforseo' ? cfg.serpDevice : 'desktop', score.competition, JSON.stringify({ factors: score.factors, reducers: score.reducers, label: score.label }), JSON.stringify(score.results), JSON.stringify([...new Set(res.questions)].slice(0, 12)),
+    JSON.stringify([...new Set(res.related)].slice(0, 12)), JSON.stringify(res.features), res.resultsCount, res.cost === null || res.cost === undefined ? null : Math.round(res.cost * 1e6), key])).rows[0];
+  await providers.recordUsage({ provider: key, endpoint: src.endpoint, operation: 'serp_organic', requests: 1, units: res.units || 1, costUsd: res.cost, projectId: kw.project_id, meta: { keyword: kw.keyword } });
+  await runs.finish(run.id, { status: 'ok', stats: { keyword: kw.keyword, competition: score.competition, costUsd: res.cost, provider: key } });
   return { analysis: shape(row), cached: false };
 }
 
@@ -124,4 +150,4 @@ async function list(projectId, { limit = 50 } = {}) {
   return rows.sort((a, b) => new Date(b.fetched_at) - new Date(a.fetched_at)).slice(0, Math.min(200, limit)).map((r) => ({ ...shape(r), keyword: r.keyword, country: r.country }));
 }
 
-module.exports = { DISCLAIMER, scoreSerp, kindOf, analyze, latest, list };
+module.exports = { DISCLAIMER, SOURCES, scoreSerp, kindOf, analyze, latest, list };

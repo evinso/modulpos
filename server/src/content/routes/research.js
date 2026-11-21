@@ -9,10 +9,11 @@ const opportunities = require('../services/opportunities');
 const niche = require('../services/nicheDiscovery');
 const runs = require('../services/runs');
 const providers = require('../services/providers');
+const settings = require('../services/settings');
 
 /**
  * Phase 2 endpoints: news sources and discovery, events, trends, niche suggestions, keywords, SERP, opportunities.
- * Reading is open to every signed-in role. Free work (reading news, scoring) needs "research.write" (admin, editor); sources and every PAID call to DataForSEO need admin.
+ * Reading is open to every signed-in role. Free work (reading news, scoring, importing a volume file) needs "research.write" (admin, editor); sources and every call that can cost money (DataForSEO, Serper) need admin.
  */
 module.exports = function research(r, { wrap, mw, A, uid }) {
   const pid = async (req) => { const id = V.uuid(req.method === 'GET' || req.method === 'DELETE' ? req.query.projectId : req.body.projectId, 'Proje'); await projects.getProject(id); return id; };
@@ -59,6 +60,12 @@ module.exports = function research(r, { wrap, mw, A, uid }) {
     await A(req, 'keywords.add', 'project', id, null, out); res.status(201).json(out);
   }));
   r.delete('/keywords', W, wrap(async (req, res) => { const id = await pid(req); const n = await keywords.remove(id, String(req.query.ids || '').split(',').filter(Boolean)); await A(req, 'keywords.delete', 'project', id, null, { deleted: n }); res.json({ deleted: n }); }));
+  // search volumes from a file exported elsewhere (Keyword Planner, Keywords Everywhere, a spreadsheet): free, only exact numbers
+  r.post('/keywords/import', W, wrap(async (req, res) => {
+    const id = await pid(req);
+    const out = await keywords.importMetrics(id, req.body.text, { country: req.body.country || 'US', userId: uid(req) });
+    await A(req, 'keywords.import', 'project', id, null, { imported: out.imported, added: out.added, updated: out.updated, skipped: out.skipped, fileName: String(req.body.fileName || '').slice(0, 120) }); res.json(out);
+  }));
   r.post('/keywords/plan', W, wrap(async (req, res) => res.json(await keywords.plan(await pid(req), { ids: Array.isArray(req.body.ids) ? req.body.ids : undefined }))));
   r.post('/keywords/fetch', PAID, wrap(async (req, res) => {
     const id = await pid(req);
@@ -95,7 +102,15 @@ module.exports = function research(r, { wrap, mw, A, uid }) {
     res.json({ ...out, opportunity: await opportunities.rescore(o.id), disclaimer: serp.DISCLAIMER });
   }));
 
-  // the data source status the research pages show as a banner
-  r.get('/research/status', wrap(async (req, res) => { const p = await providers.get('dataforseo'); res.json({ dataforseo: { configured: p.configured && !!p.extra.login, lastTestOk: p.lastTestOk, lastTestMessage: p.lastTestMessage, dailyBudgetUsd: p.dailyBudgetUsd, monthlyBudgetUsd: p.monthlyBudgetUsd } }); }));
+  // the data source status the research pages show as a banner: which SERP source the project uses and whether each source is ready
+  r.get('/research/status', wrap(async (req, res) => {
+    const projectId = req.query.projectId ? V.uuid(req.query.projectId, 'Proje') : null;
+    const seo = (await settings.get('seo', projectId)).value;
+    const [dfsP, serperP] = [await providers.get('dataforseo'), await providers.get('serper')];
+    const ready = { dataforseo: dfsP.configured && !!dfsP.extra.login, serper: serperP.configured };
+    res.json({ serpProvider: seo.serpProvider, serpProviderLabel: serp.SOURCES[seo.serpProvider].label, serpReady: ready[seo.serpProvider], partialWithApproval: seo.partialWithApproval,
+      dataforseo: { configured: ready.dataforseo, lastTestOk: dfsP.lastTestOk, lastTestMessage: dfsP.lastTestMessage, dailyBudgetUsd: dfsP.dailyBudgetUsd, monthlyBudgetUsd: dfsP.monthlyBudgetUsd },
+      serper: { configured: ready.serper, lastTestOk: serperP.lastTestOk, lastTestMessage: serperP.lastTestMessage } });
+  }));
   void bad;
 };

@@ -1,11 +1,20 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Download, Plus, Sparkles, Trash2, CloudDownload } from 'lucide-react';
+import { Download, FileUp, Plus, Sparkles, Trash2, CloudDownload } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { Alert, Async, Badge, Card, Empty, Field, Modal, NeedsProject, PageHead, Pager, ScoreBar, useAction, useApp, useLoad } from '../ui.jsx';
 import { dt, num, usd } from '../format.js';
 
 const STATE = { none: ['Henüz sorgulanmadı', ''], found: ['Veri var', 'ok'], not_found: ['Veri bulunamadı', 'warn'] };
+const SOURCE = { csv: 'dosyadan', dataforseo: 'DataForSEO' };
+
+/** a file the browser read as bytes -> text: UTF-16 (Keyword Planner's own export) by its byte-order mark, else UTF-8, else Windows-1254 (Turkish Excel) */
+function decodeFile(buf) {
+  const b = new Uint8Array(buf);
+  if (b[0] === 0xff && b[1] === 0xfe) return new TextDecoder('utf-16le').decode(b);
+  if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be').decode(b);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(b); } catch { return new TextDecoder('windows-1254').decode(b); }
+}
 const COUNTRIES = [['US', 'ABD'], ['GB', 'Birleşik Krallık'], ['CA', 'Kanada'], ['AU', 'Avustralya']];
 
 function AddModal({ projectId, categories, onClose, onDone }) {
@@ -19,6 +28,35 @@ function AddModal({ projectId, categories, onClose, onDone }) {
         <div className="grid g2"><Field label="Ülke"><select className="input" value={f.country} onChange={(e) => setF({ ...f, country: e.target.value })}>{COUNTRIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
           <Field label="Kategori (isteğe bağlı)"><select className="input" value={f.categoryId} onChange={(e) => setF({ ...f, categoryId: e.target.value })}><option value="">—</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.nameEn}</option>)}</select></Field></div>
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Vazgeç</button><button className="btn primary" disabled={busy}>Ekle</button></div>
+      </form>
+    </Modal>
+  );
+}
+
+function ImportModal({ projectId, onClose, onDone }) {
+  const [f, setF] = useState({ text: '', country: 'US', fileName: '' });
+  const [run, busy] = useAction(); const [res, setRes] = useState(null); const [readErr, setReadErr] = useState('');
+  const pick = async (e) => {
+    const file = e.target.files && e.target.files[0]; if (!file) return;
+    if (file.size > 1_800_000) { setReadErr('Dosya çok büyük (en fazla yaklaşık 1,8 MB); bölün.'); return; }
+    try { const text = decodeFile(await file.arrayBuffer()); setReadErr(''); setF((x) => ({ ...x, text, fileName: file.name })); } catch { setReadErr('Dosya okunamadı.'); }
+  };
+  const go = async (e) => { e.preventDefault(); const r = await run(() => api.post('/keywords/import', { projectId, text: f.text, country: f.country, fileName: f.fileName })); if (r) { setRes(r); onDone(); } };
+  const sk = res ? res.skipped : null; const ex = (k) => (res && res.examples[k] && res.examples[k].length ? ` (ör. ${res.examples[k].slice(0, 3).join(', ')})` : '');
+  return (
+    <Modal wide title="Dosyadan arama hacmi içe aktar (ücretsiz)" onClose={onClose}>
+      <form className="stack" onSubmit={go}>
+        <Alert kind="info" title="Nasıl hacim verisi alınır?">Google Ads hesabınızda <strong>Planlama → Anahtar Kelime Planlayıcı → “Arama hacmi ve tahminleri al”</strong>’a kelimelerinizi yapıştırın, sonuçları <strong>CSV</strong> olarak indirip buraya yükleyin (Keywords Everywhere, Ubersuggest ya da bir Excel tablosu da olur: başlık satırında “Keyword” ve “Avg. monthly searches”/“Volume” sütunları yeterli).
+          Yalnızca <strong>kesin sayılar</strong> alınır. Reklam harcaması olmayan Google Ads hesaplarında hacim “1K – 10K” gibi aralık gelir; aralıklar ve “10K” gibi yuvarlak değerler <strong>atlanır</strong> (uydurulmaz).</Alert>
+        <Field label="Dosya (CSV / TSV / TXT)" hint="UTF-8, UTF-16 ve Excel (Windows-1254) kodlamaları okunur. En fazla 2000 satır."><input className="input" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" aria-label="Dosya seç" onChange={pick} /></Field>
+        {readErr && <Alert kind="bad">{readErr}</Alert>}
+        <Field label="ya da buraya yapıştırın" hint="Örn: ilk satır “keyword,volume”, sonra her satıra bir kelime ve sayı."><textarea className="input" rows={6} value={f.text} onChange={(e) => setF({ ...f, text: e.target.value, fileName: '' })} required /></Field>
+        <div className="grid g2"><Field label="Ülke (hacmin ait olduğu pazar)"><select className="input" value={f.country} onChange={(e) => setF({ ...f, country: e.target.value })}>{COUNTRIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field></div>
+        {res && <Alert kind={res.imported ? 'ok' : 'warn'} title={res.imported ? 'İçe aktarıldı' : 'Aktarılacak satır yok'}>{res.message}
+          {sk && (sk.range + sk.rounded + sk.empty + sk.bad + sk.noKeyword + sk.invalid) > 0 && <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+            {sk.range > 0 && <li>{sk.range} satırda hacim aralık olarak geldi{ex('range')}: kesin sayı olmadığı için atlandı.</li>}{sk.rounded > 0 && <li>{sk.rounded} satırda yuvarlak değer var{ex('rounded')}: atlandı.</li>}
+            {sk.empty > 0 && <li>{sk.empty} satırda hacim boş: atlandı.</li>}{sk.bad > 0 && <li>{sk.bad} satırda hacim okunamadı{ex('bad')}: atlandı.</li>}{(sk.noKeyword + sk.invalid) > 0 && <li>{sk.noKeyword + sk.invalid} satırda geçerli bir kelime yok: atlandı.</li>}</ul>}</Alert>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Kapat</button><button className="btn primary" disabled={busy || !f.text.trim()}>İçe aktar</button></div>
       </form>
     </Modal>
   );
@@ -84,17 +122,19 @@ export default function Keywords() {
   const del = async () => { if (await confirm({ title: 'Seçili anahtar kelimeler silinsin mi?', body: `${ids.length} anahtar kelime ve verileri silinir.`, confirmText: 'Sil', danger: true }) && await run(() => api.del(`/keywords${qs({ projectId, ids: ids.join(',') })}`), 'Silindi')) { setSel(new Set()); st.reload(); } };
   const serp = async (k) => { const r = await run(() => api.post(`/keywords/${k.id}/serp`, {})); if (r) { if (r.stopped) toast(r.stopped, 'bad'); st.reload(); } };
   const dl = () => run(() => api.download(`/keywords-export${qs({ ...f, projectId, page: undefined })}`));
-  const dfsOk = status.data && status.data.dataforseo.configured;
+  const dfsOk = status.data && status.data.dataforseo.configured; const serpOk = status.data && status.data.serpReady;
   return (
     <div className="page">
       <PageHead title="Anahtar Kelime Araştırması" actions={<>
         {can('research.write') && <button className="btn" onClick={() => setModal('add')}><Plus size={15} />Kelime ekle</button>}
-        {paid && <button className="btn" onClick={() => setModal('suggest')}><Sparkles size={15} />Öneri getir</button>}
-        {paid && <button className="btn primary" onClick={() => setModal('fetch')}><CloudDownload size={15} />{ids.length ? `${ids.length} kelimenin verisini çek` : 'Verisi olmayanların verisini çek'}</button>}
+        {can('research.write') && <button className="btn primary" onClick={() => setModal('import')}><FileUp size={15} />Dosyadan hacim aktar</button>}
+        {paid && <button className="btn" onClick={() => setModal('suggest')}><Sparkles size={15} />Öneri getir (DataForSEO)</button>}
+        {paid && <button className="btn" onClick={() => setModal('fetch')}><CloudDownload size={15} />{ids.length ? `${ids.length} kelimenin verisini çek` : 'Verisi olmayanların verisini çek'} (DataForSEO)</button>}
         <button className="btn" onClick={dl} disabled={busy}><Download size={15} />CSV</button></>}>
-        Aranma hacmi, CPC, ücretli rekabet, arama niyeti ve aylık geçmiş yalnızca DataForSEO’nun gerçek verisidir; veri yoksa “Veri bulunamadı” yazar, yapay zekâ ile uydurulmaz. Ücretli reklam rekabeti organik rekabet sayılmaz: organik rekabet SEO Rekabet Analizi’nde ayrıca tahmin edilir.
+        Aranma hacmi, CPC, ücretli rekabet, arama niyeti ve aylık geçmiş yalnızca gerçek veridir: bir veri servisinden (DataForSEO) ya da sizin yüklediğiniz dosyadan (Google Ads Anahtar Kelime Planlayıcı gibi) gelir; veri yoksa “Veri bulunamadı” yazar, yapay zekâ ile uydurulmaz. Ücretli reklam rekabeti organik rekabet sayılmaz: organik rekabet SEO Rekabet Analizi’nde ayrıca tahmin edilir.
       </PageHead>
-      {status.data && !dfsOk && <Alert kind="warn" title="DataForSEO bağlı değil">Gerçek veri çekmek için <Link to="/api-usage">API Kullanımı ve Maliyetler</Link> sayfasından DataForSEO login ve API şifresini girip bağlantıyı test edin. Kelime eklemek ve listelemek anahtarsız çalışır.</Alert>}
+      {status.data && !dfsOk && <Alert kind="info" title="Aranma hacmi: DataForSEO bağlı değil">Hacim verisi için “Dosyadan hacim aktar” ücretsiz yoldur (Google Ads Anahtar Kelime Planlayıcı çıktısı). Servisten otomatik çekmek için <Link to="/api-usage">API Kullanımı ve Maliyetler</Link> sayfasından DataForSEO’yu bağlayın (hesap doğrulaması için ön ödeme ister). Kelime eklemek ve listelemek anahtarsız çalışır.</Alert>}
+      {status.data && !serpOk && <Alert kind="warn" title={`SERP kaynağı bağlı değil: ${status.data.serpProviderLabel}`}>Organik rekabeti ölçmek için <Link to="/api-usage">API Kullanımı ve Maliyetler</Link> sayfasından {status.data.serpProvider === 'serper' ? 'Serper.dev API anahtarını girin (serper.dev’de kartsız ücretsiz hesap, 2.500 sorgu)' : 'DataForSEO bilgilerini girin'} ve bağlantıyı test edin.</Alert>}
       <Card flat><div className="grid g4">
         <Field label="Ara"><input className="input" value={f.q} onChange={(e) => set('q', e.target.value)} /></Field>
         <Field label="Veri durumu"><select className="input" value={f.state} onChange={(e) => set('state', e.target.value)}><option value="">Hepsi</option>{Object.entries(STATE).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}</select></Field>
@@ -110,22 +150,23 @@ export default function Keywords() {
         <Field label="Yön"><select className="input" value={f.dir} onChange={(e) => set('dir', e.target.value)}><option value="desc">Azalan</option><option value="asc">Artan</option></select></Field>
       </div></Card>
       {ids.length > 0 && can('research.write') && <div className="alert info row between"><strong>{ids.length} kelime seçili</strong><button className="btn sm danger" onClick={del}><Trash2 size={14} />Sil</button></div>}
-      <Async state={st}>{(d) => d && (d.total === 0 ? <Card><Empty title="Anahtar kelime yok">“Kelime ekle” ile elle ekleyin, “Öneri getir” ile DataForSEO’dan alın ya da İçerik Fırsatları sayfasında “Yenile ve puanla” ile haber olaylarından aday kelimeler üretin.</Empty></Card> : (
+      <Async state={st}>{(d) => d && (d.total === 0 ? <Card><Empty title="Anahtar kelime yok">“Kelime ekle” ile elle ekleyin, “Dosyadan hacim aktar” ile hacimli bir liste yükleyin ya da İçerik Fırsatları sayfasında “Yenile ve puanla” ile haber olaylarından aday kelimeler üretin.</Empty></Card> : (
         <Card flat><div className="tbl-wrap"><table className="tbl"><thead><tr>
           <th style={{ width: 30 }}><input type="checkbox" aria-label="Sayfadakilerin hepsi" checked={d.items.every((k) => sel.has(k.id))} onChange={(e) => setSel(e.target.checked ? new Set(d.items.map((k) => k.id)) : new Set())} /></th>
           <th>Anahtar kelime</th><th>Veri</th><th className="num">Aylık arama</th><th className="num">CPC</th><th className="num" title="Google Ads ücretli rekabet (0–1); organik rekabet DEĞİLDİR">Ücretli rek.</th><th className="num" title="DataForSEO’nun kendi zorluk metriği">KD</th><th>Niyet</th><th className="num">Trend</th><th>Organik rekabet</th><th>Son kontrol</th></tr></thead>
           <tbody>{d.items.map((k) => { const m = k.metrics; return (
             <tr key={k.id}><td><input type="checkbox" checked={sel.has(k.id)} onChange={() => toggle(k.id)} aria-label={`${k.keyword} seç`} /></td>
               <td><strong>{k.keyword}</strong> <span className="faint">{k.country}</span> {k.origin !== 'manual' && <Badge>{k.origin}</Badge>}{k.categoryName && <div className="faint">{k.categoryName}</div>}</td>
-              <td><Badge kind={STATE[k.dataState][1]}>{STATE[k.dataState][0]}</Badge>{k.stale && <> <Badge kind="warn" title="Önbellek süresi doldu">eski</Badge></>}</td>
+              <td><Badge kind={STATE[k.dataState][1]}>{STATE[k.dataState][0]}</Badge>{m && m.found && m.provider && SOURCE[m.provider] && <div className="faint">{SOURCE[m.provider]}</div>}{k.stale && <> <Badge kind="warn" title="Önbellek süresi doldu">eski</Badge></>}</td>
               <td className="num">{m && m.found ? num(m.searchVolume) : '—'}</td><td className="num">{m && m.found && m.cpc !== null ? `$${m.cpc.toFixed(2)}` : '—'}</td>
               <td className="num">{m && m.found && m.paidCompetition !== null ? m.paidCompetition.toFixed(2) : '—'}</td><td className="num">{m && m.found && m.keywordDifficulty !== null ? m.keywordDifficulty : '—'}</td>
               <td>{m && m.found ? m.intent || '—' : '—'}</td><td className="num">{m && m.trendPct !== null ? <Badge kind={m.trendPct >= 0 ? 'ok' : 'bad'}>{m.trendPct > 0 ? '+' : ''}{m.trendPct}%</Badge> : '—'}</td>
-              <td>{k.serp ? <ScoreBar value={k.serp.competition} kind={k.serp.competition >= 55 ? 'bad' : k.serp.competition >= 30 ? 'warn' : 'ok'} /> : paid ? <button className="btn sm" disabled={busy || !dfsOk} onClick={() => serp(k)}>SERP analizi</button> : <span className="faint">yapılmadı</span>}</td>
+              <td>{k.serp ? <ScoreBar value={k.serp.competition} kind={k.serp.competition >= 55 ? 'bad' : k.serp.competition >= 30 ? 'warn' : 'ok'} /> : paid ? <button className="btn sm" disabled={busy || !serpOk} onClick={() => serp(k)}>SERP analizi</button> : <span className="faint">yapılmadı</span>}</td>
               <td className="faint">{m ? dt(m.fetchedAt) : '—'}</td></tr>); })}</tbody></table></div>
           <div style={{ marginTop: 12 }}><Pager page={d.page} pageSize={d.pageSize} total={d.total} onPage={(p) => set('page', p)} /></div></Card>
       ))}</Async>
       {modal === 'add' && <AddModal projectId={projectId} categories={categories} onClose={() => setModal(null)} onDone={() => st.reload()} />}
+      {modal === 'import' && <ImportModal projectId={projectId} onClose={() => setModal(null)} onDone={() => st.reload()} />}
       {modal === 'fetch' && <FetchModal projectId={projectId} ids={ids} onClose={() => setModal(null)} onDone={() => st.reload()} />}
       {modal === 'suggest' && <SuggestModal projectId={projectId} onClose={() => setModal(null)} onDone={() => st.reload()} />}
     </div>

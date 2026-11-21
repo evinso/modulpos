@@ -19,6 +19,10 @@ const trends = require('./trends');
  * The TOTAL exists only when all five parts rest on real data. Without keyword data or a SERP analysis there is only a "provisional" score and the idea is NOT eligible:
  * nothing is guessed. An idea outside the niche, on an excluded topic, below the minimum score, rejected, or competing with an own article is never eligible,
  * and selectForGeneration() hands out FEWER ideas rather than filling the daily quota with weak ones.
+ * FREE MODE (setting `seo.partialWithApproval`, on by default): while no search-volume source is connected the DEMAND part can never exist. An idea whose ONLY missing part is
+ * demand (the other four are real: news trend, a real SERP analysis of its most specific candidate phrase, relevance, source) gets a PARTIAL score (the weighted average of
+ * the four, labelled as such; the total stays empty) and becomes eligible only when a person has put it on the shortlist AND the partial score reaches the minimum.
+ * Real volume data (a connected API or an imported file) turns the same idea into a normal full score again.
  */
 const BOT = 'content_opportunity';
 const clamp = (n) => Math.max(0, Math.min(100, Math.round(n)));
@@ -84,7 +88,7 @@ async function createTopics(projectId, { days = 7, limit = 60, generateKeywords 
  * Scores many topics of one project with a FIXED number of queries (the database is far away: a query per topic would take minutes for a few hundred topics).
  * @returns [{ eligible, total }] in the order of `topics`
  */
-async function scoreMany(projectId, topics, { weights, now, minRelevance }) {
+async function scoreMany(projectId, topics, { weights, now, minRelevance, partialWithApproval = false }) {
   if (!topics.length) return [];
   const clusterIds = topics.map((t) => t.cluster_id).filter(Boolean); const topicIds = topics.map((t) => t.id);
   const cl = new Map((await db.query(`SELECT c.id, c.source_count, c.relevance, c.reliability, c.status, c.last_seen_at,
@@ -92,6 +96,7 @@ async function scoreMany(projectId, topics, { weights, now, minRelevance }) {
   const kwRows = (await db.query(`SELECT k.topic_id, k.id, k.keyword, m.found, m.search_volume, m.trend_pct, (SELECT competition FROM serp_analyses s WHERE s.keyword_id = k.id ORDER BY s.fetched_at DESC LIMIT 1) AS serp_competition
     FROM keywords k LEFT JOIN LATERAL (SELECT * FROM keyword_metrics x WHERE x.keyword_id = k.id ORDER BY x.fetched_at DESC LIMIT 1) m ON true WHERE k.topic_id = ANY($1)
     ORDER BY k.topic_id, (m.found IS TRUE) DESC, m.search_volume DESC NULLS LAST, k.created_at`, [topicIds])).rows;
+  const approval = new Map((await db.query('SELECT topic_id, status FROM content_opportunities WHERE topic_id = ANY($1)', [topicIds])).rows.map((r) => [r.topic_id, r.status]));
   const byTopic = new Map(); for (const k of kwRows) { if (!byTopic.has(k.topic_id)) byTopic.set(k.topic_id, []); if (byTopic.get(k.topic_id).length < 12) byTopic.get(k.topic_id).push(k); }
   const niche = (await db.query('SELECT min_opportunity_score FROM niche_profiles WHERE project_id = $1', [projectId])).rows[0];
   const catMin = new Map((await db.query('SELECT id, min_opportunity_score FROM categories WHERE project_id = $1', [projectId])).rows.map((r) => [r.id, r.min_opportunity_score]));
@@ -103,23 +108,32 @@ async function scoreMany(projectId, topics, { weights, now, minRelevance }) {
       : { sourceCount: 1, recent12: 0, lastSeenAt: now, relevance: 100, reliability: 50, status: 'relevant' };       // a topic a person typed in
     const kws = byTopic.get(t.id) || [];
     const best = kws.find((k) => k.found) || null;
+    // without any real volume the idea is judged on its best CANDIDATE phrase (one that already has a SERP analysis, else the most specific one) - only in free mode, and only with a person's approval (below)
+    const candidate = !best && partialWithApproval && kws.length ? (kws.find((k) => k.serp_competition !== null && k.serp_competition !== undefined) || [...kws].sort((a, b) => b.keyword.split(' ').length - a.keyword.split(' ').length)[0]) : null;
+    const target = best || candidate;
     const metrics = best ? { found: true, searchVolume: best.search_volume, trendPct: best.trend_pct === null ? null : Number(best.trend_pct) } : (kws[0] && kws[0].found === false ? { found: false } : null);
-    const comps = components({ cluster, metrics, serp: best ? { competition: best.serp_competition } : null, now });
+    const comps = components({ cluster, metrics, serp: target ? { competition: target.serp_competition } : null, now });
     const { total, provisional, missing } = combine(comps, weights);
     const own1 = catMin.get(t.category_id); const minScore = own1 !== null && own1 !== undefined ? own1 : (niche ? niche.min_opportunity_score : 70);
+    const partial = !best && !!candidate && missing.length === 1 && missing[0] === 'demand';       // every part but the search volume is real
     let reason = '';
     if (t.status === 'rejected') reason = 'Reddedildi';
     else if (cluster.status === 'excluded') reason = 'Kapsam dışı konu';
     else if (cluster.status !== 'relevant' || cluster.relevance < minRelevance) reason = 'Nişe uygun değil';
     else if (!kws.length) reason = 'Henüz anahtar kelime yok';
-    else if (!best) reason = kws.every((k) => k.found === null) ? 'Anahtar kelime verisi henüz çekilmedi' : 'Hiçbir anahtar kelime için veri bulunamadı';
+    else if (!target) reason = kws.every((k) => k.found === null) ? 'Anahtar kelime verisi henüz çekilmedi' : 'Hiçbir anahtar kelime için veri bulunamadı';
+    else if (candidate && missing.includes('competition')) reason = 'SERP analizi yapılmadı: “SERP” düğmesiyle bu fikrin organik rekabetini ölçün';
+    else if (partial) {
+      if (approval.get(t.id) !== 'shortlisted') reason = 'Aranma hacmi verisi yok: kısmi puanla üretime almak için fikri “Kısa liste”ye alın (onay sizin)';
+      else if (provisional < minScore) reason = `Kısmi puan ${provisional}, en az ${minScore} gerekli`;
+    }
     else if (missing.length) reason = `Eksik veri: ${missing.map((m) => MISSING[m] || m).join(', ')}`;
     else if (total < minScore) reason = `Fırsat puanı ${total}, en az ${minScore} gerekli`;
-    if (!reason && best && own.has(best.keyword)) reason = `Aynı odak anahtar kelimeyle makale var: “${own.get(best.keyword).slice(0, 60)}” (kanibalizasyon)`;
+    if (!reason && target && own.has(target.keyword)) reason = `Aynı odak anahtar kelimeyle makale var: “${own.get(target.keyword).slice(0, 60)}” (kanibalizasyon)`;
     const eligible = reason === '';
-    out.push({ eligible, total });
-    rows.push({ topic_id: t.id, category_id: t.category_id, keyword_id: best ? best.id : null, title: t.title, trend: comps.trend.score, competition: comps.competition.score, demand: comps.demand.score, relevance: comps.relevance.score, source: comps.source.score, total, provisional, eligible, reason,
-      explain: { components: comps, missing, minScore, keyword: best ? best.keyword : null, keywordsTried: kws.length, note: total === null ? 'Tüm bileşenler gerçek veriye dayanmadığı için toplam puan verilmedi; “geçici” puan yalnızca eldeki bileşenlerin ağırlıklı ortalamasıdır.' : '' } });
+    out.push({ eligible, total, partial });
+    rows.push({ topic_id: t.id, category_id: t.category_id, keyword_id: target ? target.id : null, title: t.title, trend: comps.trend.score, competition: comps.competition.score, demand: comps.demand.score, relevance: comps.relevance.score, source: comps.source.score, total, provisional, eligible, reason,
+      explain: { components: comps, missing, minScore, keyword: target ? target.keyword : null, keywordsTried: kws.length, partial, note: partial ? 'KISMİ PUAN: aranma hacmi verisi olmadığı için yalnızca dört bileşenin (trend, rekabet fırsatı, nişe uygunluk, kaynak güveni) ağırlıklı ortalaması; toplam puan verilmedi. Üretime yalnızca sizin onayınızla (Kısa liste) girer.' : total === null ? 'Tüm bileşenler gerçek veriye dayanmadığı için toplam puan verilmedi; “geçici” puan yalnızca eldeki bileşenlerin ağırlıklı ortalamasıdır.' : '' } });
   }
   for (let i = 0; i < rows.length; i += 150) {
     await db.query(`INSERT INTO content_opportunities (project_id, topic_id, keyword_id, category_id, title, trend_score, competition_score, demand_score, relevance_score, source_score, total_score, provisional_score, eligible, ineligible_reason, weights, explain, computed_at, updated_at)
@@ -138,10 +152,11 @@ async function refresh(projectId, { now = new Date(), userId = null, trigger = '
   try {
     const cfg = (await settings.get('news', projectId)).value;
     const weights = (await settings.get('scoring', projectId)).value;
+    const partialWithApproval = (await settings.get('seo', projectId)).value.partialWithApproval;
     const made = await createTopics(projectId, { generateKeywords, now });
     const open = (await db.query("SELECT * FROM topics WHERE project_id = $1 AND status IN ('new', 'rejected') ORDER BY created_at DESC LIMIT 2000", [projectId])).rows;
-    const res = await scoreMany(projectId, open, { weights, now, minRelevance: cfg.minRelevance });
-    const stats = { topicsCreated: made.created, keywordsAdded: made.keywordsAdded, topics: open.length, scored: res.filter((r) => r.total !== null).length, eligible: res.filter((r) => r.eligible).length };
+    const res = await scoreMany(projectId, open, { weights, now, minRelevance: cfg.minRelevance, partialWithApproval });
+    const stats = { topicsCreated: made.created, keywordsAdded: made.keywordsAdded, topics: open.length, scored: res.filter((r) => r.total !== null).length, partial: res.filter((r) => r.partial).length, eligible: res.filter((r) => r.eligible).length };
     await runs.finish(run.id, { status: 'ok', stats });
     return stats;
   } catch (err) { await runs.finish(run.id, { status: 'error', error: err.message }); throw err; }
@@ -152,13 +167,13 @@ async function rescore(id, { now = new Date() } = {}) {
   const o = (await db.query('SELECT topic_id FROM content_opportunities WHERE id = $1', [id])).rows[0];
   if (!o) throw new HttpError(404, 'Fırsat bulunamadı');
   const t = (await db.query('SELECT * FROM topics WHERE id = $1', [o.topic_id])).rows[0];
-  await scoreMany(t.project_id, [t], { weights: (await settings.get('scoring', t.project_id)).value, now, minRelevance: (await settings.get('news', t.project_id)).value.minRelevance });
+  await scoreMany(t.project_id, [t], { weights: (await settings.get('scoring', t.project_id)).value, now, minRelevance: (await settings.get('news', t.project_id)).value.minRelevance, partialWithApproval: (await settings.get('seo', t.project_id)).value.partialWithApproval });
   return get(id);
 }
 
 const shape = (r) => ({ id: r.id, projectId: r.project_id, topicId: r.topic_id, keywordId: r.keyword_id, keyword: r.keyword, categoryId: r.category_id, categoryName: r.category_name, title: r.title,
   trend: r.trend_score, competition: r.competition_score, demand: r.demand_score, relevance: r.relevance_score, source: r.source_score, total: r.total_score, provisional: r.provisional_score,
-  eligible: r.eligible, ineligibleReason: r.ineligible_reason, status: r.status, weights: r.weights, explain: r.explain, computedAt: r.computed_at, clusterId: r.cluster_id, sourceCount: r.source_count });
+  eligible: r.eligible, ineligibleReason: r.ineligible_reason, partial: !!(r.explain && r.explain.partial), status: r.status, weights: r.weights, explain: r.explain, computedAt: r.computed_at, clusterId: r.cluster_id, sourceCount: r.source_count });
 
 async function list(projectId, q = {}) {
   const p = [projectId]; const w = ['o.project_id = $1'];
@@ -167,14 +182,14 @@ async function list(projectId, q = {}) {
   if (q.eligible === '1') w.push('o.eligible');
   if (q.eligible === '0') w.push('NOT o.eligible');
   if (q.categoryId) add('o.category_id = ?', V.uuid(q.categoryId, 'Kategori'));
-  if (q.minScore !== undefined && q.minScore !== '') add('o.total_score >= ?', V.int(q.minScore, 'Minimum puan', { min: 0, max: 100 }));
+  if (q.minScore !== undefined && q.minScore !== '') add("COALESCE(o.total_score, CASE WHEN (o.explain->>'partial') = 'true' THEN o.provisional_score END) >= ?", V.int(q.minScore, 'Minimum puan', { min: 0, max: 100 }));
   if (q.q) add("o.title ILIKE ? ESCAPE '\\'", `%${String(q.q).slice(0, 100).replace(/[\\%_]/g, (m) => `\\${m}`)}%`);
   const size = Math.min(100, Math.max(1, parseInt(q.pageSize, 10) || 30)); const page = Math.max(1, parseInt(q.page, 10) || 1);
   const where = w.join(' AND ');
   const total = (await db.query(`SELECT count(*)::int n FROM content_opportunities o WHERE ${where}`, p)).rows[0].n;
   const rows = (await db.query(`SELECT o.*, c.name_en AS category_name, k.keyword, t.cluster_id, nc.source_count FROM content_opportunities o LEFT JOIN categories c ON c.id = o.category_id LEFT JOIN keywords k ON k.id = o.keyword_id
     LEFT JOIN topics t ON t.id = o.topic_id LEFT JOIN news_clusters nc ON nc.id = t.cluster_id WHERE ${where}
-    ORDER BY o.eligible DESC, o.total_score DESC NULLS LAST, o.provisional_score DESC NULLS LAST, o.updated_at DESC LIMIT $${p.length + 1} OFFSET $${p.length + 2}`, [...p, size, (page - 1) * size])).rows;
+    ORDER BY o.eligible DESC, COALESCE(o.total_score, o.provisional_score) DESC NULLS LAST, o.updated_at DESC LIMIT $${p.length + 1} OFFSET $${p.length + 2}`, [...p, size, (page - 1) * size])).rows;
   return { total, page, pageSize: size, items: rows.map(shape) };
 }
 
@@ -193,8 +208,8 @@ async function setStatus(id, status) {
   if (['queued', 'written'].includes(o.status)) throw new HttpError(409, 'Bu fırsat için makale süreci başladı; durumu değiştirilemez');
   await db.query('UPDATE content_opportunities SET status = $2, updated_at = now() WHERE id = $1', [id, st]);
   await db.query("UPDATE topics SET status = $2 WHERE id = $1", [o.topic_id, st === 'rejected' ? 'rejected' : 'new']);
-  if (st === 'rejected') await db.query("UPDATE content_opportunities SET eligible = false, ineligible_reason = 'Reddedildi' WHERE id = $1", [id]);
-  return get(id);
+  if (st === 'rejected') { await db.query("UPDATE content_opportunities SET eligible = false, ineligible_reason = 'Reddedildi' WHERE id = $1", [id]); return get(id); }
+  return rescore(id);                                                      // a shortlist call can make a PARTIAL-score idea eligible (and taking it off the list makes it ineligible again)
 }
 
 /**
@@ -214,7 +229,7 @@ async function selectForGeneration(projectId, { count, tz = env().defaultTimezon
     FROM categories c WHERE c.project_id = $1 AND c.status = 'active'`, [projectId, day, now])).rows;
   const cat = new Map(cats.map((c) => [c.id, { ...c, picked: 0 }]));
   const cand = (await db.query(`SELECT o.*, c.name_en AS category_name, k.keyword FROM content_opportunities o LEFT JOIN categories c ON c.id = o.category_id LEFT JOIN keywords k ON k.id = o.keyword_id
-    WHERE o.project_id = $1 AND o.eligible AND o.status IN ('new', 'shortlisted') ORDER BY o.total_score DESC`, [projectId])).rows;
+    WHERE o.project_id = $1 AND o.eligible AND o.status IN ('new', 'shortlisted') ORDER BY COALESCE(o.total_score, o.provisional_score) DESC`, [projectId])).rows;
   const picks = []; const skipped = [];
   const recentTotal = () => [...cat.values()].reduce((a, c) => a + c.recent + c.picked, 0);
   const left = [...cand];
@@ -223,11 +238,11 @@ async function selectForGeneration(projectId, { count, tz = env().defaultTimezon
     const scored = left.map((o) => {
       const c = cat.get(o.category_id);
       const actual = c ? ((c.recent + c.picked) / tot) * 100 : 0; const deficit = c ? c.target_share_pct - actual : 0;
-      return { o, c, deficit, priority: o.total_score + Math.max(-10, Math.min(10, deficit / 3)) };
+      return { o, c, deficit, priority: (o.total_score ?? o.provisional_score) + Math.max(-10, Math.min(10, deficit / 3)) };
     }).sort((a, b) => b.priority - a.priority);
     const next = scored.find((s) => !s.c || s.c.daily_max === null || s.c.used_today + s.c.picked < s.c.daily_max);
     if (!next) break;
-    picks.push({ ...shape(next.o), why: `Puan ${next.o.total_score}${next.c ? `; “${next.c.name_en}” hedef payın ${next.deficit > 0 ? `${Math.round(next.deficit)} puan altında` : 'üstünde'}` : ''}` });
+    picks.push({ ...shape(next.o), why: `${next.o.total_score === null ? `Kısmi puan ${next.o.provisional_score} (hacim verisi yok, sizin onayınızla)` : `Puan ${next.o.total_score}`}${next.c ? `; “${next.c.name_en}” hedef payın ${next.deficit > 0 ? `${Math.round(next.deficit)} puan altında` : 'üstünde'}` : ''}` });
     if (next.c) next.c.picked++;
     left.splice(left.findIndex((x) => x.id === next.o.id), 1);
   }

@@ -15,7 +15,7 @@ test.after(async () => { if (!H.skip) await H.close(); });
 const reply = (status, body) => async () => ({ status, ok: status >= 200 && status < 300, json: async () => body });
 
 test('keys: stored encrypted, never returned, only the last 4 shown, empty secret keeps the old one', opts, async () => {
-  assert.deepEqual((await PR.list()).map((p) => [p.key, p.configured]), [['openai', false], ['dataforseo', false], ['telegram', false]]);
+  assert.deepEqual((await PR.list()).map((p) => [p.key, p.configured]), [['openai', false], ['dataforseo', false], ['serper', false], ['telegram', false]]);
   const saved = await PR.save('openai', { secret: KEY, extra: { model: 'gpt-x' }, dailyBudgetUsd: 5 });
   assert.equal(saved.configured, true); assert.equal(saved.secretLast4, '1234'); assert.equal(saved.dailyBudgetUsd, 5);
   assert.ok(!JSON.stringify(saved).includes(KEY) && !JSON.stringify(await PR.list()).includes('abcdefghij'));

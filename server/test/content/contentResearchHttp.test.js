@@ -10,7 +10,7 @@ const opts = { skip: H.skip };
 const ORIGIN = 'https://content.example.test';
 const PW = 'Correct-Horse-9-Battery';
 const FX = path.join(__dirname, '../fixtures/content');
-let server; let base; let feedServer; let feedBase; const realFetch = globalThis.fetch; const dfsCalls = [];
+let server; let base; let feedServer; let feedBase; const realFetch = globalThis.fetch; const dfsCalls = []; const serperCalls = [];
 
 test.before(async () => {
   if (H.skip) return;
@@ -28,6 +28,10 @@ test.before(async () => {
   await new Promise((r) => feedServer.listen(0, '127.0.0.1', r)); feedBase = `http://127.0.0.1:${feedServer.address().port}`;
   // DataForSEO is only reachable through the global fetch: answer it here, let everything else (our own test client) through
   globalThis.fetch = async (url, o) => {
+    if (String(url).startsWith('https://google.serper.dev')) {                      // Serper.dev: the vendor's documented answer shape, easy results
+      const q = JSON.parse(o.body).q; serperCalls.push({ q, key: o.headers['X-API-KEY'] });
+      return { ok: true, status: 200, json: async () => ({ organic: ['smallblog.dev', 'niche-tech.net', 'reddit.com', 'mysite.io'].map((d, i) => ({ title: d, link: `https://${d}/${i}`, position: i + 1, snippet: 's' })), peopleAlsoAsk: [{ question: `Is ${q} real?` }], relatedSearches: [{ query: `${q} news` }] }) };
+    }
     if (!String(url).startsWith('https://api.dataforseo.com')) return realFetch(url, o);
     const p = new URL(url).pathname; const body = o.body ? JSON.parse(o.body)[0] : null; dfsCalls.push({ p, body });
     const env = (result, cost) => ({ status_code: 20000, cost, tasks_count: 1, tasks: [{ status_code: 20000, cost, result: [result] }] });
@@ -40,7 +44,7 @@ test.before(async () => {
     return { ok: true, status: 200, json: async () => out };
   };
 });
-test.beforeEach(async () => { if (!H.skip) { await H.clean(); await require('../../src/content/services/projects').seedDefault(); dfsCalls.length = 0; } });
+test.beforeEach(async () => { if (!H.skip) { await H.clean(); await require('../../src/content/services/projects').seedDefault(); dfsCalls.length = 0; serperCalls.length = 0; } });
 test.after(async () => { globalThis.fetch = realFetch; delete process.env.CONTENT_ALLOW_PRIVATE_FETCH; if (feedServer) await new Promise((r) => feedServer.close(r)); if (server) await new Promise((r) => server.close(r)); if (!H.skip) await H.close(); });
 
 function client() {
@@ -120,6 +124,7 @@ test('NEWS end to end with no fakes: sources over real HTTP (the safe fetcher), 
 
 test('SEO end to end over HTTP: set up DataForSEO, keywords from events, paid fetch with a plan first, SERP, opportunities, selection - and the paid calls obey limits and budget', opts, async () => {
   const c = await signedIn(); const pid = (await c.get('/projects')).json.projects[0].id;
+  await require('../../src/content/services/settings').set('seo', { serpProvider: 'dataforseo', partialWithApproval: false });      // an owner who pays for DataForSEO (the free mode has its own test file)
   await c.post('/news/sources', { projectId: pid, name: 'Chrome', kind: 'rss', url: `${feedBase}/chrome.xml`, sourceType: 'official', reliability: 90 });
   const run = await waitRun(c, (await c.post('/news/run', { projectId: pid })).json.run.id); assert.equal(run.status, 'ok');
   assert.equal((await c.get('/research/status')).json.dataforseo.configured, false);
@@ -154,4 +159,30 @@ test('SEO end to end over HTTP: set up DataForSEO, keywords from events, paid fe
   assert.equal((await c.del(`/keywords?projectId=${pid}&ids=${kws[0].id}`)).json.deleted, 1);
   const noSecret = JSON.stringify([ps, (await c.get('/providers')).json]); assert.ok(!noSecret.includes('api-pass-123'));
   const bots = (await c.get('/bots')).json.items; assert.ok(bots.find((b) => b.key === 'keyword_research').lastRunAt && bots.find((b) => b.key === 'news_discovery').lastRunAt, 'the bot table shows real last runs');
+});
+
+test('free mode over HTTP: Serper key, SERP from Serper, a volume file imported by an editor, partial idea shortlisted by an editor - paid calls stay admin-only', opts, async () => {
+  const c = await signedIn(); const editor = await signedIn('editor'); const viewer = await signedIn('viewer'); const pid = (await c.get('/projects')).json.projects[0].id;
+  const st0 = (await c.get(`/research/status?projectId=${pid}`)).json; assert.deepEqual([st0.serpProvider, st0.serpProviderLabel, st0.serpReady, st0.partialWithApproval], ['serper', 'Serper.dev', false, true]);
+  assert.equal((await c.post('/keywords', { projectId: pid, keywords: 'chrome update' })).status, 201); const kid = (await c.get(`/keywords?projectId=${pid}`)).json.items[0].id;
+  assert.equal((await c.post(`/keywords/${kid}/serp`, {})).status, 409, 'no Serper key yet: a readable refusal, nothing called'); assert.equal(serperCalls.length, 0);
+  assert.equal((await editor.put('/providers/serper', { secret: 'serper-key-0123456789abcdef' })).status, 403); assert.equal((await viewer.put('/providers/serper', { secret: 'x' })).status, 403);
+  const ps = (await c.put('/providers/serper', { secret: 'serper-key-0123456789abcdef' })).json; assert.deepEqual([ps.configured, ps.secretLast4, ps.paid], [true, 'cdef', true]);
+  assert.equal((await c.get(`/research/status?projectId=${pid}`)).json.serpReady, true);
+  assert.equal((await editor.post(`/keywords/${kid}/serp`, {})).status, 403, 'the SERP call can cost money: admin only'); assert.equal(serperCalls.length, 0);
+  const an = (await c.post(`/keywords/${kid}/serp`, {})).json; assert.equal(an.analysis.provider, 'serper'); assert.equal(an.analysis.providerLabel, 'Serper.dev'); assert.equal(an.analysis.costUsd, null); assert.equal(serperCalls.length, 1); assert.equal(serperCalls[0].key, 'serper-key-0123456789abcdef'); assert.equal(dfsCalls.length, 0, 'DataForSEO is not involved');
+  const used = (await c.get('/usage?days=1')).json; assert.equal(used.providers.find((p) => p.provider === 'serper').requests, 1);
+  assert.ok(!JSON.stringify((await c.get('/providers')).json).includes('serper-key-0123456789abcdef'), 'the key is never returned');
+  // the volume file: editors may import (free), viewers may not
+  const body = { projectId: pid, text: 'Keyword\tAvg. monthly searches\nchrome update\t14800\nchrome flags\t1K - 10K', country: 'US', fileName: 'planner.csv' };
+  assert.equal((await viewer.post('/keywords/import', body)).status, 403);
+  const imp = await editor.post('/keywords/import', body); assert.equal(imp.status, 200); assert.deepEqual([imp.json.imported, imp.json.updated, imp.json.skipped.range], [1, 1, 1]);
+  assert.equal((await editor.post('/keywords/import', { projectId: pid, text: '' })).status, 400); assert.equal((await editor.post('/keywords/import', { projectId: 'nope', text: 'x' })).status, 400);
+  const row = (await c.get(`/keywords?projectId=${pid}`)).json.items.find((k) => k.keyword === 'chrome update'); assert.deepEqual([row.metrics.searchVolume, row.metrics.provider, row.serp.competition !== null], [14800, 'csv', true]);
+  assert.ok((await c.get('/audit?action=keywords.import')).json.items.some((x) => x.action === 'keywords.import'), 'an import is audited');
+  // partial ideas: editors shortlist (a decision), the page shows the partial flag
+  await c.post('/news/sources', { projectId: pid, name: 'Chrome', kind: 'rss', url: `${feedBase}/chrome.xml`, sourceType: 'official', reliability: 90 });
+  await waitRun(c, (await c.post('/news/run', { projectId: pid })).json.run.id);
+  await c.post('/opportunities/refresh', { projectId: pid }); const ops = (await c.get(`/opportunities?projectId=${pid}`)).json.items; assert.ok(ops.length >= 1); assert.equal(ops.every((o) => typeof o.partial === 'boolean'), true);
+  const first = ops.find((o) => o.keywordId); if (first) { const sl = await editor.post(`/opportunities/${first.id}/status`, { status: 'shortlisted' }); assert.equal(sl.status, 200); assert.equal(sl.json.status, 'shortlisted'); }
 });
