@@ -22,9 +22,10 @@ const GROUPS = {
   },
   seo: {
     projectOverride: true,
-    defaults: { enabled: true, minVolume: 50, minOpportunityScore: 70, countries: ['US'], cacheDays: 30, serpDevice: 'desktop' },
+    defaults: { enabled: true, minVolume: 50, minOpportunityScore: 70, countries: ['US'], cacheDays: 30, serpDevice: 'desktop', serpProvider: 'serper', partialWithApproval: true },
     validate: (v) => ({ enabled: V.bool(v.enabled, 'SEO botu', true), minVolume: V.int(v.minVolume, 'Minimum aranma hacmi', { min: 0, max: 1000000 }), minOpportunityScore: V.int(v.minOpportunityScore, 'Minimum fırsat puanı', { min: 0, max: 100 }),
-      countries: countries(v.countries, 'Hedef ülkeler'), cacheDays: V.int(v.cacheDays, 'API önbellek süresi (gün)', { min: 1, max: 180 }), serpDevice: V.oneOf(v.serpDevice, 'SERP cihazı', ['desktop', 'mobile'], { fallback: 'desktop' }) }),
+      countries: countries(v.countries, 'Hedef ülkeler'), cacheDays: V.int(v.cacheDays, 'API önbellek süresi (gün)', { min: 1, max: 180 }), serpDevice: V.oneOf(v.serpDevice, 'SERP cihazı', ['desktop', 'mobile'], { fallback: 'desktop' }),
+      serpProvider: V.oneOf(v.serpProvider, 'SERP veri kaynağı', ['serper', 'dataforseo'], { fallback: 'serper' }), partialWithApproval: V.bool(v.partialWithApproval, 'Hacim verisi yokken onayla kısmi puan', true) }),
   },
   quality: {
     projectOverride: true,

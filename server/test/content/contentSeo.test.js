@@ -43,8 +43,10 @@ test.before(async () => { if (!H.skip) await H.freshDatabase(); });
 test.beforeEach(async () => { if (!H.skip) await H.clean(); });
 test.after(async () => { if (!H.skip) await H.close(); });
 
+/** a project of an owner who PAYS for DataForSEO (full data: SERP from DataForSEO, no partial scores); the free mode is tested in contentFreeMode.test.js */
 async function site(configure = true) {
   const { projectId } = await P.seedDefault();
+  await S.set('seo', { serpProvider: 'dataforseo', partialWithApproval: false });
   if (configure) await PR.save('dataforseo', { secret: 'api-pass-123', extra: { login: 'me@example.com' } });
   return projectId;
 }

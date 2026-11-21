@@ -24,6 +24,10 @@ const PROVIDERS = {
     label: 'DataForSEO', secretLabel: 'API şifresi', paid: true, extra: { login: { label: 'API oturum e-postası (login)', max: 200, def: '', required: true } },
     help: 'app.dataforseo.com → API Access: login (e-posta) ve API şifresi. Panel şifreniz değil, API şifresi kullanılır.',
   },
+  serper: {
+    label: 'Serper.dev', secretLabel: 'API anahtarı', secretPattern: /^[A-Za-z0-9_-]{16,128}$/, paid: true, extra: {},
+    help: 'serper.dev → ücretsiz hesap açın (2.500 ücretsiz sorgu, kart gerekmez) → API Key. Yalnızca Google ilk-10 sonuçlarını verir (organik rekabet tahmini için); aranma hacmi vermez. Bağlantı testi 1 sorgu (1 kredi) harcar.',
+  },
   telegram: {
     label: 'Telegram', secretLabel: 'Bot token', secretPattern: /^\d{6,}:[A-Za-z0-9_-]{20,}$/, paid: false,
     extra: { chatIds: { label: 'Yetkili sohbet kimlikleri (virgülle)', max: 300, def: '' } },
@@ -126,6 +130,16 @@ const TESTS = {
     if (acc.status === 403 || aj.status_code === 40104) return { ok: false, balanceUsd: balance, message: `Kimlik bilgileri doğru ama DataForSEO hesabınız henüz doğrulanmamış: app.dataforseo.com adresinden doğrulayın; doğrulanana kadar ücretli sorgular çalışmaz.${bal}` };
     if (!acc.ok || (aj.status_code && aj.status_code !== 20000)) return { ok: false, balanceUsd: balance, message: `DataForSEO hesabı API'ye erişemiyor (${aj.status_code || acc.status}: ${String(aj.status_message || '').slice(0, 120)}).${bal}` };
     return { ok: true, message: balance === null ? 'DataForSEO bağlantısı çalışıyor (bakiye okunamadı).' : `DataForSEO bağlantısı çalışıyor ve hesap doğrulanmış.${bal}`, balanceUsd: balance };
+  },
+  async serper({ secret, fetchImpl }) {
+    // Serper has no free "who am I" endpoint that is documented: the test is one real query (1 credit) and says so
+    const res = await fetchImpl('https://google.serper.dev/search', { method: 'POST', headers: { 'X-API-KEY': secret, 'Content-Type': 'application/json' }, body: JSON.stringify({ q: 'test', num: 1 }), signal: AbortSignal.timeout(15000) });
+    const j = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) return { ok: false, message: `Serper API anahtarı reddedildi (${res.status}).` };
+    if (res.status === 400 && /credit/i.test(String(j && j.message))) return { ok: false, message: 'Anahtar doğru ama Serper kredisi bitmiş: serper.dev panelinden kredi alın.' };
+    if (res.status === 429) return { ok: false, message: 'Serper isteği sınırladı (429); biraz sonra tekrar deneyin.' };
+    if (!res.ok) return { ok: false, message: `Serper beklenmedik cevap verdi (${res.status}).` };
+    return { ok: true, message: 'Serper bağlantısı çalışıyor (test 1 kredi harcadı).' };
   },
   async telegram({ secret, fetchImpl }) {
     const res = await fetchImpl(`https://api.telegram.org/bot${secret}/getMe`, { signal: AbortSignal.timeout(12000) });
