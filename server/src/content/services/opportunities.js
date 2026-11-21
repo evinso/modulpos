@@ -8,7 +8,6 @@ const limits = require('./limits');
 const runs = require('./runs');
 const keywords = require('./keywords');
 const trends = require('./trends');
-const projects = require('./projects');
 
 /**
  * Content opportunities: one scored idea per topic (a topic is usually one relevant news event).
@@ -52,63 +51,85 @@ function combine(c, w) {
 }
 const MISSING = { demand: 'anahtar kelime verisi yok', competition: 'SERP analizi yapılmadı', trend: 'trend verisi yok' };
 
-async function minScoreOf(projectId, categoryId) {
-  const n = (await db.query('SELECT min_opportunity_score FROM niche_profiles WHERE project_id = $1', [projectId])).rows[0];
-  const c = categoryId ? (await db.query('SELECT min_opportunity_score FROM categories WHERE id = $1', [categoryId])).rows[0] : null;
-  return c && c.min_opportunity_score !== null ? c.min_opportunity_score : (n ? n.min_opportunity_score : 70);
-}
-
-/** Creates topics for the project's relevant events that have none yet (and local keyword candidates for them). */
+/** Creates topics for the project's relevant events that have none yet, with local keyword candidates for them. A fixed number of statements, however many topics. */
 async function createTopics(projectId, { days = 7, limit = 60, generateKeywords = true, now = new Date() } = {}) {
   // worth researching: clearly on topic (relevance >= 50) or reported by 2+ sources; the strongest first, at most `limit` per pass (every topic's keywords count against the day's keyword limit)
-  const rows = (await db.query(`SELECT c.id, c.title, c.category_id FROM news_clusters c WHERE c.project_id = $1 AND c.status = 'relevant' AND c.last_seen_at > $3::timestamptz - ($2 || ' days')::interval
+  const rows = (await db.query(`SELECT c.id, c.title, c.category_id, c.matched_terms, k.name_en AS category_name FROM news_clusters c LEFT JOIN categories k ON k.id = c.category_id
+    WHERE c.project_id = $1 AND c.status = 'relevant' AND c.last_seen_at > $3::timestamptz - ($2 || ' days')::interval
     AND (c.relevance >= 50 OR c.source_count >= 2 OR c.manual_override) AND NOT EXISTS (SELECT 1 FROM topics t WHERE t.cluster_id = c.id)
     ORDER BY c.source_count DESC, c.relevance DESC, c.reliability DESC, c.last_seen_at DESC LIMIT $4`, [projectId, String(days), now, limit])).rows;
-  let created = 0; let kw = 0;
-  for (const c of rows) {
-    const t = (await db.query("INSERT INTO topics (project_id, cluster_id, category_id, title, origin) VALUES ($1,$2,$3,$4,'news') ON CONFLICT (cluster_id) DO NOTHING RETURNING id", [projectId, c.id, c.category_id, c.title])).rows[0];
-    if (!t) continue; created++;
-    if (generateKeywords) kw += (await keywords.generateForTopic(t.id)).added;
+  if (!rows.length) return { created: 0, keywordsAdded: 0 };
+  const topics = (await db.query(`INSERT INTO topics (project_id, cluster_id, category_id, title, origin) SELECT $1, x.cluster_id, x.category_id, x.title, 'news'
+    FROM jsonb_to_recordset($2::jsonb) AS x(cluster_id uuid, category_id uuid, title text) ON CONFLICT (cluster_id) DO NOTHING RETURNING id, cluster_id, category_id, title`,
+  [projectId, JSON.stringify(rows.map((r) => ({ cluster_id: r.id, category_id: r.category_id, title: r.title })))])).rows;
+  let keywordsAdded = 0;
+  if (generateKeywords && topics.length) {
+    const known = (await db.query("SELECT related_keywords FROM categories WHERE project_id = $1 AND status <> 'archived'", [projectId])).rows.flatMap((r) => r.related_keywords);
+    const country = ((await settings.get('seo', projectId)).value.countries || ['US'])[0] || 'US';
+    const byCluster = new Map(rows.map((r) => [r.id, r])); const seen = new Set(); const kw = [];
+    for (const t of topics) {
+      const c = byCluster.get(t.cluster_id);
+      for (const k of keywords.candidatesFor(t.title, { categoryName: c.category_name || '', known, matched: c.matched_terms || [] })) if (!seen.has(k)) { seen.add(k); kw.push({ keyword: k, topic_id: t.id, category_id: t.category_id }); }
+    }
+    if (kw.length) {
+      const r = await db.query(`INSERT INTO keywords (project_id, keyword, country, language, origin, topic_id, category_id) SELECT $1, x.keyword, $2, 'en', 'news', x.topic_id, x.category_id FROM jsonb_to_recordset($3::jsonb) AS x(keyword text, topic_id uuid, category_id uuid)
+        ON CONFLICT (project_id, keyword, country, language) DO UPDATE SET topic_id = COALESCE(keywords.topic_id, EXCLUDED.topic_id), category_id = COALESCE(keywords.category_id, EXCLUDED.category_id) RETURNING (xmax = 0) AS inserted`, [projectId, country, JSON.stringify(kw)]);
+      keywordsAdded = r.rows.filter((x) => x.inserted).length;
+    }
   }
-  return { created, keywordsAdded: kw };
+  return { created: topics.length, keywordsAdded };
 }
 
-async function scoreTopic(t, { weights, now, minRelevance }) {
-  const cl = t.cluster_id ? (await db.query(`SELECT c.*, (SELECT count(*)::int FROM news_items i WHERE i.cluster_id = c.id AND coalesce(i.published_at, i.fetched_at) > $2::timestamptz - interval '12 hours') AS recent12 FROM news_clusters c WHERE c.id = $1`, [t.cluster_id, now])).rows[0] : null;
-  const cluster = cl ? { sourceCount: cl.source_count, recent12: cl.recent12, lastSeenAt: cl.last_seen_at, relevance: cl.relevance, reliability: cl.reliability, status: cl.status }
-    : { sourceCount: 1, recent12: 0, lastSeenAt: now, relevance: 100, reliability: 50, status: 'relevant' };       // a topic a person typed in
-  // the topic's best keyword: the one with real data and the highest volume
-  const kws = (await db.query(`SELECT k.id, k.keyword, m.found, m.search_volume, m.trend_pct, m.avg_referring_domains,
-      (SELECT competition FROM serp_analyses s WHERE s.keyword_id = k.id ORDER BY s.fetched_at DESC LIMIT 1) AS serp_competition
-    FROM keywords k LEFT JOIN LATERAL (SELECT * FROM keyword_metrics x WHERE x.keyword_id = k.id ORDER BY x.fetched_at DESC LIMIT 1) m ON true WHERE k.topic_id = $1 ORDER BY (m.found IS TRUE) DESC, m.search_volume DESC NULLS LAST, k.created_at LIMIT 12`, [t.id])).rows;
-  const best = kws.find((k) => k.found) || null;
-  const metrics = best ? { found: true, searchVolume: best.search_volume, trendPct: best.trend_pct === null ? null : Number(best.trend_pct) } : (kws[0] && kws[0].found === false ? { found: false } : null);
-  const serp = best ? { competition: best.serp_competition } : null;
-  const c = components({ cluster, metrics, serp, now });
-  const { total, provisional, missing } = combine(c, weights);
-  const minScore = await minScoreOf(t.project_id, t.category_id);
-
-  let reason = '';
-  if (t.status === 'rejected') reason = 'Reddedildi';
-  else if (cluster.status === 'excluded') reason = 'Kapsam dışı konu';
-  else if (cluster.status !== 'relevant' || cluster.relevance < minRelevance) reason = 'Nişe uygun değil';
-  else if (!kws.length) reason = 'Henüz anahtar kelime yok';
-  else if (!best) reason = kws.every((k) => k.found === null) ? 'Anahtar kelime verisi henüz çekilmedi' : 'Hiçbir anahtar kelime için veri bulunamadı';
-  else if (missing.length) reason = `Eksik veri: ${missing.map((m) => MISSING[m] || m).join(', ')}`;
-  else if (total < minScore) reason = `Fırsat puanı ${total}, en az ${minScore} gerekli`;
-  if (!reason && best) {
-    const dup = (await db.query("SELECT h1 FROM articles WHERE project_id = $1 AND focus_keyword = $2 AND status NOT IN ('archived', 'failed') LIMIT 1", [t.project_id, best.keyword])).rows[0];
-    if (dup) reason = `Aynı odak anahtar kelimeyle makale var: “${dup.h1.slice(0, 60)}” (kanibalizasyon)`;
+/**
+ * Scores many topics of one project with a FIXED number of queries (the database is far away: a query per topic would take minutes for a few hundred topics).
+ * @returns [{ eligible, total }] in the order of `topics`
+ */
+async function scoreMany(projectId, topics, { weights, now, minRelevance }) {
+  if (!topics.length) return [];
+  const clusterIds = topics.map((t) => t.cluster_id).filter(Boolean); const topicIds = topics.map((t) => t.id);
+  const cl = new Map((await db.query(`SELECT c.id, c.source_count, c.relevance, c.reliability, c.status, c.last_seen_at,
+      (SELECT count(*)::int FROM news_items i WHERE i.cluster_id = c.id AND coalesce(i.published_at, i.fetched_at) > $2::timestamptz - interval '12 hours') AS recent12 FROM news_clusters c WHERE c.id = ANY($1)`, [clusterIds, now])).rows.map((r) => [r.id, r]));
+  const kwRows = (await db.query(`SELECT k.topic_id, k.id, k.keyword, m.found, m.search_volume, m.trend_pct, (SELECT competition FROM serp_analyses s WHERE s.keyword_id = k.id ORDER BY s.fetched_at DESC LIMIT 1) AS serp_competition
+    FROM keywords k LEFT JOIN LATERAL (SELECT * FROM keyword_metrics x WHERE x.keyword_id = k.id ORDER BY x.fetched_at DESC LIMIT 1) m ON true WHERE k.topic_id = ANY($1)
+    ORDER BY k.topic_id, (m.found IS TRUE) DESC, m.search_volume DESC NULLS LAST, k.created_at`, [topicIds])).rows;
+  const byTopic = new Map(); for (const k of kwRows) { if (!byTopic.has(k.topic_id)) byTopic.set(k.topic_id, []); if (byTopic.get(k.topic_id).length < 12) byTopic.get(k.topic_id).push(k); }
+  const niche = (await db.query('SELECT min_opportunity_score FROM niche_profiles WHERE project_id = $1', [projectId])).rows[0];
+  const catMin = new Map((await db.query('SELECT id, min_opportunity_score FROM categories WHERE project_id = $1', [projectId])).rows.map((r) => [r.id, r.min_opportunity_score]));
+  const own = new Map((await db.query("SELECT focus_keyword, h1 FROM articles WHERE project_id = $1 AND status NOT IN ('archived', 'failed') AND focus_keyword <> ''", [projectId])).rows.map((r) => [r.focus_keyword, r.h1]));
+  const out = []; const rows = [];
+  for (const t of topics) {
+    const c = t.cluster_id ? cl.get(t.cluster_id) : null;
+    const cluster = c ? { sourceCount: c.source_count, recent12: c.recent12, lastSeenAt: c.last_seen_at, relevance: c.relevance, reliability: c.reliability, status: c.status }
+      : { sourceCount: 1, recent12: 0, lastSeenAt: now, relevance: 100, reliability: 50, status: 'relevant' };       // a topic a person typed in
+    const kws = byTopic.get(t.id) || [];
+    const best = kws.find((k) => k.found) || null;
+    const metrics = best ? { found: true, searchVolume: best.search_volume, trendPct: best.trend_pct === null ? null : Number(best.trend_pct) } : (kws[0] && kws[0].found === false ? { found: false } : null);
+    const comps = components({ cluster, metrics, serp: best ? { competition: best.serp_competition } : null, now });
+    const { total, provisional, missing } = combine(comps, weights);
+    const own1 = catMin.get(t.category_id); const minScore = own1 !== null && own1 !== undefined ? own1 : (niche ? niche.min_opportunity_score : 70);
+    let reason = '';
+    if (t.status === 'rejected') reason = 'Reddedildi';
+    else if (cluster.status === 'excluded') reason = 'Kapsam dışı konu';
+    else if (cluster.status !== 'relevant' || cluster.relevance < minRelevance) reason = 'Nişe uygun değil';
+    else if (!kws.length) reason = 'Henüz anahtar kelime yok';
+    else if (!best) reason = kws.every((k) => k.found === null) ? 'Anahtar kelime verisi henüz çekilmedi' : 'Hiçbir anahtar kelime için veri bulunamadı';
+    else if (missing.length) reason = `Eksik veri: ${missing.map((m) => MISSING[m] || m).join(', ')}`;
+    else if (total < minScore) reason = `Fırsat puanı ${total}, en az ${minScore} gerekli`;
+    if (!reason && best && own.has(best.keyword)) reason = `Aynı odak anahtar kelimeyle makale var: “${own.get(best.keyword).slice(0, 60)}” (kanibalizasyon)`;
+    const eligible = reason === '';
+    out.push({ eligible, total });
+    rows.push({ topic_id: t.id, category_id: t.category_id, keyword_id: best ? best.id : null, title: t.title, trend: comps.trend.score, competition: comps.competition.score, demand: comps.demand.score, relevance: comps.relevance.score, source: comps.source.score, total, provisional, eligible, reason,
+      explain: { components: comps, missing, minScore, keyword: best ? best.keyword : null, keywordsTried: kws.length, note: total === null ? 'Tüm bileşenler gerçek veriye dayanmadığı için toplam puan verilmedi; “geçici” puan yalnızca eldeki bileşenlerin ağırlıklı ortalamasıdır.' : '' } });
   }
-  const eligible = reason === '';
-  const explain = { components: c, missing, minScore, keyword: best ? best.keyword : null, keywordsTried: kws.length, note: total === null ? 'Tüm bileşenler gerçek veriye dayanmadığı için toplam puan verilmedi; “geçici” puan yalnızca eldeki bileşenlerin ağırlıklı ortalamasıdır.' : '' };
-  await db.query(`INSERT INTO content_opportunities (project_id, topic_id, keyword_id, category_id, title, trend_score, competition_score, demand_score, relevance_score, source_score, total_score, provisional_score, eligible, ineligible_reason, weights, explain, computed_at, updated_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17)
-    ON CONFLICT (topic_id) DO UPDATE SET keyword_id = EXCLUDED.keyword_id, category_id = EXCLUDED.category_id, title = EXCLUDED.title, trend_score = EXCLUDED.trend_score, competition_score = EXCLUDED.competition_score, demand_score = EXCLUDED.demand_score,
-      relevance_score = EXCLUDED.relevance_score, source_score = EXCLUDED.source_score, total_score = EXCLUDED.total_score, provisional_score = EXCLUDED.provisional_score, eligible = EXCLUDED.eligible, ineligible_reason = EXCLUDED.ineligible_reason,
-      weights = EXCLUDED.weights, explain = EXCLUDED.explain, computed_at = EXCLUDED.computed_at, updated_at = EXCLUDED.updated_at`,
-  [t.project_id, t.id, best ? best.id : null, t.category_id, t.title, c.trend.score, c.competition.score, c.demand.score, c.relevance.score, c.source.score, total, provisional, eligible, reason, JSON.stringify(weights), JSON.stringify(explain), now]);
-  return { eligible, total };
+  for (let i = 0; i < rows.length; i += 150) {
+    await db.query(`INSERT INTO content_opportunities (project_id, topic_id, keyword_id, category_id, title, trend_score, competition_score, demand_score, relevance_score, source_score, total_score, provisional_score, eligible, ineligible_reason, weights, explain, computed_at, updated_at)
+      SELECT $1, x.topic_id, x.keyword_id, x.category_id, x.title, x.trend, x.competition, x.demand, x.relevance, x.source, x.total, x.provisional, x.eligible, x.reason, $3::jsonb, x.explain, $2, $2 FROM jsonb_to_recordset($4::jsonb)
+        AS x(topic_id uuid, keyword_id uuid, category_id uuid, title text, trend int, competition int, demand int, relevance int, source int, total int, provisional int, eligible boolean, reason text, explain jsonb)
+      ON CONFLICT (topic_id) DO UPDATE SET keyword_id = EXCLUDED.keyword_id, category_id = EXCLUDED.category_id, title = EXCLUDED.title, trend_score = EXCLUDED.trend_score, competition_score = EXCLUDED.competition_score, demand_score = EXCLUDED.demand_score,
+        relevance_score = EXCLUDED.relevance_score, source_score = EXCLUDED.source_score, total_score = EXCLUDED.total_score, provisional_score = EXCLUDED.provisional_score, eligible = EXCLUDED.eligible, ineligible_reason = EXCLUDED.ineligible_reason,
+        weights = EXCLUDED.weights, explain = EXCLUDED.explain, computed_at = EXCLUDED.computed_at, updated_at = EXCLUDED.updated_at`, [projectId, now, JSON.stringify(weights), JSON.stringify(rows.slice(i, i + 150))]);
+  }
+  return out;
 }
 
 /** Topics from new events, then (re)scores every open topic of the project from what is known NOW. Safe to repeat. */
@@ -118,10 +139,9 @@ async function refresh(projectId, { now = new Date(), userId = null, trigger = '
     const cfg = (await settings.get('news', projectId)).value;
     const weights = (await settings.get('scoring', projectId)).value;
     const made = await createTopics(projectId, { generateKeywords, now });
-    const open = (await db.query("SELECT * FROM topics WHERE project_id = $1 AND status IN ('new', 'rejected') ORDER BY created_at DESC LIMIT 1000", [projectId])).rows;
-    let eligible = 0; let scored = 0;
-    for (const t of open) { const r = await scoreTopic(t, { weights, now, minRelevance: cfg.minRelevance }); if (r.eligible) eligible++; if (r.total !== null) scored++; }
-    const stats = { topicsCreated: made.created, keywordsAdded: made.keywordsAdded, topics: open.length, scored, eligible };
+    const open = (await db.query("SELECT * FROM topics WHERE project_id = $1 AND status IN ('new', 'rejected') ORDER BY created_at DESC LIMIT 2000", [projectId])).rows;
+    const res = await scoreMany(projectId, open, { weights, now, minRelevance: cfg.minRelevance });
+    const stats = { topicsCreated: made.created, keywordsAdded: made.keywordsAdded, topics: open.length, scored: res.filter((r) => r.total !== null).length, eligible: res.filter((r) => r.eligible).length };
     await runs.finish(run.id, { status: 'ok', stats });
     return stats;
   } catch (err) { await runs.finish(run.id, { status: 'error', error: err.message }); throw err; }
@@ -132,7 +152,7 @@ async function rescore(id, { now = new Date() } = {}) {
   const o = (await db.query('SELECT topic_id FROM content_opportunities WHERE id = $1', [id])).rows[0];
   if (!o) throw new HttpError(404, 'Fırsat bulunamadı');
   const t = (await db.query('SELECT * FROM topics WHERE id = $1', [o.topic_id])).rows[0];
-  await scoreTopic(t, { weights: (await settings.get('scoring', t.project_id)).value, now, minRelevance: (await settings.get('news', t.project_id)).value.minRelevance });
+  await scoreMany(t.project_id, [t], { weights: (await settings.get('scoring', t.project_id)).value, now, minRelevance: (await settings.get('news', t.project_id)).value.minRelevance });
   return get(id);
 }
 

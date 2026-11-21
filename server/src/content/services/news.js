@@ -1,3 +1,4 @@
+const crypto = require('node:crypto');
 const db = require('../db');
 const V = require('../lib/validate');
 const { HttpError, bad } = require('../lib/http');
@@ -259,28 +260,28 @@ async function processItems(projectId, source, feed, { ctx, cfg, clusters, touch
   if (!grant.ok) { stats.limited += take.length; stats.messages.push(`${source.name}: ${grant.message}`); return { limitReached: true }; }
   if (grant.granted < take.length) { stats.limited += take.length - grant.granted; stats.messages.push(`${source.name}: günlük haber limiti nedeniyle ${grant.granted}/${take.length} haber işlendi`); take = take.slice(0, grant.granted); }
   take.reverse();                                                  // oldest first: a cluster starts with its earliest headline
+  // everything is decided in memory first, then written with TWO statements per source (the database is far away: one round trip per headline would take minutes)
+  const newClusters = []; const rows = [];
+  for (const it of take) {
+    const publisher = it.sourceName || source.name;
+    const cls = classify({ title: it.title, summary: it.summary, reliability: source.reliability, sourceName: source.kind === 'rss' ? source.name : '' }, ctx, { minRelevance: cfg.minRelevance });
+    const sig = signature(it.title); const sk = key(publisher);
+    let clusterId = null;
+    for (const cl of clusters.values()) { if (cl.members.some((m) => sameEvent(sig, m.sig, { sameSource: m.key === sk }))) { clusterId = cl.id; break; } }
+    if (clusterId) stats.joined++;
+    else { clusterId = crypto.randomUUID(); clusters.set(clusterId, { id: clusterId, members: [] }); newClusters.push({ id: clusterId, title: it.title, at: new Date(it.publishedMs).toISOString() }); stats.newClusters++; }
+    clusters.get(clusterId).members.push({ sig, key: sk }); touched.add(clusterId);
+    rows.push({ cluster_id: clusterId, category_id: cls.categoryId, url: it.url.slice(0, 1000), url_hash: it.hash, title: it.title, summary: it.summary || '', source_name: publisher.slice(0, 120), published_at: new Date(it.publishedMs).toISOString(),
+      country: (it.country || source.country || '').slice(0, 2), language: (it.language || source.language || 'en').slice(0, 5), keywords: phrases(it.title).filter((x) => x.split(' ').length <= 3).slice(0, 8), relevance: cls.relevance, status: cls.status, reason: cls.reason.slice(0, 300),
+      matched_terms: cls.matched.slice(0, 12), reliability: source.reliability });
+    stats.newItems++; stats[cls.status]++;
+  }
   await db.tx(async (c) => {
-    for (const it of take) {
-      const publisher = it.sourceName || source.name;
-      const cls = classify({ title: it.title, summary: it.summary, reliability: source.reliability, sourceName: source.kind === 'rss' ? source.name : '' }, ctx, { minRelevance: cfg.minRelevance });
-      const sig = signature(it.title); const sk = key(publisher);
-      let clusterId = null;
-      for (const cl of clusters.values()) {
-        if (cl.members.some((m) => sameEvent(sig, m.sig, { sameSource: m.key === sk }))) { clusterId = cl.id; break; }
-      }
-      if (clusterId) stats.joined++;
-      else {
-        const nc = (await c.query('INSERT INTO news_clusters (project_id, title, sig_tokens, sig_nums, first_seen_at, last_seen_at) VALUES ($1,$2,$3,$4,$5,$5) RETURNING id',
-          [projectId, it.title, [...sig.set].slice(0, 24), [...sig.nums].slice(0, 8), new Date(it.publishedMs)])).rows[0];
-        clusterId = nc.id; clusters.set(clusterId, { id: clusterId, members: [] }); stats.newClusters++;
-      }
-      clusters.get(clusterId).members.push({ sig, key: sk }); touched.add(clusterId);
-      await c.query(`INSERT INTO news_items (project_id, source_id, cluster_id, category_id, url, url_hash, title, summary, source_name, published_at, country, language, keywords, relevance, status, reason, matched_terms, reliability)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
-      [projectId, source.id, clusterId, cls.categoryId, it.url.slice(0, 1000), it.hash, it.title, it.summary || '', publisher.slice(0, 120), new Date(it.publishedMs), (it.country || source.country || '').slice(0, 2), (it.language || source.language || 'en').slice(0, 5),
-        phrases(it.title).filter((p) => p.split(' ').length <= 3).slice(0, 8), cls.relevance, cls.status, cls.reason.slice(0, 300), cls.matched.slice(0, 12), source.reliability]);
-      stats.newItems++; stats[cls.status]++;
-    }
+    if (newClusters.length) await c.query(`INSERT INTO news_clusters (id, project_id, title, first_seen_at, last_seen_at) SELECT x.id, $1, x.title, x.at, x.at FROM jsonb_to_recordset($2::jsonb) AS x(id uuid, title text, at timestamptz)`, [projectId, JSON.stringify(newClusters)]);
+    await c.query(`INSERT INTO news_items (project_id, source_id, cluster_id, category_id, url, url_hash, title, summary, source_name, published_at, country, language, keywords, relevance, status, reason, matched_terms, reliability)
+      SELECT $1, $2, x.cluster_id, x.category_id, x.url, x.url_hash, x.title, x.summary, x.source_name, x.published_at, x.country, x.language, ARRAY(SELECT jsonb_array_elements_text(x.keywords)), x.relevance, x.status, x.reason, ARRAY(SELECT jsonb_array_elements_text(x.matched_terms)), x.reliability
+      FROM jsonb_to_recordset($3::jsonb) AS x(cluster_id uuid, category_id uuid, url text, url_hash text, title text, summary text, source_name text, published_at timestamptz, country text, language text, keywords jsonb, relevance int, status text, reason text, matched_terms jsonb, reliability int)`,
+    [projectId, source.id, JSON.stringify(rows)]);
   });
   return { limitReached: false };
 }

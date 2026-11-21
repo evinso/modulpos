@@ -44,11 +44,8 @@ async function add(projectId, list, { origin = 'manual', country = 'US', languag
   const clean = [...new Set(list.map(normalize).filter(Boolean))];
   const invalid = list.length - list.filter((x) => normalize(x)).length;
   let added = 0;
-  for (const kw of clean) {
-    const r = await db.query('INSERT INTO keywords (project_id, keyword, country, language, origin, topic_id, category_id) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (project_id, keyword, country, language) DO NOTHING',
-      [projectId, kw, cc, language, origin, topicId, categoryId]);
-    added += r.rowCount;
-  }
+  if (clean.length) added = (await db.query(`INSERT INTO keywords (project_id, keyword, country, language, origin, topic_id, category_id) SELECT $1, k, $3, $4, $5, $6, $7 FROM unnest($2::text[]) AS k
+    ON CONFLICT (project_id, keyword, country, language) DO NOTHING`, [projectId, clean, cc, language, origin, topicId, categoryId])).rowCount;
   return { added, existing: clean.length - added, invalid };
 }
 
