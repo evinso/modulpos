@@ -12,6 +12,7 @@ function env() {
     enabled: !!(e.CONTENT_DATABASE_URL && e.CONTENT_DISABLED !== '1'),
     databaseUrl: e.CONTENT_DATABASE_URL || '',
     dbSsl: e.CONTENT_DB_SSL === '1' || /supabase\.(co|com)/i.test(e.CONTENT_DATABASE_URL || ''),
+    schema: /^[a-z_][a-z0-9_]{0,62}$/.test(e.CONTENT_DB_SCHEMA || '') ? e.CONTENT_DB_SCHEMA : '',   // own schema (must exist); empty = the database's default schema
     poolMax: Math.min(8, Math.max(1, parseInt(e.CONTENT_DB_POOL_MAX, 10) || 3)),
     encryptionKey: /^[0-9a-fA-F]{64}$/.test(e.CONTENT_ENCRYPTION_KEY || '') ? e.CONTENT_ENCRYPTION_KEY : '',
     setupToken: e.CONTENT_SETUP_TOKEN || '',

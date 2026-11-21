@@ -19,12 +19,23 @@ content/render.content.yaml   Panel için ayrı Render statik site şeması (ana
 
 ## Kurulum (bir kez)
 
-1. **Yeni ücretsiz Supabase projesi** oluşturun (ModulPOS'unkinden ayrı). *Project Settings → Database → Connection string → Session pooler / Direct (port 5432)* adresini alın (pgbouncer/6543 değil; göçler ve satır kilitleri için oturum bağlantısı gerekir).
+1. **Yeni ücretsiz Supabase projesi** oluşturun (ModulPOS'unkinden ayrı). Sonra SQL Editor'de bir kez şunu çalıştırın (şifreyi kendiniz seçin):
+
+   ```sql
+   create role content_app login nosuperuser nocreatedb nocreaterole noinherit password 'GÜÇLÜ-ŞİFRE';
+   create schema content;
+   grant usage, create on schema content to content_app;
+   alter role content_app set search_path = content;
+   ```
+
+   **Neden ayrı şema ve rol?** Supabase projesinin REST API'si varsayılan olarak `public` şemasını herkese açık anahtarla (publishable/anon) erişilebilir yapar. İçerik tabloları `public`'e konursa o anahtarla okunup yazılabilirdi. `content` şeması REST API'ye açılmaz ve yalnızca `content_app` rolü erişir; `anon`/`authenticated` hiçbir hak almaz.
+   Bağlantı adresi: *Connect → Session pooler* (port **5432**, kullanıcı `content_app.<proje-ref>`). Transaction pooler (6543) kullanmayın: oturum ayarı ve kilitler için oturum bağlantısı gerekir.
 2. Render'da **modulpos-api** servisine ortam değişkenlerini ekleyin (`server/.env.example` sonunda açıklamalı):
 
    | Değişken | Değer |
    |---|---|
-   | `CONTENT_DATABASE_URL` | 1. adımdaki bağlantı adresi |
+   | `CONTENT_DATABASE_URL` | `postgresql://content_app.<ref>:<şifre>@aws-0-<bölge>.pooler.supabase.com:5432/postgres` |
+   | `CONTENT_DB_SCHEMA` | `content` |
    | `CONTENT_ENCRYPTION_KEY` | `openssl rand -hex 32` çıktısı (64 hane). **Kaybederseniz kayıtlı API anahtarları okunamaz; bir yere yedekleyin.** |
    | `CONTENT_SETUP_TOKEN` | `openssl rand -hex 24` (ilk yöneticiyi oluşturmak için tek kullanımlık; kurulumdan sonra silin) |
    | `CONTENT_ADMIN_ORIGINS` | `https://content.modulpos.com` |

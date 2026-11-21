@@ -25,10 +25,33 @@ function getPool() {
   return pool;
 }
 
-const query = (text, params) => getPool().query(text, params);
+/**
+ * A pooled connection, ready to use. A Supabase project exposes its `public` schema through the REST API, so the content tables live in their own schema
+ * (CONTENT_DB_SCHEMA, not exposed): every connection gets `SET search_path` once, before its first statement. Needs a session-level connection
+ * (Supavisor session mode, port 5432); a transaction pooler would forget the setting between statements. (The role's own search_path is set as well.)
+ */
+const prepared = new WeakSet();
+async function acquire() {
+  const client = await getPool().connect();
+  const schema = env().schema;
+  if (schema && !prepared.has(client)) {
+    try { await client.query(`SET search_path TO "${schema}"`); prepared.add(client); }
+    catch (err) { client.release(err); throw err; }
+  }
+  return client;
+}
+
+// a SQL error (it has a SQLSTATE code) leaves the connection fine; anything else (reset, timeout) throws the connection away
+const done = (client, err) => client.release(err && !err.code ? err : undefined);
+
+async function query(text, params) {
+  const client = await acquire();
+  try { const r = await client.query(text, params); done(client); return r; }
+  catch (err) { done(client, err); throw err; }
+}
 
 async function tx(fn) {
-  const client = await getPool().connect();
+  const client = await acquire();
   try {
     await client.query('BEGIN');
     const out = await fn({ query: (t, p) => client.query(t, p) });
@@ -42,4 +65,4 @@ async function tx(fn) {
 
 async function end() { if (pool) { const p = pool; pool = null; await p.end(); } }
 
-module.exports = { query, tx, end, getPool };
+module.exports = { query, tx, end, getPool, acquire };

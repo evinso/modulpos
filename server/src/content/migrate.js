@@ -15,8 +15,7 @@ const files = () => fs.readdirSync(DIR).filter((f) => /^\d{4}_.+\.sql$/.test(f))
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
 async function migrate({ log = () => {} } = {}) {
-  const pool = db.getPool();
-  const client = await pool.connect();
+  const client = await db.acquire();
   try {
     await client.query('SELECT pg_advisory_lock($1)', [LOCK_KEY]);
     await client.query('CREATE TABLE IF NOT EXISTS _migrations (id text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())');
