@@ -151,3 +151,19 @@ test('upgrading a project seeded by phase 1: richer keyword lists only where the
   await P.upgradeDefaults(projectId); assert.ok(!(await P.listExcluded(projectId)).some((x) => x.topic === 'oncology'), 'a default topic the owner removes after the upgrade stays removed');
   const fresh = await P.seedDefault(); assert.equal(fresh.created, false);
 });
+
+test('upgrading a project from the SECOND default (the live one): third-default lists only where untouched, once; the owner\'s edits stay', opts, async () => {
+  const { projectId } = await P.seedDefault();
+  const q = (sql, p = []) => H.db().query(sql, p);
+  for (const [name, v2] of Object.entries(P.DEFAULTS_V2)) await q('UPDATE categories SET related_keywords = $1, excluded_topics = $2 WHERE project_id = $3 AND name_en = $4', [v2.keywords, v2.excluded, projectId, name]);
+  await q("UPDATE categories SET related_keywords = related_keywords || ARRAY['my own addition'] WHERE project_id = $1 AND name_en = 'Digital Services & Pricing'", [projectId]);       // edited by the owner
+  await q("UPDATE automation_settings SET value = '{\"version\": 2}' WHERE key = 'defaults_version'"); await q("DELETE FROM excluded_topics WHERE topic IN ('black friday', 'ipo', 'deals')");
+  const r = await P.upgradeDefaults(projectId);
+  assert.equal(r.upgraded, true); assert.equal(r.from, 2); assert.equal(r.keywords, 4, 'four lists were untouched'); assert.equal(r.excludedLists, 5); assert.ok(r.topics >= 3);
+  const c = Object.fromEntries((await P.listCategories(projectId)).map((x) => [x.nameEn, x]));
+  assert.ok(!c['Apps & Software Updates'].relatedKeywords.includes('iphone') && c['Digital Privacy & Security'].relatedKeywords.includes('clickfix') && c['AI Tools & Updates'].relatedKeywords.includes('meta muse'));
+  assert.ok(c['Digital Privacy & Security'].excludedTopics.includes('vmware'));
+  assert.ok(c['Digital Services & Pricing'].relatedKeywords.includes('my own addition') && !c['Digital Services & Pricing'].relatedKeywords.includes('paramount plus'), 'the edited list is left exactly as the owner has it');
+  assert.ok((await P.listExcluded(projectId)).some((x) => x.topic === 'black friday'));
+  assert.deepEqual(await P.upgradeDefaults(projectId), { upgraded: false }); assert.equal((await q("SELECT value->>'version' AS v FROM automation_settings WHERE key = 'defaults_version'")).rows[0].v, '3');
+});

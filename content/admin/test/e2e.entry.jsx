@@ -180,6 +180,8 @@ await click(tab('Olaylar'), 500);
 ok('events are listed with their category and the reason the filter gave', txt().includes('Vendor data breach') && txt().includes('Digital Privacy & Security') && txt().includes('“Digital Privacy & Security”: '));
 await click(btn('İlgisiz yap'), 600);
 ok('a person can overrule the filter: marked, saved, and kept', (await q1("SELECT count(*)::int n FROM news_clusters WHERE manual_override AND status = 'irrelevant'")).n === 1);
+await click(btn('Yeniden değerlendir'), 700);
+ok('"Yeniden değerlendir" runs the current filter again and says what changed, keeping the person\'s decision', txt().includes('Yeniden değerlendirildi') && /\d+ haberi yeni kurallarla tekrar süzüldü/.test(txt()) && (await q1("SELECT count(*)::int n FROM news_clusters WHERE manual_override AND status = 'irrelevant'")).n === 1);
 await click(tab('Haberler'), 400); ok('the headline list shows each status and reason', txt().includes('Nişe uygun') && txt().includes('İlgisiz'));
 await click(tab('Taramalar'), 400); ok('the run history shows the scan', txt().includes('elle') && /elle(ok|partial)/.test(txt()), txt().slice(txt().indexOf('Başlangıç'), txt().indexOf('Başlangıç') + 200));
 

@@ -32,6 +32,8 @@ module.exports = function research(r, { wrap, mw, A, uid }) {
     await A(req, 'news.run', 'project', id, null, { runId: run.id });
     res.status(202).json({ run });
   }));
+  // run the CURRENT niche filter again over the recent headlines (after editing keyword lists / excluded topics)
+  r.post('/news/reclassify', W, wrap(async (req, res) => { const id = await pid(req); const out = await news.reclassify(id, { days: req.body.days === undefined ? 14 : V.int(req.body.days, 'Gün', { min: 1, max: 60 }) }); await A(req, 'news.reclassify', 'project', id, null, out); res.json(out); }));
   r.get('/runs', wrap(async (req, res) => res.json({ runs: await runs.list({ botKey: req.query.bot || null, projectId: req.query.projectId ? V.uuid(req.query.projectId, 'Proje') : null, limit: parseInt(req.query.limit, 10) || 20 }) })));
   r.get('/runs/:runId', wrap(async (req, res) => { const n = parseInt(req.params.runId, 10); if (!Number.isInteger(n)) throw new HttpError(404, 'Kayıt bulunamadı'); res.json(await runs.get(n)); }));
 

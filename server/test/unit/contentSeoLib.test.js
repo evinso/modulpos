@@ -37,6 +37,9 @@ test('DataForSEO client: errors are read from the answer AND from each task; "no
   const mk = (resp, status) => dfs.createClient({ login: 'l', password: 'TOPSECRET', fetchImpl: reply(resp, status) });
   const code = async (p) => { try { await p; } catch (e) { return [e.code, e.message, e.retryable]; } return ['none']; };
   assert.equal((await code(mk({}, 401).keywordOverview({ keywords: ['a b'] })))[0], 'auth');
+  // seen on a REAL, not yet verified account: HTTP 403 with the reason in the JSON body (status_code 40104)
+  const unverified = await code(mk({ version: '0.1', status_code: 40104, status_message: 'Please verify your account before using the API.', cost: 0, tasks_count: 0, tasks: null }, 403).keywordOverview({ keywords: ['a b'] }));
+  assert.equal(unverified[0], 'verify'); assert.match(unverified[1], /henüz doğrulanmamış.*app\.dataforseo\.com/);
   assert.equal((await code(mk({}, 402).keywordOverview({ keywords: ['a b'] })))[0], 'funds');
   assert.equal((await code(mk({}, 500).keywordOverview({ keywords: ['a b'] })))[0], 'http');
   const topErr = await code(mk(envelope(null, { topCode: 40100, taskCode: 40100, msg: 'Authentication failed' })).keywordOverview({ keywords: ['a b'] })); assert.equal(topErr[0], 'auth'); assert.match(topErr[1], /kod 40100/);

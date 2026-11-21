@@ -66,6 +66,18 @@ test('DataForSEO test: needs the login, sends Basic auth, reads the balance, rep
   assert.equal(apiErr.ok, false); assert.match(apiErr.message, /Authentication failed/);
 });
 
+test('DataForSEO test on an UNVERIFIED account (seen for real): credentials and balance are fine, but every other endpoint says 40104 - the test must say so, not "ok"', opts, async () => {
+  await PR.save('dataforseo', { secret: 'api-pass-123', extra: { login: 'me' } });
+  const userData = { status_code: 20000, tasks: [{ result: [{ money: { total: 1, balance: 1 } }] }] };
+  const calls = [];
+  const fetchImpl = async (url) => { calls.push(url); return url.includes('user_data') ? { status: 200, ok: true, json: async () => userData } : { status: 403, ok: false, json: async () => ({ status_code: 40104, status_message: 'Please verify your account' }) }; };
+  const r = await PR.test('dataforseo', { fetchImpl });
+  assert.equal(r.ok, false); assert.equal(r.balanceUsd, 1); assert.match(r.message, /Kimlik bilgileri doğru ama.*henüz doğrulanmamış.*Bakiye: \$1\.00/); assert.equal(calls.length, 2, 'only the two FREE calls were made');
+  assert.equal((await PR.get('dataforseo')).lastTestOk, false);
+  const ok = await PR.test('dataforseo', { fetchImpl: async (url) => ({ status: 200, ok: true, json: async () => (url.includes('user_data') ? userData : { status_code: 20000, tasks: [{ status_code: 20000 }] }) }) });
+  assert.deepEqual([ok.ok, ok.balanceUsd], [true, 1]); assert.match(ok.message, /hesap doğrulanmış/);
+});
+
 test('Telegram test: getMe with the token', opts, async () => {
   await PR.save('telegram', { secret: '123456789:AAEhBP0av28ABCDEFGHIJKLMNOPQRSTU', extra: { chatIds: '111222333, -100999888' } });
   assert.equal((await PR.get('telegram')).extra.chatIds, '111222333,-100999888');

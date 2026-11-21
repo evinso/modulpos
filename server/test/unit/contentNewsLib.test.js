@@ -90,10 +90,11 @@ test('relevance: weak words alone never pass, the official-source boost needs a 
   const weak = cls('Premium bundle outage leaves users waiting'); assert.equal(weak.status, 'irrelevant'); assert.match(weak.reason, /genel terim/, 'only generic words matched (premium, bundle, outage)');
   assert.equal(cls('Why AI, data and privacy matter for technology in the digital age').status, 'irrelevant');
   assert.equal(cls('Why this new app update matters').status, 'relevant', '"app update" is a specific phrase, not a generic word');
-  assert.equal(cls('Chrome Dev for Desktop Update', { reliability: 90 }).status, 'relevant');
-  assert.equal(cls('Early Stable Update for Desktop', { reliability: 90 }).status, 'irrelevant', 'no brand in the headline, below the line');
-  const withFeed = cls('Early Stable Update for Desktop', { reliability: 90, sourceName: 'Google Chrome Releases' });
-  assert.ok(withFeed.relevance > cls('Early Stable Update for Desktop', { reliability: 90 }).relevance, 'the feed name (the owner chose it) adds context, but alone it stays below the line'); assert.equal(withFeed.status, 'irrelevant');
+  assert.equal(cls('Chrome for Android Update', { reliability: 90 }).status, 'relevant');
+  assert.equal(cls('Chrome Dev for Desktop Update', { reliability: 90 }).status, 'excluded', 'dev/beta channel notes are not for readers');
+  const bare = cls('Stable Channel Update for Desktop', { reliability: 90 }); const withFeed = cls('Stable Channel Update for Desktop', { reliability: 90, sourceName: 'Google Chrome Releases' });
+  assert.ok(withFeed.relevance > bare.relevance, 'the feed name (the owner chose it) adds context'); assert.equal(withFeed.status, 'relevant', 'an OFFICIAL feed\'s own name is strong enough');
+  assert.equal(cls('Hello world', { reliability: 40, sourceName: 'Google Chrome Releases' }).status, 'irrelevant', 'a feed name of a less trusted source is only a hint (15), below the line');
   const r = cls('OpenAI rolls out ChatGPT price increase for Plus subscribers'); assert.equal(r.status, 'relevant'); assert.ok(r.matched.includes('chatgpt'));
   const mn = R.classify({ title: 'Gemini gets a redesign', summary: '', reliability: 60 }, ctx, { minRelevance: 90 }); assert.equal(mn.status, 'irrelevant', 'the threshold is a setting');
   assert.equal(cls('').status, 'irrelevant');
@@ -163,4 +164,27 @@ test('safeFetch: size limit (also for decompressed data) and time limit', async 
     } finally { await s.close(); }
   });
   await withPrivate(async () => assert.equal(await code(fetchText('http://127.0.0.1:1/')), 'network', 'connection refused is a readable network error'));
+});
+
+test('relevance: tuned on 490 REAL headlines - what must pass, what must be kept out (and why)', () => {
+  const ok = [
+    ['ROMULUS ClickFix Attacks Deliver RAT That Can Spy on Users and Control PCs'], ['ASUS warns of critical hard-coded key flaw in Control Center Express'], ['Etsy says it will not use sellers’ content to train AI after they revolt over policy changes'],
+    ['Car Keys in Apple Wallet coming soon to these popular vehicle brands'], ['Google rolls out new search homepage with AI chat history and no search button'], ['A Single Malicious Webpage Let Researchers Hijack Meta Muse and Access Private Chats'],
+    ['Claude Free vs Pro, usage limits and plan comparison'], ['Google Is Killing the Nest App. Here’s What Comes Next'], ['Bazuka Android Malware Uses Fake Screen Overlays to Hide Credential Theft and Device Control'],
+    ['Explore the Codex Security Plugin', { reliability: 90, sourceName: 'OpenAI News' }], ['Microsoft To Do is retiring, including Mac and iOS apps'], ['Staples Canada says customer information accessed in data breach'],
+  ];
+  for (const [t, extra] of ok) assert.equal(cls(t, extra || {}).status, 'relevant', t);
+  const excluded = [
+    ['Black Friday Week deals: AirPods Max 2 $130 off, AirPods Pro 3, M5 MacBook Air'], ['Anthropic IPO success boosts hopes for OpenAI listing'], ['Anthropic: A Surprisingly Sane Valuation For A World Hooked On Claude'],
+    ['Anthropic Claude AI Predicts a Wild Chainlink Crash for 2027', { publisher: 'TradingView' }], ['Chrome Beta for iOS Update', { reliability: 90 }], ['Apple releases iOS 27.3 public beta 2, new developer beta 2 build'], ['Announcing new builds for 20 November 2026', { sourceName: 'Microsoft Windows Blog', reliability: 85 }],
+    ['Hackers Exploit Critical Cisco Expressway Flaw, Breach Four Devices and Reach Internal Network'], ['PHP security updates fix 18 flaws, including critical RCE bugs'], ['Standing Dooms Data Breach Suit Against Union Fund'], ['Gemini Horoscope Tomorrow, November 22, 2026'],
+    ['Can AI help scientists identify promising drug candidates?'], ['Forget Netflix, this 4K Paramount Plus discount is a rare subscription steal'], ['Citrix DaaS to Double Virtual Desktops per Microsoft Azure Subscription'], ['9to5Mac Daily: November 20, 2026 – Siri AI limits, HomeView update'],
+    ['Las Vegas Grand Prix: Where to watch the next Formula 1 race this weekend'],
+  ];
+  for (const [t, extra] of excluded) assert.equal(cls(t, extra || {}).status, 'excluded', t);
+  for (const t of ['Claude Monet — water lilies, light, and color', 'Honor’s new smartwatch has the brightest display I’ve ever seen on a wearable', 'Is wide the next phone craze? The new Huawei Osta O1 Pro looks like a fat iPhone Air', 'Everything Is a Web Application, Including Your Firewall'.replace('Firewall', 'Router') + ' today']) assert.notEqual(cls(t).status, 'relevant', t);
+  assert.equal(cls('Premium bundle deal for new subscribers', {}).status, 'excluded', '"deal" in the headline');
+  assert.equal(cls('Great new feature for ChatGPT users', { summary: 'It is a great deal for everyone who writes with it.' }).status, 'relevant', 'a word in the SUMMARY never excludes a headline');
+  assert.equal(cls('OpenAI adds a feature', { publisher: 'Seeking Alpha' }).status, 'excluded', 'finance publishers of an aggregator feed are blocked by name');
+  assert.equal(P.DEFAULT_CATEGORIES.find((c) => c.nameEn === 'Apps & Software Updates').keywords.some((k) => ['iphone', 'galaxy', 'pixel', 'macbook'].includes(k)), false, 'device names are not strong terms any more');
 });
