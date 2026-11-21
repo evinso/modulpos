@@ -579,7 +579,10 @@ router.post('/trendyol-import', async (req, res, next) => {
       const wanted = normText(pc.name || lastSeg);
       if (byId && (!wanted || normText(byId.name) === wanted || normText(byId.path).includes(wanted))) category = { id: String(byId.id), name: byId.name, path: byId.path, how: 'exact' };
       else {
-        const guess = wanted ? m.search(pc.name || lastSeg, 1)[0] : null;
+        // a guess by name: the whole name, the last step of the page's path, then single words (longest first); the owner is told to check it
+        const words = String(pc.name || '').split(/\s+/).filter((w) => w.length >= 3).sort((x, y) => y.length - x.length);
+        let guess = null;
+        for (const cand of [pc.name, lastSeg, ...words]) { if (!cand) continue; guess = m.search(cand, 1)[0]; if (guess) break; }
         if (guess) category = { id: String(guess.id), name: guess.name, path: guess.path, how: 'guess' };
       }
     }

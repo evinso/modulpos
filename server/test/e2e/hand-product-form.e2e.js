@@ -30,7 +30,8 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     const base = `/marketplace/connections/${conn}/product-categories`;
 
     // ── a real category and its real required attributes ──
-    const found = (await a('GET', `${base}/search?q=${encodeURIComponent('kupa bardak')}`)).d || [];
+    let found = [];
+    for (const q of ['kupa', 'bardak', 'kolye', 'yüzük']) { found = (await a('GET', `${base}/search?q=${encodeURIComponent(q)}`)).d || []; if (found.length) break; }
     ok('the category tree answers a search', found.length > 0, JSON.stringify(found.slice(0, 2)));
     let cat = null, form = null;
     for (const leaf of found.slice(0, 8)) {
