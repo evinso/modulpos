@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { Play, Plus, Trash2, FlaskConical, ExternalLink, Pencil } from 'lucide-react';
+import { Play, Plus, Trash2, FlaskConical, ExternalLink, Pencil, RotateCcw } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { Alert, Async, Badge, Card, Check, Empty, Field, Modal, NeedsProject, PageHead, Pager, Tabs, useAction, useApp, useLoad, useRunWatcher } from '../ui.jsx';
 import { dt, num } from '../format.js';
@@ -156,15 +156,18 @@ export default function News() {
   const cats = useLoad(() => (projectId ? api.get(`/projects/${projectId}/categories`) : Promise.resolve({ categories: [] })), [projectId]);
   const [run, setRun] = useRunWatcher((r) => { setRev((x) => x + 1); toast(r.status === 'ok' ? 'Tarama tamamlandı' : r.status === 'partial' ? 'Tarama kısmen tamamlandı' : 'Tarama başarısız', r.status === 'error' ? 'bad' : 'ok'); });
   const [act, busy] = useAction();
+  const [recl, setRecl] = useState(null);
   if (!projectId) return <NeedsProject />;
+  const reclassify = async () => { const r = await act(() => api.post('/news/reclassify', { projectId, days: 14 })); if (r) { setRecl(r); setRev((x) => x + 1); } };
   const start = async () => { const r = await act(() => api.post('/news/run', { projectId })); if (r && r.run) setRun(r.run); };
   const categories = cats.data ? cats.data.categories.filter((c) => c.status !== 'archived') : [];
   return (
     <div className="page">
-      <PageHead title="Dünya Gündemi" actions={can('research.write') && <button className="btn primary" disabled={busy || (run && run.status === 'running')} onClick={start}><Play size={15} />Şimdi tara</button>}>
-        Seçili projenin haber kaynakları taranır; her haber önce nişe ve kapsam dışı konulara göre süzülür. Nişe uymayan haberler makale üretimine alınmaz. Aynı olayı anlatan haberler tek olayda toplanır. Otomatik zamanlı tarama Aşama 4’te gelecek; şimdilik buton ile çalışır.
+      <PageHead title="Dünya Gündemi" actions={can('research.write') && <><button className="btn" disabled={busy} onClick={reclassify} title="Kategori anahtar kelimelerini ya da kapsam dışı konuları değiştirdikten sonra son 14 günün haberlerini yeni kurallarla yeniden değerlendirir"><RotateCcw size={15} />Yeniden değerlendir</button><button className="btn primary" disabled={busy || (run && run.status === 'running')} onClick={start}><Play size={15} />Şimdi tara</button></>}>
+        Seçili projenin haber kaynakları taranır; her haber önce nişe ve kapsam dışı konulara göre süzülür. Nişe uymayan haberler makale üretimine alınmaz. Kuralları (kategori anahtar kelimeleri, kapsam dışı konular) Strateji sayfasından düzeltip buradan “Yeniden değerlendir”e basarak etkisini hemen görebilirsiniz. Aynı olayı anlatan haberler tek olayda toplanır. Otomatik zamanlı tarama Aşama 4’te gelecek; şimdilik buton ile çalışır.
       </PageHead>
       <RunSummary run={run} />
+      {recl && <Alert kind="ok" title="Yeniden değerlendirildi">Son 14 günün {num(recl.checked)} haberi yeni kurallarla tekrar süzüldü: {num(recl.changed)} haberin durumu değişti ({num(recl.becameRelevant)} nişe uygun oldu, {num(recl.becameIrrelevant)} ilgisiz oldu, {num(recl.becameExcluded)} kapsam dışı oldu). Elle verdiğiniz kararlar korunur.</Alert>}
       <Tabs tabs={[['clusters', 'Olaylar'], ['items', 'Haberler'], ['sources', 'Kaynaklar'], ['runs', 'Taramalar']]} value={tab} onChange={setTab} />
       {tab === 'clusters' && <Clusters key={`c${rev}${projectId}`} projectId={projectId} canWrite={can('research.write')} categories={categories} />}
       {tab === 'items' && <Items key={`i${rev}${projectId}`} projectId={projectId} categories={categories} />}

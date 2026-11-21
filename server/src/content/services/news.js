@@ -264,7 +264,7 @@ async function processItems(projectId, source, feed, { ctx, cfg, clusters, touch
   const newClusters = []; const rows = [];
   for (const it of take) {
     const publisher = it.sourceName || source.name;
-    const cls = classify({ title: it.title, summary: it.summary, reliability: source.reliability, sourceName: source.kind === 'rss' ? source.name : '' }, ctx, { minRelevance: cfg.minRelevance });
+    const cls = classify({ title: it.title, summary: it.summary, reliability: source.reliability, sourceName: source.kind === 'rss' ? source.name : '', publisher: source.kind === 'rss' ? '' : publisher }, ctx, { minRelevance: cfg.minRelevance });
     const sig = signature(it.title); const sk = key(publisher);
     let clusterId = null;
     for (const cl of clusters.values()) { if (cl.members.some((m) => sameEvent(sig, m.sig, { sameSource: m.key === sk }))) { clusterId = cl.id; break; } }
@@ -311,6 +311,36 @@ async function purgeOld(projectId) {
     AND NOT EXISTS (SELECT 1 FROM topics t WHERE t.cluster_id = i.cluster_id)`, [projectId]);
   if (a.rowCount) await db.query('DELETE FROM news_clusters c WHERE c.project_id = $1 AND NOT EXISTS (SELECT 1 FROM news_items i WHERE i.cluster_id = c.id) AND NOT EXISTS (SELECT 1 FROM topics t WHERE t.cluster_id = c.id)', [projectId]);
   return a.rowCount;
+}
+
+
+/**
+ * Runs the CURRENT niche filter again over the headlines of the last `days` days (after the keyword lists or excluded topics were edited), so the effect of an edit is visible at once.
+ * Events a person decided on (manual_override) are left alone. A fixed number of statements however many headlines there are.
+ * @returns { checked, changed, becameRelevant, becameIrrelevant, becameExcluded }
+ */
+async function reclassify(projectId, { days = 14, now = new Date() } = {}) {
+  const d = Math.min(60, Math.max(1, days | 0 || 14));
+  const cfg = (await settings.get('news', projectId)).value; const ctx = await loadContext(projectId);
+  const items = (await db.query(`SELECT i.id, i.cluster_id, i.title, i.summary, i.source_name, i.reliability, i.status, i.relevance, i.category_id, s.kind, s.name AS feed_name
+    FROM news_items i LEFT JOIN news_sources s ON s.id = i.source_id
+    WHERE i.project_id = $1 AND coalesce(i.published_at, i.fetched_at) > $2::timestamptz - ($3 || ' days')::interval
+      AND NOT EXISTS (SELECT 1 FROM news_clusters c WHERE c.id = i.cluster_id AND c.manual_override) LIMIT 20000`, [projectId, now, String(d)])).rows;
+  const out = { checked: items.length, changed: 0, becameRelevant: 0, becameIrrelevant: 0, becameExcluded: 0 };
+  const rows = []; const touched = new Set();
+  for (const it of items) {
+    const rss = it.kind === 'rss';
+    const c = classify({ title: it.title, summary: it.summary, reliability: it.reliability, sourceName: rss ? it.feed_name : '', publisher: rss ? '' : it.source_name }, ctx, { minRelevance: cfg.minRelevance });
+    if (c.status === it.status && c.relevance === it.relevance && c.categoryId === it.category_id) continue;
+    out.changed++; if (c.status !== it.status) { if (c.status === 'relevant') out.becameRelevant++; else if (c.status === 'excluded') out.becameExcluded++; else out.becameIrrelevant++; }
+    rows.push({ id: it.id, category_id: c.categoryId, relevance: c.relevance, status: c.status, reason: c.reason.slice(0, 300), matched_terms: c.matched.slice(0, 12) }); if (it.cluster_id) touched.add(it.cluster_id);
+  }
+  for (let i = 0; i < rows.length; i += 400) {
+    await db.query(`UPDATE news_items n SET category_id = x.category_id, relevance = x.relevance, status = x.status, reason = x.reason, matched_terms = ARRAY(SELECT jsonb_array_elements_text(x.matched_terms))
+      FROM jsonb_to_recordset($1::jsonb) AS x(id uuid, category_id uuid, relevance int, status text, reason text, matched_terms jsonb) WHERE n.id = x.id`, [JSON.stringify(rows.slice(i, i + 400))]);
+  }
+  if (touched.size) await refreshClusters(projectId, [...touched]);
+  return out;
 }
 
 /** Starts a pass in the background (the panel polls the run); a second start while one runs is refused. */
@@ -378,4 +408,4 @@ async function setClusterStatus(id, status, { categoryId } = {}) {
   return getCluster(id);
 }
 
-module.exports = { DEFAULT_SOURCES, NOTE, listSources, createSource, getSource, updateSource, deleteSource, seedDefaultSources, readSource, testSource, runDiscovery, startDiscovery, refreshClusters, purgeOld, listItems, listClusters, getCluster, setClusterStatus };
+module.exports = { DEFAULT_SOURCES, NOTE, listSources, createSource, getSource, updateSource, deleteSource, seedDefaultSources, readSource, testSource, runDiscovery, startDiscovery, refreshClusters, purgeOld, reclassify, listItems, listClusters, getCluster, setClusterStatus };

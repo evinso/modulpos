@@ -24,7 +24,7 @@ class DataForSeoError extends Error {
 }
 
 const MESSAGES = {
-  40100: ['auth', 'DataForSEO kimlik doğrulaması başarısız (login ya da API şifresi hatalı)'], 40104: ['auth', 'DataForSEO hesabı doğrulanmamış; DataForSEO panelinden hesabı doğrulayın'],
+  40100: ['auth', 'DataForSEO kimlik doğrulaması başarısız (login ya da API şifresi hatalı)'], 40104: ['verify', 'DataForSEO hesabınız henüz doğrulanmamış: app.dataforseo.com adresinden doğrulayın (doğrulanana kadar ücretli sorgular çalışmaz)'],
   40200: ['funds', 'DataForSEO bakiyesi yetersiz'], 40210: ['funds', 'DataForSEO bakiyesi yetersiz'], 40203: ['budget', 'DataForSEO hesabının maliyet sınırı aşıldı'],
   40202: ['rate_limit', 'DataForSEO dakikalık istek sınırı aşıldı; biraz sonra tekrar deneyin'], 40209: ['rate_limit', 'DataForSEO aynı anda çok fazla sorgu aldı; biraz sonra tekrar deneyin'],
   40501: ['bad_request', 'DataForSEO isteği geçersiz bulundu'], 40502: ['bad_request', 'DataForSEO isteği boş bulundu'], 40503: ['bad_request', 'DataForSEO isteği geçersiz bulundu'], 40506: ['bad_request', 'DataForSEO bilinmeyen alan bildirdi'],
@@ -74,10 +74,12 @@ function createClient({ login, password, fetchImpl = globalThis.fetch, timeoutMs
     } catch (err) {
       throw new DataForSeoError(err && err.name === 'TimeoutError' ? 'timeout' : 'network', err && err.name === 'TimeoutError' ? `DataForSEO ${Math.round(timeoutMs / 1000)} saniyede cevap vermedi` : 'DataForSEO’ya ulaşılamadı (ağ hatası)', { retryable: false, maybeBilled: true });
     }
+    const json = await res.json().catch(() => null);
+    // DataForSEO reports many refusals as HTTP 401 / 402 / 403 WITH a JSON body that says why (seen on a real unverified account: 403 + status_code 40104): read the reason first
+    if (!res.ok && json && typeof json === 'object' && json.status_code && json.status_code !== 20000) throw fail(json.status_code, json.status_message);
     if (res.status === 401) throw new DataForSeoError('auth', 'DataForSEO kimlik doğrulaması başarısız (login ya da API şifresi hatalı)', { status: 401 });
     if (res.status === 402) throw new DataForSeoError('funds', 'DataForSEO bakiyesi yetersiz', { status: 402 });
     if (!res.ok) throw new DataForSeoError('http', `DataForSEO HTTP ${res.status} döndürdü`, { status: res.status, retryable: res.status >= 500 });
-    const json = await res.json().catch(() => null);
     if (!json || typeof json !== 'object') throw new DataForSeoError('bad_answer', 'DataForSEO okunamayan bir cevap verdi');
     if (json.status_code && json.status_code !== 20000) throw fail(json.status_code, json.status_message);
     const task = Array.isArray(json.tasks) ? json.tasks[0] : null;
@@ -119,6 +121,8 @@ function createClient({ login, password, fetchImpl = globalThis.fetch, timeoutMs
       const forums = items.filter((i) => i && i.type === 'discussions_and_forums').flatMap((i) => (i.items || []).map((q) => ({ domain: String(q.domain || '').toLowerCase(), title: String(q.title || '') })));
       return { organic, questions, related, forums, features: Array.isArray(res.item_types) ? res.item_types.filter((t) => t && t !== 'organic') : [], resultsCount: num(res.se_results_count), cost: r.cost, empty: r.empty };
     },
+    /** Free: does this account may use the API at all? (an unverified account is refused with 40104 on every endpoint but account data) */
+    async access() { await call('/v3/serp/google/languages', null, { method: 'GET' }); return true; },
     /** Account data (free): the balance in USD. */
     async userData() {
       const r = await call(EP.user, null, { method: 'GET' });

@@ -119,7 +119,13 @@ const TESTS = {
     if (j.status_code && j.status_code !== 20000) return { ok: false, message: `DataForSEO hata döndürdü: ${String(j.status_message || j.status_code).slice(0, 200)}` };
     const t = j.tasks && j.tasks[0] && j.tasks[0].result && j.tasks[0].result[0];
     const balance = t && t.money && typeof t.money.balance === 'number' ? t.money.balance : null;
-    return { ok: true, message: balance === null ? 'DataForSEO bağlantısı çalışıyor (bakiye okunamadı).' : `DataForSEO bağlantısı çalışıyor. Bakiye: $${balance.toFixed(2)}`, balanceUsd: balance };
+    const bal = balance === null ? '' : ` Bakiye: $${balance.toFixed(2)}`;
+    // account data works even for an UNVERIFIED account; every other endpoint then answers 40104. A free listing call tells the difference.
+    const acc = await fetchImpl('https://api.dataforseo.com/v3/serp/google/languages', { headers: { Authorization: `Basic ${auth}` }, signal: AbortSignal.timeout(12000) });
+    const aj = await acc.json().catch(() => ({}));
+    if (acc.status === 403 || aj.status_code === 40104) return { ok: false, balanceUsd: balance, message: `Kimlik bilgileri doğru ama DataForSEO hesabınız henüz doğrulanmamış: app.dataforseo.com adresinden doğrulayın; doğrulanana kadar ücretli sorgular çalışmaz.${bal}` };
+    if (!acc.ok || (aj.status_code && aj.status_code !== 20000)) return { ok: false, balanceUsd: balance, message: `DataForSEO hesabı API'ye erişemiyor (${aj.status_code || acc.status}: ${String(aj.status_message || '').slice(0, 120)}).${bal}` };
+    return { ok: true, message: balance === null ? 'DataForSEO bağlantısı çalışıyor (bakiye okunamadı).' : `DataForSEO bağlantısı çalışıyor ve hesap doğrulanmış.${bal}`, balanceUsd: balance };
   },
   async telegram({ secret, fetchImpl }) {
     const res = await fetchImpl(`https://api.telegram.org/bot${secret}/getMe`, { signal: AbortSignal.timeout(12000) });

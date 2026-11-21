@@ -15,7 +15,7 @@ const { matchExcluded } = require('./projects');
 const WEAK_TERMS = new Set(['ai', 'artificial intelligence', 'machine learning', 'tech', 'technology', 'digital', 'software', 'app', 'apps', 'online', 'internet', 'cyber', 'data', 'update', 'updates',
   'fix', 'guide', 'tips', 'feature', 'features', 'security', 'privacy', 'free', 'price', 'pricing', 'new', 'tracking', 'password', 'passwords', 'reset', 'enable', 'disable', 'cancel', 'tier', 'beta',
   'leak', 'leaked', 'premium', 'bundle', 'explained', 'what is', 'turn on', 'turn off', 'recover', 'beginner', 'checklist', 'outage', 'setup guide', 'worth it', 'a month', 'per month', 'discontinue',
-  'how to', 'how do i', 'rolling out', 'rolls out', 'now available', 'scam', 'scams', 'shutting down', 'discontinued', 'cheat sheet', 'hijack', 'hijacked', 'stable channel', 'sunset']);
+  'claude', 'how to', 'how do i', 'rolling out', 'rolls out', 'now available', 'scam', 'scams', 'shutting down', 'discontinued', 'cheat sheet', 'hijack', 'hijacked', 'stable channel', 'sunset']);
 const OFFICIAL = 85;
 
 /** Reads what the filter needs for one project: categories with their keyword lists and the excluded topics. */
@@ -29,7 +29,7 @@ async function loadContext(projectId) {
   };
 }
 
-function scoreCategory(cat, title, summary) {
+function scoreCategory(cat, title, summary, feedName = '', official = false) {
   const strong = []; const weak = [];
   let t = 0; let s = 0; let wt = 0; let ws = 0;
   const inTitle = matchTerms(title, cat.keywords); const inSummary = matchTerms(summary, cat.keywords);
@@ -38,34 +38,38 @@ function scoreCategory(cat, title, summary) {
     if (inTitle.includes(k)) continue;
     if (WEAK_TERMS.has(k.toLowerCase())) { ws++; weak.push(k); } else { s++; strong.push(k); }
   }
-  const score = Math.min(100, 40 * Math.min(2, t) + 15 * Math.min(3, s) + 12 * Math.min(2, wt) + 5 * Math.min(2, ws));
+  // the feed's own name ("OpenAI News", "Microsoft Windows Blog"): ONE strong term counts, more than a summary mention when the source is official
+  const inFeed = matchTerms(feedName, cat.keywords).filter((k) => !WEAK_TERMS.has(k.toLowerCase()) && !strong.includes(k));
+  if (inFeed.length) strong.push(inFeed[0]);
+  const score = Math.min(100, 40 * Math.min(2, t) + 15 * Math.min(3, s) + (inFeed.length ? (official ? 25 : 15) : 0) + 12 * Math.min(2, wt) + 5 * Math.min(2, ws));
   return { score, strong: [...new Set(strong)], weak: [...new Set(weak)] };
 }
 
 /**
- * @param item { title, summary, reliability, sourceName }  (sourceName = the name of the feed the owner chose, e.g. "Google Chrome Releases"; used like the summary. Never a publisher of an aggregator feed.)
+ * @param item { title, summary, reliability, sourceName, publisher }  (sourceName = the name of the feed the owner chose, e.g. "Google Chrome Releases", never an aggregator's publisher; publisher = who published an item of an aggregator feed such as Google News)
  * @param ctx  loadContext() result  @param opts { minRelevance }
  * @returns { status: 'relevant' | 'irrelevant' | 'excluded', relevance, categoryId, matched, reason }
  */
 function classify(item, ctx, { minRelevance = 35 } = {}) {
-  const title = item.title || ''; const summary = item.summary || '';
-  const context = `${summary} . ${item.sourceName || ''}`;        // the feed's own name tells what an untitled-by-brand headline is about
-  const text = `${title} . ${context}`;
-  const ex = matchExcluded(text, ctx.excludedAll);
+  const title = item.title || ''; const summary = item.summary || ''; const feed = item.sourceName || '';
+  const official = (item.reliability || 0) >= OFFICIAL;
+  // excluded topics: the headline and the publisher only. A summary may say "a great deal" or mention a rival product; the headline is what the article is about.
+  const exText = `${title} . ${item.publisher || ''}`;
+  const ex = matchExcluded(exText, ctx.excludedAll);
   if (ex.length) return { status: 'excluded', relevance: 0, categoryId: null, matched: [], reason: `Kapsam dışı konu: ${ex.join(', ')}` };
   let best = null;
   for (const cat of ctx.categories) {
-    const r = scoreCategory(cat, title, context);
+    const r = scoreCategory(cat, title, summary, feed, official);
     if (!best || r.score > best.score) best = { ...r, cat };
   }
   if (best && best.score > 0) {
     const catEx = [...best.cat.excluded, ...ctx.excludedByCategory.filter((x) => x.category_id === best.cat.id).map((x) => x.topic)];
-    const hit = matchExcluded(text, catEx);
+    const hit = matchExcluded(exText, catEx);
     if (hit.length) return { status: 'excluded', relevance: 0, categoryId: best.cat.id, matched: [], reason: `“${best.cat.name}” kategorisinde kapsam dışı: ${hit.join(', ')}` };
   }
   if (!best || best.score === 0) return { status: 'irrelevant', relevance: 0, categoryId: null, matched: [], reason: 'Nişe uygun terim bulunamadı' };
   let relevance = best.score;
-  if ((item.reliability || 0) >= OFFICIAL && best.strong.length) relevance = Math.min(100, relevance + 10);
+  if (official && best.strong.length) relevance = Math.min(100, relevance + 10);
   const matched = [...best.strong, ...best.weak];
   if (relevance >= minRelevance) return { status: 'relevant', relevance, categoryId: best.cat.id, matched, reason: `“${best.cat.name}”: ${matched.slice(0, 6).join(', ')}` };
   return { status: 'irrelevant', relevance, categoryId: best.cat.id, matched, reason: best.strong.length ? `Yetersiz eşleşme (${relevance}/${minRelevance}): ${matched.slice(0, 5).join(', ')}` : `Yalnızca genel terimler eşleşti (${matched.slice(0, 4).join(', ')}): ${relevance}/${minRelevance}` };

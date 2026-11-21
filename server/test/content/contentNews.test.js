@@ -252,3 +252,26 @@ test('PERFORMANCE: the database is far away (Render Singapore, Supabase Tokyo): 
   assert.ok(big.topics > small.topics && big.topics >= 50, `${small.topics} -> ${big.topics} topics`);
   assert.ok(big.refresh <= small.refresh + 4 && big.refresh < 30, `refresh: ${small.refresh} statements for ${small.topics} topics, ${big.refresh} for ${big.topics}`);
 });
+
+test('reclassify: editing the keyword lists / excluded topics takes effect on the headlines already stored (a person\'s decisions stay), in a fixed number of statements', opts, async () => {
+  const pid = await site();
+  await src(pid, 'Mixed', 'rss', 'https://m.example/feed');
+  const feeds = { 'https://m.example/feed': rssOf([['Google rolls out Gemini update to Android phones', 'https://m.example/1'], ['Quantum widgets are trending among hobbyists', 'https://m.example/2'], ['Photon gadget maker raises prices for subscribers', 'https://m.example/3'], ['Hackers leak customer data in major data breach', 'https://m.example/4'], ['Weekend sale on gadgets', 'https://m.example/5']]) };
+  await N.runDiscovery(pid, { fetchImpl: net(feeds).fetchImpl, now: NOW, gapMs: 0 });
+  const by = async () => Object.fromEntries((await N.listItems(pid, { pageSize: 50 })).items.map((i) => [i.title.split(' ')[0], i]));
+  let m = await by(); assert.deepEqual([m.Google.status, m.Quantum.status, m.Photon.status, m.Hackers.status], ['relevant', 'irrelevant', 'relevant', 'relevant']);
+  // the owner teaches the filter: a new strong term for a category, a new excluded topic, and decides about one event by hand
+  const cats = await P.listCategories(pid);
+  await P.updateCategory(cats[1].id, { relatedKeywords: [...cats[1].relatedKeywords, 'quantum widgets'] });
+  await P.addExcluded(pid, { topic: 'photon gadget', reason: 'test' });
+  const hackers = (await N.listClusters(pid, { q: 'Hackers' })).items[0]; await N.setClusterStatus(hackers.id, 'irrelevant');
+  await P.addExcluded(pid, { topic: 'data breach', reason: 'test' });
+  const stmts = await countQueries(async () => { var r = await N.reclassify(pid, { now: NOW }); assert.deepEqual([r.checked, r.becameRelevant, r.becameExcluded], [4, 1, 1], JSON.stringify(r)); });
+  assert.ok(stmts < 20, `${stmts} statements`);
+  m = await by();
+  assert.deepEqual([m.Quantum.status, m.Photon.status, m.Google.status], ['relevant', 'excluded', 'relevant']);
+  assert.equal(m.Hackers.status, 'relevant', 'the stored item of an event a person decided on is not touched (the event itself keeps the person\'s decision)'); assert.equal((await N.getCluster(hackers.id)).status, 'irrelevant');
+  assert.match(m.Photon.reason, /photon gadget/); assert.match(m.Quantum.reason, /quantum widgets/);
+  assert.equal((await N.listClusters(pid, { q: 'Quantum' })).items[0].status, 'relevant', 'the event follows its headlines');
+  const again = await N.reclassify(pid, { now: NOW }); assert.deepEqual([again.changed, again.becameRelevant], [0, 0], 'a second pass changes nothing');
+});
