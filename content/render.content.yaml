@@ -1,0 +1,37 @@
+# Static site for the ModulPOS AI Content Intelligence admin panel (https://content.modulpos.com).
+# NOT part of the main render.yaml on purpose: syncing that blueprint must never touch this, and this must never touch ModulPOS.
+# Create it once: Render dashboard -> New -> Static Site -> repo evinso/modulpos, Root Directory content/admin, same settings as below;
+# or New -> Blueprint with this file path. Then add the custom domain content.modulpos.com (CNAME to the static site's address).
+services:
+  - type: web
+    name: modulpos-content-admin
+    runtime: static
+    rootDir: content/admin
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Robots-Tag
+        value: noindex, nofollow
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=()
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.modulpos.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_CONTENT_API_BASE_URL
+        value: https://api.modulpos.com/api/content

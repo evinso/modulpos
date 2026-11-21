@@ -36,3 +36,4 @@ server/test2.js
 .claude/
 
 client/test/smoke/.out*.mjs
+content/admin/test/.out*.mjs

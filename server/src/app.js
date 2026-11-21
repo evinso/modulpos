@@ -39,6 +39,11 @@ const webhookRoutes = require('./routes/webhooks');
 
 const { errorHandler } = require('./middleware/errorHandler');
 
+// ModulPOS AI Content Intelligence (separate folder src/content, its own database): OFF unless CONTENT_DATABASE_URL is set.
+// A problem loading it must never keep ModulPOS from starting.
+let contentModule = { mount: () => ({ enabled: false }), corsOrigins: () => [] };
+try { contentModule = require('./content'); } catch (err) { console.error('[Content] module could not be loaded, ModulPOS continues without it:', err.message); }
+
 // Fail fast on a missing/placeholder signing secret in production
 if (process.env.NODE_ENV === 'production') {
   const secret = process.env.JWT_SECRET || '';
@@ -83,7 +88,7 @@ const envOrigins = process.env.CORS_ORIGIN
   : [];
 
 // Always include production origins regardless of env var
-const allowedOrigins = [...new Set([...envOrigins, ...productionOrigins, ...defaultDevOrigins])];
+const allowedOrigins = [...new Set([...envOrigins, ...productionOrigins, ...defaultDevOrigins, ...contentModule.corsOrigins()])];
 
 const corsOptions = {
   origin: (origin, callback) => {
@@ -162,6 +167,7 @@ app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/whatsapp-bulk', whatsappBulkRoutes);
 app.use('/api/uploads', uploadRoutes);   // public: the marketplace downloads uploaded product pictures from here
 app.use('/api/webhooks', webhookRoutes);
+contentModule.mount(app);                // /api/content (admin panel of the content platform; 503 "kapalı" while the module is off)
 
 // Health check
 // Shallow by default (used by Render's health check, must not depend on the database).
