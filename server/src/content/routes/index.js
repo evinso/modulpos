@@ -173,6 +173,8 @@ function buildRouter(getState) {
   r.post('/articles/:id/versions/:v/restore', mw.need('articles.write'), wrap(async (req, res) => { const a = await articles.restoreVersion(req.params.id, parseInt(req.params.v, 10), { userId: uid(req) }); await A(req, 'article.restore', 'article', a.id, null, { from: a.restoredFrom }); res.json(a); }));
 
   // ── notifications, logs, users, system ───────────────────────────────────────────────────────────────────
+  require('./research')(r, { wrap, mw, A, uid });
+
   r.get('/notifications', wrap(async (req, res) => res.json(await notifications.list({ unreadOnly: req.query.unread === '1', severity: req.query.severity || null, limit: parseInt(req.query.limit, 10) || 50, offset: parseInt(req.query.offset, 10) || 0 }))));
   r.post('/notifications/read-all', wrap(async (_req, res) => res.json({ marked: await notifications.markAllRead() })));
   r.post('/notifications/:id/read', wrap(async (req, res) => { await notifications.markRead(req.params.id); res.json({ ok: true }); }));

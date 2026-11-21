@@ -14,6 +14,12 @@ import Bots from './pages/Bots.jsx';
 import Notifications from './pages/Notifications.jsx';
 import Logs from './pages/Logs.jsx';
 import Settings from './pages/Settings.jsx';
+import News from './pages/News.jsx';
+import Trends from './pages/Trends.jsx';
+import Niche from './pages/Niche.jsx';
+import Keywords from './pages/Keywords.jsx';
+import Serp from './pages/Serp.jsx';
+import Opportunities from './pages/Opportunities.jsx';
 
 function AuthScreen({ setupNeeded, tokenConfigured, onDone }) {
   const [mode, setMode] = useState(setupNeeded ? 'setup' : 'login');
@@ -84,7 +90,7 @@ function Shell() {
   return (
     <div className="shell">
       <aside className={`side ${open ? 'open' : ''}`} aria-label="Ana menü">
-        <div className="brand"><div className="logo">M</div><div>AI Content Intelligence<small>ModulPOS · Aşama 1</small></div></div>
+        <div className="brand"><div className="logo">M</div><div>AI Content Intelligence<small>ModulPOS · Aşama 2</small></div></div>
         {MENU.map((m) => {
           const Icon = m.icon;
           if (!m.to) return <div key={m.label} className="nav disabled" title={`Bu sayfa Aşama ${m.phase}’te geliştirilecek`} aria-disabled="true"><Icon size={17} />{m.label}<span className="tag">Aşama {m.phase}</span></div>;
@@ -115,6 +121,12 @@ function Shell() {
           <Route path="/articles" element={<Articles />} />
           <Route path="/articles/new" element={<ArticleEditor />} />
           <Route path="/articles/:id" element={<ArticleEditor />} />
+          <Route path="/news" element={<News />} />
+          <Route path="/trends" element={<Trends />} />
+          <Route path="/niche" element={<Niche />} />
+          <Route path="/keywords" element={<Keywords />} />
+          <Route path="/serp" element={<Serp />} />
+          <Route path="/opportunities" element={<Opportunities />} />
           <Route path="/limits" element={<Limits />} />
           <Route path="/api-usage" element={<ApiUsage />} />
           <Route path="/bots" element={<Bots />} />

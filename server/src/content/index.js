@@ -10,6 +10,16 @@ const state = { status: 'disabled', error: null, attempts: 0 };
 const getState = () => state;
 const sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); if (t.unref) t.unref(); });
 
+/** Keeps the default project's research setup up to date (each step is guarded by a marker, so it never undoes the owner's choices). */
+async function prepareDefaults(projectId) {
+  try {
+    const up = await require('./services/projects').upgradeDefaults(projectId);
+    const n = await require('./services/news').seedDefaultSources(projectId);
+    const stale = await require('./services/runs').closeStale();
+    if (up.upgraded || n || stale) console.log(`[Content] defaults: ${up.upgraded ? `keywords ${up.keywords}, topics ${up.topics}; ` : ''}${n} news sources added${stale ? `; ${stale} stale run(s) closed` : ''}`);
+  } catch (err) { console.error('[Content] preparing defaults failed (the module keeps running):', err.message); }
+}
+
 async function boot() {
   const projects = require('./services/projects');
   const delays = [5000, 15000, 30000, 60000, 120000, 300000];
@@ -19,6 +29,7 @@ async function boot() {
       state.attempts++;
       const m = await migrate({ log: (s) => console.log(`[Content] ${s}`) });
       const seeded = await projects.seedDefault();
+      await prepareDefaults(seeded.projectId);
       state.status = 'ready'; state.error = null;
       keepDatabaseAwake();
       console.log(`[Content] ready (${m.total} migrations, ${m.applied.length} applied now${seeded.created ? ', default project created' : ''})`);

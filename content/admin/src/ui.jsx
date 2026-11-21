@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { X, Loader2, Info, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
+import { api } from './api.js';
 
 /** Small building blocks shared by every page. */
 const Ctx = createContext(null);
@@ -89,6 +90,30 @@ export function Pager({ page, pageSize, total, onPage }) {
       <div className="row"><button className="btn sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>Önceki</button><button className="btn sm" disabled={page >= pages} onClick={() => onPage(page + 1)}>Sonraki</button></div>
     </div>
   );
+}
+
+/** 0-100 as a bar with the number; `null` shows "Veri yok" (never 0). */
+export function ScoreBar({ value, label, kind }) {
+  if (value === null || value === undefined) return <span className="faint" title="Gerçek veri yok">Veri yok</span>;
+  const k = kind || (value >= 70 ? 'ok' : value >= 40 ? 'warn' : 'bad');
+  return <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }} title={label}><div className={`bar ${k}`} style={{ width: 70 }}><i style={{ width: `${Math.max(2, value)}%` }} /></div><strong style={{ minWidth: 24 }}>{value}</strong></div>;
+}
+
+export const NeedsProject = () => <div className="page"><Alert kind="warn">Önce üstteki menüden bir proje seçin.</Alert></div>;
+
+/** Follows a background run: polls every 1.5 s until it is no longer "running", then calls onDone(run). Returns [run, setRun]. */
+export function useRunWatcher(onDone) {
+  const [run, setRun] = useState(null);
+  const cb = useRef(onDone); cb.current = onDone;
+  useEffect(() => {
+    if (!run || run.status !== 'running') return undefined;
+    let stop = false;
+    const t = setInterval(async () => {
+      try { const r = await api.get(`/runs/${run.id}`); if (!stop && r.status !== 'running') { setRun(r); if (cb.current) cb.current(r); } } catch { /* try again on the next tick */ }
+    }, 1500);
+    return () => { stop = true; clearInterval(t); };
+  }, [run]);
+  return [run, setRun];
 }
 
 /** Runs an async loader and keeps { data, error, loading, reload }. `deps` re-run it. */

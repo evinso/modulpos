@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:wfw="http://wellformedweb.org/CommentAPI/"
+	xmlns:dc="http://purl.org/dc/elements/1.1/"
+	xmlns:atom="http://www.w3.org/2005/Atom"
+	xmlns:sy="http://purl.org/rss/1.0/modules/syndication/"
+	xmlns:slash="http://purl.org/rss/1.0/modules/slash/"
+	>
+
+<channel>
+	<title>Archive: 2026 - GitHub Changelog</title>
+	<atom:link href="https://github.blog/changelog/feed/" rel="self" type="application/rss+xml" />
+	<link>https://github.blog/changelog/</link>
+	<description>Updates, ideas, and inspiration from GitHub to help developers build and design software.</description>
+	<lastBuildDate>Fri, 20 Nov 2026 21:50:43 +0000</lastBuildDate>
+	<language>en-US</language>
+	<sy:updatePeriod>
+	hourly	</sy:updatePeriod>
+	<sy:updateFrequency>
+	1	</sy:updateFrequency>
+	<generator>https://wordpress.org/?v=7.1.5</generator>
+
+<image>
+	<url>https://github.blog/wp-content/uploads/2019/01/cropped-github-favicon-512.png?fit=32%2C32</url>
+	<title>Archive: 2026 - GitHub Changelog</title>
+	<link>https://github.blog/changelog/</link>
+	<width>32</width>
+	<height>32</height>
+</image> 
+<site xmlns="com-wordpress:feed-additions:1">153214340</site>	<item>
+		<title>Security advisory permissions are now generally available</title>
+		<link>https://github.blog/changelog/2026-11-20-security-advisory-permissions-are-now-generally-available</link>
+		
+		<dc:creator><![CDATA[Allison]]></dc:creator>
+		<pubDate>Fri, 20 Nov 2026 21:49:29 +0000</pubDate>
+				<guid isPermaLink="false">https://github.blog/changelog/2026-11-20-security-advisory-permissions-are-now-generally-available</guid>
+
+					<description><![CDATA[<p>Organization owners can now let people work on repository security advisories, including private vulnerability reports, through custom repository roles. You no longer have to make them repository administrators or give&#8230;</p>
+<p>The post <a href="https://github.blog/changelog/2026-11-20-security-advisory-permiss]]></description>
+										
+					
+		
+		
+		<category domain="changelog-type"><![CDATA[Improvement]]></category>
+<category domain="changelog-label"><![CDATA[enterprise management tools]]></category>
+<category domain="changelog-label"><![CDATA[supply chain security]]></category>
+<post-id xmlns="com-wordpress:feed-additions:1">100430</post-id>	</item>
+<item>
+		<title>GitHub Enterprise Server 3.23 release candidate</title>
+		<link>https://github.blog/changelog/2026-11-20-github-enterprise-server-3-23-release-candidate</link>
+		
+		<dc:creator><![CDATA[Allison]]></dc:creator>
+		<pubDate>Fri, 20 Nov 2026 20:41:26 +0000</pubDate>
+				<guid isPermaLink="false">https://github.blog/changelog/2026-11-20-github-enterprise-server-3-23-release-candidate</guid>
+
+					<description><![CDATA[<p>GitHub Enterprise Server (GHES) 3.23 is now available and introduces new capabilities across the platform. Here are a few highlights in the 3.23 release: When working in GitHub Projects, you&#8230;</p>
+<p>The post <a href="https://github.blog/changelog/2026-11-20-github-enterprise-server-3-23-release-candidate">GitH]]></description>
+										
+					
+		
+		
+		<category domain="changelog-type"><![CDATA[Release]]></category>
+<category domain="changelog-label"><![CDATA[collaboration tools]]></category>
+<post-id xmlns="com-wordpress:feed-additions:1">100427</post-id>	</item>
+<item>
+		<title>Pin your favorite repositories to your dashboard</title>
+		<link>https://github.blog/changelog/2026-11-20-pin-your-favorite-repositories-to-your-dashboard</link>
+		
+		<dc:creator><![CDATA[Allison]]></dc:creator>
+		<pubDate>Fri, 20 Nov 2026 14:12:05 +0000</pubDate>
+				<guid isPermaLink="false">https://github.blog/changelog/2026-11-20-pin-your-favorite-repositories-to-your-dashboard</guid>
+
+					<description><![CDATA[<p>Choose which repositories appear on the Dashboard with the new Favorite repositories section. If the new dashboard experience isn&#8217;t enabled, Top repositories remains unchanged. Select Edit or Add repositories to&#8230;</p>
+<p>The post <a href="https://github.blog/changelog/2026-11-20-pin-your-favorite-reposito]]></description>
+										
+					
+		
+		
+		<category domain="changelog-type"><![CDATA[Improvement]]></category>
+<category domain="changelog-label"><![CDATA[collaboration tools]]></category>
+<post-id xmlns="com-wordpress:feed-additions:1">100421</post-id>	</item>
+<item>
+		<title>GitHub Desktop now supports multiple accounts per host</title>
+		<link>https://github.blog/changelog/2026-11-19-github-desktop-now-supports-multiple-accounts-per-host</link>
+		
+		<dc:creator><![CDATA[Allison]]></dc:creator>
+		<pubDate>Fri, 20 Nov 2026 02:06:01 +0000</pubDate>
+				<guid isPermaLink="false">https://github.blog/changelog/2026-11-19-github-desktop-now-supports-multiple-accounts-per-host</guid>
+
+					<description><![CDATA[<p>GitHub Desktop now lets you sign in with more than one account on the same host, including GitHub.com, GitHub Enterprise Server, and GHE.com. This has been one of the most&#8230;</p>
+<p>The post <a href="https://github.blog/changelog/2026-11-19-github-desktop-now-supports-multiple-accounts-per-host">GitHub Desktop n]]></description>
+										
+					
+		
+		
+		<category domain="changelog-type"><![CDATA[Improvement]]></category>
+<category domain="changelog-label"><![CDATA[client apps]]></category>
+<post-id xmlns="com-wordpress:feed-additions:1">100418</post-id>	</item>
+<item>
+		<title>Improvements on the pull request overview in public preview</title>
+		<link>https://github.blog/changelog/2026-11-19-improvements-on-the-pull-request-overview-in-public-preview</link>
+		
+		<dc:creator><![CDATA[Allison]]></dc:creator>
+		<pubDate>Fri, 20 Nov 2026 00:02:21 +0000</pubDate>
+				<guid isPermaLink="false">https://github.blog/changelog/2026-11-19-improvements-on-the-pull-request-overview-in-public-preview</guid>
+
+					<description><![CDATA[<p>Your feedback has helped improve the new pull request Overview page since its November 5, 2026 public preview. Here&#8217;s what&#8217;s new! Clearer merge status and next steps Failed optional checks&#8230;</p>
+<p>The post <a href="https://github.blog/changelog/2026-11-19-improvements-on-the-pull-request-overview-i]]></description>
+										
+					
+		
+		
+		<category domain="changelog-type"><![CDATA[Improvement]]></category>
+<category domain="changelog-label"><![CDATA[collaboration tools]]></category>
+<post-id xmlns="com-wordpress:feed-additions:1">100414</post-id>	</item>
+<item>
+		<title>Enterprise Live Migrations from Azure DevOps generally available</title>
+		<link>https://github.blog/changelog/2026-11-19-enterprise-live-migrations-from-azure-devops-generally-available</link>
+		
+		<dc:creator><![CDATA[Allison]]></dc:creator>
+		<pubDate>Thu, 19 Nov 2026 18:50:57 +0000</pubDate>
+				<guid isPermaLink="false">https://github.blog/changelog/2026-11-19-enterprise-live-migrations-from-azure-devops-generally-available</guid>
+
+					<description><![CDATA[<p>Enterprise Live Migrations (ELM) from Azure DevOps Services to GitHub Enterprise Cloud with data residency is now generally available. You can move your repositories while your teams keep working, then&#8230;</p>
+<p>The post <a href="https://github.blog/changelog/2026-11-19-enterprise-live-migrations-from-azure-devo]]></description>
+										
+					
+		
+		
+		<category domain="changelog-type"><![CDATA[Release]]></category>
+<category domain="changelog-label"><![CDATA[enterprise management tools]]></category>
+<post-id xmlns="com-wordpress:feed-additions:1">100407</post-id>	</item>
+</channel></rss>

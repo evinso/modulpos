@@ -1,6 +1,7 @@
 import { PauseCircle, PlayCircle } from 'lucide-react';
 import { api } from '../api.js';
 import { Alert, Async, Badge, Card, PageHead, useAction, useApp, useLoad } from '../ui.jsx';
+import { dt } from '../format.js';
 
 export default function Bots() {
   const { can } = useApp();
@@ -9,7 +10,7 @@ export default function Bots() {
   const pause = async (p) => { if (await run(() => api.post(p ? '/bots/pause' : '/bots/resume'), p ? 'Botlar duraklatıldı' : 'Botlar devam ediyor')) st.reload(); };
   return (
     <div className="page">
-      <PageHead title="Bot Yönetimi">Platformun 15 botu. Bir bot yalnızca kodu gerçekten çalışıyorsa “Hazır” görünür; henüz yazılmamış botlar hangi aşamada geleceğiyle listelenir ve sahte “son çalışma” bilgisi gösterilmez.</PageHead>
+      <PageHead title="Bot Yönetimi">Platformun 15 botu. Bir bot yalnızca kodu gerçekten çalışıyorsa “Hazır” görünür. Aşama 2 botları ilgili sayfalardaki düğmelerle <strong>elle</strong> çalıştırılır; kendiliğinden çalıştıran zamanlayıcı ve görev kuyruğu Aşama 4’te gelecek. “Son çalışma”, “işlem” ve “hata” sayıları gerçek çalıştırma kayıtlarından gelir; henüz yazılmamış botlarda sahte bilgi gösterilmez.</PageHead>
       <Async state={st}>{(d) => (
         <>
           <Alert kind={d.paused ? 'warn' : 'info'} title={d.paused ? 'Botlar duraklatıldı' : `${d.items.filter((b) => b.implemented).length} / ${d.items.length} bot hazır`}>
@@ -21,7 +22,7 @@ export default function Bots() {
               <tbody>{d.items.map((b) => (
                 <tr key={b.key}><td><strong>{b.label}</strong></td><td className="muted">{b.about}</td>
                   <td><Badge kind={b.implemented ? (b.status === 'paused' ? 'warn' : 'ok') : ''}>{b.statusText}</Badge></td>
-                  <td className="faint">{b.lastRunAt || '—'}</td><td className="faint">{b.nextRunAt || '—'}</td><td className="num faint">{b.processed ?? '—'}</td><td className="num faint">{b.errors ?? '—'}</td></tr>))}</tbody></table></div>
+                  <td className="faint">{b.lastRunAt ? <>{dt(b.lastRunAt)} <Badge kind={b.lastRunStatus === 'ok' ? 'ok' : b.lastRunStatus === 'partial' ? 'warn' : 'bad'}>{b.lastRunStatus}</Badge></> : '—'}</td><td className="faint">{b.implemented ? 'zamanlayıcı yok (Aşama 4)' : '—'}</td><td className="num faint">{b.processed ?? '—'}</td><td className="num faint">{b.errors ?? '—'}</td></tr>))}</tbody></table></div>
           </Card>
         </>
       )}</Async>

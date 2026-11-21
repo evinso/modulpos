@@ -36,6 +36,12 @@ function Series({ data, kind = 'bar', label, fmt = num }) {
   );
 }
 
+function Buckets({ c, empty, foot }) {
+  const max = Math.max(1, ...c.buckets.map((b) => b.n)); const total = c.buckets.reduce((a, b) => a + b.n, 0);
+  if (!total) return <p className="muted">{empty}</p>;
+  return <div className="stack">{c.buckets.map((b) => <div key={b.label} className="row between" style={{ flexWrap: 'nowrap' }}><span style={{ width: 90 }}>{b.label}</span><div className="bar" style={{ flex: 1 }}><i style={{ width: `${(b.n / max) * 100}%` }} /></div><strong style={{ width: 32, textAlign: 'right' }}>{b.n}</strong></div>)}<small className="faint">{foot}</small></div>;
+}
+
 function CategoryShare({ cats }) {
   const total = cats.reduce((a, c) => a + c.articles, 0);
   return (
@@ -62,7 +68,7 @@ export default function Dashboard() {
   return (
     <div className="page">
       <PageHead title="Dashboard" actions={<select className="input" style={{ width: 'auto' }} value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Tarih aralığı">{[7, 14, 30, 60, 90].map((d) => <option key={d} value={d}>Son {d} gün</option>)}</select>}>
-        Yalnızca gerçek veriler gösterilir. Henüz geliştirilmemiş aşamalara bağlı rakamlar “0” yerine “Aşama N’de etkinleşir” olarak işaretlenir.
+        Yalnızca gerçek veriler gösterilir. Henüz geliştirilmemiş aşamalara bağlı rakamlar “0” yerine “Aşama N’de etkinleşir” olarak işaretlenir. Bir taramada hiçbir şey bulunmadıysa “0” gerçek bir sonuçtur.
       </PageHead>
       <Async state={st}>{(d) => (
         <>
@@ -80,9 +86,9 @@ export default function Dashboard() {
             </div>
           )}
           <div className="grid g3">
-            {[['SEO fırsatları', d.charts.seoOpportunities], ['Aranma hacmi dağılımı', d.charts.searchVolume], ['Organik trafik', d.charts.organicTraffic]].map(([t, c]) => (
-              <Card key={t} className="flat" title={t}><p className="muted">Aşama {c.phase}’te etkinleşir (gerçek veri kaynağı bağlanınca).</p></Card>
-            ))}
+            <Card flat title="SEO fırsatları (puan dağılımı)"><Buckets c={d.charts.seoOpportunities} empty="Henüz puanlanmış fikir yok. İçerik Fırsatları sayfasından “Yenile ve puanla”." foot={`${d.charts.seoOpportunities.eligible} uygun / ${d.charts.seoOpportunities.total} fikir`} /></Card>
+            <Card flat title="Aranma hacmi dağılımı"><Buckets c={d.charts.searchVolume} empty="Gerçek aranma verisi henüz çekilmedi." foot={`${d.charts.searchVolume.withData} anahtar kelimenin verisi var`} /></Card>
+            <Card flat title="Organik trafik"><p className="muted">Aşama {d.charts.organicTraffic.phase}’te etkinleşir (Search Console bağlanınca).</p></Card>
           </div>
           <div className="grid g2">
             <Card title="Bugünün çalışma limitleri" actions={<Link className="btn sm" to="/limits">Düzenle</Link>}>
