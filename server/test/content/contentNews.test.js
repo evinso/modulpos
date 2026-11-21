@@ -222,3 +222,33 @@ test('background start: the run returns at once, a second start is refused while
   assert.equal((await runs.list({ botKey: 'news_discovery' })).filter((r) => r.status === 'error' && /yeniden başladığı/.test(r.error)).length, 1);
   assert.equal((await runs.lastByBot()).get('news_discovery').runs, 2);
 });
+
+/** every statement of every connection goes through pg's Client.prototype.query: count them */
+async function countQueries(fn) {
+  const { Client } = require('pg'); const orig = Client.prototype.query; let n = 0;
+  Client.prototype.query = function counted(...a) { n++; return orig.apply(this, a); };
+  try { await fn(); } finally { Client.prototype.query = orig; }
+  return n;
+}
+
+test('PERFORMANCE: the database is far away (Render Singapore, Supabase Tokyo): a scan and an idea refresh use a number of statements that does NOT grow with the number of headlines / topics', opts, async () => {
+  const O = require('../../src/content/services/opportunities');
+  const mk = (p, n, start) => rssOf(Array.from({ length: n }, (_, i) => [`ChatGPT and Gemini ${["Plus", "Pro", "Team"][i % 3]} release ${start + i} brings feature ${start + i} to Android users`, `https://${p}.example/${start + i}`, 'Fri, 21 Nov 2026 10:00:00 GMT']));
+  const measure = async (perSource) => {
+    await H.clean(); const pid = await site();
+    for (const p of ['a', 'b', 'c']) await src(pid, `Outlet ${p}`, 'rss', `https://${p}.example/feed`);
+    const map = Object.fromEntries(['a', 'b', 'c'].map((p, i) => [`https://${p}.example/feed`, mk(p, perSource, i * 1000)]));
+    await S.set('news', { maxItemsPerSource: 100 }, { scope: 'project', projectId: pid });
+    let run;
+    const scan = await countQueries(async () => { run = await N.runDiscovery(pid, { fetchImpl: net(map).fetchImpl, now: NOW, gapMs: 0 }); });
+    const refresh = await countQueries(() => O.refresh(pid, { now: NOW }));
+    return { items: run.stats.newItems, scan, refresh, topics: await count('SELECT count(*)::int n FROM topics') };
+  };
+  const small = await measure(10); const big = await measure(60);
+  console.log(`  [statements] scan: ${small.scan} for ${small.items} headlines, ${big.scan} for ${big.items}; refresh: ${small.refresh} for ${small.topics} topics, ${big.refresh} for ${big.topics}`);
+  assert.equal(small.items, 30); assert.equal(big.items, 180);
+  assert.ok(big.scan <= small.scan + 6, `scan: ${small.scan} statements for ${small.items} headlines, ${big.scan} for ${big.items}`);
+  assert.ok(big.scan < 80, `a scan of 3 sources used ${big.scan} statements`);
+  assert.ok(big.topics > small.topics && big.topics >= 50, `${small.topics} -> ${big.topics} topics`);
+  assert.ok(big.refresh <= small.refresh + 4 && big.refresh < 30, `refresh: ${small.refresh} statements for ${small.topics} topics, ${big.refresh} for ${big.topics}`);
+});
