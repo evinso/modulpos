@@ -33,3 +33,35 @@ jobs:
       - run: npm run build
       - name: Render the products screen in jsdom and click through it
         run: npm run test:smoke
+  content:
+    # ModulPOS AI Content Intelligence: integration tests need a real PostgreSQL (row locks, unique indexes, transactions), the admin panel build and its jsdom run against the real API
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: cp, POSTGRES_PASSWORD: cp, POSTGRES_DB: content_test }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U cp -d content_test" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CONTENT_TEST_DATABASE_URL: postgresql://cp:cp@localhost:5432/content_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            content/admin/package-lock.json
+      - name: Server (content integration tests, one file at a time)
+        working-directory: server
+        run: |
+          npm ci
+          npm run test:content
+      - name: Admin panel (build + UI against the real API)
+        working-directory: content/admin
+        run: |
+          npm ci
+          npm run build
+          npm run test:smoke
