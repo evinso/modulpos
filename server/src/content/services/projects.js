@@ -31,24 +31,25 @@ const DEFAULT_CATEGORIES = [
   { name: 'Yapay Zekâ Araçları ve Güncellemeleri', nameEn: 'AI Tools & Updates', share: 35, dailyMax: 3, priority: 10,
     description: 'Yeni AI araçları, chatbot güncellemeleri, AI görsel/video araçları, karşılaştırmalar, abonelik değişiklikleri ve kullanım rehberleri.',
     scope: 'New AI tools, chatbot updates, AI image and video tools, AI software comparisons, feature updates, subscription changes, usage guides, productivity apps, platform announcements',
-    keywords: ['ai tool', 'chatbot', 'ai image generator', 'ai video', 'ai update', 'ai feature', 'ai pricing'], excluded: ['stock price of AI companies', 'AI doom speculation'] },
+    keywords: ['chatgpt', 'gpt-4', 'gpt-5', 'openai', 'anthropic', 'claude', 'gemini', 'copilot', 'microsoft copilot', 'github copilot', 'midjourney', 'stable diffusion', 'sora', 'dall-e', 'perplexity', 'llama', 'mistral', 'deepseek', 'grok', 'hugging face', 'notebooklm', 'apple intelligence', 'meta ai', 'cursor', 'elevenlabs', 'suno', 'runway', 'chatbot', 'chatbots', 'ai assistant', 'ai agent', 'ai agents', 'agentic', 'large language model', 'llm', 'generative ai', 'genai', 'ai model', 'ai models', 'ai tool', 'ai tools', 'ai app', 'ai image generator', 'ai video', 'ai search', 'ai browser', 'ai coding', 'ai feature', 'ai pricing', 'ai subscription', 'voice assistant', 'alexa', 'siri', 'google assistant'], excluded: ['stock price of AI companies', 'AI doom speculation'] },
   { name: 'Uygulama ve Yazılım Güncellemeleri', nameEn: 'Apps & Software Updates', share: 25, dailyMax: 2, priority: 20,
     description: 'Popüler uygulama ve yazılım güncellemeleri, mobil/masaüstü işletim sistemi değişiklikleri, kaldırılan özellikler, uygulama hataları ve çözümleri.',
     scope: 'Popular app updates, new app features, mobile and desktop OS changes, software subscription changes, removed features, new integrations, app bugs and fixes',
-    keywords: ['app update', 'software update', 'ios update', 'android update', 'windows update', 'feature removed', 'new feature'], excluded: [] },
+    keywords: ['app update', 'software update', 'ios', 'ipados', 'macos', 'watchos', 'android', 'windows 11', 'windows 10', 'windows', 'linux', 'chrome', 'chromeos', 'firefox', 'safari', 'edge browser', 'whatsapp', 'instagram', 'tiktok', 'youtube', 'spotify', 'zoom', 'slack', 'microsoft 365', 'microsoft teams', 'excel', 'photoshop', 'adobe', 'figma', 'notion', 'github', 'patch notes', 'release notes', 'changelog', 'rolls out', 'rolling out', 'now available', 'beta', 'redesign', 'removes feature', 'discontinue', 'discontinued', 'shutting down', 'bug fix', 'outage', 'pixel', 'galaxy', 'iphone', 'ipad', 'macbook', 'chromebook', 'playstation', 'xbox', 'steam', 'telegram', 'discord', 'signal app', 'app store', 'google play', 'play store', 'microsoft store', 'sunsetting', 'retiring', 'end of support', 'no longer supported', 'google home', 'nest app', 'nest thermostat', 'google nest', 'smart home', 'chrome os', 'stable channel'], excluded: [] },
   { name: 'Dijital Gizlilik ve Güvenlik', nameEn: 'Digital Privacy & Security', share: 15, dailyMax: 1, priority: 30,
     description: 'Veri ihlalleri, kimlik avı ve dolandırıcılık uyarıları, hesap güvenliği, güvenlik güncellemeleri. Savunma ve farkındalık amaçlıdır; saldırıyı kolaylaştıran talimat içermez.',
     scope: 'Data breaches, digital privacy, phishing and online scams, account security, security updates, safe internet use, threats that affect users. Defensive and awareness content only',
-    keywords: ['data breach', 'phishing', 'online scam', 'account security', 'privacy settings', 'security update', 'password leak'], excluded: ['hacking tutorials', 'exploit instructions'] },
+    keywords: ['data breach', 'breach', 'breached', 'leak', 'leaked', 'ransomware', 'phishing', 'online scam', 'text scam', 'phishing scam', 'scam texts', 'scam calls', 'malware', 'spyware', 'stalkerware', 'infostealer', 'vulnerability', 'vulnerabilities', 'zero-day', 'zero day', 'exploit', 'exploited', 'cve', 'patch tuesday', 'security update', 'security patch', 'security flaw', 'password', 'passwords', 'passkey', 'passkeys', 'two-factor', '2fa', 'mfa', 'encryption', 'vpn', 'privacy settings', 'tracking', 'hackers', 'hacker', 'hacked', 'cyberattack', 'botnet', 'account takeover', 'deepfake', 'identity theft', 'data privacy', 'kev catalog', 'known exploited', 'security advisory', 'security breach', 'cyberattacks', 'cybersecurity', 'data leak', 'stolen data', 'hijack', 'hijacked'], excluded: ['hacking tutorials', 'exploit instructions'] },
   { name: 'Teknoloji Rehberleri ve Çözümler', nameEn: 'Tech Guides & Solutions', share: 15, dailyMax: null, priority: 40,
     description: 'Teknoloji kullanım rehberleri, uygulama sorunlarının çözümleri, kurulum rehberleri, yeni özelliklerin kullanımı, uygulama karşılaştırmaları.',
     scope: 'Technology how-to guides, AI tool usage, app problem fixes, software setup guides, using new features, practical tips, digital workflows, app comparisons',
-    keywords: ['how to', 'fix', 'troubleshoot', 'step by step', 'setup guide', 'login problem', 'update error'], excluded: [] },
+    keywords: ['how to', 'step by step', 'tutorial', 'troubleshoot', 'troubleshooting', 'not working', 'how do i', 'set up', 'setup guide', 'settings you should', 'hidden feature', 'hidden features', 'tips and tricks', 'workaround', 'login problem', 'update error', 'fix for', 'explained', 'what is', 'beginner', 'cheat sheet', 'checklist', 'turn off', 'turn on', 'disable', 'enable', 'recover', 'reset'], excluded: [] },
   { name: 'Dijital Servisler ve Fiyatlandırma', nameEn: 'Digital Services & Pricing', share: 10, dailyMax: null, priority: 50,
     description: 'Dijital abonelik fiyatları, ücretsiz/ücretli plan karşılaştırmaları, yazılım abonelik değişiklikleri, kullanım şartı değişiklikleri. Fiyatlar güncel ve gerçek kaynaklardan doğrulanır.',
     scope: 'Digital subscription prices, free vs paid plan comparisons, software subscription changes, membership models, paid features, terms-of-use changes',
-    keywords: ['subscription price', 'free vs paid', 'pricing change', 'premium plan', 'basic plan', 'worth it'], excluded: [] },
+    keywords: ['subscription', 'subscriptions', 'price increase', 'price hike', 'raises price', 'raises prices', 'pricing plan', 'free plan', 'paid plan', 'premium', 'per month', 'a month', 'plus plan', 'pro plan', 'membership', 'tier', 'ad-supported', 'ads tier', 'netflix', 'disney+', 'hulu', 'max streaming', 'youtube premium', 'icloud', 'google one', 'terms of service', 'terms of use', 'bundle', 'cancel', 'worth it', 'free vs paid', 'chatgpt plus', 'gemini advanced', 'claude pro', 'prime video', 'apple one', 'game pass'], excluded: [] },
 ];
+const LEGACY_KEYWORDS_V1 = {"AI Tools & Updates": ["ai tool", "chatbot", "ai image generator", "ai video", "ai update", "ai feature", "ai pricing"], "Apps & Software Updates": ["app update", "software update", "ios update", "android update", "windows update", "feature removed", "new feature"], "Digital Privacy & Security": ["data breach", "phishing", "online scam", "account security", "privacy settings", "security update", "password leak"], "Tech Guides & Solutions": ["how to", "fix", "troubleshoot", "step by step", "setup guide", "login problem", "update error"], "Digital Services & Pricing": ["subscription price", "free vs paid", "pricing change", "premium plan", "basic plan", "worth it"]};
 const DEFAULT_EXCLUDED = [
   ['celebrity gossip', 'Magazin ve ünlü dedikoduları'], ['celebrity news', 'Magazin ve ünlü dedikoduları'], ['celebrity biography', 'Ünlü yaşam hikâyeleri'],
   ['sports news', 'Spor haberleri'], ['football match', 'Spor haberleri'], ['basketball game', 'Spor haberleri'], ['match result', 'Spor haberleri'],
@@ -58,11 +59,14 @@ const DEFAULT_EXCLUDED = [
   ['crypto price prediction', 'Kripto fiyat tahminleri'], ['bitcoin price', 'Kripto fiyat tahminleri'], ['price forecast', 'Kripto fiyat tahminleri'],
   ['online casino', 'Kumar içerikleri'], ['sports betting', 'Kumar içerikleri'], ['gambling', 'Kumar içerikleri'], ['porn', 'Yetişkin içerikler'], ['adult content', 'Yetişkin içerikler'],
   ['visa requirements', 'Genel seyahat ve vize haberleri'], ['travel ban', 'Genel seyahat ve vize haberleri'],
+  ['grand prix', 'Spor haberleri'], ['formula 1', 'Spor haberleri'], ['premier league', 'Spor haberleri'], ['champions league', 'Spor haberleri'], ['world cup', 'Spor haberleri'], ['super bowl', 'Spor haberleri'], ['nfl', 'Spor haberleri'], ['nba', 'Spor haberleri'],
+  ['real estate', 'Genel finans haberleri'], ['mansion', 'Genel finans haberleri'], ['mortgage', 'Genel finans haberleri'], ['stock market', 'Genel finans haberleri'],
+  ['oncology', 'Sağlık teşhis ve tedavi içerikleri'], ['cancer', 'Sağlık teşhis ve tedavi içerikleri'], ['clinical trial', 'Sağlık teşhis ve tedavi içerikleri'], ['patients', 'Sağlık teşhis ve tedavi içerikleri'],
+  ['estate planning', 'Genel finans haberleri'], ['wealth management', 'Genel finans haberleri'], ['financial planning', 'Genel finans haberleri'], ['investment advice', 'Genel finans haberleri'],
 ];
 
 // ── pure helpers ─────────────────────────────────────────────────────────────────────────────────────────────
-const TR = { ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u' };
-const fold = (s) => String(s || '').toLowerCase().replace(/[çğıöşü]/g, (c) => TR[c]).replace(/i̇/g, 'i').normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+const { fold } = require('../lib/text');
 
 /** Which of the excluded topics does this text contain, as whole phrases? ("football match" in "A football match ended" yes; "porn" in "pornography" no) */
 function matchExcluded(text, topics) {
@@ -329,13 +333,47 @@ async function seedDefault({ userId = null } = {}) {
         [r.id, k.name, k.nameEn, k.description, k.scope, k.keywords, k.excluded, k.share, k.dailyMax, k.priority]);
     }
     for (const [topic, reason] of DEFAULT_EXCLUDED) await c.query('INSERT INTO excluded_topics (project_id, topic, reason, is_default) VALUES ($1,$2,$3,true)', [r.id, topic, reason]);
+    await c.query("INSERT INTO automation_settings (scope, project_id, key, value) VALUES ('project', $1, 'defaults_version', $2) ON CONFLICT DO NOTHING", [r.id, JSON.stringify({ version: 2 })]);
     return r.id;
   });
   return { created: true, projectId };
 }
 
+
+/**
+ * The first live seed had short keyword lists. Replaces a default category's list ONLY when it still equals that first seed exactly (so anything the owner edited stays),
+ * with the richer list the news filter needs. Safe to run at every start.
+ */
+async function upgradeDefaultKeywords(projectId) {
+  let n = 0;
+  for (const k of DEFAULT_CATEGORIES) {
+    const old = LEGACY_KEYWORDS_V1[k.nameEn];
+    if (!old) continue;
+    const r = await db.query('UPDATE categories SET related_keywords = $1, updated_at = now() WHERE project_id = $4 AND name_en = $2 AND related_keywords = $3 RETURNING id', [k.keywords, k.nameEn, old, projectId]);
+    n += r.rowCount;
+  }
+  return n;
+}
+
+/**
+ * Brings a project seeded with the first defaults up to date, ONCE (marker `defaults_version` in automation_settings): richer keyword lists (only where the list is still the
+ * first seed) and the added default excluded topics. A default topic the owner deleted is not brought back later, because the marker is set after the first run.
+ */
+async function upgradeDefaults(projectId) {
+  const done = (await db.query("SELECT 1 FROM automation_settings WHERE scope = 'project' AND project_id = $1 AND key = 'defaults_version'", [projectId])).rows[0];
+  if (done) return { upgraded: false };
+  const keywords = await upgradeDefaultKeywords(projectId);
+  let topics = 0;
+  for (const [topic, reason] of DEFAULT_EXCLUDED) {
+    const r = await db.query('INSERT INTO excluded_topics (project_id, topic, reason, is_default) SELECT $1,$2,$3,true WHERE NOT EXISTS (SELECT 1 FROM excluded_topics WHERE project_id = $1 AND lower(topic) = lower($2) AND category_id IS NULL)', [projectId, topic, reason]);
+    topics += r.rowCount;
+  }
+  await db.query("INSERT INTO automation_settings (scope, project_id, key, value) VALUES ('project', $1, 'defaults_version', $2) ON CONFLICT DO NOTHING", [projectId, JSON.stringify({ version: 2 })]);
+  return { upgraded: true, keywords, topics };
+}
+
 module.exports = {
   CONTENT_TYPES, DEFAULT_PROJECT, DEFAULT_NICHE, DEFAULT_CATEGORIES, DEFAULT_EXCLUDED, fold, matchExcluded, redistribute,
   listProjects, getProject, createProject, updateProject, updateNiche, listCategories, createCategory, getCategory, updateCategory, setShares, archiveCategory, deleteCategory,
-  listExcluded, addExcluded, setExcludedActive, removeExcluded, checkTopic, seedDefault,
+  listExcluded, addExcluded, setExcludedActive, removeExcluded, checkTopic, seedDefault, upgradeDefaults, upgradeDefaultKeywords, LEGACY_KEYWORDS_V1,
 };

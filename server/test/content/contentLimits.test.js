@@ -164,3 +164,27 @@ test('RACE: the very first requests of a new day (no usage row yet) cannot creat
   const rows = (await H.db().query("SELECT used FROM daily_work_usage WHERE work_type = 'news_items'")).rows;
   assert.deepEqual(rows, [{ used: 25 }]);
 });
+
+test('reserveUpTo: takes what is free (partial), the narrowest level decides, and 30 parallel callers never hand out more than the limit', { skip: H.skip }, async () => {
+  const { projectId, cats } = await site();
+  await L.setGlobalLimits({ news_items: 50 });
+  const a = await L.reserveUpTo({ workType: 'news_items', projectId, amount: 30, now: NOON });
+  assert.deepEqual([a.ok, a.granted, a.partial], [true, 30, false]);
+  const b = await L.reserveUpTo({ workType: 'news_items', projectId, amount: 30, now: NOON });
+  assert.deepEqual([b.ok, b.granted, b.partial, b.limitedBy.scope], [true, 20, true, 'global'], 'only 20 were left');
+  const c = await L.reserveUpTo({ workType: 'news_items', projectId, amount: 5, now: NOON });
+  assert.deepEqual([c.ok, c.granted, c.reason, c.scope], [false, 0, 'limit', 'global']); assert.match(c.message, /günlük limit doldu \(50\/50/);
+  await L.setGlobalLimits({ news_items: 0 });
+  assert.equal((await L.reserveUpTo({ workType: 'news_items', amount: 1, now: new Date('2026-11-22T09:00:00Z') })).reason, 'stopped');
+  await L.setGlobalLimits({ seo_keywords: 100 });
+  await L.setProjectLimits(projectId, { seo_keywords: 40 });
+  const d = await L.reserveUpTo({ workType: 'seo_keywords', projectId, amount: 90, now: NOON });
+  assert.deepEqual([d.granted, d.limitedBy.scope], [40, 'project'], 'the project limit is narrower than the global one');
+  await L.setGlobalLimits({ serp_queries: 25 });
+  const all = await Promise.all(Array.from({ length: 30 }, () => L.reserveUpTo({ workType: 'serp_queries', amount: 3, now: NOON })));
+  assert.equal(all.reduce((x, r) => x + r.granted, 0), 25, 'exactly the limit is handed out, never more');
+  assert.equal((await H.db().query("SELECT used FROM daily_work_usage WHERE work_type = 'serp_queries'")).rows[0].used, 25);
+  await S.set('bots', { paused: true });
+  assert.equal((await L.reserveUpTo({ workType: 'old_check', amount: 1, now: NOON })).reason, 'paused');
+  assert.equal((await L.reserveUpTo({ workType: 'old_check', amount: 1, manual: true, now: NOON })).ok, true);
+});

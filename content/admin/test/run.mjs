@@ -3,6 +3,8 @@
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import path from 'node:path';
+import fs from 'node:fs';
+import http from 'node:http';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -13,7 +15,7 @@ if (!/_test$/.test(new URL(url).pathname.replace(/^\//, ''))) { console.error('T
 
 const serverDir = path.join(here, '../../../server');
 const sreq = createRequire(path.join(serverDir, 'package.json'));
-Object.assign(process.env, { CONTENT_DATABASE_URL: url, CONTENT_DISABLED: '', CONTENT_ENCRYPTION_KEY: 'd4'.repeat(32), CONTENT_SETUP_TOKEN: 'smoke-setup-token-0123456789', CONTENT_ADMIN_ORIGINS: 'https://content.example.test', CONTENT_TIMEZONE: 'Europe/Istanbul' });
+Object.assign(process.env, { CONTENT_ALLOW_PRIVATE_FETCH: '1', CONTENT_DATABASE_URL: url, CONTENT_DISABLED: '', CONTENT_ENCRYPTION_KEY: 'd4'.repeat(32), CONTENT_SETUP_TOKEN: 'smoke-setup-token-0123456789', CONTENT_ADMIN_ORIGINS: 'https://content.example.test', CONTENT_TIMEZONE: 'Europe/Istanbul' });
 const db = sreq('./src/content/db'); const { migrate } = sreq('./src/content/migrate');
 await db.query('DROP SCHEMA IF EXISTS public CASCADE'); await db.query('CREATE SCHEMA public'); await migrate();
 const projects = sreq('./src/content/services/projects');
@@ -23,6 +25,14 @@ const app = express(); app.set('trust proxy', 1); app.use(express.json({ limit: 
 const server = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
 const base = `http://127.0.0.1:${server.address().port}/api/content`;
 globalThis.__srv = { db, limits: sreq('./src/content/services/limits'), articles: sreq('./src/content/services/articles'), providers: sreq('./src/content/services/providers'), projects, notifications: sreq('./src/content/services/notifications'), setupToken: process.env.CONTENT_SETUP_TOKEN };
+
+// a news server on 127.0.0.1 that serves real captured feeds (the server's own safe fetcher reads them: no fake in between)
+const FX = path.join(here, '../../../server/test/fixtures/content');
+const feedServer = http.createServer((req, res) => { const f = { '/tc.xml': 'techcrunch.rss.xml', '/bleep.xml': 'bleepingcomputer.rss.xml' }[req.url]; if (!f) { res.writeHead(404); return res.end(); } res.writeHead(200, { 'Content-Type': 'application/xml' }); res.end(fs.readFileSync(path.join(FX, f))); });
+await new Promise((r) => feedServer.listen(0, '127.0.0.1', r));
+globalThis.__feedBase = `http://127.0.0.1:${feedServer.address().port}`;
+globalThis.__srv.opportunities = sreq('./src/content/services/opportunities'); globalThis.__srv.news = sreq('./src/content/services/news');
+globalThis.__dfs = [];
 
 const out = path.join(here, '.out-e2e.mjs');
 await build({
@@ -42,7 +52,14 @@ window.HTMLAnchorElement.prototype.click = function click() { globalThis.__downl
 
 // the browser: keeps the session cookie, sends the origin of the panel
 const realFetch = globalThis.fetch; let cookie = '';
+const dfsAnswer = (p, body) => {
+  const env = (result, cost) => ({ status_code: 20000, cost, tasks_count: 1, tasks: [{ status_code: 20000, cost, result: [result] }] });
+  if (p.endsWith('keyword_overview/live')) return env({ items: body.keywords.filter((k) => !/unknown/.test(k)).map((k) => ({ keyword: k, keyword_info: { search_volume: /breach|chrome|techcrunch/.test(k) ? 14800 : 880, cpc: 2.1, competition: 0.35, monthly_searches: [] }, keyword_properties: { keyword_difficulty: 29 }, search_intent_info: { main_intent: 'informational' } })) }, 0.0201);
+  if (p.endsWith('organic/live/advanced')) return env({ item_types: ['organic', 'people_also_ask'], items: [...['smallblog.dev', 'niche-tech.net', 'mysite.io', 'techie.org'].map((d, i) => ({ type: 'organic', rank_group: i + 1, domain: d, title: `${d} result`, url: `https://${d}/` })), { type: 'people_also_ask', items: [{ title: 'What happened?' }] }] }, 0.003);
+  return { status_code: 20000, tasks: [{ status_code: 40501, status_message: 'unexpected' }] };
+};
 globalThis.fetch = async (u, init = {}) => {
+  if (String(u).startsWith('https://api.dataforseo.com')) { const body = init.body ? JSON.parse(init.body)[0] : null; globalThis.__dfs.push(new URL(u).pathname); return { ok: true, status: 200, json: async () => dfsAnswer(new URL(u).pathname, body) }; }
   const headers = { ...(init.headers || {}), Origin: 'https://content.example.test', ...(cookie ? { Cookie: cookie } : {}) };
   globalThis.__inflight = (globalThis.__inflight || 0) + 1;
   let res;
@@ -51,6 +68,6 @@ globalThis.fetch = async (u, init = {}) => {
   return res;
 };
 let code = 1;
-try { await import(out); code = 0; } catch (e) { process.stderr.write(`\nTEST CRASHED: ${(e && e.stack) || e}\n`); } finally { server.close(); await db.end(); }
+try { await import(out); code = 0; } catch (e) { process.stderr.write(`\nTEST CRASHED: ${(e && e.stack) || e}\n`); } finally { server.close(); feedServer.close(); await db.end(); }
 // the entry decides the exit code through process.exit; reaching here means it threw
 process.exit(code);

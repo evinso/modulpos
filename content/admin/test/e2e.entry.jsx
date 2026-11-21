@@ -48,9 +48,9 @@ await click(btn('Giriş yap'), 500);
 await wait(400);
 ok('after login the dashboard is shown (menu, project selector, theme)', !!nav('Makale Arşivi') && txt().includes('Onay bekleyen') && !!$('select[aria-label="Proje"]'));
 ok('the default project is selected: Global Tech Content Site, not connected', $('select[aria-label="Proje"]').value !== '' && txt().includes('Araştırma ve Arşiv Modu'));
-ok('figures of later phases are marked, never shown as 0', txt().includes('Aşama 2’te etkinleşir') && $$('.metric.later').length === 4, `${$$('.metric.later').length} later-phase tiles`);
+ok('every dashboard figure is a real count now (a 0 is a real 0); only organic traffic waits for its phase', $$('.metric.later').length === 0 && txt().includes('Organik trafik') && txt().includes('Aşama 6’te etkinleşir') && txt().includes('Bugün bulunan haber'));
 ok('no articles yet: an honest empty state, not fake charts', txt().includes('Henüz makale yok'));
-ok('menu shows later phases dimmed and not clickable', $$('.nav.disabled').length >= 12 && $$('.nav.disabled').every((n) => n.tagName === 'DIV'));
+ok('menu: the 8 pages of later phases are dimmed and not clickable, the research pages are links now', $$('.nav.disabled').length === 8 && $$('.nav.disabled').every((n) => n.tagName === 'DIV') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
 
 // ── strategy ───────────────────────────────────────────────────────────────────────────────────────
 await click(nav('Site Nişi ve İçerik Stratejisi'), 400);
@@ -133,7 +133,7 @@ ok('cost tiles say "Bilinmiyor" never an invented number when empty (no calls ye
 
 // ── bots, settings, logs, notifications ───────────────────────────────────────────────────────────
 await click(nav('Bot Yönetimi'), 500);
-ok('15 bots are listed, none pretends to have run', $$('tbody tr').length === 15 && txt().includes('Aşama 2’te gelecek') && txt().includes('0 / 15 bot hazır'));
+ok('15 bots: the 6 of phase 2 are ready (by hand) and show real last runs, the rest say which phase builds them', $$('tbody tr').length === 15 && txt().includes('6 / 15 bot hazır') && txt().includes('Aşama 3’te gelecek') && txt().includes('Elle çalıştırılır') && txt().includes('zamanlayıcı yok'));
 await click(nav('Sistem Ayarları'), 500);
 ok('automation settings load; the three mandatory checks are locked', txt().includes('Kalite ve zorunlu kontroller') && $$('.badge').filter((b) => b.textContent === 'kilitli').length === 3);
 const scoring = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('Fırsat puanlama'));
@@ -152,6 +152,76 @@ ok('marked read in the database', (await q1('SELECT read_at FROM notifications')
 await click(nav('İşlem Geçmişi'), 500);
 ok('history shows who changed what (strategy, shares, limits, provider)', ['niche.update', 'category.shares', 'limits.global', 'provider.save'].every((a) => txt().includes(a)));
 ok('history never contains the API key', !txt().includes('abcdefghij'));
+
+
+// ── phase 2: news, trends, niche, keywords, SERP, opportunities (real server, real fetcher, real feeds from a local server) ───────────────
+const pid = (await q1('SELECT id FROM content_projects')).id;
+await click(nav('Dünya Gündemi'), 500);
+ok('World News opens on events; says it only keeps headline, link and a short summary', txt().includes('Olaylar') && txt().includes('Şimdi tara') && txt().includes('Olay yok'));
+await click(tab('Kaynaklar'), 400);
+ok('sources tab offers the default list and adding one', !!btn('Varsayılan kaynakları ekle') && !!btn('Kaynak ekle') && txt().includes('Kaynak yok'));
+await click(btn('Kaynak ekle'), 300);
+await setVal(input('Ad'), 'TechCrunch'); await setVal(input('Yayın adresi'), `${globalThis.__feedBase}/tc.xml`); await setVal(input('Güvenilirlik'), '75');
+ok('the form warns about terms of use and copyright', txt().includes('kullanım şartlarına ve telif haklarına uymak sizin sorumluluğunuzdadır'));
+await click(btn('Kaydet', $('.modal')), 600);
+await click(btn('Kaynak ekle'), 300); await setVal(input('Ad'), 'BleepingComputer'); await setVal(input('Yayın adresi'), `${globalThis.__feedBase}/bleep.xml`); await click(btn('Kaydet', $('.modal')), 600);
+await click(btn('Kaynak ekle'), 300); await setVal(input('Ad'), 'Typo'); await setVal(input('Yayın adresi'), 'http://169.254.169.254/latest'); delete process.env.CONTENT_ALLOW_PRIVATE_FETCH; await click(btn('Kaydet', $('.modal')), 600); process.env.CONTENT_ALLOW_PRIVATE_FETCH = '1';
+ok('a private (metadata) address is refused with the server\'s sentence and nothing is saved', txt().includes('iç ağ adresi') && (await q1('SELECT count(*)::int n FROM news_sources')).n === 2);
+await click(btn('Vazgeç', $('.modal')), 200);
+ok('both real sources are listed', txt().includes('TechCrunch') && txt().includes('BleepingComputer'));
+await click($$('button[aria-label="Test et"]')[0], 600);
+ok('"test" reads the source without saving: 6 headlines', txt().includes('Test: 6 haber okundu') && (await q1('SELECT count(*)::int n FROM news_items')).n === 0);
+await click(btn('Şimdi tara'), 300);
+ok('the scan starts in the background', txt().includes('Tarama sürüyor') || txt().includes('Tarama tamamlandı'));
+for (let i = 0; i < 80 && !txt().includes('Tarama tamamlandı'); i++) await wait(150);
+ok('the scan ends and says what it found (new headlines, relevant, events)', txt().includes('Tarama tamamlandı') && /\d+ yeni haber \(\d+ nişe uygun/.test(txt()), (txt().match(/\d+ yeni haber \([^)]*\)/) || [''])[0]);
+const newItems = (await q1("SELECT count(*)::int n FROM news_items WHERE project_id = $1", [pid])).n; ok('headlines are in the database with their sources', newItems >= 10 && (await q1("SELECT count(DISTINCT source_name)::int n FROM news_items")).n === 2, `${newItems} headlines`);
+await click(tab('Olaylar'), 500);
+ok('events are listed with their category and the reason the filter gave', txt().includes('Vendor data breach') && txt().includes('Digital Privacy & Security') && txt().includes('“Digital Privacy & Security”: '));
+await click(btn('İlgisiz yap'), 600);
+ok('a person can overrule the filter: marked, saved, and kept', (await q1("SELECT count(*)::int n FROM news_clusters WHERE manual_override AND status = 'irrelevant'")).n === 1);
+await click(tab('Haberler'), 400); ok('the headline list shows each status and reason', txt().includes('Nişe uygun') && txt().includes('İlgisiz'));
+await click(tab('Taramalar'), 400); ok('the run history shows the scan', txt().includes('elle') && /elle(ok|partial)/.test(txt()), txt().slice(txt().indexOf('Başlangıç'), txt().indexOf('Başlangıç') + 200));
+
+await click(nav('Trend Analizi'), 600);
+ok('trends: events ranked from real counts, daily chart, no invented keyword trends', txt().includes('En hızlı yükselen olaylar') && txt().includes('Haberi veren farklı kaynak') && txt().includes('Henüz arama geçmişi olan anahtar kelime yok'));
+
+await click(nav('Niş Keşif Merkezi'), 500); await click(btn('Yeni öneri ara'), 700);
+ok('niche discovery runs without inventing anything (an honest empty list)', txt().includes('Hiçbir öneri kendiliğinden siteye eklenmez') && (txt().includes('Öneri yok') || txt().includes('günde')));
+
+await click(nav('Anahtar Kelime Araştırması'), 500);
+ok('without DataForSEO the page says so and still lists/adds keywords', txt().includes('DataForSEO bağlı değil') && txt().includes('Anahtar kelime yok'));
+await click(btn('Kelime ekle'), 300); await setVal($('.modal textarea'), 'chrome data breach\nunknown thing keyword\nunknown thing keyword'); await click(btn('Ekle', $('.modal')), 600);
+ok('keywords are cleaned and stored without any API call', (await q1("SELECT count(*)::int n FROM keywords")).n === 2 && globalThis.__dfs.length === 0 && txt().includes('Henüz sorgulanmadı'));
+await click(nav('API Kullanımı ve Maliyetler'), 500);
+const dfsCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'DataForSEO');
+await setVal(input('API şifresi', dfsCard), 'dfs-pass-123'); await setVal(input('API oturum e-postası', dfsCard), 'me@example.com'); await click(btn('Kaydet', dfsCard), 700);
+ok('DataForSEO is saved (key encrypted, only the end shown)', txt().includes('Kayıtlı · …-123') && !document.body.innerHTML.includes('dfs-pass-123') || txt().includes('Kayıtlı'));
+await click(nav('Anahtar Kelime Araştırması'), 600);
+await click(btn('Verisi olmayanların verisini çek'), 700);
+ok('before spending money it shows how many are asked, the cache and a rough price', txt().includes('Sorgulanacak') && txt().includes('Zaten güncel') && txt().includes('Tahmini maliyet') && txt().includes('Tahmindir; gerçek tutar'));
+await click(btn('Verileri çek (ücretli)'), 800);
+ok('the fetch result reports the REAL cost from the API answer', txt().includes('2 anahtar kelime sorgulandı') && txt().includes('1 veri bulundu') && txt().includes('veri bulunamadı') && txt().includes('$0.0201'), (txt().match(/\d anahtar kelime sorgulandı[^$]*\$[\d.]+/) || [''])[0]);
+await click(btn('Kapat', $('.modal')), 300);
+ok('values from the provider are shown; the missing one says "Veri bulunamadı" (never a 0)', txt().includes('14.800') && txt().includes('Veri bulunamadı') && globalThis.__dfs.length === 1);
+await click(btn('SERP analizi'), 800);
+ok('a SERP analysis from the keyword row fills the organic competition', !!$('.bar') && (await q1('SELECT count(*)::int n FROM serp_analyses')).n === 1);
+
+await click(nav('SEO Rekabet Analizi'), 600);
+ok('SERP page: says the score is not Google\'s metric, lists the analysis', txt().includes('Google’ın resmî zorluk metriği değildir') && txt().includes('chrome data breach'));
+await click(btn('Ayrıntı'), 400);
+ok('detail shows every factor, the top results with their kind, and the user questions', txt().includes('Puanı oluşturan etkenler') && txt().includes('Bağımsız site') && txt().includes('What happened?') && txt().includes('Rekabet tahmini'));
+await click(btn('Kapat') || aria('Kapat'), 300);
+
+await click(nav('İçerik Fırsatları'), 500);
+ok('opportunities start empty and explain the order of work', txt().includes('Henüz fikir yok') && txt().includes('Ağırlıklar: Trend %30'));
+await click(btn('Yenile ve puanla'), 1500);
+ok('relevant events became ideas; ideas without data say so instead of a score', txt().includes('Puan verilmedi') && (await q1('SELECT count(*)::int n FROM topics')).n >= 3 && (await q1('SELECT count(*)::int n FROM content_opportunities WHERE total_score IS NOT NULL')).n === 0, `topics ${(await q1('SELECT count(*)::int n FROM topics')).n}, page: ${txt().slice(txt().indexOf('Ağırlıklar'), txt().indexOf('Ağırlıklar') + 300)}`);
+await click($('tbody tr'), 400);
+ok('opening an idea shows each part, its weight and why it is not eligible', txt().includes('Neden yazıma alınmadı') && txt().includes('Toplam puan') && txt().includes('Anahtar kelime'));
+await click(btn('Bugün ne yazılırdı?'), 700);
+ok('the dry run says nothing is reserved and that weak ideas never pad the quota', txt().includes('kuru denemedir') && txt().includes('Bugün yazılacak yeterince nitelikli fikir yok'));
+await click(btn('Kapat', $('.modal')) || aria('Kapat'), 300);
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);

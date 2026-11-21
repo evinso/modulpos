@@ -198,21 +198,22 @@ test('articles through HTTP: create, edit with version check, status rules, expo
   assert.equal((await c.get(`/articles/${id}`)).status, 404);
 });
 
-test('dashboard: real numbers, later-phase figures marked unavailable instead of 0, project filter', opts, async () => {
+test('dashboard: real numbers, figures of later phases marked unavailable instead of 0, project filter', opts, async () => {
   const c = await signedIn();
   const p = (await c.get('/projects')).json.projects[0];
   await c.post('/articles', { projectId: p.id, h1: 'Dash one', contentHtml: '<p>a</p>' });
   const d = (await c.get(`/dashboard?projectId=${p.id}&days=14`)).json;
   const m = Object.fromEntries(d.metrics.map((x) => [x.key, x]));
-  assert.equal(m.awaiting.value, 1); assert.equal(m.news_found.available, false); assert.equal(m.news_found.value, null); assert.equal(m.news_found.phase, 2);
-  assert.equal(m.cost_today.value, 0); assert.equal(m.active_bots.value, 0);
+  assert.equal(m.awaiting.value, 1); assert.deepEqual([m.news_found.available, m.news_found.value, m.keywords.value, m.seo_analyzed.value], [true, 0, 0, 0], 'phase 2 numbers are real counts now (nothing researched yet = a real 0)');
+  assert.deepEqual(d.metrics.filter((x) => !x.available).length, 0); assert.equal(d.charts.organicTraffic.available, false); assert.equal(d.charts.organicTraffic.phase, 6);
+  assert.equal(m.cost_today.value, 0); assert.equal(m.active_bots.value, 6); assert.match(m.active_bots.note, /elle çalıştırılır/);
   assert.equal(d.charts.dailyProduction.length, 14); assert.equal(d.charts.dailyProduction.at(-1).value, 1); assert.equal(d.charts.categoryShare.length, 5);
-  assert.equal(d.charts.organicTraffic.available, false); assert.equal(d.empty, false);
+  assert.equal(d.empty, false); assert.equal(d.charts.seoOpportunities.available, true); assert.equal(d.charts.searchVolume.buckets.length, 4);
   assert.equal(d.limitsToday.find((x) => x.workType === 'new_article').limit, 3);
   assert.equal((await c.get('/dashboard?projectId=00000000-0000-0000-0000-000000000001')).status, 404);
   const bots = (await c.get('/bots')).json;
-  assert.equal(bots.items.length, 15); assert.ok(bots.items.every((b) => b.implemented === false && b.lastRunAt === null));
-  assert.equal(bots.items[0].statusText, 'Aşama 2’te gelecek');
+  assert.equal(bots.items.length, 15); assert.equal(bots.items.filter((b) => b.implemented).length, 6, 'the six phase-2 bots can be started by hand'); assert.ok(bots.items.every((b) => b.lastRunAt === null), 'none has run yet: no invented last-run data');
+  assert.match(bots.items[0].statusText, /Elle çalıştırılır/); assert.equal(bots.items.find((b) => b.key === 'article_writer').statusText, 'Aşama 3’te gelecek'); assert.ok(bots.items.filter((b) => !b.implemented).every((b) => b.processed === null));
 });
 
 test('notifications, users, system, unknown routes', opts, async () => {

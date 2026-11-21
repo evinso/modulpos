@@ -52,7 +52,7 @@ content/render.content.yaml   Panel için ayrı Render statik site şeması (ana
 | Aşama | İçerik | Durum |
 |---|---|---|
 | 1 Temel platform | Giriş (roller, oturum, kilit), Dashboard, veritabanı, Site Nişi ve İçerik Stratejisi, kategoriler (pay %100), kapsam dışı konular, **Günlük Çalışma Ayarları** (genel/proje/kategori limiti, yarışa dayanıklı), API yönetimi ve maliyet kaydı + bütçe koruması, Makale Arşivi (sürümler, durum makinesi, hazır olma kontrolü, toplu işlem, CSV/JSON/HTML/Markdown dışa aktarma), bildirimler, işlem geçmişi, sistem ayarları | **Tamam, test edildi** |
-| 2 Haber ve SEO motoru | Haber kaynakları, gündem tarama, niş filtresi, trend, DataForSEO, anahtar kelime, SERP, fırsat puanı | Yapılmadı (menüde "Aşama 2" olarak soluk) |
+| 2 Haber ve SEO motoru | Haber kaynakları (RSS/Atom, Google Haberler, GDELT), gündem tarama, niş filtresi, olay kümeleme, trend, niş önerileri, DataForSEO istemcisi, anahtar kelime, SERP rekabet tahmini, fırsat puanı ve “bugün ne yazılırdı” seçimi | **Tamam. Haber tarafı gerçek kaynaklarla test edildi; DataForSEO tarafı gerçek hesapla DENENMEDİ** (anahtar yok) |
 | 3 AI içerik üretimi | Kaynak araştırması, makale üretimi, doğruluk/AdSense kontrolü, kalite puanı | Yapılmadı |
 | 4 Otomasyon | Zamanlayıcı, kalıcı görev kuyruğu, bot yönetimi, çalışma saatleri, hata/yeniden deneme | Yapılmadı |
 | 5 WordPress | Çoklu site, kategori eşleme, yayın, zamanlama | Yapılmadı |
@@ -60,6 +60,23 @@ content/render.content.yaml   Panel için ayrı Render statik site şeması (ana
 | 7 İleri modüller | AdSense site denetimi, Telegram, raporlar | Yapılmadı |
 
 Henüz geliştirilmemiş aşamaların rakamları panelde "0" değil **"Aşama N'de etkinleşir"** olarak işaretlenir; sahte veri üretilmez.
+
+## Aşama 2: haber ve SEO motoru (nasıl çalışır)
+
+Hepsi elle çalıştırılır (ilgili sayfadaki düğmeler); otomatik zamanlama ve görev kuyruğu Aşama 4'te gelecek.
+
+1. **Dünya Gündemi** (`/news`): projenin haber kaynakları (varsayılan 22: CISA, OpenAI, Google, Chrome sürümleri, Apple, Microsoft, Mozilla, Ars Technica, TechCrunch, Wired, BleepingComputer, Engadget, CNET, 9to5Mac ... ve 4 Google Haberler araması; GDELT kapalı gelir) okunur. Her haber için başlık, bağlantı, kaynak, tarih, ülke, dil ve **400 karakterlik özet** saklanır; **tam metin alınmaz**. Aynı bağlantı bir kez saklanır; aynı olayı anlatan farklı kaynaklar tek **olay**da toplanır (kaç kaynak haber yaptığı trend sinyalidir). Okuma güvenlidir (iç ağ adreslerine gidemez, 4 MB ve 15 sn sınırı, ETag ile koşullu istek, hata/istek sınırında geri çekilme). Kaynak eklemek yalnızca admin yetkisidir.
+2. **Niş filtresi**: önce kapsam dışı konular (spor, magazin, siyaset, genel finans, sağlık teşhis/tedavi ...) elenir; sonra her kategorinin **kendi anahtar kelime listesine** göre puanlanır. Güçlü terim (ürün/şirket adı, "data breach", "price increase" gibi) başlıkta 40 puan; genel kelimeler (ai, app, update, privacy ...) tek başına geçiremez. Yapay zekâ kullanılmaz: kural tabanlıdır, **sınır durumlarda hata yapar**; sonuç neden verildiğini yazar, siz olayı elle “ilgili/ilgisiz” yapabilirsiniz (kararınız bir daha ezilmez) ve kategori anahtar kelime listelerini Strateji sayfasından düzeltebilirsiniz. Gerçek veride (494 başlık) yaklaşık yarısı nişe uygun çıkar.
+3. **Trend Analizi**: olay başına kaynak sayısı, son 12 saat haber sayısı ve tazelikten (0–100) hesaplanır. Arama trendi yalnızca DataForSEO aylık geçmişi alınmış kelimeler için görünür.
+4. **Niş Keşif Merkezi**: nişe uymayan haber başlıklarında çok kaynakta tekrar eden kelime çiftlerini sayar; önerir, **asla kendiliğinden eklemez** (kabul: yeni kategori ya da mevcut kategoriye terim; reddet; sonra bak).
+5. **Anahtar Kelime Araştırması** (DataForSEO Labs `keyword_overview`, `keyword_suggestions`, `related_keywords`): aranma hacmi, CPC, ücretli rekabet, niyet, aylık geçmiş, DataForSEO'nun kendi zorluk metriği. **Veri yoksa “Veri bulunamadı”**; hiçbir sayı uydurulmaz. Tek istekte 700 kelime, `seo.cacheDays` (30) kadar önbellek, günlük `seo_keywords` limiti, sağlayıcı/platform bütçe koruması çağrıdan **önce** kontrol edilir; ücret yanıttaki gerçek `cost` alanından kaydedilir. Onay penceresi önce “kaç kelime, ne kadar önbellekte, tahmini ücret” gösterir.
+6. **SEO Rekabet Analizi** (DataForSEO SERP): ilk 10 sonuçtan büyük yayıncı / resmî kaynak / forum / bağımsız site oranlarıyla 0–100 **tahmini organik rekabet**; her etken ve ağırlık görünür. **Google'ın resmî zorluk metriği değildir** (ekranda yazar).
+7. **İçerik Fırsatları**: her konu için Trend %30 + Rekabet fırsatı %25 + Aranma talebi %20 + Nişe uygunluk %15 + Kaynak güveni %10 (ağırlıklar Ayarlar'dan değişir). **Toplam puan yalnızca beş bileşenin hepsi gerçek veriye dayanıyorsa verilir**; eksikse neyin eksik olduğu yazılır ve fikir uygun sayılmaz. Niş dışı, reddedilmiş, kendi makalenizle kelime çakışan (kanibalizasyon) ya da minimum puanın (varsayılan 70; kategoriye özel verilebilir) altındaki fikir hiç uygun olmaz. “Bugün ne yazılırdı?” kuru denemesi boş yer, kategori günlük sınırı ve kategori hedef payına göre seçer; **kota doldurmak için zayıf konu eklemez**.
+
+Günlük limit anahtarları: `news_items` (varsayılan 1000), `seo_keywords` (100), `serp_queries` (30); hepsi Günlük Çalışma Ayarları'ndan değişir.
+
+**Gerekli API bilgisi:** DataForSEO login (e-posta) + **API şifresi** (panel şifresi değil), API Kullanımı sayfasına yazılır. Haber tarafı hiçbir anahtar istemez.
+**Sunucu gereksinimi:** ek bir şey yok (aynı API süreci; dışarıya https çıkışı). Tarama arka planda çalışır; süreç yeniden başlarsa yarım kalan tarama “yarıda kaldı” diye kapatılır.
 
 ## Temel kararlar (neden böyle)
 
@@ -77,11 +94,12 @@ bcrypt (maliyet 12) + şifre politikası · oturum belirteci yalnızca SHA-256 o
 
 ```bash
 cd server && npm test                       # ModulPOS + içerik birim testleri (veritabanı gerekmez)
-cd server && CONTENT_TEST_DATABASE_URL=postgresql://…/content_test npm run test:content   # 48 entegrasyon testi, veritabanını SİLER (adı _test ile bitmeli)
+cd server && CONTENT_TEST_DATABASE_URL=postgresql://…/content_test npm run test:content   # 73 entegrasyon testi, veritabanını SİLER (adı _test ile bitmeli)
+cd server && CONTENT_TEST_DATABASE_URL=postgresql://…/content_test node scripts/content-live-news.js   # GERÇEK ağdan varsayılan kaynakları okur (CI'da yok)
 cd content/admin && npm run build
-cd content/admin && CONTENT_TEST_DATABASE_URL=… npm run test:smoke   # panel jsdom'da GERÇEK API + PostgreSQL'e karşı (36 kontrol)
+cd content/admin && CONTENT_TEST_DATABASE_URL=… npm run test:smoke   # panel jsdom'da GERÇEK API + PostgreSQL'e karşı (kaynak ekleme, tarama, anahtar kelime, SERP, fırsat dahil)
 ```
 
 CI (`.github/workflows/ci.yml`, iş `content`) bunları PostgreSQL servisiyle çalıştırır.
 
-**Test EDİLEMEYENLER** (anahtar/hesap gerektirir): gerçek OpenAI, DataForSEO, Telegram, WordPress, Search Console çağrıları; yalnızca sahte `fetch` ile istek biçimi ve hata cümleleri doğrulandı. Panelin **görsel** görünümü (CSS, mobil yerleşim) tarayıcıda gözle doğrulanmadı: yalnızca derleme ve DOM davranışı test edildi.
+**Test EDİLEMEYENLER** (anahtar/hesap gerektirir): gerçek OpenAI, **DataForSEO**, Telegram, WordPress, Search Console çağrıları; DataForSEO istemcisi belgelerdeki alan adlarından yazıldı ve yalnızca belgeye göre elle kurulmuş sahte yanıtlarla (zarf, görev kodları, hata durumları) sınandı: ilk gerçek hesapta alan adı farkı çıkabilir (örn. `competition` tipi, ülke dışı konumlar). GDELT'in hız sınırı nedeniyle (5 sn'de 1 istek) gerçek yanıtı bu geliştirme ortamından alınamadı; biçimi belgeden kurulu bir örnekle sınandı. Panelin **görsel** görünümü (CSS, mobil yerleşim) tarayıcıda gözle doğrulanmadı: yalnızca derleme ve DOM davranışı test edildi.

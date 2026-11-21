@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xml:base="https://www.cisa.gov/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>All CISA Advisories</title>
+    <link>https://www.cisa.gov/</link>
+    <description></description>
+    <language>en</language>
+    
+    <item>
+  <title>CISA Adds Four Known Exploited Vulnerabilities to Catalog</title>
+  <link>https://www.cisa.gov/news-events/alerts/2026/11/20/cisa-adds-four-known-exploited-vulnerabilities-catalog</link>
+  <description>&lt;div class=&quot;OutlineElement Ltr SCXW266414493 BCX8&quot;&gt;
+&lt;p&gt;CISA has added four new vulnerabilities to its &lt;a href=&quot;https://www.cisa.gov/known-exploited-vulnerabilities-catalog&quot;&gt;&lt;u&gt;Known Exploited Vulnerabilities (KEV) Catalog&lt;/u&gt;&lt;/a&gt;, based on evidence of active explo</description>
+  <pubDate>Fri, 20 Nov 26 12:00:00 +0000</pubDate>
+    <dc:creator>CISA</dc:creator>
+    <guid isPermaLink="false">/node/25833</guid>
+    </item>
+<item>
+  <title>Elecbrakes EB2, VM1, ELBC2000</title>
+  <link>https://www.cisa.gov/news-events/ics-advisories/icsa-26-323-02</link>
+  <description>&lt;p&gt;&lt;a href=&quot;https://github.com/cisagov/CSAF/blob/develop/csaf_files/OT/white/2026/icsa-26-323-02.json&quot;&gt;&lt;strong&gt;View CSAF&lt;/strong&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;h2&gt;Summary&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Successful exploitation of these vulnerabilities could allow an attacker to gain con</description>
+  <pubDate>Thu, 19 Nov 26 12:00:00 +0000</pubDate>
+    <dc:creator>CISA</dc:creator>
+    <guid isPermaLink="false">/node/25826</guid>
+    </item>
+<item>
+  <title>libumqtt</title>
+  <link>https://www.cisa.gov/news-events/ics-advisories/icsa-26-323-03</link>
+  <description>&lt;p&gt;&lt;a href=&quot;https://github.com/cisagov/CSAF/blob/develop/csaf_files/OT/white/2026/icsa-26-323-03.json&quot;&gt;&lt;strong&gt;View CSAF&lt;/strong&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;h2&gt;Summary&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Successful exploitation of this vulnerability could allow a remote attacker to cause</description>
+  <pubDate>Thu, 19 Nov 26 12:00:00 +0000</pubDate>
+    <dc:creator>CISA</dc:creator>
+    <guid isPermaLink="false">/node/25827</guid>
+    </item>
+<item>
+  <title>Autonomy Logic OpenPLC Runtime</title>
+  <link>https://www.cisa.gov/news-events/ics-advisories/icsa-26-323-01</link>
+  <description>&lt;p&gt;&lt;a href=&quot;https://github.com/cisagov/CSAF/blob/develop/csaf_files/OT/white/2026/icsa-26-323-01.json&quot;&gt;&lt;strong&gt;View CSAF&lt;/strong&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;h2&gt;Summary&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Successful exploitation of this vulnerability could allow several unauthenticated ad</description>
+  <pubDate>Thu, 19 Nov 26 12:00:00 +0000</pubDate>
+    <dc:creator>CISA</dc:creator>
+    <guid isPermaLink="false">/node/25825</guid>
+    </item>
+<item>
+  <title>CISA Adds Four Known Exploited Vulnerabilities to Catalog</title>
+  <link>https://www.cisa.gov/news-events/alerts/2026/11/18/cisa-adds-four-known-exploited-vulnerabilities-catalog</link>
+  <description>&lt;div class=&quot;OutlineElement Ltr SCXW266414493 BCX8&quot;&gt;
+&lt;p&gt;CISA has added four new vulnerabilities to its &lt;a href=&quot;https://www.cisa.gov/known-exploited-vulnerabilities-catalog&quot;&gt;&lt;u&gt;Known Exploited Vulnerabilities (KEV) Catalog&lt;/u&gt;&lt;/a&gt;, based on evidence of active explo</description>
+  <pubDate>Wed, 18 Nov 26 12:00:00 +0000</pubDate>
+    <dc:creator>CISA</dc:creator>
+    <guid isPermaLink="false">/node/25824</guid>
+    </item>
+<item>
+  <title>Siemens Simcenter Femap</title>
+  <link>https://www.cisa.gov/news-events/ics-advisories/icsa-26-321-10</link>
+  <description>&lt;p&gt;&lt;a href=&quot;https://github.com/cisagov/CSAF/blob/develop/csaf_files/OT/white/2026/icsa-26-321-10.json&quot;&gt;&lt;strong&gt;View CSAF&lt;/strong&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;h2&gt;Summary&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Simcenter Femap is affected by an out of bounds read vulnerability that could be tri</description>
+  <pubDate>Tue, 17 Nov 26 12:00:00 +0000</pubDate>
+    <dc:creator>CISA</dc:creator>
+    <guid isPermaLink="false">/node/25810</guid>
+    </item>
+</channel></rss>

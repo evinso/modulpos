@@ -131,3 +131,23 @@ test('excluded topics: add / duplicate / switch off / remove, and the check uses
   const other = await P.createProject({ name: 'Other', niche: { mainNiche: 'Cars' } });
   await assert.rejects(P.addExcluded(other.id, { topic: 'x y', categoryId: cats[0].id }), /bu projeye ait değil/);
 });
+
+test('upgrading a project seeded by phase 1: richer keyword lists only where the owner did not edit, new default exclusions once, never again', opts, async () => {
+  const { projectId } = await P.seedDefault();
+  const q = (sql, p = []) => H.db().query(sql, p);
+  // make it look exactly like the live project of phase 1: old short lists, no marker, none of the phase-2 default topics
+  for (const [name, old] of Object.entries(P.LEGACY_KEYWORDS_V1)) await q('UPDATE categories SET related_keywords = $1 WHERE project_id = $2 AND name_en = $3', [old, projectId, name]);
+  await q("UPDATE categories SET related_keywords = ARRAY['my own term', 'another'] WHERE project_id = $1 AND name_en = 'Tech Guides & Solutions'", [projectId]);        // the owner edited this one
+  await q("DELETE FROM automation_settings WHERE key = 'defaults_version'"); await q("DELETE FROM excluded_topics WHERE topic IN ('oncology', 'estate planning', 'formula 1')");
+  await q("DELETE FROM excluded_topics WHERE topic = 'stock market'");           // the owner deleted a default topic on purpose ... it comes back only because this is the one-time upgrade (documented)
+  const r = await P.upgradeDefaults(projectId);
+  assert.equal(r.upgraded, true); assert.equal(r.keywords, 4, 'four of the five lists were still the first seed'); assert.ok(r.topics >= 3);
+  const cats = Object.fromEntries((await P.listCategories(projectId)).map((c) => [c.nameEn, c]));
+  assert.ok(cats['AI Tools & Updates'].relatedKeywords.includes('chatgpt') && cats['AI Tools & Updates'].relatedKeywords.length > 40);
+  assert.deepEqual(cats['Tech Guides & Solutions'].relatedKeywords, ['my own term', 'another'], 'an edited list is never replaced');
+  const ex = (await P.listExcluded(projectId)).map((x) => x.topic); assert.ok(ex.includes('oncology') && ex.includes('formula 1'));
+  assert.deepEqual(await P.upgradeDefaults(projectId), { upgraded: false }, 'the marker makes it a one-time step');
+  await P.removeExcluded((await P.listExcluded(projectId)).find((x) => x.topic === 'oncology').id);
+  await P.upgradeDefaults(projectId); assert.ok(!(await P.listExcluded(projectId)).some((x) => x.topic === 'oncology'), 'a default topic the owner removes after the upgrade stays removed');
+  const fresh = await P.seedDefault(); assert.equal(fresh.created, false);
+});

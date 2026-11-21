@@ -1,0 +1,6 @@
+{"articles":[
+{"url":"https://example-news.test/2026/11/21/new-ai-model-released","url_mobile":"","title":"OpenAI unveils new reasoning model for ChatGPT subscribers","seendate":"20261121T093000Z","socialimage":"https://example-news.test/img/1.jpg","domain":"example-news.test","language":"English","sourcecountry":"United States"},
+{"url":"https://other-site.test/tech/chatgpt-reasoning-model","url_mobile":"","title":"ChatGPT gets a new reasoning model, OpenAI says","seendate":"20261121T101500Z","socialimage":"","domain":"other-site.test","language":"English","sourcecountry":"United Kingdom"},
+{"url":"javascript:alert(1)","title":"Bad link must be dropped","seendate":"20261121T101500Z","domain":"x.test","language":"English","sourcecountry":"United States"},
+{"url":"https://third.test/a","title":"","seendate":"20261121T101500Z","domain":"third.test","language":"English","sourcecountry":"United States"}
+]}

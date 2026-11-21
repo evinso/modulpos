@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?><feed
+	xmlns="http://www.w3.org/2005/Atom"
+	xmlns:thr="http://purl.org/syndication/thread/1.0"
+	xml:lang="en-US"
+	xmlns:media="http://search.yahoo.com/mrss/"
+>
+	<title type="text">News – CNET</title>
+	<subtitle type="text">Product reviews, advice, how-tos and the latest news</subtitle>
+
+	<updated>2026-11-21T00:01:43Z</updated>
+
+	<link rel="alternate" type="text/html" href="https://www.cnet.com" />
+	<id>https://www.cnet.com/feed/atom/</id>
+	<link rel="self" type="application/atom+xml" href="https://www.cnet.com/rss/news/" />
+
+	<generator uri="https://wordpress.org/" version="6.9.12">WordPress</generator>
+<icon>https://www.cnet.com/wp-content/uploads/sites/2/cropped-favicon-480.png?w=32</icon>
+	<entry>
+		<author>
+			<name>Antuan Goodwin</name>
+					</author>
+
+		<title type="html"><![CDATA[New Hyundai Elantra Hybrid Debuts With 53 Mpg, AI in the Dash]]></title>
+		<link rel="alternate" type="text/html" href="https://www.cnet.com/roadshow/automobiles/2028-hyundai-elantra-hybrid-sedan-ai-assistant-la-auto-show/" />
+
+		<id>5215515</id>
+		<updated>2026-11-21T11:00:11Z</updated>
+		<published>2026-11-21T11:00:00Z</published>
+		<category scheme="https://www.cnet.com" term="Hybrids" />
+		<summary type="html"><![CDATA[The redesigned compact sedan features Hyundai’s new AI voice assistant, Gleo AI, and an updated regenerative braking system with EV-like one-pedal driving.]]></summary>
+
+		
+		<media:content url="https://www.cnet.com/wp-content/uploads/sites/2/73108-hyundaielantra-208.jpg" medium="image" width="6192" height="4128" />
+<media:content url="https://www.cnet.com/wp-content/uploads/sites/2/73108-hyundaielantra-208.jpg?w=300&#038;h=300&#038;crop=1" medium="image" width="300" height="300" />
+	</entry>
+<entry>
+		<author>
+			<name>Alex Valdes</name>
+					</author>
+
+		<title type="html"><![CDATA[Even the Iconic Google Home Page Can’t Survive the Push for More AI]]></title>
+		<link rel="alternate" type="text/html" href="https://www.cnet.com/tech/services-and-software/google-home-page-new-ai-features/" />
+
+		<id>5217546</id>
+		<updated>2026-11-21T00:01:44Z</updated>
+		<published>2026-11-21T00:01:42Z</published>
+		<category scheme="https://www.cnet.com" term="AI" />
+		<summary type="html"><![CDATA[The search giant is revamping Google.com with AI options.]]></summary>
+
+		
+		<media:content url="https://www.cnet.com/wp-content/uploads/sites/2/google-gemini-smartphone-logo-GettyImages-2283721154.jpg" medium="image" width="1847" height="1039" />
+<media:content url="https://www.cnet.com/wp-content/uploads/sites/2/google-gemini-smartphone-logo-GettyImages-2283721154.jpg?w=300&#038;h=300&#038;crop=1" medium="image" width="300" height="300" />
+	</entry>
+<entry>
+		<author>
+			<name>Ajay Kumar</name>
+					</author>
+
+		<title type="html"><![CDATA[Google Is Killing the Nest App. Here’s What Comes Next]]></title>
+		<link rel="alternate" type="text/html" href="https://www.cnet.com/home/smart-home/nest-app-google-assistant-sunset/" />
+
+		<id>5218236</id>
+		<updated>2026-11-20T22:27:08Z</updated>
+		<published>2026-11-20T22:27:07Z</published>
+		<category scheme="https://www.cnet.com" term="Smart Home" />
+		<summary type="html"><![CDATA[Don’t panic: All your devices should transfer over to Google Home fairly seamlessly.]]></summary>
+
+		
+		<media:content url="https://www.cnet.com/wp-content/uploads/sites/2/aafd7716-1c2d-4e97-8b9e-1e5f6e0bc1e3.jpg" medium="image" width="3176" height="1733" />
+<media:content url="https://www.cnet.com/wp-content/uploads/sites/2/aafd7716-1c2d-4e97-8b9e-1e5f6e0bc1e3.jpg?w=300&#038;h=300&#038;crop=1" medium="image" width="300" height="300" />
+	</entry>
+<entry>
+		<author>
+			<name>Omar Gallaga</name>
+					</author>
+
+		<title type="html"><![CDATA[Why You Shouldn’t Use Meta’s Muse AI Agent for Shopping Next Weekend]]></title>
+		<link rel="alternate" type="text/html" href="https://www.cnet.com/tech/services-and-software/metas-muse-mascot-agentic-ai-privacy-violations-security-data/" />
+
+		<id>4938791</id>
+		<updated>2026-11-20T20:55:52Z</updated>
+		<published>2026-09-29T19:35:31Z</published>
+		<category scheme="https://www.cnet.com" term="AI" />
+		<summary type="html"><![CDATA[With so many security and privacy issues, Muse could bring you an unwanted surprise this holiday season.]]></summary>
+
+		
+		<media:content url="https://www.cnet.com/wp-content/uploads/sites/2/mark-zuckerberg-meta-muse-GettyImages-2296209094.jpg" medium="image" width="1920" height="1080" />
+<media:content url="https://www.cnet.com/wp-content/uploads/sites/2/mark-zuckerberg-meta-muse-GettyImages-2296209094.jpg?w=300&#038;h=300&#038;crop=1" medium="image" width="300" height="300" />
+	</entry>
+<entry>
+		<author>
+			<name>Liz Kocan</name>
+					</author>
+
+		<title type="html"><![CDATA[Streamline Your Prestige TV Viewing With This New DirecTV Bundle That Has Netflix, HBO Max and Apple TV]]></title>
+		<link rel="alternate" type="text/html" href="https://www.cnet.com/tech/streamline-your-prestige-tv-viewing-with-this-new-directv-bundle-that-has-netflix-hbo-max-and-apple-tv/" />
+
+		<id>5218072</id>
+		<updated>2026-11-20T20:39:23Z</updated>
+		<published>2026-11-20T20:39:23Z</published>
+		<category scheme="https://www.cnet.com" term="Tech" />
+		<summary type="html"><![CDATA[This new, discounted add-on will save up to 20% on three great streamers.]]></summary>
+
+		
+		<media:content url="https://www.cnet.com/wp-content/uploads/sites/2/widows-bay-matthew-rhys-stephen-root-apple-tv_c4432f.jpg" medium="image" width="1648" height="927" />
+<media:content url="https://www.cnet.com/wp-content/uploads/sites/2/widows-bay-matthew-rhys-stephen-root-apple-tv_c4432f.jpg?w=300&#038;h=300&#038;crop=1" medium="image" width="300" height="300" />
+	</entry>
+<entry>
+		<author>
+			<name>Ty Pendlebury</name>
+					</author>
+
+		<title type="html"><![CDATA[Fluance’s Upgraded RT86 Could Be Turntable to Beat for $700]]></title>
+		<link rel="alternate" type="text/html" href="https://www.cnet.com/tech/fluances-upgraded-rt86-could-be-turntable-to-beat-for-700/" />
+
+		<id>5217635</id>
+		<updated>2026-11-20T20:21:23Z</updated>
+		<published>2026-11-20T20:21:22Z</published>
+		<category scheme="https://www.cnet.com" term="Tech" />
+		<summary type="html"><![CDATA[The Fluance RT86 comes with a carbon fiber tonearm and either an Ortofon or Audio-Technica cartridge.]]></summary>
+
+		
+		<media:content url="https://www.cnet.com/wp-content/uploads/sites/2/Fluance-RT86.jpg" medium="image" width="3000" height="2500" />
+<media:content url="https://www.cnet.com/wp-content/uploads/sites/2/Fluance-RT86.jpg?w=300&#038;h=300&#038;crop=1" medium="image" width="300" height="300" />
+	</entry>
+</feed>

@@ -22,7 +22,7 @@ const WORK_TYPES = {
   publish: { label: 'WordPress yayını', def: 5, max: 200 },
   seo_keywords: { label: 'SEO anahtar kelime araştırması', def: 100, max: 5000 },
   serp_queries: { label: 'SERP sorgusu', def: 30, max: 2000 },
-  news_items: { label: 'İşlenen haber', def: 200, max: 5000 },
+  news_items: { label: 'İşlenen haber', def: 1000, max: 5000 },
 };
 const TYPES = Object.keys(WORK_TYPES);
 const CATEGORY_TYPES = new Set(['new_article', 'publish']);
@@ -104,6 +104,42 @@ async function reserve({ workType, projectId = null, categoryId = null, amount =
       results.push({ scope: s.scope, used: row.used + amount, limit: s.limit, remaining: s.limit === null ? null : s.limit - row.used - amount });
     }
     return { ok: true, day, scopes: results };
+  });
+}
+
+
+/**
+ * Like reserve(), but takes as much as is free (at most `amount`) instead of all-or-nothing: for work that can be done in parts (process 40 of 200 headlines today).
+ * The free amount is computed inside the same locked transaction, so parallel callers can never hand out more than the narrowest limit allows.
+ * @returns { ok, granted, wanted, ... }  granted === 0 carries the reason like reserve() does
+ */
+async function reserveUpTo({ workType, projectId = null, categoryId = null, amount = 1, tz = env().defaultTimezone, manual = false, now = new Date() }) {
+  assertType(workType);
+  if (!Number.isInteger(amount) || amount < 1) throw bad('Miktar 1 veya daha büyük bir tam sayı olmalı');
+  const day = dayKey(now, tz);
+  return db.tx(async (c) => {
+    if (!manual && await botsPaused(c)) return { ok: false, granted: 0, wanted: amount, reason: 'paused', message: 'Botlar duraklatıldı' };
+    const scopes = await resolve(c, { workType, projectId, categoryId });
+    for (const s of scopes) {
+      await c.query(`INSERT INTO daily_work_usage (day, work_type, scope, project_id, category_id, used) VALUES ($1,$2,$3,$4,$5,0)
+        ON CONFLICT (day, work_type, scope, COALESCE(project_id, '${ZERO}'::uuid), COALESCE(category_id, '${ZERO}'::uuid)) DO NOTHING`,
+      [day, workType, s.scope, s.scope === 'project' ? projectId : null, s.scope === 'category' ? categoryId : null]);
+    }
+    const locked = (await c.query(`SELECT id, scope, used FROM daily_work_usage WHERE day = $1 AND work_type = $2
+      AND (scope = 'global' OR (scope = 'project' AND project_id = $3) OR (scope = 'category' AND category_id = $4)) ORDER BY ${SCOPE_ORDER}, id FOR UPDATE`, [day, workType, projectId, categoryId])).rows;
+    const byScope = new Map(locked.map((r) => [r.scope, r]));
+    let granted = amount; let narrow = null;
+    for (const s of scopes) {
+      if (s.limit === null) continue;
+      const free = Math.max(0, s.limit - byScope.get(s.scope).used);
+      if (free < granted) { granted = free; narrow = { scope: s.scope, limit: s.limit, used: byScope.get(s.scope).used }; }
+    }
+    if (granted === 0) {
+      const n = narrow || { scope: 'global', limit: 0, used: 0 };
+      return { ok: false, granted: 0, wanted: amount, reason: n.limit === 0 ? 'stopped' : 'limit', ...n, message: `${WORK_TYPES[workType].label}: ${n.limit === 0 ? 'durduruldu (limit 0)' : `günlük limit doldu (${n.used}/${n.limit}, ${n.scope === 'global' ? 'genel' : n.scope === 'project' ? 'proje' : 'kategori'})`}` };
+    }
+    for (const s of scopes) await c.query('UPDATE daily_work_usage SET used = used + $1 WHERE id = $2', [granted, byScope.get(s.scope).id]);
+    return { ok: true, granted, wanted: amount, partial: granted < amount, day, limitedBy: narrow };
   });
 }
 
@@ -196,4 +232,4 @@ async function setCategoryLimits(categoryId, { dailyMax, publishMax }, { userId 
   });
 }
 
-module.exports = { WORK_TYPES, TYPES, reserve, release, status, getLimits, setGlobalLimits, setProjectLimits, setCategoryLimits, resolve };
+module.exports = { WORK_TYPES, TYPES, reserve, reserveUpTo, release, status, getLimits, setGlobalLimits, setProjectLimits, setCategoryLimits, resolve };

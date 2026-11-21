@@ -16,14 +16,15 @@ const usd = (v, label) => (v === null || v === undefined || v === '' ? null : ((
 const GROUPS = {
   news: {
     projectOverride: true,
-    defaults: { enabled: true, intervalMinutes: 120, countries: ['US'], sources: [] },
-    validate: (v) => ({ enabled: V.bool(v.enabled, 'Haber tarama', true), intervalMinutes: V.oneOf(Number(v.intervalMinutes), 'Tarama sıklığı', INTERVALS, { fallback: 120 }), countries: countries(v.countries, 'Hedef ülkeler'), sources: V.strList(v.sources, 'Kaynaklar', { maxItems: 100, maxLen: 300 }) }),
+    defaults: { enabled: true, intervalMinutes: 120, countries: ['US'], sources: [], maxAgeHours: 72, minRelevance: 35, maxItemsPerSource: 60 },
+    validate: (v) => ({ enabled: V.bool(v.enabled, 'Haber tarama', true), intervalMinutes: V.oneOf(Number(v.intervalMinutes), 'Tarama sıklığı', INTERVALS, { fallback: 120 }), countries: countries(v.countries, 'Hedef ülkeler'), sources: V.strList(v.sources, 'Kaynaklar', { maxItems: 100, maxLen: 300 }),
+      maxAgeHours: V.int(v.maxAgeHours, 'En eski haber (saat)', { min: 1, max: 720 }), minRelevance: V.int(v.minRelevance, 'Minimum nişe uygunluk puanı', { min: 0, max: 100 }), maxItemsPerSource: V.int(v.maxItemsPerSource, 'Kaynak başına en çok haber', { min: 5, max: 100 }) }),
   },
   seo: {
     projectOverride: true,
-    defaults: { enabled: true, minVolume: 50, minOpportunityScore: 70, countries: ['US'], cacheDays: 30 },
+    defaults: { enabled: true, minVolume: 50, minOpportunityScore: 70, countries: ['US'], cacheDays: 30, serpDevice: 'desktop' },
     validate: (v) => ({ enabled: V.bool(v.enabled, 'SEO botu', true), minVolume: V.int(v.minVolume, 'Minimum aranma hacmi', { min: 0, max: 1000000 }), minOpportunityScore: V.int(v.minOpportunityScore, 'Minimum fırsat puanı', { min: 0, max: 100 }),
-      countries: countries(v.countries, 'Hedef ülkeler'), cacheDays: V.int(v.cacheDays, 'API önbellek süresi (gün)', { min: 1, max: 180 }) }),
+      countries: countries(v.countries, 'Hedef ülkeler'), cacheDays: V.int(v.cacheDays, 'API önbellek süresi (gün)', { min: 1, max: 180 }), serpDevice: V.oneOf(v.serpDevice, 'SERP cihazı', ['desktop', 'mobile'], { fallback: 'desktop' }) }),
   },
   quality: {
     projectOverride: true,

@@ -1,5 +1,6 @@
 const db = require('../db');
 const settings = require('./settings');
+const runs = require('./runs');
 const { bad } = require('../lib/http');
 
 /**
@@ -24,19 +25,23 @@ const BOTS = [
   { key: 'seo_performance', label: 'SEO Performance Bot', phase: 6, about: 'Search Console verisiyle performansı izler.' },
   { key: 'reporting', label: 'Reporting Bot', phase: 7, about: 'Günlük/haftalık raporlar üretir.' },
 ];
-const IMPLEMENTED = new Set();                                              // keys of bots whose code exists and runs (none in phase 1)
+/** keys of bots whose code exists and runs. In phase 2 they are started BY HAND (panel buttons); the scheduler that starts them by itself is phase 4. */
+const IMPLEMENTED = new Set(['news_discovery', 'trend_analysis', 'niche_discovery', 'keyword_research', 'seo_competition', 'content_opportunity']);
+const MANUAL_NOTE = { trend_analysis: 'Haber verisinden anlık hesaplanır (ayrı çalıştırma gerekmez)' };
 
 async function state() { return (await settings.get('bots')).value; }
 
 async function list() {
   const rows = new Map((await db.query('SELECT * FROM schedule_settings')).rows.map((r) => [r.bot_key, r]));
   const st = await state();
+  const last = await runs.lastByBot();
   return {
     paused: st.paused, pausedAt: st.pausedAt, pausedBy: st.pausedBy,
     items: BOTS.map((b) => {
-      const r = rows.get(b.key);
-      return { ...b, implemented: IMPLEMENTED.has(b.key), enabled: r ? r.enabled : true, status: IMPLEMENTED.has(b.key) ? (st.paused ? 'paused' : 'idle') : 'planned', statusText: IMPLEMENTED.has(b.key) ? (st.paused ? 'Duraklatıldı' : 'Hazır') : `Aşama ${b.phase}’te gelecek`,
-        lastRunAt: null, nextRunAt: null, processed: null, errors: null };
+      const r = rows.get(b.key); const l = last.get(b.key); const impl = IMPLEMENTED.has(b.key);
+      return { ...b, implemented: impl, manualOnly: impl, enabled: r ? r.enabled : true, status: impl ? (st.paused ? 'paused' : 'idle') : 'planned',
+        statusText: impl ? (st.paused ? 'Duraklatıldı' : (MANUAL_NOTE[b.key] || 'Elle çalıştırılır; otomatik zamanlama Aşama 4’te')) : `Aşama ${b.phase}’te gelecek`,
+        lastRunAt: l ? l.finishedAt : null, lastRunStatus: l ? l.status : null, nextRunAt: null, processed: l ? l.runs : (impl ? 0 : null), errors: l ? l.errors : (impl ? 0 : null) };
     }),
   };
 }

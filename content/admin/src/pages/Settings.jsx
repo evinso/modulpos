@@ -7,9 +7,11 @@ import { csvList, dt, lines } from '../format.js';
 const INTERVALS = [[0, 'Yalnızca elle'], [30, '30 dakika'], [60, '1 saat'], [120, '2 saat'], [360, '6 saat'], [720, '12 saat'], [1440, '24 saat']];
 const F = {
   news: { title: 'Haber tarama', about: 'Dünya gündemini ne sıklıkla ve hangi ülkeler için taranacağı.', fields: [
-    { k: 'enabled', t: 'bool', l: 'Haber botu aktif' }, { k: 'intervalMinutes', t: 'select', l: 'Tarama sıklığı', opts: INTERVALS }, { k: 'countries', t: 'csv', l: 'Hedef ülkeler (virgülle, 2 harfli)' }, { k: 'sources', t: 'lines', l: 'Haber kaynakları (adres ya da RSS, her satıra bir tane)' }] },
+    { k: 'enabled', t: 'bool', l: 'Haber botu aktif' }, { k: 'intervalMinutes', t: 'select', l: 'Tarama sıklığı', opts: INTERVALS }, { k: 'countries', t: 'csv', l: 'Hedef ülkeler (virgülle, 2 harfli)' },
+    { k: 'maxAgeHours', t: 'int', l: 'En eski haber (saat)', min: 1, max: 720, hint: 'Bundan eski haberler alınmaz.' }, { k: 'minRelevance', t: 'int', l: 'Minimum nişe uygunluk puanı', min: 0, max: 100, hint: 'Varsayılan 35: tek bir güçlü terim yeter, genel kelimeler tek başına yetmez.' },
+    { k: 'maxItemsPerSource', t: 'int', l: 'Kaynak başına en çok haber (tarama başına)', min: 5, max: 100 }] },
   seo: { title: 'SEO araştırması', about: 'Anahtar kelime filtreleri ve DataForSEO önbellek süresi.', fields: [
-    { k: 'enabled', t: 'bool', l: 'SEO botu aktif' }, { k: 'minVolume', t: 'int', l: 'Minimum aylık aranma hacmi', min: 0, max: 1000000 }, { k: 'minOpportunityScore', t: 'int', l: 'Minimum fırsat puanı', min: 0, max: 100 }, { k: 'countries', t: 'csv', l: 'Hedef ülkeler' }, { k: 'cacheDays', t: 'int', l: 'API önbellek süresi (gün)', min: 1, max: 180, hint: 'Aynı sorgu bu süre içinde tekrar ücretlendirilmez.' }] },
+    { k: 'enabled', t: 'bool', l: 'SEO botu aktif' }, { k: 'minVolume', t: 'int', l: 'Minimum aylık aranma hacmi', min: 0, max: 1000000 }, { k: 'countries', t: 'csv', l: 'Hedef ülkeler (ilki birincil ülke)' }, { k: 'serpDevice', t: 'select', l: 'SERP cihazı', opts: [['desktop', 'Masaüstü'], ['mobile', 'Mobil']] }, { k: 'cacheDays', t: 'int', l: 'API önbellek süresi (gün)', min: 1, max: 180, hint: 'Aynı sorgu bu süre içinde tekrar ücretlendirilmez.' }] },
   quality: { title: 'Kalite ve zorunlu kontroller', about: 'Üç zorunlu kontrol kapatılamaz.', fields: [
     { k: 'minScore', t: 'int', l: 'Minimum kalite puanı', min: 50, max: 100 }, { k: 'lengthPref', t: 'select', l: 'Makale uzunluğu', opts: [['short', 'Kısa'], ['standard', 'Standart'], ['long', 'Uzun']] },
     { k: 'tone', t: 'text', l: 'Yazım tonu' }, { k: 'language', t: 'text', l: 'Varsayılan dil' }, { k: 'manualApprovalNewArticles', t: 'bool', l: 'Yeni makaleler için manuel yayın onayı' },
