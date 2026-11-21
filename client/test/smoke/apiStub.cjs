@@ -11,6 +11,7 @@ const mk = (i, over = {}) => ({
 });
 const bulkStub = require('./bulkStub.cjs');
 const calls = [];
+const formCfg = { unavailable: false, importMode: 'ok' };   // the new-product form: Trendyol attribute list unreachable? / the link import answers ok | blocked | notfound
 const uploads = [];   // the pictures the product form uploaded
 const xmlSrc = { status: 'active' };   // the one XML source of the stub: the page switches it between active and paused (passive)
 const handCfg = { scoped: false };   // true: every template is limited to the XML source s1, so nothing prices the products added by hand
@@ -133,6 +134,25 @@ const post = async (url, body) => {
   calls.push({ m: 'POST', url, body });
   { const b = bulkStub.handle('POST', url, body); if (b) return b; }
   if (url === '/products') return { data: { id: 'new1', ...body } };
+  if (/product-categories\/attribute-form$/.test(url)) {
+    if (formCfg.unavailable) return { data: { category: { id: body.categoryId, name: 'Pense', path: 'Hırdavat > Manuel El Aletleri > Pense' }, attributes: [], unavailable: true } };
+    const hint = (n) => (body.hints || []).find((h) => h.name === n);
+    const val = (id, name) => ({ valueId: id, valueName: name });
+    return { data: { category: { id: body.categoryId, name: 'Pense', path: 'Hırdavat > Manuel El Aletleri > Pense' }, unavailable: false, attributes: [
+      { id: '1', name: 'Renk', allowCustom: false, truncated: false, values: [{ id: '10', name: 'Beyaz' }, { id: '11', name: 'Siyah' }], answer: hint('Renk') ? { ...val('10', 'Beyaz'), from: 'page' } : null },
+      { id: '2', name: 'Menşei', allowCustom: false, truncated: false, values: [{ id: '20', name: 'TR' }, { id: '21', name: 'CN' }], answer: { ...val('20', 'TR'), from: 'default' } },
+      { id: '3', name: 'Garanti Süresi', allowCustom: true, truncated: false, values: [], answer: null },
+      { id: '4', name: 'Materyal', allowCustom: true, truncated: false, values: [{ id: '40', name: 'Seramik' }, { id: '41', name: 'Cam' }], answer: /Seramik/.test(body.title || '') ? { ...val('40', 'Seramik'), from: 'title' } : null },
+    ] } };
+  }
+  if (url === '/products/trendyol-import') {
+    const fail = (status, data) => { const e = new Error('x'); e.response = { status, data }; throw e; };
+    if (formCfg.importMode === 'blocked' && !body.source) fail(422, { blocked: true, error: 'Trendyol, sunucudan gelen isteği engelliyor. Ürün sayfasını kendi tarayıcınızda açıp sayfa kaynağını yapıştırın.' });
+    if (formCfg.importMode === 'notfound') fail(422, { notFound: true, error: 'Bu metinde ürün bilgisi bulunamadı.' });
+    return { data: { data: { title: 'HİS Studio Geyik Figürlü 3D Kabartmalı Tamamıyla El Yapımı Seramik Kupa 300 ml', description: 'El yapımı seramik kupa.\n• 300 ml', brand: 'HİS Studio',
+      images: ['https://cdn.dsmcdn.com/ty1/a_org_zoom.jpg', 'https://cdn.dsmcdn.com/ty1/b_org_zoom.jpg'], price: 299.9, attributes: [{ name: 'Renk', value: 'Beyaz' }, { name: 'Hacim', value: '300 ml' }],
+      category: { id: '10', name: 'Pense', path: 'Hırdavat > Manuel El Aletleri > Pense', how: formCfg.categoryGuess ? 'guess' : 'exact' }, contentId: '1075130175', url: 'https://www.trendyol.com/his-studio/geyik-p-1075130175' } } };
+  }
   if (url === '/products/images') { uploads.push({ size: String(body.data || '').length }); return { data: { id: 'u' + uploads.length, url: `https://api.modulpos.com/api/uploads/00000000-0000-4000-8000-00000000000${uploads.length}.jpg`, size: 100 } }; }
   if (url === '/xml-converter/feeds/status') { const feeds = {}; for (const u of body.urls) feeds[u] = conv.feeds[u] === undefined ? null : conv.feeds[u]; return { data: { feeds } }; }
   if (url === '/xml-converter/preview') return { data: { success: true, totalProducts: 4161, sample: [{ stok_kodu: 'A1', adi: 'Örnek ürün', fiyat: { son_kullanici: '10', bayi_fiyati: '8' }, miktar: '3', marka: 'M', kategori: 'K' }], feed: conv.previewFeed, convertedUrl: '/api/xml-converter/proxy?url=x&sig=y' } };
@@ -176,6 +196,7 @@ const post = async (url, body) => {
 const put = async (url, body) => {
   calls.push({ m: 'PUT', url, body });
   { const b = bulkStub.handle('PUT', url, body); if (b) return b; }
+  if (/product-categories\/product-attributes$/.test(url)) return { data: { saved: (body.attributes || []).length, skipped: [] } };
   if (url === '/xml-sources/s1' && body && body.status) { xmlSrc.status = body.status; return { data: { id: 's1', status: xmlSrc.status } }; }
   if (url === '/orders/profit/cost' || url === '/orders/profit/settings') return { data: { ok: true } };
   if (/product-categories\/attribute-defaults$/.test(url)) return { data: { saved: true, categories: 3, products: 12, pending: 0, unresolved: [{ name: 'Cinsiyet', categories: 2 }] } };
@@ -188,5 +209,5 @@ const put = async (url, body) => {
   }
   if (/send-settings$/.test(url)) return { data: { settings: body.settings, summary: [] } }; return { data: {} }; };
 const del = async (url, cfg) => { calls.push({ m: 'DELETE', url, params: cfg && cfg.params, body: cfg && cfg.data }); { const b = bulkStub.handle('DELETE', url, null, cfg); if (b) return b; } return { data: /sale-price$/.test(url) ? { ok: true, removed: 1 } : (/product-categories$/.test(url) ? { removed: (cfg.data.productIds || []).length } : {}) }; };
-module.exports = { get, post, put, delete: del, calls, uploads, handCfg, xmlSrc, wa, sendBehaviour, pc, profitTax, conv, bulk: bulkStub.bulk };
+module.exports = { get, post, put, delete: del, calls, uploads, handCfg, formCfg, xmlSrc, wa, sendBehaviour, pc, profitTax, conv, bulk: bulkStub.bulk };
 module.exports.default = module.exports;

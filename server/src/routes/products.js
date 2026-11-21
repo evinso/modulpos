@@ -1,6 +1,8 @@
 const express = require('express');
 const prisma = require('../config/database');
 const hostedImages = require('../services/hostedImages');
+const TrendyolPage = require('../services/trendyolPage');
+const { getMatcher, normText } = require('../services/categoryMatcher');
 const { auth } = require('../middleware/auth');
 const { checkProductLimit } = require('../utils/quotaHelper');
 const { getReadinessContext } = require('../services/readiness');
@@ -536,6 +538,53 @@ router.post('/images', async (req, res, next) => {
     if (error.status && error.status < 500) return res.status(error.status).json({ error: error.message });
     next(error);
   }
+});
+
+// Product data from a Trendyol product page, for the new-product form: { url } (the server tries to read the page) or { source } (the page source the owner
+// copied from the browser). Trendyol blocks servers, so { url } is often refused (422 blocked: true) and the page then asks for the source.
+// Nothing is saved: the form fills in the fields and the owner edits them. Answer: { data: { title, description, brand, images, price, attributes, category } }
+const importCalls = new Map();    // userId -> [times]: a modest limit (the outgoing request is Trendyol's, not ours to hammer)
+router.post('/trendyol-import', async (req, res, next) => {
+  try {
+    const now = Date.now();
+    const recent = (importCalls.get(req.user.id) || []).filter((t) => now - t < 3600 * 1000);
+    if (recent.length >= 30) return res.status(429).json({ error: 'Bir saatte en fazla 30 Trendyol linki okunabilir' });
+    importCalls.set(req.user.id, [...recent, now]);
+
+    const { url, source } = req.body || {};
+    let html = ''; let pu = null;
+    if (typeof source === 'string' && source.trim()) {
+      if (source.length > 4_500_000) return res.status(413).json({ error: 'Yapıştırılan metin çok büyük' });
+      html = source;
+      if (url) { const p = TrendyolPage.parseTrendyolUrl(url); if (!p.error) pu = p; }
+    } else {
+      pu = TrendyolPage.parseTrendyolUrl(url);
+      if (pu.error) return res.status(400).json({ error: pu.error });
+      try { html = (await TrendyolPage.fetchPage(pu.url, { get: (u, c) => require('axios').get(u, c) })).html; }
+      catch (e) {
+        if (e.code === 'BLOCKED') return res.status(422).json({ blocked: true, error: 'Trendyol, sunucudan gelen isteği engelliyor. Ürün sayfasını kendi tarayıcınızda açıp sayfa kaynağını yapıştırın.' });
+        return res.status(502).json({ error: e.message });
+      }
+    }
+    const data = TrendyolPage.extract(html);
+    if (!data.found) return res.status(422).json({ notFound: true, error: 'Bu metinde ürün bilgisi bulunamadı. Trendyol ürün sayfasının kaynağını (Ctrl+U, hepsini kopyala) yapıştırdığınızdan emin olun.' });
+
+    // the Trendyol category of the page -> a leaf of our category tree: by its id (and name) when that fits, otherwise a guess by name that the owner must check
+    let category = null;
+    const m = getMatcher();
+    const pc = data.category;
+    if (pc) {
+      const byId = pc.id ? m.get(pc.id) : null;
+      const lastSeg = String(pc.hierarchy || '').split(/[/>|]/).map((x) => x.trim()).filter(Boolean).pop() || '';
+      const wanted = normText(pc.name || lastSeg);
+      if (byId && (!wanted || normText(byId.name) === wanted || normText(byId.path).includes(wanted))) category = { id: String(byId.id), name: byId.name, path: byId.path, how: 'exact' };
+      else {
+        const guess = wanted ? m.search(pc.name || lastSeg, 1)[0] : null;
+        if (guess) category = { id: String(guess.id), name: guess.name, path: guess.path, how: 'guess' };
+      }
+    }
+    res.json({ data: { title: data.title, description: data.description, brand: data.brand, images: data.images, price: data.price, attributes: data.attributes, category, contentId: pu ? pu.contentId : null, url: pu ? pu.url : null } });
+  } catch (error) { next(error); }
 });
 
 // Create product

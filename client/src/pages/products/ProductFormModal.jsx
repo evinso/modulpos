@@ -6,6 +6,8 @@ import toast from 'react-hot-toast';
 import CategoryPicker from '../marketplaces/productcat/CategoryPicker';
 import { fileToUploadData, ACCEPT } from './imageTools';
 import { storeBrandOf } from './storeBrand';
+import RequiredAttributes from './RequiredAttributes';
+import TrendyolImport from './TrendyolImport';
 
 const EMPTY = { sku: '', barcode: '', title: '', price: '', stock: '', brand: '', category: '', description: '', status: 'active', vatRate: '20', images: '' };
 
@@ -42,6 +44,64 @@ export default function ProductFormModal({ product, connection = null, onClose, 
   const [cat, setCat] = useState(null);                       // { id, name, path } chosen in this form
   const [showPicker, setShowPicker] = useState(false);
   const currentCat = editing && product.pricing && product.pricing.mapName ? product.pricing.mapName : '';
+
+  // The required attributes of the chosen category load right here (first answers from a Trendyol page, the title, the default answers)
+  const [attrState, setAttrState] = useState({ loading: false, unavailable: false, attributes: [] });
+  const [attrValues, setAttrValues] = useState({});            // { [attributeId]: { valueId, valueName, from, custom? } }
+  const [hints, setHints] = useState([]);                      // [{ name, value }] of an imported Trendyol page
+  const [imported, setImported] = useState(null);              // what the last import said (price, brand, whether the category is a guess)
+  const attrSeq = useRef(0);
+
+  /** Loads the attribute form of a category. `keep`: keep what the owner already chose and only fill the empty ones. */
+  const loadAttributes = async (categoryId, extra = {}, keep = false) => {
+    if (!connection) return;
+    const mine = ++attrSeq.current;
+    setAttrState((st) => ({ ...st, loading: true }));
+    try {
+      const { data } = await api.post(`/marketplace/connections/${connection.id}/product-categories/attribute-form`, {
+        categoryId, title: extra.title ?? form.title, description: extra.description ?? form.description, hints: extra.hints ?? hints,
+      });
+      if (mine !== attrSeq.current) return;
+      setAttrState({ loading: false, unavailable: !!data.unavailable, attributes: data.attributes || [] });
+      setAttrValues((cur) => {
+        const next = keep ? { ...cur } : {};
+        for (const a of data.attributes || []) {
+          const have = cur[a.id] && (cur[a.id].valueId || String(cur[a.id].valueName || '').trim());
+          if (keep && have) continue;
+          if (a.answer) next[a.id] = { valueId: a.answer.valueId || '', valueName: a.answer.valueName || '', from: a.answer.from };
+        }
+        return next;
+      });
+    } catch (err) {
+      if (mine !== attrSeq.current) return;
+      setAttrState({ loading: false, unavailable: true, attributes: [] });
+    }
+  };
+  const pickCategory = (r) => {
+    setCat({ id: String(r.id), name: r.name, path: r.path });
+    if (!form.category.trim()) set({ category: r.name });
+    setAttrValues({});
+    loadAttributes(String(r.id));
+  };
+
+  // "Trendyol linkinden doldur": the fields are filled and stay editable
+  const applyImport = (d) => {
+    setImported({ price: d.price, brand: d.brand, brandKept: !!storeBrand && !!d.brand && d.brand !== storeBrand.name, categoryGuess: !!(d.category && d.category.how === 'guess'), url: d.url });
+    setForm((f) => ({
+      ...f,
+      title: d.title || f.title, description: d.description || f.description,
+      brand: storeBrand ? f.brand : (d.brand || f.brand),                    // the store's own brand (the owner's) is kept
+      images: d.images && d.images.length ? d.images.join('\n') : f.images,
+      category: f.category || (d.category ? d.category.name : ''),
+    }));
+    if (d.description) setDescTouched(true);
+    setHints(d.attributes || []);
+    if (trendyol && d.category) {
+      setCat({ id: String(d.category.id), name: d.category.name, path: d.category.path });
+      setAttrValues({});
+      loadAttributes(String(d.category.id), { title: d.title || form.title, description: d.description || form.description, hints: d.attributes || [] });
+    }
+  };
 
   // Pictures: addresses typed / pasted, and photos uploaded from this device (the upload answers with a public address that is added to the list)
   const [uploading, setUploading] = useState(0);
@@ -107,13 +167,23 @@ export default function ProductFormModal({ product, connection = null, onClose, 
       let productId = product && product.id;
       if (editing) await api.put(`/products/${product.id}`, body);
       else productId = (await api.post('/products', { ...body, sku: form.sku.trim() })).data.id;
-      let categoryOk = true;
+      let categoryOk = true; let attrNote = '';
       if (trendyol && cat) {
         try { await api.put(`/marketplace/connections/${connection.id}/product-categories`, { assignments: [{ productId, categoryId: cat.id, source: 'manual' }] }); }
         catch (err) { categoryOk = false; toast.error(`Ürün kaydedildi ama Trendyol kategorisi atanamadı (${err.response?.data?.error || 'hata'}). “Kategori eşleştirme › Ürün bazlı kategori” sekmesinden seçin.`, { duration: 9000 }); }
+        // what the owner chose in the attribute rows goes on top of the automatic answers (this product only)
+        const chosen = attrState.attributes.map((a) => ({ id: a.id, v: attrValues[a.id] })).filter((x) => x.v && (x.v.valueId || String(x.v.valueName || '').trim()))
+          .map((x) => ({ id: x.id, valueId: x.v.valueId || '', valueName: x.v.valueId ? '' : String(x.v.valueName).trim() }));
+        if (categoryOk && chosen.length) {
+          try { const r = await api.put(`/marketplace/connections/${connection.id}/product-categories/product-attributes`, { productId, categoryId: cat.id, attributes: chosen }); if (r.data && r.data.skipped && r.data.skipped.length) attrNote = ` Kabul edilmeyen: ${r.data.skipped.join(', ')}.`; }
+          catch (err) { toast.error(`Özellikler kaydedilemedi (${err.response?.data?.error || 'hata'}). “Ürün bazlı kategori” sekmesinden girin.`, { duration: 9000 }); }
+        }
       }
       toast.success(editing ? 'Ürün güncellendi' : 'Ürün eklendi');
-      if (trendyol && cat && categoryOk) toast('Trendyol kategorisi atandı. Zorunlu özellikler varsayılan cevaplarla ve ürün metninden dolduruldu; eksik kalanlar “Ürün bazlı kategori” sekmesinde görünür.', { icon: 'ℹ️', duration: 8000 });
+      if (trendyol && cat && categoryOk) {
+        const open = attrState.attributes.filter((a) => !(attrValues[a.id] && (attrValues[a.id].valueId || String(attrValues[a.id].valueName || '').trim()))).length;
+        toast(open > 0 ? `Trendyol kategorisi atandı. ${open} zorunlu özellik boş kaldı: “Ürün bazlı kategori” sekmesinde tamamlayın.${attrNote}` : `Trendyol kategorisi ve zorunlu özellikler kaydedildi.${attrNote}`, { icon: open > 0 ? '⚠️' : '✅', duration: 8000 });
+      }
       onSaved();
     } catch (err) { toast.error(err.response?.data?.error || 'Kaydedilemedi'); }
     finally { setSaving(false); }
@@ -128,6 +198,7 @@ export default function ProductFormModal({ product, connection = null, onClose, 
         </div>
         <form onSubmit={save}>
           <div className="modal-body">
+            {hand && !editing && <TrendyolImport onImported={applyImport} />}
             {hand && (
               <div data-testid="hand-note" style={{ fontSize: 12, color: 'var(--text-secondary)', background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, padding: '8px 12px', marginBottom: 14 }}>
                 Elle eklediğiniz üründe yazdığınız tutar, <strong>satıştan sonra size kalması gereken net tutardır</strong>. Pazaryerinde satılacak fiyat, kargo, komisyon, hizmet bedeli, stopaj ve KDV bu tutarın üstüne eklenerek hesaplanır.
@@ -155,7 +226,8 @@ export default function ProductFormModal({ product, connection = null, onClose, 
             <div className="grid grid-2">
               <div className="form-group"><label className="form-label">{hand ? 'Elime kalacak net tutar (₺) *' : 'Fiyat (₺)'}</label>
                 <input type="number" min="0" step="0.01" className="form-input" data-testid="net-price" value={form.price} onChange={(e) => set({ price: e.target.value })} required={hand} />
-                {hand && <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Satıştan sonra, kargo-komisyon-stopaj-KDV düşüldükten sonra elinize geçmesini istediğiniz tutar. Pazaryeri fiyatı buna göre hesaplanır.</small>}</div>
+                {hand && <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Satıştan sonra, kargo-komisyon-stopaj-KDV düşüldükten sonra elinize geçmesini istediğiniz tutar. Pazaryeri fiyatı buna göre hesaplanır.</small>}
+                {imported && imported.price && <small data-testid="ref-price" style={{ display: 'block', fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 4 }}>Linkteki ürün Trendyol’da ₺{Number(imported.price).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} (yalnızca bilgi için; net tutarı siz yazın).</small>}</div>
               <div className="form-group"><label className="form-label">Stok</label>
                 <input type="number" min="0" step="1" className="form-input" value={form.stock} onChange={(e) => set({ stock: e.target.value })} /></div>
             </div>
@@ -169,6 +241,7 @@ export default function ProductFormModal({ product, connection = null, onClose, 
                     Trendyol mağaza ayarınızda <strong>“Kendi markam”</strong> seçili ({storeBrand.name}): ürün her zaman bu markayla gönderilir{!editing ? ', bu yüzden otomatik seçildi' : ''}. Değiştirmek için <Link to="/marketplace" onClick={onClose}>Pazaryeri ayarları</Link>.
                   </small>
                 )}
+                {imported && imported.brandKept && <small data-testid="brand-kept" style={{ display: 'block', fontSize: 11.5, color: 'var(--text-secondary)' }}>Linkteki marka “{imported.brand}”; mağaza markanız korundu.</small>}
                 {storeBrand && storeBrand.strategy === 'xml' && (
                   <small data-testid="brand-note" style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
                     Trendyol mağaza ayarındaki yedek marka ({storeBrand.name}){!editing ? ' otomatik yazıldı; farklı bir marka için değiştirebilirsiniz' : ' kullanılır, bu ürünün markası Trendyol’da bulunamazsa'}. <Link to="/marketplace" onClick={onClose}>Pazaryeri ayarları</Link>
@@ -187,9 +260,11 @@ export default function ProductFormModal({ product, connection = null, onClose, 
                     {cat ? cat.path : (currentCat ? `Mevcut: ${currentCat}` : 'Henüz seçilmedi')}
                   </span>
                 </div>
-                <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Trendyol’un kendi kategori ağacından seçilir; ürün kaydedilince bu kategoriye bağlanır. Zorunlu özellikler (renk, menşei…) varsayılan cevaplardan ve ürün metninden otomatik doldurulur.</small>
+                <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Trendyol’un kendi kategori ağacından seçilir; ürün kaydedilince bu kategoriye bağlanır. Seçince kategorinin zorunlu özellikleri aşağıda yüklenir.</small>
+                {imported && imported.categoryGuess && cat && <small data-testid="category-guess" style={{ display: 'block', fontSize: 11.5, color: 'var(--warning)', marginTop: 4 }}>Kategori, Trendyol sayfasındaki ada bakılarak tahmin edildi; doğru olduğunu kontrol edin, gerekirse “Değiştir”.</small>}
               </div>
             )}
+            {trendyol && cat && <RequiredAttributes state={attrState} values={attrValues} onChange={(id, v) => setAttrValues((cur) => { const n = { ...cur }; if (v) n[id] = v; else delete n[id]; return n; })} onSuggest={() => loadAttributes(cat.id, {}, true)} />}
             <div className="grid grid-2">
               <div className="form-group"><label className="form-label">Durum</label>
                 <select className="form-select" value={form.status} onChange={(e) => set({ status: e.target.value })}>
@@ -240,7 +315,7 @@ export default function ProductFormModal({ product, connection = null, onClose, 
         </form>
         {/* outside the <form>: the picker's own buttons must never submit the product */}
         {showPicker && <CategoryPicker connId={connection.id} zIndex={1200} onClose={() => setShowPicker(false)}
-          onPick={(r) => { setCat(r); if (!form.category.trim()) set({ category: r.name }); setShowPicker(false); }} />}
+          onPick={(r) => { pickCategory(r); setShowPicker(false); }} />}
       </div>
     </div>
   );

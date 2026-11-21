@@ -12,6 +12,7 @@ const { classifyAiError } = require('../services/aiErrors');
 const AD = require('../services/attributeDefaults');
 const PC = require('../services/productCategories');
 const PA = require('../services/productAttributes');
+const AF = require('../services/attributeForm');
 const { pickAttributes, optionsFor, DEFAULT_MODEL: ATTR_AI_MODEL } = require('../services/attributeAiPicker');
 const { suggestForCategories } = require('../services/xmlCategorySuggestions');
 
@@ -181,6 +182,54 @@ router.put('/connections/:id/product-categories', async (req, res, next) => {
     productListCache.invalidate(connection.storeId);
     await fillAfterSave(connection, valid.map((a) => String(matcher.get(a.categoryId).id)), valid.map((a) => a.productId));
     res.json({ saved: valid.length, skipped: list.length - valid.length });
+  } catch (error) { next(error); }
+});
+
+// POST the required attributes of ONE Trendyol category as a form for a new product, with a first answer where one is known:
+//   { categoryId, title?, description?, hints?: [{ name, value }] }  (hints = what a Trendyol product page said; see services/attributeForm.js)
+router.post('/connections/:id/product-categories/attribute-form', async (req, res, next) => {
+  try {
+    const connection = await getConnection(req.params.id);
+    if (connection.marketplaceType !== 'trendyol') return res.status(400).json({ error: 'Bu özellik yalnızca Trendyol bağlantısı için' });
+    const categoryId = String((req.body && req.body.categoryId) || '');
+    const leaf = getMatcher().get(categoryId);
+    if (!leaf) return res.status(400).json({ error: 'Geçersiz Trendyol kategorisi' });
+    const hints = (Array.isArray(req.body.hints) ? req.body.hints : []).slice(0, 60)
+      .map((h) => ({ name: String((h && h.name) || '').slice(0, 120), value: String((h && h.value) || '').slice(0, 200) })).filter((h) => h.name && h.value);
+
+    const { map } = await AD.loadRequiredDefs(connection, [categoryId], { max: 1 });
+    const category = { id: String(leaf.id), name: leaf.name, path: leaf.path };
+    const defs = map.get(categoryId);
+    if (!defs) return res.json({ category, attributes: [], unavailable: true });           // Trendyol did not answer: the page says so, the product can still be saved
+    const compiled = AD.compile(AD.parseDefaults(connection.config));
+    const attributes = AF.buildForm(defs, {
+      title: String(req.body.title || '').slice(0, 300), description: PA.plainText(req.body.description || '', 3000), hints,
+      defaults: compiled.empty ? null : compiled, resolveValue: AD.resolveValue,
+    });
+    res.json({ category, attributes, unavailable: false });
+  } catch (error) { next(error); }
+});
+
+// PUT the values the owner chose in the new-product form for ONE product: { productId, categoryId, attributes: [{ id, valueId?, valueName? }] }
+// The product must already have this category (assign first). The values belong to this product only (`from: 'form'`).
+router.put('/connections/:id/product-categories/product-attributes', async (req, res, next) => {
+  try {
+    const connection = await getConnection(req.params.id);
+    const productId = String((req.body && req.body.productId) || '');
+    const categoryId = String((req.body && req.body.categoryId) || '');
+    const product = await prisma.product.findFirst({ where: { id: productId, storeId: connection.storeId }, select: { id: true } });
+    if (!product) return res.status(404).json({ error: 'Ürün bulunamadı' });
+    const row = await prisma.productCategoryOverride.findUnique({ where: { connectionId_productId: { connectionId: connection.id, productId } } });
+    if (!row || String(row.marketplaceCategoryId) !== categoryId) return res.status(409).json({ error: 'Önce ürüne bu Trendyol kategorisini atayın' });
+    const { map } = await AD.loadRequiredDefs(connection, [categoryId], { max: 1 });
+    const defs = map.get(categoryId);
+    if (!defs) return res.status(503).json({ error: 'Trendyol özellik listesi şu an alınamadı; özellikleri “Ürün bazlı kategori” sekmesinden girin' });
+    const r = AF.mergeFormValues(defs, row.attributes, req.body.attributes);
+    if (r.saved > 0) {
+      await prisma.productCategoryOverride.update({ where: { id: row.id }, data: { attributes: r.json } });
+      productListCache.invalidate(connection.storeId);
+    }
+    res.json({ saved: r.saved, skipped: r.skipped });
   } catch (error) { next(error); }
 });
 
