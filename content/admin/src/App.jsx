@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { LogOut, Menu, Moon, Sun, KeyRound, Bell } from 'lucide-react';
 import { api } from './api.js';
-import { MENU } from './menu.js';
+import { GROUPS } from './menu.js';
 import { AppProvider, Alert, Badge, Field, Loading, Modal, useApp, useAction } from './ui.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Strategy from './pages/Strategy.jsx';
@@ -101,14 +101,19 @@ function Shell() {
     <div className="shell">
       <aside className={`side ${open ? 'open' : ''}`} aria-label="Ana menü">
         <div className="brand"><div className="logo">M</div><div>AI Content Intelligence<small>ModulPOS</small></div></div>
-        {MENU.map((m) => {
-          const Icon = m.icon;
-          return (
-            <NavLink key={m.label} to={m.to} end={m.end} className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}>
-              <Icon size={17} />{m.label}{m.badge === 'unread' && unread > 0 && <span className="tag" style={{ color: 'var(--bad)' }}>{unread}</span>}
-            </NavLink>
-          );
-        })}
+        {GROUPS.map((g) => (
+          <div key={g.title || 'top'} className="nav-group" role="group" aria-label={g.title || 'Genel'}>
+            {g.title && <div className="nav-sep">{g.title}</div>}
+            {g.items.map((m) => {
+              const Icon = m.icon;
+              return (
+                <NavLink key={m.label} to={m.to} end={m.end} className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}>
+                  <Icon size={17} />{m.label}{m.badge === 'unread' && unread > 0 && <span className="tag" style={{ color: 'var(--bad)' }}>{unread}</span>}
+                </NavLink>
+              );
+            })}
+          </div>
+        ))}
       </aside>
       <div className="main">
         <header className="top">
