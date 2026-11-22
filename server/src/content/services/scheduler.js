@@ -20,6 +20,8 @@ const publishing = require('./publishing');
 const sites = require('./sites');
 const health = require('./health');
 const refresh = require('./refresh');
+const searchconsole = require('./searchconsole');
+const internalLinks = require('./internalLinks');
 
 /**
  * The scheduler and the background worker (phase 4). No n8n, no external cron: one in-process loop pair that only needs the content database.
@@ -38,6 +40,8 @@ const DEFAULTS = {
   article_writer:      { enabled: false, intervalMinutes: 180,  windowStart: '09:00', windowEnd: '23:00', weekdaysOnly: false, options: { perRun: 1 }, spends: true, label: 'Makale yazımı' },
   content_health:      { enabled: true,  intervalMinutes: 720,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 10 }, spends: false, label: 'İçerik sağlığı kontrolü' },
   content_refresh:     { enabled: false, intervalMinutes: 360,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 1 }, spends: true, label: 'İçerik güncelleme' },
+  seo_performance:     { enabled: false, intervalMinutes: 1440, windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: {}, spends: false, label: 'Search Console verisi' },
+  internal_linking:    { enabled: true,  intervalMinutes: 1440, windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: {}, spends: false, label: 'İç bağlantı önerileri' },
   content_publishing:  { enabled: false, intervalMinutes: 60,   windowStart: '09:00', windowEnd: '21:00', weekdaysOnly: false, options: { perRun: 2 }, spends: false, label: 'WordPress yayını' },
 };
 const SCHEDULABLE = Object.keys(DEFAULTS);
@@ -177,6 +181,23 @@ HANDLERS.content_refresh = { idempotent: false, async run(job, ctx) {
     catch (err) { stats.stopped = err.message; if (err.status === 409 || err.fatal) break; }              // limit full / no model ready / key rejected: stop, the next pass looks again
   }
   return { status: stats.stopped ? 'partial' : 'ok', stats, message: `${stats.proposed} taslak hazırlandı, ${stats.applied} otomatik uygulandı${stats.stopped ? ` (${stats.stopped})` : ''}` };
+} };
+
+/** Search Console: reads the numbers of every site that has a property (free; one pass a day is plenty: the data is days behind anyway) */
+HANDLERS.seo_performance = { idempotent: true, async run(job, ctx) {
+  const rows = (await db.query("SELECT id, name FROM wp_sites WHERE project_id = $1 AND status = 'active' AND gsc_property IS NOT NULL", [job.projectId])).rows;
+  if (!rows.length) return { status: 'skipped', message: 'Search Console sitesi yazılmış bir WordPress sitesi yok' };
+  if (!(await providers.get('searchconsole')).configured) return { status: 'skipped', message: 'Search Console bağlı değil (API Kullanımı: servis hesabı anahtarı)' };
+  const stats = { synced: 0, failed: [] };
+  for (const s of rows) { try { await searchconsole.sync(s.id, { fetchImpl: ctx.fetchImpl, now: ctx.now }); stats.synced++; } catch (err) { stats.failed.push({ site: s.name, error: err.message, retryable: err.retryable === true }); } }
+  if (!stats.synced && stats.failed.length) { const e = new Error(stats.failed[0].error); e.retryable = stats.failed.every((f) => f.retryable); throw e; }
+  return { status: stats.failed.length ? 'partial' : 'ok', stats, message: `${stats.synced} siteden Search Console verisi alındı${stats.failed.length ? `; ${stats.failed.length} site alınamadı` : ''}` };
+} };
+
+/** internal link suggestions (never applied by the bot: a person decides) */
+HANDLERS.internal_linking = { idempotent: true, async run(job, ctx) {
+  const r = await internalLinks.suggest(job.projectId, { now: ctx.now });
+  return { status: 'ok', stats: r, message: `${r.created} yeni iç bağlantı önerisi (${r.articles} makale tarandı)` };
 } };
 
 /** the WordPress bot: a per-article send job, a bulk plan job, or (no payload) the scheduled pass: read back scheduled posts, then auto-publish approved articles if the owner allowed it */

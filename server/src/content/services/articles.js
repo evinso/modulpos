@@ -214,7 +214,7 @@ async function list(q = {}) {
  * @param by      'manual' (a person: marks the article manual_edited) | 'ai'
  * @returns the article, or the article unchanged when nothing differs (no new version)
  */
-async function update(id, body, { userId = null, by = 'manual' } = {}) {
+async function update(id, body, { userId = null, by = 'manual', preserveChecks = false } = {}) {
   const f = fields(body);
   if (body.expectedVersion !== undefined && !Number.isInteger(body.expectedVersion)) throw bad('Sürüm numarası tam sayı olmalı');
   const reason = V.str(body.reason, 'Değişiklik notu', { max: 300 }) || 'Düzenleme';
@@ -235,7 +235,7 @@ async function update(id, body, { userId = null, by = 'manual' } = {}) {
     if (changed.length) {
       sets.push('current_version = current_version + 1');
       if (by === 'manual') sets.push('manual_edited = true');
-      if (changed.includes('contentHtml') || changed.includes('h1')) {
+      if ((changed.includes('contentHtml') || changed.includes('h1')) && !(preserveChecks && by === 'ai')) {         // (only the engine's own link insertion may keep the checks: the words of the article did not change)
         sets.push('fact_checked_at = NULL');                                                                          // changed facts must be checked again
         if (cur.created_by === 'ai') { sets.push('quality_score = NULL'); if (!changed.includes('adsenseRisk')) sets.push('adsense_risk = NULL'); }   // so are the AdSense class and the quality score of a written article (unless the person sets the class in the same save)
       }

@@ -121,14 +121,18 @@ async function overview(projectId, { now = new Date() } = {}) {
     return { id: r.id, title: r.h1, status: r.status, class: cls, classLabel: CLASS_LABEL[cls], qualityScore: r.quality_score, adsenseRisk: r.adsense_risk, lastCheckedAt: r.last_checked_at, nextCheckAt: r.next_check_at, lastUpdatedAt: r.last_updated_at, createdAt: r.created_at,
       wpUrl: r.wp_url, seoStatus: r.seo_status, brokenLinks: r.broken, signals: (r.health && r.health.signals) || [], overdueDays, proposal: r.proposal, priority: priority(r, h, r.proposal), version: r.current_version };
   }).sort((x, y) => y.priority - x.priority || x.title.localeCompare(y.title));
+  const gsc = await require('./searchconsole').articleSignals(projectId).catch(() => new Map());
+  const gscConnected = (await db.query('SELECT count(*)::int n FROM wp_sites WHERE project_id = $1 AND gsc_synced_at IS NOT NULL', [projectId])).rows[0].n > 0;
+  for (const it of items) { it.performance = gsc.get(it.id) || null; if (it.performance && it.performance.drop) it.priority += 10; }          // a drop raises the priority a little; it is never a reason to change the article by itself
+  items.sort((x, y) => y.priority - x.priority || x.title.localeCompare(y.title));
   const d30 = new Date(now.getTime() - 30 * 86400000);
   const critical = (await db.query("SELECT count(*)::int n FROM refresh_proposals WHERE project_id = $1 AND status = 'proposed' AND kind = 'critical'", [projectId])).rows[0].n;
   const open = (await db.query("SELECT count(*)::int n FROM refresh_proposals WHERE project_id = $1 AND status = 'proposed'", [projectId])).rows[0].n;
   return {
     counts: { published: items.filter((i) => i.status === 'published').length, live: items.length, awaitingUpdate: items.filter((i) => i.status === 'needs_update').length, openProposals: open,
       updatedLast30: items.filter((i) => i.lastUpdatedAt && new Date(i.lastUpdatedAt) > d30).length, withBrokenLinks: items.filter((i) => i.brokenLinks > 0).length, outdated: items.filter((i) => i.overdueDays > 0).length,
-      adsenseRisky: items.filter((i) => ['review', 'blocked'].includes(i.adsenseRisk)).length, criticalPending: critical, neverChecked: items.filter((i) => !i.lastCheckedAt).length },
-    items, intervals: cfg.intervalDays, policy: cfg.policy, performance: { connected: false, note: 'Search Console bağlı değil: performans verisi yok (uydurulmaz)' },
+      adsenseRisky: items.filter((i) => ['review', 'blocked'].includes(i.adsenseRisk)).length, criticalPending: critical, neverChecked: items.filter((i) => !i.lastCheckedAt).length, performanceDrops: gscConnected ? items.filter((i) => i.performance && i.performance.drop).length : null },
+    items, intervals: cfg.intervalDays, policy: cfg.policy, performance: gscConnected ? { connected: true, note: 'Tıklama düşüşleri yalnızca bir işarettir; tek başına güncelleme gerekçesi değildir (mevsimsellik ve talep ayrıca değerlendirilir).' } : { connected: false, note: 'Search Console bağlı değil: performans verisi yok (uydurulmaz)' },
   };
 }
 

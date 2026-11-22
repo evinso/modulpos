@@ -206,13 +206,13 @@ test('dashboard: real numbers, figures of later phases marked unavailable instea
   const m = Object.fromEntries(d.metrics.map((x) => [x.key, x]));
   assert.equal(m.awaiting.value, 1); assert.deepEqual([m.news_found.available, m.news_found.value, m.keywords.value, m.seo_analyzed.value], [true, 0, 0, 0], 'phase 2 numbers are real counts now (nothing researched yet = a real 0)');
   assert.deepEqual(d.metrics.filter((x) => !x.available).length, 0); assert.equal(d.charts.organicTraffic.available, false); assert.equal(d.charts.organicTraffic.phase, 6);
-  assert.equal(m.cost_today.value, 0); assert.equal(m.active_bots.value, 12); assert.match(m.active_bots.note, /12’i hazır; 4’i otomatik çalışıyor/);
+  assert.equal(m.cost_today.value, 0); assert.equal(m.active_bots.value, 14); assert.match(m.active_bots.note, /14’i hazır; 5’i otomatik çalışıyor/);
   assert.equal(d.charts.dailyProduction.length, 14); assert.equal(d.charts.dailyProduction.at(-1).value, 1); assert.equal(d.charts.categoryShare.length, 5);
   assert.equal(d.empty, false); assert.equal(d.charts.seoOpportunities.available, true); assert.equal(d.charts.searchVolume.buckets.length, 4);
   assert.equal(d.limitsToday.find((x) => x.workType === 'new_article').limit, 3);
   assert.equal((await c.get('/dashboard?projectId=00000000-0000-0000-0000-000000000001')).status, 404);
   const bots = (await c.get('/bots')).json;
-  assert.equal(bots.items.length, 15); assert.equal(bots.items.filter((b) => b.implemented).length, 12, 'the six phase-2 bots, the three phase-3 bots, the WordPress bot and the two phase-6 bots (health, refresh) exist'); assert.ok(bots.items.every((b) => b.lastRunAt === null), 'none has run yet: no invented last-run data');
+  assert.equal(bots.items.length, 15); assert.equal(bots.items.filter((b) => b.implemented).length, 14, 'the six phase-2 bots, the three phase-3 bots, the WordPress bot and the four phase-6 bots (health, refresh, Search Console, internal links) exist'); assert.ok(bots.items.every((b) => b.lastRunAt === null), 'none has run yet: no invented last-run data');
   assert.match(bots.items[0].statusText, /Otomatik: 2 saatte bir/); assert.match(bots.items.find((b) => b.key === 'article_writer').statusText, /Otomatik kapalı; elle çalıştırılır/, 'bots that spend money start switched off'); assert.match(bots.items.find((b) => !b.implemented).statusText, /Aşama \d’te gelecek/); assert.ok(bots.items.filter((b) => !b.implemented).every((b) => b.processed === null));
 });
 

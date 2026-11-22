@@ -84,7 +84,7 @@ test('metrics: needs the provider; asks in ONE batch, stores real values and "Ve
   await K.add(pid, ['claude pro price']); const more = await K.fetchMetrics(pid, { fetchImpl: f.fetchImpl, now: new Date(NOW.getTime() + 86400000) });
   assert.deepEqual([more.requested, more.cached], [1, 3], 'only the new one is asked');
   const later = await K.fetchMetrics(pid, { fetchImpl: f.fetchImpl, now: new Date(NOW.getTime() + 31 * 86400000) });
-  assert.equal(later.requested, 4, 'after cacheDays (30) the data is asked again'); assert.ok((await K.list(pid, {}, { now: new Date(NOW.getTime() + 31 * 86400000) })).items.every((x) => !x.stale || true));
+  assert.equal(later.requested, 3, 'after cacheDays (30) the data is asked again: the three fetched on day 0 (the one fetched on day 1 is still fresh: exactly 30 days)'); assert.ok((await K.list(pid, {}, { now: new Date(NOW.getTime() + 31 * 86400000) })).items.every((x) => !x.stale || true));
   const flt = await K.list(pid, { minVolume: 10000, state: 'found' }, { now: NOW }); assert.deepEqual(flt.items.map((x) => x.keyword), ['gemini 3']);
   assert.equal((await K.list(pid, { minTrend: 50 })).total, 1, 'trend filter'); assert.equal((await K.list(pid, { intent: 'commercial' })).total, 1);
 });

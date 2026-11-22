@@ -50,7 +50,7 @@ async function siteLoad(site, day, exceptId = null) {
  * Checks everything that can be checked before a send and takes the day's place. Creates (or reuses) the publication row (status "pending") but calls no WordPress.
  * @param o { mode: 'draft' | 'publish' | 'schedule', scheduledAt, userId, manual (a person's own click ignores the "bots paused" switch), now }
  */
-async function prepare(articleId, siteId, { mode, scheduledAt = null, userId = null, manual = true, now = new Date() } = {}) {
+async function prepare(articleId, siteId, { mode, scheduledAt = null, userId = null, manual = true, now = new Date(), allowCrossDomain = false } = {}) {
   V.oneOf(mode, 'Yayın şekli', ['draft', 'publish', 'schedule']);
   const a = (await db.query('SELECT id, project_id, category_id, status, h1, current_version FROM articles WHERE id = $1', [V.uuid(articleId, 'Makale')])).rows[0];
   if (!a) throw new HttpError(404, 'Makale bulunamadı');
@@ -65,6 +65,10 @@ async function prepare(articleId, siteId, { mode, scheduledAt = null, userId = n
     if (when.getTime() > now.getTime() + 370 * 86400000) throw bad('Zamanlanmış yayın en fazla 1 yıl sonrasına verilebilir');
   }
   const cur = (await db.query('SELECT * FROM publications WHERE article_id = $1 AND site_id = $2', [a.id, site.id])).rows[0];
+  if (!cur && !allowCrossDomain) {                                    // the same text on two domains is duplicate content: refused unless a person explicitly allows it
+    const other = (await db.query("SELECT s.name FROM publications p JOIN wp_sites s ON s.id = p.site_id WHERE p.article_id = $1 AND p.site_id <> $2 AND p.status <> 'failed' LIMIT 1", [a.id, site.id])).rows[0];
+    if (other) throw new HttpError(409, `Bu makale zaten “${other.name}” sitesine gönderilmiş; aynı içeriğin başka bir alan adında kopyası varsayılan olarak engellenir (kopya içerik). Gerçekten istiyorsanız “başka alan adına da gönder” seçeneğini işaretleyin`, { duplicateDomain: true });
+  }
   if (cur && ['pending', 'sending'].includes(cur.status)) throw new HttpError(409, 'Bu makale bu siteye şu anda gönderiliyor');
   const wasPublic = !!cur && ['published', 'scheduled'].includes(cur.status);
   if (wasPublic && mode === 'draft') throw new HttpError(409, 'Yayında/zamanlanmış bir yazı taslağa çevrilemez; WordPress’te yapın');

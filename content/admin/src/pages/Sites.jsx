@@ -5,15 +5,15 @@ import { Alert, Async, Badge, Card, Empty, Field, Modal, NeedsProject, PageHead,
 import { dt } from '../format.js';
 
 const PLUGINS = [['none', 'Yok / bilmiyorum (meta açıklama yazının özeti olarak gider)'], ['rankmath', 'Rank Math (resmî updateMeta yolu ile yazılır)'], ['yoast', 'Yoast SEO (yalnızca site alanları REST’e açtıysa yazılır)']];
-const EMPTY = { name: '', apiUrl: '', username: '', password: '', domain: '', defaultAuthorId: '', defaultCategoryId: '', timezone: 'Europe/Istanbul', language: 'en-US', dailyLimit: 5, seoPlugin: 'none' };
+const EMPTY = { name: '', apiUrl: '', username: '', password: '', domain: '', defaultAuthorId: '', defaultCategoryId: '', timezone: 'Europe/Istanbul', language: 'en-US', dailyLimit: 5, seoPlugin: 'none', gscProperty: '' };
 
 function SiteModal({ projectId, site, onClose, onSaved }) {
-  const [f, setF] = useState(site ? { ...EMPTY, name: site.name, apiUrl: site.apiUrl, username: site.username, domain: site.domain, defaultAuthorId: site.defaultAuthorId || '', defaultCategoryId: site.defaultCategoryId || '', timezone: site.timezone, language: site.language, dailyLimit: site.dailyLimit, seoPlugin: site.seoPlugin } : EMPTY);
+  const [f, setF] = useState(site ? { ...EMPTY, name: site.name, apiUrl: site.apiUrl, username: site.username, domain: site.domain, defaultAuthorId: site.defaultAuthorId || '', defaultCategoryId: site.defaultCategoryId || '', timezone: site.timezone, language: site.language, dailyLimit: site.dailyLimit, seoPlugin: site.seoPlugin, gscProperty: site.gscProperty || '' } : EMPTY);
   const [run, busy] = useAction();
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
   const save = async (e) => {
     e.preventDefault();
-    const body = { ...f, dailyLimit: Number(f.dailyLimit), defaultAuthorId: f.defaultAuthorId === '' ? null : Number(f.defaultAuthorId), defaultCategoryId: f.defaultCategoryId === '' ? null : Number(f.defaultCategoryId) };
+    const body = { ...f, dailyLimit: Number(f.dailyLimit), defaultAuthorId: f.defaultAuthorId === '' ? null : Number(f.defaultAuthorId), defaultCategoryId: f.defaultCategoryId === '' ? null : Number(f.defaultCategoryId), gscProperty: f.gscProperty.trim() === '' ? null : f.gscProperty.trim() };
     if (!body.password) delete body.password;
     const r = await run(() => (site ? api.put(`/sites/${site.id}`, body) : api.post('/sites', { projectId, ...body })), site ? 'Site kaydedildi' : 'Site eklendi');
     if (r) { onSaved(r); onClose(); }
@@ -36,6 +36,7 @@ function SiteModal({ projectId, site, onClose, onSaved }) {
           <Field label="Yayın dili"><input className="input" value={f.language} onChange={set('language')} /></Field>
           <Field label="SEO eklentisi"><select className="input" value={f.seoPlugin} onChange={set('seoPlugin')}>{PLUGINS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
         </div>
+        <Field label="Search Console sitesi (isteğe bağlı)" hint="SEO Performansı için. Alan adı mülkü: sc-domain:siteniz.com · URL öneki mülkü: https://siteniz.com/ (Search Console’da nasıl eklediyseniz öyle). Boş bırakırsanız performans verisi çekilmez."><input className="input" value={f.gscProperty} onChange={set('gscProperty')} placeholder="sc-domain:siteniz.com" autoComplete="off" /></Field>
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Vazgeç</button><button className="btn primary" disabled={busy}>Kaydet</button></div>
       </form>
     </Modal>
@@ -75,6 +76,7 @@ export default function Sites() {
   if (!projectId) return <NeedsProject />;
   const admin = can('sites.write');
   const test = async (s) => { const r = await run(() => api.post(`/sites/${s.id}/test`)); if (r) { toast(r.message, r.ok ? undefined : 'bad'); st.reload(); } };
+  const gsc = async (s) => { const r = await run(() => api.post(`/sites/${s.id}/gsc-sync`)); if (r) { toast(`Search Console verisi alındı (${r.through} gününe kadar, ${r.rows} satır)`); } st.reload(); };
   const toggle = async (s) => { if (await run(() => api.put(`/sites/${s.id}`, { status: s.status === 'active' ? 'paused' : 'active' }), s.status === 'active' ? 'Site duraklatıldı' : 'Site etkinleştirildi')) st.reload(); };
   return (
     <div className="page">
@@ -87,9 +89,12 @@ export default function Sites() {
             <div className="stack">
               <div className="row"><Link2 size={14} /><a href={s.apiUrl} target="_blank" rel="noopener noreferrer nofollow">{s.apiUrl}</a><span className="faint">· kullanıcı {s.username} · şifre …{s.passwordLast4}</span></div>
               {s.lastTestMessage && <Alert kind={s.lastTestOk ? 'ok' : 'bad'}>{s.lastTestMessage}{s.lastTestedAt && <small className="faint"> · {dt(s.lastTestedAt)}</small>}</Alert>}
-              <div className="row"><Badge>günlük limit {s.dailyLimit}</Badge><Badge>SEO: {s.seoPlugin === 'none' ? 'eklenti yok' : s.seoPlugin}</Badge><Badge kind="info">{s.counts.published} yayında</Badge><Badge kind="info">{s.counts.scheduled} zamanlı</Badge><Badge>{s.counts.total} gönderim</Badge></div>
+              <div className="row"><Badge>günlük limit {s.dailyLimit}</Badge><Badge>SEO: {s.seoPlugin === 'none' ? 'eklenti yok' : s.seoPlugin}</Badge><Badge kind="info">{s.counts.published} yayında</Badge><Badge kind="info">{s.counts.scheduled} zamanlı</Badge><Badge>{s.counts.total} gönderim</Badge>
+                {s.gscProperty ? <Badge kind={s.gscError ? 'bad' : s.gscSyncedAt ? 'ok' : ''} title={s.gscProperty}>Search Console: {s.gscError ? 'son çekme başarısız' : s.gscSyncedAt ? `veri ${dt(s.gscSyncedAt)}` : 'henüz çekilmedi'}</Badge> : <Badge title="Ayarlar’dan Search Console sitesini yazın">Search Console bağlı değil</Badge>}</div>
+              {s.gscError && <Alert kind="bad" title="Search Console verisi alınamadı">{s.gscError}</Alert>}
               <div className="row">{admin && <>
                 <button className="btn sm" disabled={busy} onClick={() => test(s)}><RefreshCw size={14} />Bağlantıyı test et</button>
+                {s.gscProperty && <button className="btn sm" disabled={busy} onClick={() => gsc(s)}><RefreshCw size={14} />Search Console verisini çek</button>}
                 <button className="btn sm" onClick={() => setModal({ cat: s })}>Kategori eşleştirme</button>
                 <button className="btn sm" onClick={() => setModal({ edit: s })}>Ayarlar</button>
                 <button className="btn sm" disabled={busy} onClick={() => toggle(s)}>{s.status === 'active' ? 'Duraklat' : 'Etkinleştir'}</button></>}</div>

@@ -10,7 +10,7 @@ const opts = { skip: H.skip };
 const ORIGIN = 'https://content.example.test';
 const PW = 'Correct-Horse-9-Battery';
 const FX = path.join(__dirname, '../fixtures/content');
-let server; let base; let feedServer; let feedBase; const realFetch = globalThis.fetch; const dfsCalls = []; const serperCalls = []; const models = require('./fakeModels').fakeModels();
+let server; let base; let feedServer; let feedBase; const realFetch = globalThis.fetch; const dfsCalls = []; const serperCalls = []; let googleFake = null; const models = require('./fakeModels').fakeModels();
 
 test.before(async () => {
   if (H.skip) return;
@@ -30,6 +30,7 @@ test.before(async () => {
   // DataForSEO is only reachable through the global fetch: answer it here, let everything else (our own test client) through
   globalThis.fetch = async (url, o) => {
     if (/^https:\/\/(api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com)/.test(String(url))) return models.fetchImpl(url, o);
+    if (googleFake && /^https:\/\/(oauth2\.googleapis\.com|www\.googleapis\.com\/webmasters)/.test(String(url))) return googleFake.fetchImpl(url, o);
     if (String(url).startsWith('https://google.serper.dev')) {                      // Serper.dev: the vendor's documented answer shape, easy results
       const q = JSON.parse(o.body).q; serperCalls.push({ q, key: o.headers['X-API-KEY'] });
       return { ok: true, status: 200, json: async () => ({ organic: ['smallblog.dev', 'niche-tech.net', 'reddit.com', 'mysite.io'].map((d, i) => ({ title: d, link: `https://${d}/${i}`, position: i + 1, snippet: 's' })), peopleAlsoAsk: [{ question: `Is ${q} real?` }], relatedSearches: [{ query: `${q} news` }] }) };
@@ -261,4 +262,41 @@ test('WordPress over HTTP: connecting a site and every send are admin-only, the 
     assert.equal((await c.del(`/articles/${art.id}?projectId=${pid}`)).status, 409, 'an article that has a post on a site cannot be deleted');
     assert.ok((await c.get('/audit?action=site')).json.items.some((x) => x.action === 'site.create') && (await c.get('/audit?action=article.publish')).json.items.length >= 1);
   } finally { await fake.close(); }
+});
+
+test('Search Console and internal links over HTTP: connecting and reading are by role, the key never comes back, no data is "not connected" (never zero), the numbers follow the sync, links are applied by an admin only', opts, async () => {
+  const { makeKey, fakeGoogle } = require('./fakeGoogle'); const key = makeKey(); const A = require('../../src/content/services/articles'); const P = require('../../src/content/services/projects');
+  const iso = (d) => d.toISOString().slice(0, 10); const back = (n) => new Date(Date.now() - (3 + n) * 86400000);
+  googleFake = fakeGoogle({ publicKey: key.publicKey, email: key.json.client_email, sites: [{ siteUrl: 'sc-domain:blog.example', permissionLevel: 'siteRestrictedUser' }], rows: (b) => {
+    if (b.dimensions.join() === 'date,page') return Array.from({ length: 90 }, (_, n) => ({ keys: [iso(back(n)), 'https://blog.example/guide/'], clicks: 4, impressions: 100, ctr: 0.04, position: 4 })).filter((r) => r.keys[0] >= b.startDate && r.keys[0] <= b.endDate);
+    if (b.dimensions.join() === 'country') return [{ keys: ['usa'], clicks: 100, impressions: 2000, ctr: 0.05, position: 4 }];
+    return [];
+  } });
+  try {
+    const c = await signedIn(); const editor = await signedIn('editor'); const viewer = await signedIn('viewer'); const pid = (await c.get('/projects')).json.projects[0].id;
+    const { startFakeWp } = require('./fakeWordPress'); const fake = await startFakeWp();
+    try {
+      const sid = (await c.post('/sites', { projectId: pid, name: 'Blog', apiUrl: fake.url, username: 'editor', password: 'abcd efgh ijkl mnop', gscProperty: 'sc-domain:blog.example' })).json.id; assert.equal((await c.get(`/sites/${sid}`)).json.gscProperty, 'sc-domain:blog.example');
+      assert.equal((await c.post('/sites', { projectId: pid, name: 'Bad', apiUrl: fake.url, username: 'x', password: 'abcd efgh ijkl mnop', gscProperty: 'blog.example' })).status, 400, 'a Search Console property is sc-domain:… or a full https address');
+      // not connected: honest empty answers
+      const p0 = (await viewer.get(`/performance?siteId=${sid}&days=28`)).json; assert.deepEqual([p0.connected, p0.current, /henüz çekilmedi/.test(p0.note)], [false, undefined, true]); assert.equal((await viewer.get(`/performance?siteId=${sid}&days=5`)).status, 400);
+      assert.equal((await editor.put('/providers/searchconsole', { secret: JSON.stringify(key.json) })).status, 403); assert.equal((await c.put('/providers/searchconsole', { secret: 'not json' })).status, 400);
+      const saved = await c.put('/providers/searchconsole', { secret: JSON.stringify(key.json) }); assert.equal(saved.status, 200); assert.ok(!saved.text.includes('PRIVATE KEY') && !saved.text.includes(key.json.private_key_id), 'the key never comes back (only its last 4)'); assert.equal(saved.json.secretLast4, key.json.private_key_id.slice(-4));
+      assert.equal((await editor.post(`/sites/${sid}/gsc-sync`)).status, 403); assert.equal((await viewer.post(`/sites/${sid}/gsc-sync`)).status, 403);
+      const syn = await c.post(`/sites/${sid}/gsc-sync`); assert.deepEqual([syn.status, syn.json.days, syn.json.rows, syn.json.countries], [200, 90, 90, 1]);
+      const p1 = (await viewer.get(`/performance?siteId=${sid}&days=7`)).json; assert.deepEqual([p1.connected, p1.current.clicks, p1.current.impressions, p1.previous.clicks, p1.change.clicksPct, p1.series.length, p1.pages[0].page, p1.countries[0].key], [true, 28, 700, 28, 0, 7, 'https://blog.example/guide/', 'usa']);
+      assert.equal((await viewer.get(`/performance/opportunities?siteId=${sid}`)).json.connected, true); assert.equal((await viewer.get('/performance?siteId=00000000-0000-0000-0000-000000000009')).status, 404);
+      googleFake.st.apiStatus = 403; const bad = await c.post(`/sites/${sid}/gsc-sync`); assert.equal(bad.status, 409); assert.match(bad.json.error, /Search Console|yetki|izin/i); assert.equal((await viewer.get(`/sites/${sid}`)).json.gscError.length > 0, true); googleFake.st.apiStatus = null;
+      // internal links
+      const cat = (await P.listCategories(pid))[0].id; const words = (n, t) => Array.from({ length: n }, (_, i) => `Sentence ${t}-${i} says something plain here.`).join(' ');
+      const target = await A.create({ projectId: pid, h1: 'Wifi guide', focusKeyword: 'wifi 7 router', categoryId: cat, contentHtml: `<h2>Guide</h2><p>${words(60, 'a')}</p>`, articleType: 'evergreen_guide' });
+      const from = await A.create({ projectId: pid, h1: 'Basics', focusKeyword: 'home network basics', categoryId: cat, contentHtml: `<h2>Basics</h2><p>${words(60, 'b')} Pick a wifi 7 router wisely.</p>`, articleType: 'evergreen_guide' });
+      await H.db().query("UPDATE articles SET status = 'ready' WHERE id = ANY($1)", [[target.id, from.id]]);
+      assert.equal((await viewer.post('/internal-links/find', { projectId: pid })).status, 403); const found = await editor.post('/internal-links/find', { projectId: pid }); assert.deepEqual([found.status, found.json.created], [200, 1]);
+      const ls = (await viewer.get(`/internal-links?projectId=${pid}`)).json.links; assert.deepEqual([ls.length, ls[0].anchor, ls[0].draft, ls[0].fromTitle, ls[0].toTitle], [1, 'wifi 7 router', true, 'Basics', 'Wifi guide']);
+      assert.equal((await editor.post(`/internal-links/${ls[0].id}/apply`)).status, 403, 'putting a link into an article is a publishing decision: admin only'); const ap = await c.post(`/internal-links/${ls[0].id}/apply`); assert.equal(ap.status, 409); assert.match(ap.json.error, /henüz yayında değil/);
+      assert.equal((await viewer.post(`/internal-links/${ls[0].id}/reject`)).status, 403); assert.equal((await editor.post(`/internal-links/${ls[0].id}/reject`)).status, 200); assert.equal((await viewer.get(`/internal-links?projectId=${pid}&status=rejected`)).json.links.length, 1); assert.equal((await viewer.get(`/internal-links?projectId=${pid}&status=nope`)).status, 400);
+      assert.ok((await c.get('/audit?action=internal_links')).json.items.length >= 2 && (await c.get('/audit?action=site.gsc')).json.items.length >= 1);
+    } finally { await fake.close(); }
+  } finally { googleFake = null; }
 });
