@@ -88,7 +88,7 @@ export default function ApiUsage() {
           </div>
           <CostAnalysis />
           <Card title="Son çağrılar">
-            {u.recent.length === 0 ? <p className="muted">Henüz harici API çağrısı yapılmadı. Haber/SEO/AI botları eklendikçe her çağrı burada görünür.</p> : (
+            {u.recent.length === 0 ? <p className="muted">Henüz harici API çağrısı yapılmadı. Anahtar kelime, SERP, yapay zekâ ve Telegram çağrıları yapıldıkça her biri burada (süresi ve maliyetiyle) görünür.</p> : (
               <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Tarih</th><th>Sağlayıcı</th><th>Uç nokta</th><th>İşlem</th><th className="num">İstek</th><th className="num">Birim</th><th className="num">Maliyet</th><th>Sonuç</th></tr></thead>
                 <tbody>{u.recent.map((r) => <tr key={r.id}><td className="faint">{dt(r.createdAt)}</td><td>{r.provider}</td><td className="mono clip">{r.endpoint || '—'}</td><td>{r.operation || '—'}</td><td className="num">{num(r.requests)}</td><td className="num">{r.units === null ? '—' : num(r.units)}</td>
                   <td className="num">{r.costUsd === null ? <Badge>Bilinmiyor</Badge> : r.costText}</td><td><Badge kind={r.result === 'ok' ? 'ok' : r.result === 'error' ? 'bad' : 'warn'}>{r.result === 'blocked_budget' ? 'bütçe engeli' : r.result}</Badge></td></tr>)}</tbody></table></div>)}

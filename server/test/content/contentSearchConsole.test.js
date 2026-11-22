@@ -10,6 +10,7 @@ const SI = require('../../src/content/services/sites');
 const GSC = require('../../src/content/services/searchconsole');
 const HL = require('../../src/content/services/health');
 const SC = require('../../src/content/services/scheduler');
+const DASH = require('../../src/content/services/dashboard');
 const PB = require('../../src/content/services/publishing');
 
 /**
@@ -110,6 +111,24 @@ test('performance: totals and the change against the period before, the position
   assert.deepEqual([p.countries[0].key, p.devices.length], ['usa', 2]); assert.ok(p.notes.some((n) => /2-3 gün geriden/.test(n)) && p.notes.some((n) => /mevsimsellik.*DEĞERLENDİRİLEMEZ/.test(n)));
   const w7 = await GSC.performance(s.id, { days: 7, now: NOW }); assert.deepEqual([w7.current.clicks, w7.previous.clicks], [70, 70]); const w90 = await GSC.performance(s.id, { days: 90, now: NOW }); assert.deepEqual([w90.current.clicks, w90.previous.clicks, w90.change.clicksPct], [900, 0, null], 'no earlier data: no percentage is invented');
   await assert.rejects(GSC.performance(s.id, { days: 14 }), /şunlardan biri|geçersiz/i);
+});
+
+test('dashboard: organic traffic is the STORED Search Console data (clicks per day, summed over the sites); no site / no connection / nothing fetched yet each say why instead of showing 0', opts, async () => {
+  const pid = await setup(); const g = google(dataset);
+  const o = async () => (await DASH.build({ projectId: pid, days: 14, now: NOW })).charts.organicTraffic;
+  let r = await o(); assert.deepEqual([r.available, r.sites, r.connectedSites], [false, 0, 0]); assert.match(r.note, /Henüz bağlı bir web sitesi yok/); assert.equal(r.series, undefined, 'no invented series');
+  const bare = await SI.create(pid, { name: 'Bare', apiUrl: 'http://127.0.0.1:8', username: 'u', password: 'p p p p' });
+  r = await o(); assert.deepEqual([r.available, r.sites], [false, 1]); assert.match(r.note, /Search Console bağlı değil/);
+  const s = await connect(pid, g);
+  r = await o(); assert.equal(r.available, false); assert.match(r.note, /veri henüz çekilmedi/);
+  await GSC.sync(s.id, { fetchImpl: g.fetchImpl, now: NOW });
+  r = await o();
+  assert.deepEqual([r.available, r.connectedSites, r.sites, r.through, r.from], [true, 1, 2, day(0), day(10)], 'the window is the 14 days before today; Search Console is 3 days late so the chart ends at the newest stored day');
+  assert.equal(r.series.length, 11); assert.deepEqual([r.clicks, r.impressions], [11 * 10, 11 * 240]); assert.ok(r.series.every((x) => x.clicks === 10 && x.impressions === 240));
+  await H.db().query('DELETE FROM gsc_daily WHERE site_id = $1 AND day = $2', [s.id, day(5)]);
+  r = await o(); assert.equal(r.series.length, 11, 'a day Google left out between two stored days is a real 0 (no impressions), the chart does not skip it'); assert.deepEqual(r.series.find((x) => x.day === day(5)), { day: day(5), clicks: 0, impressions: 0 });
+  assert.equal(r.clicks, 10 * 10);
+  const all = (await DASH.build({ now: NOW })).charts.organicTraffic; assert.equal(all.available, true, 'without a project filter all sites count'); void bare;
 });
 
 test('opportunities: low CTR for the position, a click drop that is NOT the whole site, a drop that IS the whole site (demand: info only), new keyword ideas, a changed search intent - each says what it could not judge', opts, async () => {

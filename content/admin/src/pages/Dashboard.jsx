@@ -8,9 +8,6 @@ import { num, shortDay, usd, dt } from '../format.js';
 const money = (m) => (m.key.startsWith('cost') ? usd(m.value) : num(m.value));
 
 function Metric({ m }) {
-  if (!m.available) {
-    return <div className="metric later" title={`Bu veri Aşama ${m.phase}’te toplanmaya başlayacak`}><span className="l">{m.label}</span><span className="v faint">—</span><span className="n">Aşama {m.phase}’te etkinleşir</span></div>;
-  }
   return (
     <div className="metric"><span className="l">{m.label}</span><span className="v">{money(m)}</span>
       {m.note && <span className="n">{m.note}</span>}
@@ -42,6 +39,17 @@ function Buckets({ c, empty, foot }) {
   return <div className="stack">{c.buckets.map((b) => <div key={b.label} className="row between" style={{ flexWrap: 'nowrap' }}><span style={{ width: 90 }}>{b.label}</span><div className="bar" style={{ flex: 1 }}><i style={{ width: `${(b.n / max) * 100}%` }} /></div><strong style={{ width: 32, textAlign: 'right' }}>{b.n}</strong></div>)}<small className="faint">{foot}</small></div>;
 }
 
+/** Organic traffic from the stored Search Console numbers: a chart of clicks, or the reason there is nothing to show (never a 0 that looks measured) */
+function Organic({ o }) {
+  if (!o.available) return <div className="stack"><p className="muted">{o.note}</p><Link className="btn sm" to={o.sites ? '/performance' : '/sites'}>{o.sites ? 'SEO Performansı' : 'Web Sitelerim'}</Link></div>;
+  return (
+    <div className="stack">
+      <Series data={o.series.map((r) => ({ day: r.day, value: r.clicks }))} label="Tıklama" />
+      <small className="faint">{num(o.clicks)} tıklama · {num(o.impressions)} gösterim · {o.connectedSites} site · {o.from} – {o.through}. {o.note}</small>
+    </div>
+  );
+}
+
 function CategoryShare({ cats }) {
   const total = cats.reduce((a, c) => a + c.articles, 0);
   return (
@@ -68,15 +76,15 @@ export default function Dashboard() {
   return (
     <div className="page">
       <PageHead title="Dashboard" actions={<select className="input" style={{ width: 'auto' }} value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Tarih aralığı">{[7, 14, 30, 60, 90].map((d) => <option key={d} value={d}>Son {d} gün</option>)}</select>}>
-        Yalnızca gerçek veriler gösterilir. Henüz geliştirilmemiş aşamalara bağlı rakamlar “0” yerine “Aşama N’de etkinleşir” olarak işaretlenir. Bir taramada hiçbir şey bulunmadıysa “0” gerçek bir sonuçtur.
+        Yalnızca gerçek veriler gösterilir. Bir taramada hiçbir şey bulunmadıysa “0” gerçek bir sonuçtur; bilinemeyen bir değer (örneğin Search Console’a bağlı olmayan sitenin trafiği) “0” yerine nedeniyle birlikte yazılır.
       </PageHead>
       <Async state={st}>{(d) => (
         <>
-          {(!project || project.mode === 'archive') && <Alert kind="info" title="Araştırma ve Arşiv Modu">Alan adı bağlı değil. Makaleler yalnızca bu panelin veritabanında saklanır; hiçbir sitede yayımlanmaz. Alan adı alındığında WordPress bağlantısı Aşama 5’te eklenecek.</Alert>}
+          {(!project || project.mode === 'archive') && <Alert kind="info" title="Araştırma ve Arşiv Modu">Alan adı bağlı değil. Makaleler yalnızca bu panelin veritabanında saklanır; hiçbir sitede yayımlanmaz. Bir WordPress sitesi bağlamak için <Link to="/sites">Web Sitelerim</Link> sayfasını kullanın.</Alert>}
           {d.botsPaused && <Alert kind="warn" title="Botlar duraklatıldı">Otomatik işler çalışmaz. <Link to="/limits">Günlük Çalışma Ayarları</Link> sayfasından devam ettirebilirsiniz.</Alert>}
           <div className="grid cols-metrics">{d.metrics.map((m) => <Metric key={m.key} m={m} />)}</div>
           {d.empty ? (
-            <Card><Empty title="Henüz makale yok" action={<Link className="btn primary" to="/articles/new">İlk makaleyi ekle</Link>}>Makaleleri Makale Arşivi’nden elle ekleyebilirsiniz. Yapay zekâ ile otomatik üretim Aşama 3’te, haber ve SEO araştırması Aşama 2’de gelecek.</Empty></Card>
+            <Card><Empty title="Henüz makale yok" action={<Link className="btn primary" to="/articles/new">İlk makaleyi ekle</Link>}>Makaleleri Makale Arşivi’nden elle ekleyebilirsiniz. Yapay zekâ ile üretim için <Link to="/opportunities">İçerik Fırsatları</Link> sayfasından bir fikir seçip “Makale yaz”a basabilirsiniz; haber ve SEO araştırması Dünya Gündemi ve Anahtar Kelime Araştırması sayfalarındadır.</Empty></Card>
           ) : (
             <div className="grid g2">
               <Card title="Günlük üretim"><Series data={d.charts.dailyProduction} label="Makale" /></Card>
@@ -88,7 +96,7 @@ export default function Dashboard() {
           <div className="grid g3">
             <Card flat title="SEO fırsatları (puan dağılımı)"><Buckets c={d.charts.seoOpportunities} empty="Henüz puanlanmış fikir yok. İçerik Fırsatları sayfasından “Yenile ve puanla”." foot={`${d.charts.seoOpportunities.eligible} uygun / ${d.charts.seoOpportunities.total} fikir`} /></Card>
             <Card flat title="Aranma hacmi dağılımı"><Buckets c={d.charts.searchVolume} empty="Gerçek aranma verisi henüz çekilmedi." foot={`${d.charts.searchVolume.withData} anahtar kelimenin verisi var`} /></Card>
-            <Card flat title="Organik trafik"><p className="muted">Aşama {d.charts.organicTraffic.phase}’te etkinleşir (Search Console bağlanınca).</p></Card>
+            <Card flat title="Organik trafik"><Organic o={d.charts.organicTraffic} /></Card>
           </div>
           <div className="grid g2">
             <Card title="Bugünün çalışma limitleri" actions={<Link className="btn sm" to="/limits">Düzenle</Link>}>

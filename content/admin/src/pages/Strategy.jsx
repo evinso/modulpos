@@ -46,7 +46,7 @@ function NicheTab({ projectId, canEdit }) {
         <div className="grid g2">
           <Field label="İçerik projesi adı"><input className="input" value={f.name} onChange={set('name')} disabled={dis} /></Field>
           <Field label="Site adı"><input className="input" value={f.siteName} onChange={set('siteName')} disabled={dis} /></Field>
-          <Field label="Alan adı" hint={f.domain ? 'Alan adı girildi; WordPress bağlantısı Aşama 5’te eklenecek.' : 'Boş = “Not Connected”: Araştırma ve Arşiv Modu (hiçbir şey yayımlanmaz).'}><input className="input" placeholder="örnek: example.com" value={f.domain} onChange={set('domain')} disabled={dis} /></Field>
+          <Field label="Alan adı" hint={f.domain ? 'Alan adı girildi. Yayın için Web Sitelerim sayfasından WordPress bağlantısını kurun.' : 'Boş = “Not Connected”: Araştırma ve Arşiv Modu (hiçbir şey yayımlanmaz).'}><input className="input" placeholder="örnek: example.com" value={f.domain} onChange={set('domain')} disabled={dis} /></Field>
           <Field label="Saat dilimi" hint="Günlük limitler bu saat diliminin gününe göre sayılır."><select className="input" value={f.timezone} onChange={set('timezone')} disabled={dis}>{[...new Set([f.timezone, ...TIMEZONES])].map((z) => <option key={z}>{z}</option>)}</select></Field>
         </div>
       </Card>

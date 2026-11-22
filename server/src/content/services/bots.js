@@ -8,26 +8,25 @@ const { env } = require('../env');
 const { startOfDay } = require('../lib/time');
 
 /**
- * The 15 bots of the platform. This registry is the truth about what exists: `implemented` is true only for a bot whose code runs.
- * Phase 1 has no running bot (the engine, the queue and the scheduler arrive in phases 2 to 4); the page shows the plan honestly instead of
- * fake "last run" numbers. The one working control is the global pause switch, which the limits service already obeys.
+ * The 15 bots of the platform. This registry is the truth about what exists: `implemented` is true only for a bot whose code runs (all 15 do now).
+ * A bot that had no code would be listed as "Henüz çalışmıyor" with no last-run numbers (never invented ones). The global pause switch stops all of them.
  */
 const BOTS = [
-  { key: 'news_discovery', label: 'News Discovery Bot', phase: 2, about: 'Haber kaynaklarını ve dünya gündemini tarar, niş filtresinden geçirir.' },
-  { key: 'trend_analysis', label: 'Trend Analysis Bot', phase: 2, about: 'Konuların yükselişini ve aranma eğilimini ölçer.' },
-  { key: 'niche_discovery', label: 'Niche Discovery Bot', phase: 2, about: 'Yeni niş ve alt kategori fırsatlarını önerir (seçmez, yalnızca önerir).' },
-  { key: 'keyword_research', label: 'Keyword Research Bot', phase: 2, about: 'Apify üzerinden gerçek Google aranma hacmi, CPC ve zorluk verisi toplar (ücretsiz aylık kredi; yoksa dosyadan aktarma).' },
-  { key: 'seo_competition', label: 'SEO Competition Bot', phase: 2, about: 'Google organik sonuçlarını ve rekabeti analiz eder.' },
-  { key: 'content_opportunity', label: 'Content Opportunity Bot', phase: 2, about: 'İçerik fırsatlarını puanlar ve sıralar.' },
-  { key: 'article_writer', label: 'AI Article Writer', phase: 3, about: 'Seçilen fırsattan kaynaklı, İngilizce makale yazar.' },
-  { key: 'fact_checking', label: 'Fact Checking Bot', phase: 3, about: 'İddiaları kaynaklarla doğrular.' },
-  { key: 'adsense_compliance', label: 'AdSense Compliance Bot', phase: 3, about: 'Makalelerin AdSense politika riskini denetler (yazarken) ve haftada bir WordPress sitelerinin AdSense hazırlığını denetler.' },
-  { key: 'content_publishing', label: 'Content Publishing Bot', phase: 5, about: 'Hazır makaleleri WordPress sitelerine gönderir.' },
-  { key: 'content_refresh', label: 'Content Refresh Bot', phase: 6, about: 'Yayımlanmış makaleleri anlamlı değişiklik varsa günceller.' },
-  { key: 'content_health', label: 'Content Health Bot', phase: 6, about: 'Eski makalelerin sağlığını düzenli kontrol eder.' },
-  { key: 'internal_linking', label: 'Internal Linking Bot', phase: 6, about: 'İç bağlantı fırsatlarını bulur.' },
-  { key: 'seo_performance', label: 'SEO Performance Bot', phase: 6, about: 'Search Console verisiyle performansı izler.' },
-  { key: 'reporting', label: 'Reporting Bot', phase: 7, about: 'Her sabah önceki günün, pazartesileri önceki haftanın raporunu üretir ve bildirir.' },
+  { key: 'news_discovery', label: 'News Discovery Bot', about: 'Haber kaynaklarını ve dünya gündemini tarar, niş filtresinden geçirir.' },
+  { key: 'trend_analysis', label: 'Trend Analysis Bot', about: 'Konuların yükselişini ve aranma eğilimini ölçer.' },
+  { key: 'niche_discovery', label: 'Niche Discovery Bot', about: 'Yeni niş ve alt kategori fırsatlarını önerir (seçmez, yalnızca önerir).' },
+  { key: 'keyword_research', label: 'Keyword Research Bot', about: 'Apify üzerinden gerçek Google aranma hacmi, CPC ve zorluk verisi toplar (ücretsiz aylık kredi; yoksa dosyadan aktarma).' },
+  { key: 'seo_competition', label: 'SEO Competition Bot', about: 'Google organik sonuçlarını ve rekabeti analiz eder.' },
+  { key: 'content_opportunity', label: 'Content Opportunity Bot', about: 'İçerik fırsatlarını puanlar ve sıralar.' },
+  { key: 'article_writer', label: 'AI Article Writer', about: 'Seçilen fırsattan kaynaklı, İngilizce makale yazar.' },
+  { key: 'fact_checking', label: 'Fact Checking Bot', about: 'İddiaları kaynaklarla doğrular.' },
+  { key: 'adsense_compliance', label: 'AdSense Compliance Bot', about: 'Makalelerin AdSense politika riskini denetler (yazarken) ve haftada bir WordPress sitelerinin AdSense hazırlığını denetler.' },
+  { key: 'content_publishing', label: 'Content Publishing Bot', about: 'Hazır makaleleri WordPress sitelerine gönderir.' },
+  { key: 'content_refresh', label: 'Content Refresh Bot', about: 'Yayımlanmış makaleleri anlamlı değişiklik varsa günceller.' },
+  { key: 'content_health', label: 'Content Health Bot', about: 'Eski makalelerin sağlığını düzenli kontrol eder.' },
+  { key: 'internal_linking', label: 'Internal Linking Bot', about: 'İç bağlantı fırsatlarını bulur.' },
+  { key: 'seo_performance', label: 'SEO Performance Bot', about: 'Search Console verisiyle performansı izler.' },
+  { key: 'reporting', label: 'Reporting Bot', about: 'Her sabah önceki günün, pazartesileri önceki haftanın raporunu üretir ve bildirir.' },
 ];
 /** keys of bots whose code exists and runs. Six of them are scheduled by services/scheduler.js (the others run as part of the writer or on demand). */
 const IMPLEMENTED = new Set(['news_discovery', 'trend_analysis', 'niche_discovery', 'keyword_research', 'seo_competition', 'content_opportunity', 'article_writer', 'fact_checking', 'adsense_compliance', 'content_publishing', 'content_health', 'content_refresh', 'seo_performance', 'internal_linking', 'reporting']);
@@ -47,7 +46,7 @@ async function list() {
     items: BOTS.map((b) => {
       const l = last.get(b.key); const impl = IMPLEMENTED.has(b.key); const sc = schedules.get(b.key); const w = waiting.get(b.key); const c = cost.get(b.key);
       const every = (m) => (m % 1440 === 0 ? `${m / 1440} günde bir` : m % 60 === 0 ? `${m / 60} saatte bir` : `${m} dakikada bir`);
-      const statusText = !impl ? `Aşama ${b.phase}’te gelecek` : st.paused ? 'Duraklatıldı'
+      const statusText = !impl ? 'Henüz çalışmıyor' : st.paused ? 'Duraklatıldı'
         : sc ? (sc.enabled ? `Otomatik: ${every(sc.intervalMinutes)}${sc.windowStart ? ` (${sc.windowStart}–${sc.windowEnd})` : ''}` : (sc.disabledReason ? 'Otomatik kapatıldı (hatalar)' : 'Otomatik kapalı; elle çalıştırılır'))
           : (MANUAL_NOTE[b.key] || 'Başka bir botun parçası; onunla birlikte çalışır');
       return { ...b, implemented: impl, scheduled: !!sc, manualOnly: impl && !sc, enabled: sc ? sc.enabled : true, status: !impl ? 'planned' : st.paused ? 'paused' : (sc && sc.enabled ? 'scheduled' : 'idle'), statusText,
