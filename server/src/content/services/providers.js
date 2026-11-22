@@ -28,14 +28,14 @@ const PROVIDERS = {
     help: 'console.anthropic.com → API Keys (Plans & Billing’de kredi gerekir). ModulPOS’un kendi Anthropic anahtarından ayrıdır. Fiyatları girerseniz maliyet hesaplanır, girmezseniz “Bilinmiyor” yazılır.',
   },
   gemini: {
-    label: 'Google (Gemini)', secretLabel: 'API anahtarı', secretPattern: /^[A-Za-z0-9_-]{20,128}$/, paid: true,
+    label: 'Google (Gemini)', secretLabel: 'API anahtarı', secretPattern: /^[A-Za-z0-9._~+\/=-]{20,256}$/, paid: true,
     extra: { model: { label: 'Makale modeli (tam adı, ör. hesabınızda görünen)', max: 80, def: '' },
       inputPricePerM: { label: 'Giriş fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true }, outputPricePerM: { label: 'Çıkış fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true } },
-    help: 'aistudio.google.com → Get API key. Model adını Google hesabınızdaki güncel adıyla yazın; fiyatları girerseniz maliyet hesaplanır, girmezseniz “Bilinmiyor” yazılır.',
+    help: 'aistudio.google.com → Get API key. Anahtarı kaydedip “Bağlantıyı test et”e basın: anahtarınızla kullanılabilen modeller listelenir, birini tek tıkla seçersiniz (model adı seçilmeden anahtar makale yazımında kullanılamaz). Fiyatları girerseniz maliyet hesaplanır, girmezseniz “Bilinmiyor” yazılır.',
   },
   dataforseo: {
     label: 'DataForSEO', secretLabel: 'API şifresi', paid: true, extra: { login: { label: 'API oturum e-postası (login)', max: 200, def: '', required: true } },
-    help: 'app.dataforseo.com → API Access: login (e-posta) ve API şifresi. Panel şifreniz değil, API şifresi kullanılır.',
+    help: 'İSTEĞE BAĞLI: bu servisi kullanmak ya da para ödemek zorunda değilsiniz. Sistem onsuz çalışır: SERP rekabeti için Serper.dev (ücretsiz başlangıç) ve aranma hacmi için dosyadan aktarma (Anahtar Kelime Araştırması → “Dosyadan hacim aktar”) vardır. DataForSEO hesabı doğrulamak için ön ödeme ister. Kullanacaksanız: app.dataforseo.com → API Access: login (e-posta) ve API şifresi (panel şifreniz değil).',
   },
   serper: {
     label: 'Serper.dev', secretLabel: 'API anahtarı', secretPattern: /^[A-Za-z0-9_-]{16,128}$/, paid: true, extra: {},
@@ -103,6 +103,7 @@ async function save(key, body) {
     for (const [k, f] of Object.entries(def.extra)) {
       if (body.extra[k] === undefined) continue;
       extra[k] = V.str(body.extra[k], f.label, { max: f.max });
+      if (k === 'model') extra[k] = extra[k].replace(/^models\//, '').trim();             // Google lists models as "models/gemini-…": the call adds that part itself
       if (f.numeric && extra[k] !== '' && !(Number.isFinite(Number(extra[k])) && Number(extra[k]) >= 0 && Number(extra[k]) <= 1000)) throw bad(`${f.label}: 0 ile 1000 arasında bir sayı yazın (ör. 3 ya da 15.5)`);
     }
   }
@@ -138,7 +139,8 @@ const TESTS = {
     if (res.status === 429) return { ok: false, message: 'OpenAI isteği sınırladı (429): kota/bakiye ya da hız sınırı. Hesabınızı kontrol edin.' };
     if (!res.ok) return { ok: false, message: `OpenAI beklenmedik cevap verdi (${res.status}).` };
     const j = await res.json().catch(() => ({}));
-    return { ok: true, message: `OpenAI bağlantısı çalışıyor (${Array.isArray(j.data) ? j.data.length : '?'} model görünüyor).` };
+    const models = (Array.isArray(j.data) ? j.data : []).map((m) => String(m && m.id || '')).filter((id) => /^(gpt-|o\d)/i.test(id) && !/embed|audio|image|tts|whisper|realtime|moderation|transcribe|search|codex|instruct|vision-preview|dall|sora/i.test(id)).sort().map((id) => ({ id, label: id }));
+    return { ok: true, message: `OpenAI bağlantısı çalışıyor (${Array.isArray(j.data) ? j.data.length : '?'} model görünüyor).${models.length ? ' Makale için bir model seçin.' : ''}`, models };
   },
   async dataforseo({ secret, extra, fetchImpl }) {
     if (!extra.login) return { ok: false, message: 'DataForSEO için API oturum e-postası (login) girilmeli.' };
@@ -170,13 +172,21 @@ const TESTS = {
       throw err;
     }
   },
-  async gemini({ secret, fetchImpl }) {
-    const res = await fetchImpl('https://generativelanguage.googleapis.com/v1beta/models?pageSize=5', { headers: { 'x-goog-api-key': secret }, signal: AbortSignal.timeout(12000) });
-    if (res.status === 400 || res.status === 401 || res.status === 403) return { ok: false, message: `Gemini anahtarı reddedildi (${res.status}). Anahtarı kontrol edin.` };
+  async gemini({ secret, extra, fetchImpl }) {
+    const res = await fetchImpl('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100', { headers: { 'x-goog-api-key': secret }, signal: AbortSignal.timeout(12000) });
+    if (res.status === 400 || res.status === 401 || res.status === 403) return { ok: false, message: `Gemini anahtarı reddedildi (${res.status}). Anahtarı kontrol edin: aistudio.google.com → Get API key; anahtarın başında/sonunda boşluk olmamalı.` };
     if (res.status === 429) return { ok: false, message: 'Gemini isteği sınırladı (429); biraz sonra tekrar deneyin.' };
     if (!res.ok) return { ok: false, message: `Gemini beklenmedik cevap verdi (${res.status}).` };
     const j = await res.json().catch(() => ({}));
-    return { ok: true, message: `Gemini bağlantısı çalışıyor (${Array.isArray(j.models) ? j.models.length : '?'} model görünüyor).` };
+    const all = Array.isArray(j.models) ? j.models : [];
+    // the models that can write text with this key (embedding / image / speech models cannot)
+    const usable = all.filter((m) => m && /^models\/gemini/i.test(String(m.name)) && (!Array.isArray(m.supportedGenerationMethods) || m.supportedGenerationMethods.includes('generateContent')) && !/embed|image|tts|live|audio|robotics|computer-use|aqa/i.test(String(m.name)))
+      .map((m) => ({ id: String(m.name).replace(/^models\//, ''), label: m.displayName ? `${m.displayName} (${String(m.name).replace(/^models\//, '')})` : String(m.name).replace(/^models\//, '') })).sort((a, b) => a.id.localeCompare(b.id));
+    // a suggestion, not a decision: the stable "flash" family (usually the faster and cheaper one; check Google's price page)
+    const stable = usable.filter((m) => !/preview|exp|lite|thinking|-\d{3}$|latest/i.test(m.id)); const flash = stable.filter((m) => /flash/i.test(m.id));
+    const suggested = (flash.length ? flash : stable)[(flash.length ? flash : stable).length - 1];
+    const has = extra && extra.model;
+    return { ok: true, message: `Gemini bağlantısı çalışıyor (${all.length} model görünüyor, ${usable.length} tanesi makale yazabilir).${has ? ` Seçili model: ${extra.model}.` : ' Anahtar kabul edildi, ama makale yazımında kullanılabilmesi için aşağıdan bir MODEL seçmeniz gerekir.'}`, models: usable, suggested: suggested ? suggested.id : null };
   },
   async telegram({ secret, extra, fetchImpl }) { return require('./telegram').testConnection({ secret, extra, fetchImpl }); },
   async searchconsole({ secret, fetchImpl }) {
@@ -211,7 +221,7 @@ async function test(key, { fetchImpl = globalThis.fetch } = {}) {
   }
   const message = String(out.message).split(secret).join('[gizli]').slice(0, 300);        // the secret must never end up in a stored sentence
   await db.query('UPDATE api_providers SET last_tested_at = now(), last_test_ok = $1, last_test_message = $2 WHERE key = $3', [out.ok, message, key]);
-  return { ok: out.ok, message, ...(out.balanceUsd !== undefined ? { balanceUsd: out.balanceUsd } : {}) };
+  return { ok: out.ok, message, ...(out.balanceUsd !== undefined ? { balanceUsd: out.balanceUsd } : {}), ...(Array.isArray(out.models) ? { models: out.models.slice(0, 80), suggested: out.suggested || null } : {}) };
 }
 
 // ── usage and budgets ──────────────────────────────────────────────────────────────────────────────────────

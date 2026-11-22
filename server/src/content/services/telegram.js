@@ -209,6 +209,7 @@ async function handleUpdate(update, o = {}) {
   try {
     const m = update.message;
     if (!m || typeof m.text !== 'string' || !m.chat || m.chat.id === undefined || (m.from && m.from.is_bot)) return { ignored: 'not_a_text_message' };
+    if (!cred.chatIds.includes(String(m.chat.id))) await rememberChat(m.chat);                     // so the panel can say "someone wrote to your bot: is this you?"
     const cmd = parseCommand(m.text); if (!cmd) return { ignored: 'not_a_command' };
     const chatId = String(m.chat.id);
     const reply = (text) => sendTo(cred.token, chatId, text, o);
@@ -236,7 +237,7 @@ async function handleUpdate(update, o = {}) {
 /** what the panel shows (never the token) */
 async function status() {
   const c = await credentials(); const cfg = (await settings.get('telegram')).value;
-  return { configured: c.configured, chatIds: c.chatIds, bot: await getState('bot'), webhook: await getState('webhook'), lastForward: await getState('lastForward'), notify: cfg.notify, suppressed: sent.suppressed, hourlyCap: HOURLY_CAP,
+  return { configured: c.configured, chatIds: c.chatIds, bot: await getState('bot'), webhook: await getState('webhook'), lastForward: await getState('lastForward'), seenChats: ((await getState('seenChats')) || []).filter((x) => !c.chatIds.includes(x.chatId)), notify: cfg.notify, suppressed: sent.suppressed, hourlyCap: HOURLY_CAP,
     commands: Object.keys(COMMANDS).filter((k) => k !== 'id').map((k) => `/${k}`) };
 }
 
@@ -271,7 +272,75 @@ async function webhookInfo(o = {}) {
 }
 async function sendTest(o = {}) { return broadcast('✅ ModulPOS Content test mesajı: bildirimler bu sohbete gelecek. Komutlar için /help', o); }
 
+// ── finding out why the bot is silent, and who is talking to it ──────────────────────────────────────────────────────
+const chatName = (c) => String(c.title || [c.first_name, c.last_name].filter(Boolean).join(' ') || (c.username ? `@${c.username}` : '') || '').slice(0, 60);
+const asChat = (c) => ({ chatId: String(c.id), type: c.type || 'private', name: chatName(c) });
+
+/** the last few chats that wrote to the bot without being authorized (id and name only, never what they wrote) */
+async function rememberChat(chat) {
+  try {
+    const seen = ((await getState('seenChats')) || []).filter((x) => x.chatId !== String(chat.id));
+    await setState('seenChats', [{ ...asChat(chat), at: new Date().toISOString() }, ...seen].slice(0, 8));
+  } catch (err) { console.error('[Content] telegram seen chat failed:', err.message); }
+}
+
+/** Adds a chat id to the authorized list (what the owner types into the provider card, by one click). */
+async function addChat(chatId) {
+  const id = String(chatId || '').trim();
+  if (!/^-?\d{3,20}$/.test(id)) throw new HttpError(400, 'Sohbet kimliği yalnızca sayı olmalı');
+  const p = await providers.get('telegram'); const ids = String((p.extra && p.extra.chatIds) || '').split(',').map((x) => x.trim()).filter(Boolean);
+  if (!ids.includes(id)) ids.push(id);
+  await providers.save('telegram', { extra: { chatIds: ids.join(',') } });
+  await setState('seenChats', ((await getState('seenChats')) || []).filter((x) => x.chatId !== id));
+  return { chatIds: ids };
+}
+
+/**
+ * The chats that wrote to the bot. With no webhook Telegram still holds the messages for a day, so they can be read (getUpdates; nothing is consumed); while a webhook is active
+ * Telegram refuses that, and the chats this server saw are listed instead.
+ */
+async function findChats(o = {}) {
+  const { token, configured, chatIds } = await credentials(); if (!configured) throw new HttpError(409, 'Önce bot belirtecini kaydedin');
+  let info; try { info = await call(token, 'getWebhookInfo', {}, o); } catch (err) { throw new HttpError(502, err.message); }
+  const known = new Set(chatIds); const out = new Map();
+  if (info.url) { for (const c of (await getState('seenChats')) || []) if (!known.has(c.chatId)) out.set(c.chatId, c); return { source: 'seen', webhookActive: true, chats: [...out.values()], note: 'Webhook kurulu olduğu için Telegram’ın bekleyen listesine bakılamaz; bu sunucunun bota yazarken gördüğü tanımadığı sohbetler gösteriliyor.' }; }
+  let ups; try { ups = await call(token, 'getUpdates', { limit: 100, timeout: 0, allowed_updates: ['message'] }, { ...o, timeoutMs: 15000 }); } catch (err) { throw new HttpError(502, err.message); }
+  for (const u of ups || []) { const c = u && u.message && u.message.chat; if (c && c.id !== undefined && !(u.message.from && u.message.from.is_bot) && !known.has(String(c.id))) out.set(String(c.id), { ...asChat(c), at: u.message.date ? new Date(u.message.date * 1000).toISOString() : null }); }
+  return { source: 'telegram', webhookActive: false, chats: [...out.values()], note: out.size ? 'Bota yazan sohbetler (son 24 saat).' : 'Telegram’da bota yazılmış (henüz yetkili olmayan) bir mesaj görünmüyor: bota /start yazıp tekrar deneyin. Yanlış botla konuşmadığınızdan da emin olun (adı yukarıda).' };
+}
+
+/**
+ * "Why does my bot not answer?": checks the token, the authorized chats and what Telegram itself says about the webhook, and says in plain words what to do.
+ * @returns { ok, bot, findings: [{ level: 'ok' | 'warn' | 'bad', code, text, action? }] }
+ */
+async function diagnose(o = {}) {
+  const findings = []; const add = (level, code, text, action) => findings.push({ level, code, text, ...(action ? { action } : {}) });
+  const { token, chatIds, configured } = await credentials();
+  if (!configured) { add('bad', 'no_token', 'Bot belirteci (token) kayıtlı değil.', 'API Kullanımı ve Maliyetler → Telegram kartına BotFather’ın verdiği belirteci yazıp Kaydet’e basın.'); return { ok: false, bot: null, findings }; }
+  let bot = null;
+  try { const me = await call(token, 'getMe', {}, o); bot = { id: me.id, username: me.username }; await setState('bot', { id: me.id, username: me.username, name: me.first_name }); add('ok', 'token_ok', `Belirteç doğru: bot @${me.username}. Telegram’da TAM OLARAK bu botla konuştuğunuzdan emin olun.`); }
+  catch (err) { add('bad', 'token_bad', err.code === 401 ? 'Telegram bu belirteci tanımıyor (reddedildi): belirteç yanlış yazılmış ya da BotFather’da yenilenmiş.' : `Telegram’a ulaşılamadı: ${err.message}`, err.code === 401 ? 'BotFather’da /mybots → botunuz → API Token’dan güncel belirteci kopyalayıp API Kullanımı → Telegram kartına yapıştırın.' : 'Biraz sonra tekrar deneyin.'); return { ok: false, bot, findings }; }
+  if (!chatIds.length) add('warn', 'no_chat', 'Yetkili sohbet kimliği yazılmamış: bot hiçbir sohbete bildirim göndermez ve komutlara cevap vermez (yalnızca /start kendi kimliğinizi söyler).', 'Aşağıdaki “Bota yazan sohbetleri bul” düğmesiyle kimliğinizi bulup “Yetkili yap”a basın.');
+  else add('ok', 'chats_ok', `${chatIds.length} yetkili sohbet tanımlı.`);
+  let info = null;
+  try { info = await call(token, 'getWebhookInfo', {}, o); } catch (err) { add('bad', 'webhook_unreadable', `Telegram’ın webhook durumu okunamadı: ${err.message}`); return { ok: false, bot, findings }; }
+  const ours = await getState('webhook');
+  if (!info.url) add('bad', 'no_webhook', 'Webhook KURULU DEĞİL: Telegram, bota yazdıklarınızı bu sisteme iletmiyor; bu yüzden bot hiç tepki vermiyor (/start dahil).', 'Aşağıdaki “Webhook’u kur” düğmesine basın (adres kutusunda https://api.modulpos.com yazmalı).');
+  else {
+    if (!ours || ours.url !== info.url) add('warn', 'foreign_webhook', `Telegram’da bu sistemin kurmadığı bir webhook adresi var: ${info.url}.`, '“Webhook’u kur”a basarak bu sistemin adresini yeniden kurun.');
+    else add('ok', 'webhook_ok', `Webhook kurulu: ${info.url}`);
+    const err = String(info.last_error_message || '');
+    if (err) {
+      const when = info.last_error_date ? new Date(info.last_error_date * 1000).toISOString() : null;
+      const hint = /\b401\b/.test(err) ? 'Gizli anahtar uyuşmuyor (belirteci değiştirdiyseniz görülür).' : /\b404\b/.test(err) ? 'Bu adres API’de bulunamadı: adres yanlış ya da API eski sürümde.' : /\b(500|502|503|504)\b|timeout|timed out/i.test(err) ? 'API o sırada yanıt vermedi (uyuyor olabilir ya da hata verdi).' : /ssl|certificate|resolve|connect/i.test(err) ? 'Telegram adrese bağlanamadı (adres ya da sertifika sorunu).' : '';
+      add('bad', 'webhook_error', `Telegram son denemede şu hatayı aldı: “${err.slice(0, 160)}”${when ? ` (${when})` : ''}. ${hint}`.trim(), '“Webhook’u yeniden kur”a basın; sürerse İşlem Geçmişi’ndeki hatalara bakın.');
+    }
+    if (info.pending_update_count > 0) add('warn', 'pending', `${info.pending_update_count} mesaj Telegram’da iletilmeyi bekliyor (bize ulaşamamış).`, 'API uyuyorsa birkaç saniye bekleyip yeniden kontrol edin; sürerse webhook’u yeniden kurun.');
+  }
+  return { ok: findings.every((f) => f.level === 'ok'), bot, findings };
+}
+
 const useFetch = (fn) => { seam.fetchImpl = fn || null; };
 const resetCounters = () => { sent.times = []; sent.recent.clear(); sent.suppressed = 0; };
 
-module.exports = { TelegramError, COMMANDS, GROUP_OF, HOURLY_CAP, parseCommand, credentials, verifyWebhook, webhookSecret, forward, broadcast, handleUpdate, status, testConnection, setWebhook, deleteWebhook, webhookInfo, sendTest, useFetch, resetCounters, call };
+module.exports = { diagnose, findChats, addChat, TelegramError, COMMANDS, GROUP_OF, HOURLY_CAP, parseCommand, credentials, verifyWebhook, webhookSecret, forward, broadcast, handleUpdate, status, testConnection, setWebhook, deleteWebhook, webhookInfo, sendTest, useFetch, resetCounters, call };

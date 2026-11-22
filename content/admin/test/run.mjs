@@ -74,6 +74,7 @@ const dfsAnswer = (p, body) => {
   return { status_code: 20000, tasks: [{ status_code: 40501, status_message: 'unexpected' }] };
 };
 globalThis.fetch = async (u, init = {}) => {
+  if (String(u).startsWith('https://generativelanguage.googleapis.com/v1beta/models?')) return { status: 200, ok: true, json: async () => ({ models: [{ name: 'models/gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-embedding-001', supportedGenerationMethods: ['embedContent'] }] }) };          // the model list of Google AI Studio
   if (/^https:\/\/(api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com)/.test(String(u))) return globalThis.__models.fetchImpl(u, init);
   if (/^https:\/\/(oauth2\.googleapis\.com|www\.googleapis\.com\/webmasters)/.test(String(u))) return globalThis.__google.fetchImpl(u, init);
   if (String(u).startsWith('https://api.telegram.org')) return globalThis.__tg.fetchImpl(u, init);

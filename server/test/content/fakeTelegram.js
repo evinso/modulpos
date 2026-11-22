@@ -5,7 +5,7 @@
 const TOKEN = '123456789:AAFakeTokenFakeTokenFakeToken_0123';
 
 function fakeTelegram({ token = TOKEN, blocked = [] } = {}) {
-  const calls = []; const st = { webhook: null, down: false, blocked: new Set(blocked.map(String)) };
+  const calls = []; const st = { webhook: null, down: false, blocked: new Set(blocked.map(String)), info: { pending: 2, error: 'Wrong response from the webhook: 503 Service Unavailable' }, updates: [] };
   const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   const fetchImpl = async (url, o = {}) => {
     const m = /^https:\/\/api\.telegram\.org\/bot([^/]+)\/([A-Za-z]+)$/.exec(String(url)); if (!m) throw new Error(`unexpected url ${url}`);
@@ -23,7 +23,8 @@ function fakeTelegram({ token = TOKEN, blocked = [] } = {}) {
       st.webhook = { url: body.url, secret: body.secret_token, allowed: body.allowed_updates }; return json(200, { ok: true, result: true, description: 'Webhook was set' });
     }
     if (method === 'deleteWebhook') { st.webhook = null; return json(200, { ok: true, result: true }); }
-    if (method === 'getWebhookInfo') return json(200, { ok: true, result: { url: st.webhook ? st.webhook.url : '', pending_update_count: 2, last_error_message: 'Wrong response from the webhook: 503 Service Unavailable', last_error_date: 1700000000 } });
+    if (method === 'getWebhookInfo') return json(200, { ok: true, result: { url: st.webhook ? st.webhook.url : '', pending_update_count: st.info.pending, ...(st.info.error ? { last_error_message: st.info.error, last_error_date: 1700000000 } : {}) } });
+    if (method === 'getUpdates') return st.webhook ? json(409, { ok: false, error_code: 409, description: "Conflict: can't use getUpdates method while webhook is active; use deleteWebhook to delete the webhook first" }) : json(200, { ok: true, result: st.updates });
     return json(404, { ok: false, error_code: 404, description: 'Not Found' });
   };
   const sent = () => calls.filter((c) => c.method === 'sendMessage').map((c) => ({ chat: String(c.body.chat_id), text: c.body.text }));

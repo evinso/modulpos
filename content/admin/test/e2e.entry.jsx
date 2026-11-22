@@ -497,13 +497,20 @@ await click(btn('Bağlantıyı test et', tgCard), 800);
 ok('the token is saved (only its end shown), the test says which bot answered and how many chats are authorized, the token is nowhere on the page', txt().includes('@modulpos_test_bot') && txt().includes('2 yetkili sohbet') && !document.body.innerHTML.includes(globalThis.__tgToken));
 await click(nav('Bildirimler'), 800);
 ok('the Telegram card now shows the bot, the chats, and that commands are off until the webhook is set', txt().includes('@modulpos_test_bot') && txt().includes('2 yetkili sohbet') && txt().includes('webhook kurulu değil: komutlar çalışmaz'));
+ok('the card diagnoses the silent bot at once: the token is right, and the webhook is NOT set (the reason a bot does not answer /start)', txt().includes('Belirteç doğru: bot @modulpos_test_bot') && txt().includes('Webhook KURULU DEĞİL') && txt().includes('bot hiç tepki vermiyor') && txt().includes('Ne yapmalı'));
+globalThis.__tg.st.updates = [{ update_id: 71, message: { message_id: 1, date: 1700000000, chat: { id: 5551234, type: 'private', first_name: 'Özgür' }, from: { id: 5551234, is_bot: false }, text: '/start' } }];
+await click(btn('Bota yazan sohbetleri bul'), 800);
+ok('"find the chats that wrote to the bot" lists the owner\'s chat with its id and a one-click authorization', txt().includes('Bota yazan sohbetler') && txt().includes('Özgür') && txt().includes('kimlik 5551234') && !!btn('Yetkili yap'));
+await click(btn('Yetkili yap'), 900);
+ok('the chat is authorized by one click (it is in the saved list now, the diagnosis shows three chats)', (await q1("SELECT extra FROM api_providers WHERE key = 'telegram'")).extra.chatIds.split(',').includes('5551234') && txt().includes('3 yetkili sohbet'));
 await click(btn('Test mesajı gönder'), 700);
-ok('the test message reached both chats', TGF.sent().filter((m) => m.text.includes('test mesajı')).length === 2);
+ok('the test message reached every authorized chat', TGF.sent().filter((m) => m.text.includes('test mesajı')).length === 3);
 await click(btn('Webhook’u kur'), 700);
 ok('setting the webhook without an https address is refused in words (the test API is plain http)', txt().includes('https') && !(await q1("SELECT value FROM telegram_state WHERE key = 'webhook'")));
 await setVal(input('API’nin herkese açık adresi'), 'https://api.example.com'); await click(btn('Webhook’u kur'), 800);
 const hook = await q1("SELECT value FROM telegram_state WHERE key = 'webhook'");
 ok('with an https address Telegram was given the webhook and the secret; the card says it is set', !!hook && hook.value.url === 'https://api.example.com/api/content/telegram/webhook' && TGF.st.webhook.secret === globalThis.__srv.telegram.webhookSecret(globalThis.__tgToken) && txt().includes('webhook kurulu') && !txt().includes('webhook kurulu değil'));
+ok('with the webhook set the diagnosis passes on what Telegram last complained about, in words (the fake says a 503: the API did not answer)', txt().includes('Webhook kurulu: https://api.example.com/api/content/telegram/webhook') && txt().includes('Telegram son denemede şu hatayı aldı') && txt().includes('API o sırada yanıt vermedi'));
 await click(btn('Telegram’ın gördüğü durum'), 700);
 ok('Telegram\'s own view (pending updates, its last error) is shown', txt().includes('Bekleyen güncelleme: 2') && txt().includes('503 Service Unavailable'));
 // an owner command through the webhook, and a stranger
@@ -512,9 +519,9 @@ await globalThis.__srv.telegram.handleUpdate(globalThis.__tgUpdate(91, 1001, '/s
 ok('the owner\'s /status is answered from the real data; the stranger gets nothing', TGF.sent().length === sentBefore + 1 && /Makaleler:/.test(TGF.sent().pop().text));
 // a notification is forwarded, and the switches decide
 await globalThis.__srv.notifications.create({ type: 'publish_failed', severity: 'warning', title: 'E2E yayın hatası', body: 'detay' }); await globalThis.__srv.notifications.flush();
-ok('a WordPress failure reaches both chats and the card shows the last delivery', TGF.sent().filter((m) => m.text.includes('E2E yayın hatası')).length === 2);
+ok('a WordPress failure reaches both chats and the card shows the last delivery', TGF.sent().filter((m) => m.text.includes('E2E yayın hatası')).length === 3);
 await click(nav('API Kullanımı ve Maliyetler'), 400); await click(nav('Bildirimler'), 800);
-ok('the card shows the last delivery', txt().includes('Son gönderim') && txt().includes('2 sohbete gitti'));
+ok('the card shows the last delivery', txt().includes('Son gönderim') && txt().includes('3 sohbete gitti'));
 const sw = $$('label.check').find((l) => l.textContent.includes('WordPress yayın hatası')); await click($('input', sw), 700);
 ok('a switch is saved on the server', (await q1("SELECT value FROM automation_settings WHERE key = 'telegram' AND scope = 'global'")).value.notify.publishError === false);
 await globalThis.__srv.notifications.create({ type: 'publish_failed', severity: 'warning', title: 'E2E ikinci hata' }); await globalThis.__srv.notifications.flush();
@@ -572,6 +579,18 @@ await click(nav('Makale Arşivi'), 500); await click(nav('AI Makale Üretimi'), 
 const cmp2 = (await q1("SELECT id FROM writer_comparisons WHERE status <> 'picked' ORDER BY created_at DESC LIMIT 1")).id; await globalThis.__srv.comparisons.wait(cmp2); await wait(3600);
 await click(btn('Hiçbirini seçme', lastModal()), 500); await click(btn('Hiçbirini seçme', lastModal()), 900);
 ok('discarding: no article, the idea is free again, the day\'s place is given back, the vendors are shown', (await q1('SELECT status FROM writer_comparisons WHERE id = $1', [cmp2])).status === 'discarded' && (await q1("SELECT count(*)::int n FROM articles WHERE generation->>'comparisonId' IS NOT NULL")).n === 1 && (await q1("SELECT coalesce(sum(used), 0)::int n FROM daily_work_usage WHERE work_type = 'new_article' AND scope = 'global'")).n === placesBefore && txt().includes('Kim yazmış?'));
+
+// ── the owner's Gemini key: "the key is saved but not accepted" = no model chosen; the card now lists the models and picks one ────────────────
+await click(nav('API Kullanımı ve Maliyetler'), 800);
+const gCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'Google (Gemini)');
+await setVal(input('API anahtarı', gCard), 'AQ.Ab8RN6Kexample_key-with.dots0123456789'); await click(btn('Kaydet', gCard), 800);
+ok('a Gemini key with dots is accepted, and the card says plainly that a model is still missing (that is why it was "not usable")', txt().includes('Anahtar kayıtlı ama model seçilmedi') && (await q1("SELECT secret_last4 FROM api_providers WHERE key = 'gemini'")).secret_last4 === '6789');
+await click(btn('Bağlantıyı test et', gCard), 900);
+ok('the connection test lists the models this key can write with (not the embedding one) and suggests a stable flash model', txt().includes('Bu anahtarla kullanabilen modeller'.replace('kullanabilen', 'kullanılabilen')) && txt().includes('Öneri: gemini-2.5-flash') && txt().includes('Gemini 2.5 Pro') && !txt().includes('embedding'));
+await click(btn('Bunu kullan'), 900);
+ok('one click saves the model; the vendor is ready for the writer', (await q1("SELECT extra FROM api_providers WHERE key = 'gemini'")).extra.model === 'gemini-2.5-flash' && !txt().includes('Anahtar kayıtlı ama model seçilmedi') && txt().includes('Seçili model: gemini-2.5-flash') && !txt().includes('bir MODEL seçmeniz gerekir'));
+await S.providers.save('gemini', { clearSecret: true });
+ok('the DataForSEO card tells that it is optional and that nothing needs it', txt().includes('İSTEĞE BAĞLI: bu servisi kullanmak ya da para ödemek zorunda değilsiniz'));
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);

@@ -145,3 +145,33 @@ test('the webhook: set with the https address and a secret that only the server 
   await TG.deleteWebhook({ fetchImpl: tg.fetchImpl }); assert.equal(tg.st.webhook, null); assert.equal((await TG.status()).webhook, null);
   await PR.save('telegram', { extra: { chatIds: '' } }); await assert.rejects(TG.sendTest({ fetchImpl: tg.fetchImpl }), /Yetkili sohbet kimliği yazılmamış/);
 });
+
+test('"why is my bot silent?": the diagnosis names the cause in plain words (no token, wrong token, no chat, no webhook, a foreign webhook, an error Telegram saw, waiting messages) and is clean when everything is right', opts, async () => {
+  await P.seedDefault(); let d = await TG.diagnose({ fetchImpl: tg.fetchImpl }); assert.deepEqual([d.ok, d.findings.map((f) => f.code)], [false, ['no_token']]); assert.match(d.findings[0].action, /API Kullanımı/); assert.equal(tg.calls.length, 0, 'nothing is asked of Telegram without a token');
+  await PR.save('telegram', { secret: '987654321:AAWrongTokenWrongTokenWrongToken' }); d = await TG.diagnose({ fetchImpl: tg.fetchImpl }); assert.deepEqual(d.findings.map((f) => f.code), ['token_bad']); assert.match(d.findings[0].text, /belirteci tanımıyor/); assert.ok(!JSON.stringify(d).includes('987654321:'));
+  await PR.save('telegram', { secret: TOKEN }); tg.st.info = { pending: 0, error: null };
+  d = await TG.diagnose({ fetchImpl: tg.fetchImpl }); assert.deepEqual(d.findings.map((f) => f.code), ['token_ok', 'no_chat', 'no_webhook']); assert.equal(d.bot.username, 'modulpos_test_bot'); assert.match(d.findings[2].text, /bot hiç tepki vermiyor \(\/start dahil\)/); assert.match(d.findings[2].action, /Webhook’u kur/);
+  await PR.save('telegram', { extra: { chatIds: OWNER } }); await TG.setWebhook('https://api.example.com', { fetchImpl: tg.fetchImpl }); d = await TG.diagnose({ fetchImpl: tg.fetchImpl }); assert.deepEqual([d.ok, d.findings.map((f) => f.code)], [true, ['token_ok', 'chats_ok', 'webhook_ok']]);
+  tg.st.info = { pending: 3, error: 'Wrong response from the webhook: 401 Unauthorized' }; d = await TG.diagnose({ fetchImpl: tg.fetchImpl }); assert.deepEqual([d.ok, d.findings.slice(-2).map((f) => f.code)], [false, ['webhook_error', 'pending']]); assert.match(d.findings.find((f) => f.code === 'webhook_error').text, /Gizli anahtar uyuşmuyor/); assert.match(d.findings.find((f) => f.code === 'pending').text, /3 mesaj/);
+  tg.st.info = { pending: 0, error: 'Connection timed out' }; assert.match((await TG.diagnose({ fetchImpl: tg.fetchImpl })).findings.find((f) => f.code === 'webhook_error').text, /yanıt vermedi/);
+  tg.st.info = { pending: 0, error: null }; tg.st.webhook.url = 'https://elsewhere.example/hook'; d = await TG.diagnose({ fetchImpl: tg.fetchImpl }); assert.ok(d.findings.some((f) => f.code === 'foreign_webhook'));
+  tg.st.down = true; d = await TG.diagnose({ fetchImpl: tg.fetchImpl }); assert.deepEqual(d.findings.map((f) => f.code), ['token_bad']); assert.match(d.findings[0].text, /ulaşılamadı/);
+});
+
+test('finding the owner\'s chat id: Telegram keeps what was written for a day (no webhook), the server remembers strangers (webhook), and one click authorizes a chat', opts, async () => {
+  await setup({ chats: '' }); tg.st.info = { pending: 0, error: null };
+  tg.st.updates = [{ update_id: 1, message: { message_id: 1, date: 1700000000, chat: { id: 5551234, type: 'private', first_name: 'Özgür', username: 'ozgur' }, from: { id: 5551234, is_bot: false }, text: '/start' } },
+    { update_id: 2, message: { message_id: 2, date: 1700000100, chat: { id: 5551234, type: 'private', first_name: 'Özgür' }, from: { id: 5551234, is_bot: false }, text: 'hello' } }, { update_id: 3, message: { message_id: 3, chat: { id: -100777, type: 'group', title: 'Team' }, from: { id: 9, is_bot: false }, text: 'x' } },
+    { update_id: 4, message: { message_id: 4, chat: { id: 42, type: 'private' }, from: { id: 42, is_bot: true }, text: 'bot message' } }];
+  let f = await TG.findChats({ fetchImpl: tg.fetchImpl }); assert.deepEqual([f.source, f.webhookActive, f.chats.map((c) => [c.chatId, c.name])], ['telegram', false, [['5551234', 'Özgür'], ['-100777', 'Team']]], 'a person once, a bot never'); assert.ok(tg.calls.some((c) => c.method === 'getUpdates' && c.body.timeout === 0));
+  assert.deepEqual(await TG.addChat('5551234'), { chatIds: ['5551234'] }); assert.deepEqual((await TG.credentials()).chatIds, ['5551234']); await TG.addChat('5551234'); assert.deepEqual((await TG.credentials()).chatIds, ['5551234'], 'no duplicates');
+  await assert.rejects(TG.addChat('abc'), /yalnızca sayı/); f = await TG.findChats({ fetchImpl: tg.fetchImpl }); assert.deepEqual(f.chats.map((c) => c.chatId), ['-100777'], 'an authorized chat is not offered again');
+  tg.st.updates = []; assert.match((await TG.findChats({ fetchImpl: tg.fetchImpl })).note, /bota \/start yazıp tekrar deneyin/);
+  // with a webhook Telegram refuses getUpdates: the server lists the strangers it saw itself (id and name only, never what they wrote)
+  await TG.setWebhook('https://api.example.com', { fetchImpl: tg.fetchImpl }); const n = tg.calls.filter((c) => c.method === 'getUpdates').length;
+  await TG.handleUpdate(update(801, 7777, '/status')); await TG.handleUpdate(update(802, 8888, 'just chatting'));
+  f = await TG.findChats({ fetchImpl: tg.fetchImpl }); assert.deepEqual([f.source, f.webhookActive, f.chats.map((c) => c.chatId).sort()], ['seen', true, ['7777', '8888']]); assert.equal(tg.calls.filter((c) => c.method === 'getUpdates').length, n, 'getUpdates is not called while a webhook is active');
+  assert.ok(!JSON.stringify(f).includes('just chatting') && !JSON.stringify(f).includes('/status'), 'what they wrote is never stored');
+  assert.deepEqual((await TG.status()).seenChats.map((c) => c.chatId).sort(), ['7777', '8888']); await TG.addChat('7777'); assert.deepEqual((await TG.status()).seenChats.map((c) => c.chatId), ['8888']);
+  assert.match(tg.sent().filter((m) => m.chat === '7777').length ? 'x' : 'no reply to the stranger', /no reply/);
+});

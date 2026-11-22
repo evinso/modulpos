@@ -126,3 +126,28 @@ test('budget guard: provider and platform, daily and monthly; a refusal is logge
   assert.equal(plat.ok, false); assert.match(plat.message, /Platform günlük bütçesi/);
   assert.equal((await PR.guard('dataforseo', 0, { now: new Date('2026-11-22T09:00:00Z') })).ok, true, 'next day: fresh');
 });
+
+test('Gemini / OpenAI setup: a key with dots is accepted (Google changes its formats), spaces are not; the test lists the models this key can WRITE with and suggests one; the model name is stored the way the call needs it', opts, async () => {
+  await assert.rejects(PR.save('gemini', { secret: 'AIza short' }), /boşluk içermemeli/); await assert.rejects(PR.save('gemini', { secret: 'short' }), /beklenen biçimde değil/);
+  const saved = await PR.save('gemini', { secret: 'AQ.Ab8RN6Kexample_key-with.dots0123456789' }); assert.equal(saved.configured, true); assert.ok(!JSON.stringify(saved).includes('AQ.Ab8RN6K'));
+  const list = { models: [
+    { name: 'models/gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', supportedGenerationMethods: ['generateContent', 'countTokens'] }, { name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', supportedGenerationMethods: ['generateContent'] },
+    { name: 'models/gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash-Lite', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-3-flash-preview', displayName: 'Preview', supportedGenerationMethods: ['generateContent'] },
+    { name: 'models/gemini-embedding-001', supportedGenerationMethods: ['embedContent'] }, { name: 'models/gemini-2.5-flash-image', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-2.5-flash-preview-tts', supportedGenerationMethods: ['generateContent'] },
+    { name: 'models/imagen-4.0-generate-001', supportedGenerationMethods: ['predict'] }, { name: 'models/text-embedding-004', supportedGenerationMethods: ['embedContent'] }] };
+  let url; let key; const t = await PR.test('gemini', { fetchImpl: async (u, o) => { url = u; key = o.headers['x-goog-api-key']; return { status: 200, ok: true, json: async () => list }; } });
+  assert.equal(t.ok, true); assert.match(url, /pageSize=100/); assert.equal(key, 'AQ.Ab8RN6Kexample_key-with.dots0123456789', 'the key travels in the header, not in the address');
+  assert.deepEqual(t.models.map((m) => m.id), ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-3-flash-preview'], 'only models that can write text; embedding, image, speech and non-Gemini ones are left out');
+  assert.equal(t.suggested, 'gemini-2.5-flash', 'a stable flash model, not a preview, not lite'); assert.match(t.message, /4 tanesi makale yazabilir/); assert.match(t.message, /bir MODEL seçmeniz gerekir/);
+  assert.equal((await PR.get('gemini')).lastTestOk, true); assert.ok(!('models' in (await PR.get('gemini'))), 'the list is not stored: it is asked again');
+  const llm = require('../../src/content/services/llm'); assert.deepEqual((await llm.available()).find((v) => v.key === 'gemini').ready, false, 'a key without a model cannot write');
+  assert.equal((await PR.save('gemini', { extra: { model: ' models/gemini-2.5-flash ' } })).extra.model, 'gemini-2.5-flash'); assert.equal((await llm.available()).find((v) => v.key === 'gemini').ready, true);
+  assert.match((await PR.test('gemini', { fetchImpl: async () => ({ status: 200, ok: true, json: async () => list }) })).message, /Seçili model: gemini-2\.5-flash/);
+  for (const st of [400, 401, 403]) { const r = await PR.test('gemini', { fetchImpl: reply(st, { error: { message: 'API key not valid' } }) }); assert.equal(r.ok, false); assert.match(r.message, new RegExp(`reddedildi \\(${st}\\)`)); assert.ok(!('models' in r)); }
+  assert.match((await PR.test('gemini', { fetchImpl: reply(429, {}) })).message, /429/);
+  // OpenAI: the same idea, no suggestion (names change too fast to guess)
+  await PR.save('openai', { secret: 'sk-openai-test-0123456789abcdef' });
+  const o = await PR.test('openai', { fetchImpl: reply(200, { data: [{ id: 'gpt-4o' }, { id: 'gpt-4o-mini' }, { id: 'text-embedding-3-small' }, { id: 'whisper-1' }, { id: 'o3' }, { id: 'dall-e-3' }, { id: 'gpt-4o-audio-preview' }, { id: 'tts-1' }, { id: 'gpt-4o-transcribe' }] }) });
+  assert.deepEqual([o.ok, o.models.map((m) => m.id), o.suggested], [true, ['gpt-4o', 'gpt-4o-mini', 'o3'], null]); assert.match(o.message, /Makale için bir model seçin/);
+  assert.match((await PR.get('dataforseo')).help, /^İSTEĞE BAĞLI: bu servisi kullanmak ya da para ödemek zorunda değilsiniz/, 'the owner is told it is optional, right on its card');
+});
