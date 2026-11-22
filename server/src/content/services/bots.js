@@ -30,7 +30,7 @@ const BOTS = [
   { key: 'reporting', label: 'Reporting Bot', phase: 7, about: 'Günlük/haftalık raporlar üretir.' },
 ];
 /** keys of bots whose code exists and runs. Six of them are scheduled by services/scheduler.js (the others run as part of the writer or on demand). */
-const IMPLEMENTED = new Set(['news_discovery', 'trend_analysis', 'niche_discovery', 'keyword_research', 'seo_competition', 'content_opportunity', 'article_writer', 'fact_checking', 'adsense_compliance']);
+const IMPLEMENTED = new Set(['news_discovery', 'trend_analysis', 'niche_discovery', 'keyword_research', 'seo_competition', 'content_opportunity', 'article_writer', 'fact_checking', 'adsense_compliance', 'content_publishing']);
 const MANUAL_NOTE = { trend_analysis: 'Haber verisinden anlık hesaplanır (ayrı çalıştırma gerekmez)', fact_checking: 'Makale yazılırken ve “Tüm kontroller” ile çalışır', adsense_compliance: 'Makale yazılırken ve “Tüm kontroller” ile çalışır' };
 
 async function state() { return (await settings.get('bots')).value; }

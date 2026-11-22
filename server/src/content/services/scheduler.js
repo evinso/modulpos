@@ -15,6 +15,8 @@ const keywords = require('./keywords');
 const serp = require('./serp');
 const opportunities = require('./opportunities');
 const writer = require('./writer');
+const publishing = require('./publishing');
+const sites = require('./sites');
 
 /**
  * The scheduler and the background worker (phase 4). No n8n, no external cron: one in-process loop pair that only needs the content database.
@@ -31,6 +33,7 @@ const DEFAULTS = {
   keyword_research:    { enabled: false, intervalMinutes: 240,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: {}, spends: true,  label: 'Anahtar kelime verisi' },
   seo_competition:     { enabled: false, intervalMinutes: 240,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 5 }, spends: true, label: 'SERP rekabet analizi' },
   article_writer:      { enabled: false, intervalMinutes: 180,  windowStart: '09:00', windowEnd: '23:00', weekdaysOnly: false, options: { perRun: 1 }, spends: true, label: 'Makale yazımı' },
+  content_publishing:  { enabled: false, intervalMinutes: 60,   windowStart: '09:00', windowEnd: '21:00', weekdaysOnly: false, options: { perRun: 2 }, spends: false, label: 'WordPress yayını' },
 };
 const SCHEDULABLE = Object.keys(DEFAULTS);
 const FAIL_LIMIT = 5;                                                  // consecutive failed scheduled jobs before a bot is switched off
@@ -140,6 +143,33 @@ const HANDLERS = {
   } },
 };
 
+/** the WordPress bot: a per-article send job, a bulk plan job, or (no payload) the scheduled pass: read back scheduled posts, then auto-publish approved articles if the owner allowed it */
+HANDLERS.content_publishing = { idempotent: true, async run(job, ctx) {
+  const pl = job.payload || {};
+  if (pl.publicationId) {
+    try { const pub = await publishing.send(pl.publicationId, { request: ctx.wpRequest, fetchBinary: ctx.fetchBinary }); return { status: 'ok', stats: { publicationId: pub.id, status: pub.status }, message: `${pub.status}${pub.wpUrl ? ` · ${pub.wpUrl}` : ''}` }; }
+    catch (err) { if (err.retryable !== false && job.attempts >= job.maxAttempts) await publishing.giveUp(pl.publicationId, err); throw err; }
+  }
+  if (pl.batch) {
+    const out = await publishing.submitPlan(pl.batch.items, pl.batch.siteId, { userId: job.userId, manual: true, now: ctx.now });
+    return { status: out.rejected.length ? 'partial' : 'ok', stats: out, message: `${out.created.length} gönderim kuyruğa alındı${out.rejected.length ? `, ${out.rejected.length} makale reddedildi (${out.rejected[0].reason})` : ''}` };
+  }
+  const sync = await publishing.syncDue({ projectId: job.projectId, now: ctx.now, request: ctx.wpRequest });
+  const cfg = (await settings.get('publishing', job.projectId)).value;
+  if (!cfg.autoPublish || !cfg.siteId) return { status: sync.checked ? 'ok' : 'skipped', stats: { sync }, message: sync.checked ? `${sync.published} zamanlanmış yazı yayımlandı olarak güncellendi (otomatik yayın kapalı)` : 'Otomatik yayın kapalı; bekleyen zamanlanmış yazı yok' };
+  const site = await sites.load(cfg.siteId).catch(() => null);
+  if (!site || site.status !== 'active' || site.project_id !== job.projectId) return { status: 'skipped', stats: { sync }, message: 'Otomatik yayın için seçili site yok ya da duraklatılmış' };
+  const perRun = (await getSchedule('content_publishing')).options.perRun || 2;
+  const ready = (await db.query("SELECT a.id, a.h1 FROM articles a WHERE a.project_id = $1 AND a.status = 'ready' AND NOT EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id AND p.site_id = $2) ORDER BY a.quality_score DESC NULLS LAST, a.created_at LIMIT $3", [job.projectId, site.id, perRun])).rows;
+  if (!ready.length) return { status: 'ok', stats: { sync }, message: 'Gönderilecek onaylı (“Yayına hazır”) makale yok' };
+  const stats = { sync, sent: 0, rejected: [] };
+  for (const a of ready) {
+    try { const pub = await publishing.prepare(a.id, site.id, { mode: cfg.mode === 'publish' ? 'publish' : 'draft', manual: false, now: ctx.now }); await publishing.enqueue(pub.id, { trigger: 'schedule', now: ctx.now }); stats.sent++; }
+    catch (err) { stats.rejected.push({ articleId: a.id, reason: err.message }); if ((err.extra && err.extra.limit) || (err.status === 409 && /limit/i.test(err.message))) break; }
+  }
+  return { status: stats.rejected.length ? 'partial' : 'ok', stats, message: `${stats.sent} makale ${cfg.mode === 'publish' ? 'yayına' : 'taslak olarak'} gönderime alındı${stats.rejected.length ? `; ${stats.rejected[0].reason}` : ''}` };
+} };
+
 // ── the tick: which bots are due ────────────────────────────────────────────────────────────────────────────────────
 /** @returns { paused, enqueued: [{ bot, projectId, jobId }], moved: [bot] } */
 async function tick({ now = new Date() } = {}) {
@@ -180,6 +210,7 @@ async function afterSuccess(job) {
   const s = await getSchedule(job.botKey); if (s.failStreak) await saveSchedule(job.botKey, { failStreak: 0 });
 }
 async function afterFinalFailure(job, err) {
+  if (job.payload && job.payload.publicationId) return;                 // a failed WordPress send has told the owner already (publishing.js), and one article never switches the bot off
   const label = (DEFAULTS[job.botKey] || {}).label || job.botKey;
   await notifications.create({ type: 'job_failed', severity: 'warning', title: `${label} görevi başarısız oldu`, body: `${String((err && err.message) || err).slice(0, 400)} (${job.attempts} deneme)`, data: { jobId: job.id, bot: job.botKey } });
   if (job.trigger !== 'schedule') return;                              // a person's own click failing does not switch a bot off

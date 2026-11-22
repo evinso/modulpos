@@ -50,7 +50,7 @@ ok('after login the dashboard is shown (menu, project selector, theme)', !!nav('
 ok('the default project is selected: Global Tech Content Site, not connected', $('select[aria-label="Proje"]').value !== '' && txt().includes('Araştırma ve Arşiv Modu'));
 ok('every dashboard figure is a real count now (a 0 is a real 0); only organic traffic waits for its phase', $$('.metric.later').length === 0 && txt().includes('Organik trafik') && txt().includes('Aşama 6’te etkinleşir') && txt().includes('Bugün bulunan haber'));
 ok('no articles yet: an honest empty state, not fake charts', txt().includes('Henüz makale yok'));
-ok('menu: the 7 pages of later phases are dimmed and not clickable, the research and writing pages are links now', $$('.nav.disabled').length === 7 && $$('.nav.disabled').every((n) => n.tagName === 'DIV') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
+ok('menu: the 4 pages of phases 6 and 7 are dimmed and not clickable, the research, writing and WordPress pages are links now', $$('.nav.disabled').length === 4 && $$('.nav.disabled').every((n) => n.tagName === 'DIV') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
 
 // ── strategy ───────────────────────────────────────────────────────────────────────────────────────
 await click(nav('Site Nişi ve İçerik Stratejisi'), 400);
@@ -133,7 +133,7 @@ ok('cost tiles say "Bilinmiyor" never an invented number when empty (no calls ye
 
 // ── bots, settings, logs, notifications ───────────────────────────────────────────────────────────
 await click(nav('Bot Yönetimi'), 500);
-ok('15 bots: the 9 of phases 2 and 3 are ready (by hand) and show real last runs, the rest say which phase builds them', $$('tbody tr').length === 15 && txt().includes('9 / 15 bot hazır') && /Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
+ok('15 bots: the 10 of phases 2, 3 and 5 are ready and show real last runs, the rest say which phase builds them', $$('tbody tr').length === 15 && txt().includes('10 / 15 bot hazır') && /Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
 await click(nav('Sistem Ayarları'), 500);
 ok('automation settings load; the three mandatory checks are locked', txt().includes('Kalite ve zorunlu kontroller') && $$('.badge').filter((b) => b.textContent === 'kilitli').length === 3);
 const scoring = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('Fırsat puanlama'));
@@ -312,7 +312,7 @@ ok('the writer page lists the vendors (who writes, who checks) and the history o
 
 // ── PHASE 4: bot management, schedule editor, persistent queue ───────────────────────────────────────────────────────────
 await click(nav('Bot Yönetimi'), 700);
-ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 6);
+ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 7);
 const wrow = $$('tbody tr').find((r) => r.textContent.includes('AI Article Writer'));
 await click($$('button', wrow).find((b) => b.textContent.includes('Zamanlama')), 500);
 ok('the schedule dialog warns that this bot spends money and keeps the limits', txt().includes('Bu bot para harcar') && txt().includes('Makaleler yine kendiliğinden yayımlanmaz') && txt().includes('yalnızca BİR kez'));
@@ -328,6 +328,51 @@ await click(btn('İptal'), 700);
 ok('cancelling works and the job is not run later', (await q1("SELECT status FROM jobs WHERE bot_key = 'news_discovery'")).status === 'cancelled' && txt().includes('İptal') && !!btn('Yeniden dene'));
 await click(btn('Yeniden dene'), 700);
 ok('a cancelled job can be queued again by the owner', (await q1("SELECT status, trigger FROM jobs WHERE bot_key = 'news_discovery' ORDER BY id DESC LIMIT 1")).trigger === 'retry');
+
+// ── PHASE 5: WordPress sites, category mapping, sending, planning, calendar (a fake WordPress over real HTTP) ─────────────────────────────
+const WP = globalThis.__wp; const drainQueue = async () => { for (let i = 0; i < 40; i += 1) { if (!(await S.scheduler.workOnce({ ctx: {} }))) return; } };
+await click(nav('Web Sitelerim'), 600);
+ok('without a site the page explains the archive mode and offers to add one', txt().includes('Henüz WordPress sitesi bağlı değil') && txt().includes('Araştırma ve Arşiv Modu') && !!btn('Site ekle'));
+await click(btn('Site ekle'), 400);
+ok('the add dialog tells how to create an application password and that it is stored encrypted', txt().includes('Uygulama Şifreleri') && txt().includes('şifreli saklanır'));
+await setVal(input('Site adı', $('.modal')), 'E2E Blog'); await setVal(input('WordPress adresi', $('.modal')), WP.url); await setVal(input('Kullanıcı adı', $('.modal')), 'editor'); await setVal(input('Uygulama şifresi', $('.modal')), 'abcd efgh ijkl mnop');
+await click(btn('Kaydet', $('.modal')), 1500);
+ok('the site is saved, tested at once and shown with its result; the password is nowhere in the page', txt().includes('E2E Blog') && txt().includes('bağlantı çalışıyor') && txt().includes('Fake Tech Blog') && txt().includes('şifre …mnop') && !document.body.innerHTML.includes('abcd efgh'));
+ok('the first working site connects the project', (await q1('SELECT mode, domain FROM content_projects')).mode === 'connected' && (await q1("SELECT encrypted_password FROM wp_sites")).encrypted_password.startsWith('enc:v1:'));
+await click(btn('Kategori eşleştirme'), 800);
+ok('the mapping dialog lists our categories next to the site\'s with a SUGGESTION for the same name', txt().includes('Bizim kategori') && txt().includes('öneri: “AI Tools & Updates”'));
+const crow = $$('.modal tbody tr').find((r) => r.textContent.includes('AI Tools')); await click($$('button', crow).find((b) => b.textContent.includes('Sitede oluştur')), 800);
+ok('"create on the site" makes the category on the site and maps it', WP.categories.some((c) => c.name === 'AI Tools & Updates' && c.id > 100) && (await q1('SELECT count(*)::int n FROM wp_category_map')).n === 1);
+await click(btn('Kapat', $('.modal')), 300);
+
+// send the article of the writer scenario as a DRAFT from its editor
+const aiId = (await q1("SELECT id FROM articles WHERE created_by = 'ai'")).id;
+await S.db.query("UPDATE articles SET status = 'ready' WHERE id = $1", [aiId]);
+const aiH1 = (await q1('SELECT h1 FROM articles WHERE id = $1', [aiId])).h1;
+await click(nav('Makale Arşivi'), 500); await click($$('tbody tr').find((r) => r.textContent.includes(aiH1)), 900);
+ok('the editor has a WordPress card with the send form (draft by default)', txt().includes('WordPress') && txt().includes('Taslak olarak') && !!btn('Gönder'));
+await click(btn('Gönder'), 900); await drainQueue(); await wait(3200);
+const dpub = await q1('SELECT status, wp_post_id, mode FROM publications');
+ok('the send went through the queue: a draft post exists on the site and the card says so with a link', dpub.status === 'draft' && WP.posts.size === 1 && [...WP.posts.values()][0].status === 'draft' && txt().includes('Taslak (sitede)') && txt().includes('yazıyı aç'), JSON.stringify(dpub));
+ok('the article itself stays in the archive state a person gave it (a draft on the site is not publishing)', (await q1('SELECT status FROM articles WHERE id = $1', [aiId])).status === 'ready');
+
+// many articles: plan, then send as a spread over days
+const mk = async (n) => { const out = []; for (let i = 0; i < n; i += 1) { const a = await S.articles.create({ projectId: pid, h1: `E2E router guide ${i}`, seoTitle: `E2E router guide ${i}`, metaDescription: 'm'.repeat(100), focusKeyword: `e2e router ${i}`, categoryId: (await q1('SELECT id FROM categories LIMIT 1')).id, contentHtml: `<h2>Hi</h2><p>${'Plain words for the reader. '.repeat(80)}</p>`, articleType: 'evergreen_guide' }); await S.db.query("UPDATE articles SET status = 'ready', fact_checked_at = now(), adsense_risk = 'low', quality_score = $2 WHERE id = $1", [a.id, 90 - i]); out.push(a); } return out; };
+const made = await mk(3);
+await click(nav('Toplu Yayınlama'), 800);
+ok('the bulk page lists ready articles not yet sent to the site and explains the rules', txt().includes('E2E router guide 0') && txt().includes('“Yayına hazır” olması şarttır'));
+await setVal(input('Nasıl'), 'spread'); await wait(600);
+await click($$('input[type=checkbox]').find((c) => c.getAttribute('aria-label') === 'Hepsini seç'), 200); await click(btn('Planı göster'), 900);
+ok('the plan is a dry run: each article with its day and time, nothing sent, no place of the day taken', txt().includes('kuru denemedir') && txt().includes('3 makale planlandı') && WP.posts.size === 1 && (await q1("SELECT count(*)::int n FROM publications")).n === 1);
+await click(btn('3 makaleyi gönder'), 900); await drainQueue(); await wait(100); await click(btn('Yenile'), 900);
+ok('the batch ran: three scheduled posts on the site (status "future"), listed in the history as scheduled', WP.posts.size === 4 && [...WP.posts.values()].filter((p) => p.status === 'future').length === 3 && txt().includes('Zamanlandı') && (await q1("SELECT count(*)::int n FROM publications WHERE status = 'scheduled'")).n === 3);
+ok('the places of the days were taken by the scheduled posts (the limit of each day is respected)', (await q1("SELECT coalesce(sum(used), 0)::int n FROM daily_work_usage WHERE work_type = 'publish' AND scope = 'global'")).n === 3);
+
+await click(nav('İçerik Takvimi'), 800);
+ok('the calendar shows the scheduled posts on their days with their state', txt().includes('E2E router guide 0') && txt().includes('Zamanlandı') && txt().includes('3 yayın') || (txt().includes('E2E router guide 0') && txt().includes('Zamanlandı')));
+await click(nav('Bot Yönetimi'), 700);
+ok('the WordPress bot is listed (auto-publish is off by default)', txt().includes('Content Publishing Bot') && txt().includes('Otomatik kapalı; elle çalıştırılır') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 7);
+void made;
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);

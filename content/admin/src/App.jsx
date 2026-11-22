@@ -21,6 +21,9 @@ import Keywords from './pages/Keywords.jsx';
 import Serp from './pages/Serp.jsx';
 import Opportunities from './pages/Opportunities.jsx';
 import Writer from './pages/Writer.jsx';
+import Sites from './pages/Sites.jsx';
+import Publishing from './pages/Publishing.jsx';
+import Calendar from './pages/Calendar.jsx';
 
 function AuthScreen({ setupNeeded, tokenConfigured, onDone }) {
   const [mode, setMode] = useState(setupNeeded ? 'setup' : 'login');
@@ -129,6 +132,9 @@ function Shell() {
           <Route path="/serp" element={<Serp />} />
           <Route path="/opportunities" element={<Opportunities />} />
           <Route path="/writer" element={<Writer />} />
+          <Route path="/sites" element={<Sites />} />
+          <Route path="/publishing" element={<Publishing />} />
+          <Route path="/calendar" element={<Calendar />} />
           <Route path="/limits" element={<Limits />} />
           <Route path="/api-usage" element={<ApiUsage />} />
           <Route path="/bots" element={<Bots />} />
