@@ -10,7 +10,7 @@ const opts = { skip: H.skip };
 const ORIGIN = 'https://content.example.test';
 const PW = 'Correct-Horse-9-Battery';
 const FX = path.join(__dirname, '../fixtures/content');
-let server; let base; let feedServer; let feedBase; const realFetch = globalThis.fetch; const dfsCalls = []; const serperCalls = [];
+let server; let base; let feedServer; let feedBase; const realFetch = globalThis.fetch; const dfsCalls = []; const serperCalls = []; const models = require('./fakeModels').fakeModels();
 
 test.before(async () => {
   if (H.skip) return;
@@ -21,13 +21,15 @@ test.before(async () => {
   await new Promise((r) => { server = app.listen(0, '127.0.0.1', r); });
   base = `http://127.0.0.1:${server.address().port}/api/content`;
   feedServer = http.createServer((req, res) => {
+    if (req.url.startsWith('/page.html')) { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end(require('./fakeModels').PAGE()); }          // a "news article" page for the writer to read
     const f = { '/tc.xml': 'techcrunch.rss.xml', '/chrome.xml': 'chrome-releases.atom.xml', '/bleep.xml': 'bleepingcomputer.rss.xml' }[req.url];
     if (!f) { res.writeHead(404); return res.end(); }
-    res.writeHead(200, { 'Content-Type': 'application/xml' }); res.end(fs.readFileSync(path.join(FX, f)));
+    res.writeHead(200, { 'Content-Type': 'application/xml' }); res.end(require('../fixtures/freshen').freshen(fs.readFileSync(path.join(FX, f), 'utf8')));
   });
   await new Promise((r) => feedServer.listen(0, '127.0.0.1', r)); feedBase = `http://127.0.0.1:${feedServer.address().port}`;
   // DataForSEO is only reachable through the global fetch: answer it here, let everything else (our own test client) through
   globalThis.fetch = async (url, o) => {
+    if (/^https:\/\/(api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com)/.test(String(url))) return models.fetchImpl(url, o);
     if (String(url).startsWith('https://google.serper.dev')) {                      // Serper.dev: the vendor's documented answer shape, easy results
       const q = JSON.parse(o.body).q; serperCalls.push({ q, key: o.headers['X-API-KEY'] });
       return { ok: true, status: 200, json: async () => ({ organic: ['smallblog.dev', 'niche-tech.net', 'reddit.com', 'mysite.io'].map((d, i) => ({ title: d, link: `https://${d}/${i}`, position: i + 1, snippet: 's' })), peopleAlsoAsk: [{ question: `Is ${q} real?` }], relatedSearches: [{ query: `${q} news` }] }) };
@@ -185,4 +187,34 @@ test('free mode over HTTP: Serper key, SERP from Serper, a volume file imported 
   await waitRun(c, (await c.post('/news/run', { projectId: pid })).json.run.id);
   await c.post('/opportunities/refresh', { projectId: pid }); const ops = (await c.get(`/opportunities?projectId=${pid}`)).json.items; assert.ok(ops.length >= 1); assert.equal(ops.every((o) => typeof o.partial === 'boolean'), true);
   const first = ops.find((o) => o.keywordId); if (first) { const sl = await editor.post(`/opportunities/${first.id}/status`, { status: 'shortlisted' }); assert.equal(sl.status, 200); assert.equal(sl.json.status, 'shortlisted'); }
+});
+
+test('writing over HTTP: vendors, the write start (admin only, background run), the checks (free ones for editors, model ones for admins), sources never leave in full', opts, async () => {
+  const c = await signedIn(); const editor = await signedIn('editor'); const viewer = await signedIn('viewer'); const pid = (await c.get('/projects')).json.projects[0].id;
+  models.calls.length = 0;
+  const st0 = (await c.get(`/writer/status?projectId=${pid}`)).json; assert.deepEqual([st0.ready, st0.vendors.map((v) => v.key), st0.vendors.every((v) => !v.ready)], [false, ['anthropic', 'openai', 'gemini'], true]);
+  assert.equal((await editor.put('/providers/anthropic', { secret: 'sk-ant-http-key-0123456789' })).status, 403);
+  assert.equal((await c.put('/providers/anthropic', { secret: 'sk-ant-http-key-0123456789' })).status, 200);
+  const st1 = (await c.get(`/writer/status?projectId=${pid}`)).json; assert.deepEqual([st1.ready, st1.picks.writer, st1.picks.checker, st1.picks.independent, st1.vendors[0].model], [true, 'anthropic', 'anthropic', false, 'claude-sonnet-5-5']);
+  await c.post('/news/sources', { projectId: pid, name: 'Chrome', kind: 'rss', url: `${feedBase}/chrome.xml`, sourceType: 'official', reliability: 90 });
+  await waitRun(c, (await c.post('/news/run', { projectId: pid })).json.run.id);
+  await c.post('/opportunities/refresh', { projectId: pid });
+  await require('../../src/content/db').query(`UPDATE news_items SET url = '${feedBase}/page.html?i=' || id::text`);
+  await require('../../src/content/db').query("UPDATE content_opportunities SET eligible = true, ineligible_reason = '' WHERE keyword_id IS NOT NULL");
+  const opp = (await c.get(`/opportunities?projectId=${pid}&eligible=1`)).json.items[0]; assert.ok(opp && opp.keywordId);
+  assert.equal((await editor.post(`/opportunities/${opp.id}/write`, {})).status, 403, 'writing costs money: admin only'); assert.equal((await viewer.post(`/opportunities/${opp.id}/write`, {})).status, 403);
+  assert.equal((await c.post(`/opportunities/${opp.id}/write`, { provider: 'bing' })).status, 400); assert.equal(models.calls.length, 0);
+  const start = await c.post(`/opportunities/${opp.id}/write`, {}); assert.equal(start.status, 202); assert.deepEqual([start.json.writer, start.json.checker], ['anthropic', 'anthropic']);
+  const run = await waitRun(c, start.json.run.id); assert.equal(run.status, 'ok', JSON.stringify(run)); assert.deepEqual([run.stats.step, run.stats.calls], ['done', 3]);
+  const after = (await c.get(`/opportunities/${opp.id}`)).json; assert.equal(after.status, 'written');
+  const aid = (await require('../../src/content/db').query('SELECT article_id FROM content_opportunities WHERE id = $1', [opp.id])).rows[0].article_id;
+  const art = (await viewer.get(`/articles/${aid}`)).json; assert.deepEqual([art.createdBy, art.status, art.generation.provider, art.adsenseRisk], ['ai', 'needs_review', 'anthropic', 'low']);
+  const ck = (await viewer.get(`/articles/${aid}/checks`)).json; assert.deepEqual([ck.rules.stale, ck.fact.status, ck.review.status, typeof ck.quality.result.score], [false, 'ok', 'ok', 'number'], JSON.stringify(ck.fact.result.claims.map((x) => [x.verdict, x.note])));
+  const sl = (await viewer.get(`/articles/${aid}/source-list`)).json.sources; assert.ok(sl.length >= 1 && sl.every((s) => s.preview.length <= 300 && s.excerpt === undefined && s.text === undefined), 'only a short preview of a source page is ever returned');
+  assert.equal((await editor.post(`/articles/${aid}/checks/free`, {})).status, 200); assert.equal(models.calls.length, 3, 'the free rules call no model');
+  assert.equal((await editor.post(`/articles/${aid}/checks/run`, {})).status, 403); assert.equal((await viewer.post(`/articles/${aid}/checks/free`, {})).status, 403);
+  const re = await c.post(`/articles/${aid}/checks/run`, {}); assert.equal(re.status, 200); assert.equal(re.json.errors.length, 0); assert.equal(models.calls.length, 5, 'fact check + review'); assert.equal(re.json.latest.quality.stale, false);
+  assert.equal((await c.post(`/opportunities/${opp.id}/write`, {})).status, 409, 'already written');
+  assert.ok((await c.get('/audit?action=article')).json.items.some((x) => x.action === 'article.write.start')); assert.ok(!JSON.stringify((await c.get('/providers')).json).includes('sk-ant-http-key'));
+  assert.equal((await c.get('/articles/00000000-0000-0000-0000-000000000001/checks')).status, 404);
 });

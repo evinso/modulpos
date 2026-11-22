@@ -28,11 +28,11 @@ globalThis.__srv = { db, limits: sreq('./src/content/services/limits'), articles
 
 // a news server on 127.0.0.1 that serves real captured feeds (the server's own safe fetcher reads them: no fake in between)
 const FX = path.join(here, '../../../server/test/fixtures/content');
-const feedServer = http.createServer((req, res) => { const f = { '/tc.xml': 'techcrunch.rss.xml', '/bleep.xml': 'bleepingcomputer.rss.xml' }[req.url]; if (!f) { res.writeHead(404); return res.end(); } res.writeHead(200, { 'Content-Type': 'application/xml' }); res.end(fs.readFileSync(path.join(FX, f))); });
+const feedServer = http.createServer((req, res) => { if (req.url.startsWith('/page.html')) { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end(PAGE()); } const f = { '/tc.xml': 'techcrunch.rss.xml', '/bleep.xml': 'bleepingcomputer.rss.xml' }[req.url]; if (!f) { res.writeHead(404); return res.end(); } res.writeHead(200, { 'Content-Type': 'application/xml' }); res.end(sreq('./test/fixtures/freshen.js').freshen(fs.readFileSync(path.join(FX, f), 'utf8'))); });                  // the captured feeds are re-dated to "now": the news module only keeps recent headlines
 await new Promise((r) => feedServer.listen(0, '127.0.0.1', r));
 globalThis.__feedBase = `http://127.0.0.1:${feedServer.address().port}`;
 globalThis.__srv.opportunities = sreq('./src/content/services/opportunities'); globalThis.__srv.news = sreq('./src/content/services/news');
-globalThis.__dfs = []; globalThis.__serper = [];
+globalThis.__dfs = []; globalThis.__serper = []; const { fakeModels, PAGE } = sreq('./test/content/fakeModels.js'); globalThis.__models = fakeModels();
 
 const out = path.join(here, '.out-e2e.mjs');
 await build({
@@ -59,6 +59,7 @@ const dfsAnswer = (p, body) => {
   return { status_code: 20000, tasks: [{ status_code: 40501, status_message: 'unexpected' }] };
 };
 globalThis.fetch = async (u, init = {}) => {
+  if (/^https:\/\/(api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com)/.test(String(u))) return globalThis.__models.fetchImpl(u, init);
   if (String(u).startsWith('https://google.serper.dev')) {                      // Serper.dev: easy results in the vendor's documented shape
     const body = init.body ? JSON.parse(init.body) : {}; globalThis.__serper.push({ q: body.q, key: (init.headers || {})['X-API-KEY'] });
     return { ok: true, status: 200, json: async () => ({ organic: ['smallblog.dev', 'niche-tech.net', 'mysite.io', 'techie.org'].map((d, i) => ({ title: `${d} result`, link: `https://${d}/`, position: i + 1, snippet: 's', date: '5 days ago' })), peopleAlsoAsk: [{ question: 'Is it real?' }], relatedSearches: [{ query: `${body.q} news` }] }) };

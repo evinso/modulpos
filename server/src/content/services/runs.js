@@ -18,6 +18,11 @@ async function finish(id, { status = 'ok', stats = {}, error = null } = {}) {
   return shape(r);
 }
 
+/** What a running run is doing right now (the panel shows it while it waits); a finished run is never touched */
+async function progress(id, stats) {
+  await db.query("UPDATE automation_runs SET stats = $2 WHERE id = $1 AND status = 'running'", [id, JSON.stringify(stats)]);
+}
+
 /** One run of the same bot per project at a time (a second click while it works is a 409, not a second run). */
 async function running(botKey, projectId) {
   const r = (await db.query("SELECT * FROM automation_runs WHERE bot_key = $1 AND project_id IS NOT DISTINCT FROM $2 AND status = 'running' AND started_at > now() - interval '30 minutes' ORDER BY id DESC LIMIT 1", [botKey, projectId])).rows[0];
@@ -67,4 +72,4 @@ async function track(botKey, opts, fn) {
   }
 }
 
-module.exports = { start, finish, running, guardOne, get, list, lastByBot, closeStale, track };
+module.exports = { start, finish, progress, running, guardOne, get, list, lastByBot, closeStale, track };

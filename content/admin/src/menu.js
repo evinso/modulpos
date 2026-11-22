@@ -10,7 +10,7 @@ export const MENU = [
   { label: 'Anahtar Kelime Araştırması', to: '/keywords', icon: Search },
   { label: 'SEO Rekabet Analizi', to: '/serp', icon: BarChart3 },
   { label: 'İçerik Fırsatları', to: '/opportunities', icon: Lightbulb },
-  { label: 'AI Makale Üretimi', icon: Sparkles, phase: 3 },
+  { label: 'AI Makale Üretimi', to: '/writer', icon: Sparkles },
   { label: 'Makale Arşivi', to: '/articles', icon: Archive },
   { label: 'İçerik Takvimi', icon: CalendarDays, phase: 5 },
   { label: 'İçerik Sağlığı', icon: HeartPulse, phase: 6 },

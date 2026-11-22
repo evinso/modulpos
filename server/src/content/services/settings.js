@@ -29,13 +29,14 @@ const GROUPS = {
   },
   quality: {
     projectOverride: true,
-    defaults: { minScore: 85, factCheck: true, adsenseCheck: true, duplicateCheck: true, lengthPref: 'standard', tone: 'Clear, neutral and practical American English', language: 'en-US', manualApprovalNewArticles: true },
+    defaults: { minScore: 85, factCheck: true, adsenseCheck: true, duplicateCheck: true, lengthPref: 'standard', tone: 'Clear, neutral and practical American English', language: 'en-US', manualApprovalNewArticles: true, writerProvider: 'auto', checkerProvider: 'auto' },
     validate: (v) => ({
       minScore: V.int(v.minScore, 'Minimum kalite puanı', { min: 50, max: 100 }),
       factCheck: true, adsenseCheck: true, duplicateCheck: true,                                   // mandatory: forced on, whatever was sent
       lengthPref: V.oneOf(v.lengthPref, 'Makale uzunluğu', ['short', 'standard', 'long'], { fallback: 'standard' }),
       tone: V.str(v.tone, 'Yazım tonu', { max: 300 }), language: V.str(v.language || 'en-US', 'Varsayılan dil', { required: true, max: 10 }),
       manualApprovalNewArticles: V.bool(v.manualApprovalNewArticles, 'Yeni makaleler için manuel yayın onayı', true),
+      writerProvider: V.oneOf(v.writerProvider, 'Makale yazarı', ['auto', 'anthropic', 'openai', 'gemini'], { fallback: 'auto' }), checkerProvider: V.oneOf(v.checkerProvider, 'Kontrol modeli', ['auto', 'anthropic', 'openai', 'gemini'], { fallback: 'auto' }),
     }),
   },
   publishing: {

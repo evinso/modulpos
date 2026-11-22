@@ -1,5 +1,5 @@
-import { Fragment, useState } from 'react';
-import { Calculator, ListChecks, RefreshCw } from 'lucide-react';
+import { Fragment, useEffect, useState } from 'react';
+import { Calculator, ListChecks, PenLine, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api, qs } from '../api.js';
 import { Alert, Async, Badge, Card, Empty, Field, Modal, NeedsProject, PageHead, Pager, ScoreBar, useAction, useApp, useLoad } from '../ui.jsx';
@@ -26,6 +26,31 @@ function Explain({ o }) {
   );
 }
 
+const STEP = { sources: 'Kaynak sayfaları okunuyor…', writing: 'Makale yazılıyor…', checking: 'Doğruluk ve AdSense kontrolleri yapılıyor…' };
+
+/** asks which vendor writes, says what will happen and what it costs, then starts the background run */
+function WriteModal({ o, projectId, onClose, onStarted }) {
+  const st = useLoad(() => api.get(`/writer/status?projectId=${projectId}`), [projectId]);
+  const [pick, setPick] = useState(''); const [run, busy] = useAction();
+  const go = async (d) => { const r = await run(() => api.post(`/opportunities/${o.id}/write`, { provider: pick || d.picks.writer })); if (r) { onStarted(r); onClose(); } };
+  return (
+    <Modal wide title="Bu fikir için makale yaz" onClose={onClose}>
+      <Async state={st}>{(d) => (
+        <div className="stack">
+          <div><strong>{o.title}</strong><div className="faint">Odak anahtar kelime: {o.keyword} · {o.sourceCount || 1} kaynak</div></div>
+          {!d.ready && <Alert kind="bad" title="Hazır bir yapay zekâ sağlayıcısı yok">API Kullanımı sayfasında Claude, OpenAI ya da Gemini için API anahtarını girin (OpenAI ve Gemini’de model adını da yazın) ve bağlantıyı test edin.</Alert>}
+          {d.ready && <>
+            <Field label="Makaleyi yazacak model" hint="Hazır olmayan sağlayıcılar listelenmez."><select className="input" value={pick || d.picks.writer} onChange={(e) => setPick(e.target.value)}>{d.vendors.filter((v) => v.ready).map((v) => <option key={v.key} value={v.key}>{v.label} — {v.model}</option>)}</select></Field>
+            <Alert kind="info" title="Ne olacak?">Habere ait kaynak sayfalar okunur → seçili model özgün bir makale taslağı yazar → doğruluk kontrolü ({(pick || d.picks.writer) === d.picks.writer ? (d.picks.independent ? 'yazandan farklı bir modelle' : 'aynı modelle') : 'ayarlara göre'}), AdSense/editoryal inceleme ve kalite puanı çıkarılır. Makale <strong>asla kendiliğinden yayımlanmaz</strong>: “Onay bekliyor” olarak arşive düşer, siz okuyup onaylarsınız.
+              Bugünün günlük makale limitinden 1 yer ayrılır; toplam 3 model isteği gider, maliyeti seçili servisin kredisinden/bakiyesinden harcanır (fiyatları girdiyseniz API Kullanımı sayfasında gerçek tutar, girmediyseniz “Bilinmiyor” görünür). Birkaç dakika sürebilir.</Alert>
+          </>}
+          <div className="row end"><button className="btn" onClick={onClose}>Vazgeç</button><button className="btn primary" disabled={busy || !d.ready} onClick={() => go(d)}><PenLine size={15} />Makaleyi yaz</button></div>
+        </div>
+      )}</Async>
+    </Modal>
+  );
+}
+
 function SelectModal({ projectId, onClose }) {
   const st = useLoad(() => api.get(`/opportunities-select?projectId=${projectId}`), [projectId]);
   return (
@@ -45,11 +70,18 @@ function SelectModal({ projectId, onClose }) {
 export default function Opportunities() {
   const { projectId, can } = useApp();
   const [f, setF] = useState({ eligible: '', status: '', categoryId: '', minScore: '', q: '', page: 1 });
-  const [open, setOpen] = useState(null); const [modal, setModal] = useState(false);
+  const [open, setOpen] = useState(null); const [modal, setModal] = useState(false); const [writing, setWriting] = useState(null); const [prog, setProg] = useState(null);
   const cats = useLoad(() => (projectId ? api.get(`/projects/${projectId}/categories`) : Promise.resolve({ categories: [] })), [projectId]);
   const st = useLoad(() => (projectId ? api.get(`/opportunities${qs({ ...f, projectId, pageSize: 30 })}`) : Promise.resolve(null)), [projectId, f]);
   const settingsState = useLoad(() => (projectId ? api.get(`/settings?projectId=${projectId}`) : Promise.resolve(null)), [projectId]);
-  const [run, busy] = useAction();
+  const [run, busy] = useAction(); const { toast } = useApp();
+  useEffect(() => {                                                               // follows the background writer run until it ends
+    if (!writing) return undefined;
+    let stop = false;
+    const tick = async () => { try { const r = await api.get(`/runs/${writing.runId}`); if (stop) return; setProg(r); if (r.status !== 'running') { setWriting(null); st.reload(); toast(r.status === 'ok' ? 'Makale yazıldı: Onay bekliyor' : r.status === 'partial' ? 'Makale yazıldı ama bazı kontroller çalışmadı' : `Makale yazılamadı: ${r.error || 'bilinmeyen hata'}`, r.status === 'error' ? 'bad' : undefined); } } catch { /* next tick */ } };
+    const t = setInterval(tick, 2000); tick();
+    return () => { stop = true; clearInterval(t); };
+  }, [writing]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!projectId) return <NeedsProject />;
   const set = (k, v) => setF((x) => ({ ...x, [k]: v, page: k === 'page' ? v : 1 }));
   const categories = cats.data ? cats.data.categories.filter((c) => c.status !== 'archived') : [];
@@ -63,6 +95,7 @@ export default function Opportunities() {
         Her fikir 0–100 arası puanlanır. Toplam puan <strong>yalnızca beş bileşenin hepsi gerçek veriye dayanıyorsa</strong> verilir (haber trendi, SERP’ten organik rekabet fırsatı, aranma talebi, nişe uygunluk, kaynak güveni); eksik veri varsa fikir “uygun değil” kalır ve neyin eksik olduğu yazılır.
         <strong> Kısmi puan:</strong> yalnızca <em>aranma hacmi</em> eksikse (hacim verisi için dosya aktarmadıysanız) ve fikrin SERP analizi yapıldıysa, kalan dört bileşenin ortalaması “kısmi” diye gösterilir; fikir ancak siz “Kısa liste”ye aldığınızda ve kısmi puan eşiği geçtiğinde uygun olur. Niş dışı konular puanı yüksek olsa da asla üretime alınmaz.
       </PageHead>
+      {writing && <Alert kind="info" title={`Makale yazılıyor: ${writing.title}`}><div className="row">{STEP[prog && prog.stats && prog.stats.step] || 'Başlatılıyor…'}<small className="faint">Sayfadan ayrılabilirsiniz; iş sunucuda sürer ve sonucu Makale Arşivi’nde görürsünüz.</small></div></Alert>}
       {w && <Card flat><div className="row"><Calculator size={16} /><span>Ağırlıklar: Trend %{w.trend} · Rekabet fırsatı %{w.competition} · Aranma talebi %{w.demand} · Nişe uygunluk %{w.relevance} · Kaynak güveni %{w.source}</span><Link className="btn sm" to="/settings">Ağırlıkları değiştir</Link><span className="faint">Minimum puan: Strateji sayfasında (kategori için ayrıca verilebilir)</span></div></Card>}
       <Card flat><div className="grid g4">
         <Field label="Uygunluk"><select className="input" value={f.eligible} onChange={(e) => set('eligible', e.target.value)}><option value="">Hepsi</option><option value="1">Yalnızca uygun</option><option value="0">Uygun olmayanlar</option></select></Field>
@@ -80,12 +113,15 @@ export default function Opportunities() {
               {PARTS.map(([k]) => <td key={k}><ScoreBar value={o[k]} /></td>)}
               <td><Badge kind={ST[o.status][1]}>{ST[o.status][0]}</Badge></td>
               <td onClick={(e) => e.stopPropagation()}><div className="row end" style={{ flexWrap: 'nowrap' }}>
+                {o.articleId && <Link className="btn sm" to={`/articles/${o.articleId}`}>Makaleyi aç</Link>}
+                {can('research.paid') && o.eligible && ['new', 'shortlisted'].includes(o.status) && !writing && <button className="btn sm primary" onClick={() => setModal({ write: o })}><PenLine size={14} />Makale yaz</button>}
                 {can('research.paid') && o.keywordId && o.total === null && o.explain.missing && o.explain.missing.includes('competition') && <button className="btn sm" disabled={busy} onClick={() => serp(o)} title="Bu fikrin anahtar kelimesi için SERP analizi (seçili kaynağın kredisinden/bakiyesinden harcar)">SERP</button>}
                 {can('research.write') && o.status !== 'queued' && o.status !== 'written' && (o.status === 'rejected' ? <button className="btn sm" onClick={() => setStatus(o, 'new')}>Aç</button> : <><button className="btn sm" onClick={() => setStatus(o, o.status === 'shortlisted' ? 'new' : 'shortlisted')}>{o.status === 'shortlisted' ? 'Listeden çıkar' : (o.partial ? 'Onayla (kısa liste)' : 'Kısa liste')}</button><button className="btn sm danger" onClick={() => setStatus(o, 'rejected')}>Reddet</button></>)}</div></td></tr>
             {open === o.id && <tr><td colSpan={10}><Explain o={o} /><small className="faint">Hesaplandı: {dt(o.computedAt)}</small></td></tr>}</Fragment>))}</tbody></table></div>
         <div style={{ marginTop: 12 }}><Pager page={d.page} pageSize={d.pageSize} total={d.total} onPage={(p) => set('page', p)} /></div></Card>
       ))}</Async>
-      {modal && <SelectModal projectId={projectId} onClose={() => setModal(false)} />}
+      {modal === true && <SelectModal projectId={projectId} onClose={() => setModal(false)} />}
+      {modal && modal.write && <WriteModal o={modal.write} projectId={projectId} onClose={() => setModal(false)} onStarted={(r) => { setProg(null); setWriting({ runId: r.run.id, title: modal.write.title }); st.reload(); }} />}
     </div>
   );
 }
