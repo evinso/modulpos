@@ -1,15 +1,15 @@
 /**
  * Serper.dev client (https://serper.dev): Google search results as JSON. Used as the FREE-to-start source of the organic competition estimate (2,500 free queries,
- * no card, according to serper.dev) when DataForSEO is not available. Written from the vendor's public example answers; it has NOT been run against a real key.
+ * no card, according to serper.dev). Written from the vendor's public example answers; it has NOT been run against a real key.
  *  - one POST per query, key in the X-API-KEY header; the account is billed in CREDITS (1 per ordinary query), not dollars: the price of a credit depends on the
  *    pack the owner bought (or the free credits), so the cost of a call is recorded as UNKNOWN ("Bilinmiyor") and the credits go into `units`
  *  - no automatic retry of a call that may have been billed (the caller decides)
- *  - the answer is turned into the same shape the DataForSEO client returns, so `serp.scoreSerp` does not care where the results came from
+ *  - the answer is turned into the flat shape `serp.scoreSerp` reads (organic, questions, related ...)
  * What Serper does NOT give: keyword difficulty, referring domains, search volume. The organic estimate therefore has no "authority" factor (the factor is left out,
  * never filled with a made-up value) and nothing here says anything about how often a phrase is searched.
  */
 const BASE = 'https://google.serper.dev';
-const EP = { search: '/search' };
+const EP = { search: '/search', autocomplete: '/autocomplete' };
 const COUNTRY = { US: 'us', GB: 'gb', CA: 'ca', AU: 'au' };
 /** Only used to refuse a call early when a money budget is nearly spent. Not a price list: free credits cost nothing, a bought pack costs about a tenth of a cent a query (vendor's public pages, not verified). */
 const ESTIMATE_USD = 0.001;
@@ -38,7 +38,7 @@ const hostOf = (link) => { try { return new URL(link).hostname.toLowerCase().rep
 
 const FEATURES = [['answerBox', 'featured_snippet'], ['knowledgeGraph', 'knowledge_graph'], ['peopleAlsoAsk', 'people_also_ask'], ['topStories', 'top_stories'], ['videos', 'video'], ['images', 'images'], ['places', 'local_pack'], ['shopping', 'shopping'], ['relatedSearches', 'related_searches']];
 
-/** Serper's answer as { organic, questions, related, features, resultsCount, cost, units, empty } (same shape as the DataForSEO client's `serpOrganic`). */
+/** Serper's answer as { organic, questions, related, features, resultsCount, cost, units, empty } (the shape `serp.scoreSerp` reads). */
 function normalize(json, { now = new Date() } = {}) {
   const j = json && typeof json === 'object' ? json : {};
   const organic = (Array.isArray(j.organic) ? j.organic : []).filter((o) => o && o.link).slice(0, 10).map((o, i) => ({
@@ -75,6 +75,16 @@ function createClient({ apiKey, fetchImpl = globalThis.fetch, timeoutMs = 30000 
     async serpOrganic({ keyword, country = 'US', language = 'en', now = new Date() }) {
       const json = await call(EP.search, { q: keyword, gl: COUNTRY[country] || COUNTRY.US, hl: language, num: 10 });
       return normalize(json, { now });
+    },
+    /**
+     * Google's own autocomplete suggestions for a phrase (what people really start to type): keyword IDEAS, with no search volume. One credit. Written from the vendor's public
+     * description (POST /autocomplete with { q }); the answer is read defensively (a list of { value } or of plain strings).
+     */
+    async autocomplete({ keyword, country = 'US', language = 'en' }) {
+      const json = await call(EP.autocomplete, { q: keyword, gl: COUNTRY[country] || COUNTRY.US, hl: language });
+      const raw = Array.isArray(json.suggestions) ? json.suggestions : [];
+      const suggestions = [...new Set(raw.map((s) => String(s && typeof s === 'object' ? s.value : s || '').trim().toLowerCase()).filter(Boolean))];
+      return { suggestions, cost: null, units: 1 };
     },
   };
 }

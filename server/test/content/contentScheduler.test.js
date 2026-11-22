@@ -200,10 +200,10 @@ test('the SERP bot: checks the ideas that still miss their organic competition, 
   assert.equal(j.outcome, 'skipped'); assert.equal(calls.length, 1, 'nothing left to analyze: no call');
 });
 
-test('the keyword bot: without DataForSEO it is skipped with the reason (volumes come from a file); a hung worker\'s jobs are recovered by the next worker pass', opts, async () => {
+test('the keyword bot: without Apify it is skipped with the reason (volumes come from a file); a hung worker\'s jobs are recovered by the next worker pass', opts, async () => {
   const pid = await setup(); await SC.updateSchedule('keyword_research', { enabled: true }); await SC.tick({ now: MON });
   let j = await SC.workOnce({ now: MON, ctx: { newsFetch: feeds(FEEDS), gapMs: 0 } }); while (j && j.botKey !== 'keyword_research') j = await SC.workOnce({ now: MON, ctx: { newsFetch: feeds(FEEDS), gapMs: 0 } });
-  assert.deepEqual([j.outcome, /DataForSEO bağlı değil/.test(j.result.message)], ['skipped', true]);
+  assert.deepEqual([j.outcome, /Apify bağlı değil/.test(j.result.message)], ['skipped', true]);
   // a worker died with a news job: the next pass queues it again (it is harmless) and runs it
   await SC.saveSchedule('news_discovery', { nextRunAt: plus(MON, 99999) }); await H.db().query("UPDATE jobs SET status = 'done' WHERE status IN ('queued', 'running')");
   const { job } = await Q.enqueue({ botKey: 'news_discovery', projectId: pid, dedupeKey: 'zombie', runAfter: plus(MON, -30), trigger: 'schedule' }); await Q.claim('dead-worker', { now: plus(MON, -30) });

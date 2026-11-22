@@ -38,7 +38,7 @@ async function overview(projectId, { hours = 48, now = new Date(), tz = env().de
   const byCat = (await db.query(`SELECT coalesce(k.name_en, '—') AS name, count(*)::int n FROM news_clusters c LEFT JOIN categories k ON k.id = c.category_id
     WHERE c.project_id = $1 AND c.status = 'relevant' AND c.last_seen_at > $2::timestamptz - ($3 || ' hours')::interval GROUP BY 1 ORDER BY 2 DESC`, [projectId, now, String(h)])).rows;
   return { hours: h, today: dayKey(now, tz), clusters, daily, keywordTrends: kw.map((r) => ({ id: r.id, keyword: r.keyword, country: r.country, searchVolume: r.search_volume, trendPct: Number(r.trend_pct), fetchedAt: r.fetched_at })),
-    byCategory: byCat, note: 'Haber trendi gerçek haber sayılarından hesaplanır. Anahtar kelime trendi yalnızca DataForSEO aylık arama geçmişi alındıysa görünür.' };
+    byCategory: byCat, note: 'Haber trendi gerçek haber sayılarından hesaplanır. Anahtar kelime trendi yalnızca aylık arama geçmişi alındıysa (Apify verisi ya da dosya) görünür.' };
 }
 
 module.exports = { trendScore, overview };

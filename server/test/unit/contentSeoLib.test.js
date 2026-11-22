@@ -1,75 +1,73 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const dfs = require('../../src/content/services/dataforseo');
+const apify = require('../../src/content/services/apify');
+const kd = require('../../src/content/lib/keywordData');
+const serperLib = require('../../src/content/services/serper');
 const { scoreSerp, kindOf } = require('../../src/content/services/serp');
 const O = require('../../src/content/services/opportunities');
 const trends = require('../../src/content/services/trends');
 const K = require('../../src/content/services/keywords');
 
-/** DataForSEO answers as documented: the envelope (status_code 20000, tasks[]) around result[0].items. Built by hand from the documentation; NOT captured from a real account. */
-const envelope = (result, { cost = 0.0201, taskCode = 20000, topCode = 20000, msg = 'Ok.' } = {}) => ({ version: '0.1.20250101', status_code: topCode, status_message: msg, time: '0.2 sec.', cost, tasks_count: 1, tasks_error: taskCode === 20000 ? 0 : 1,
-  tasks: [{ id: 'abc', status_code: taskCode, status_message: msg, time: '0.19 sec.', cost, result_count: result ? 1 : 0, path: ['v3'], data: {}, result: result ? [result] : null }] });
 const reply = (body, status = 200) => async () => ({ ok: status >= 200 && status < 300, status, json: async () => body });
-const kwItem = (keyword, volume, extra = {}) => ({ keyword, keyword_info: { search_volume: volume, cpc: 1.25, competition: 0.42, competition_level: 'MEDIUM', monthly_searches: extra.monthly || [], low_top_of_page_bid: 0.5 },
-  keyword_properties: { keyword_difficulty: extra.kd ?? 38 }, search_intent_info: { main_intent: extra.intent || 'informational' }, avg_backlinks_info: extra.refs === undefined ? undefined : { referring_domains: extra.refs } });
 const months = (vals) => vals.map((v, i) => ({ year: 2026 - (i < 1 ? 1 : 0), month: ((i + 11) % 12) + 1, search_volume: v }));
 const norm = (arr) => arr.map((m) => ({ year: m.year, month: m.month, searchVolume: m.search_volume }));
+/** the default actor's output as its public page describes it (field names from the page; NOT captured from a real run) */
+const item = (keyword, volume, extra = {}) => ({ keyword, search_volume: volume, cpc: 1.25, competition: 0.42, competition_level: 'MEDIUM', keyword_difficulty: extra.kd ?? 38, search_intent: extra.intent || 'informational', monthly_searches: extra.monthly || [], data_status: extra.status || 'ok' });
 
-test('DataForSEO client: request shape, Basic auth, records read from the documented fields, trend from monthly history', async () => {
-  let seen;
-  const f = async (url, o) => { seen = { url, o, body: JSON.parse(o.body) }; return { ok: true, status: 200, json: async () => envelope({ se_type: 'google', location_code: 2840, language_code: 'en', items_count: 2, items: [kwItem('chatgpt pricing', 33100, { monthly: months([100, 100, 100, 100, 100, 100, 100, 100, 100, 200, 300, 400]), refs: 120 }), { keyword: 'no data kw', keyword_info: { search_volume: null, monthly_searches: [] } }] }) }; };
-  const c = dfs.createClient({ login: 'me@example.com', password: 'secret', fetchImpl: f });
-  const r = await c.keywordOverview({ keywords: ['chatgpt pricing', 'no data kw'], country: 'GB' });
-  assert.equal(seen.url, 'https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_overview/live');
-  assert.equal(seen.o.headers.Authorization, `Basic ${Buffer.from('me@example.com:secret').toString('base64')}`);
-  assert.deepEqual(seen.body, [{ keywords: ['chatgpt pricing', 'no data kw'], location_code: 2826, language_code: 'en', include_serp_info: false }], 'a JSON array with ONE task; GB = 2826');
-  assert.equal(r.cost, 0.0201);
-  const a = r.records[0]; assert.deepEqual([a.keyword, a.found, a.searchVolume, a.cpc, a.paidCompetition, a.keywordDifficulty, a.intent, a.avgReferringDomains], ['chatgpt pricing', true, 33100, 1.25, 0.42, 38, 'informational', 120]);
-  assert.equal(dfs.trendPct(a.monthly), 200, 'last 3 months 900 vs the 3 before 300 = +200%');
-  assert.equal(r.records[1].found, false, 'a keyword with no volume and no history has NO data (null, not 0)'); assert.equal(r.records[1].searchVolume, null);
-  assert.equal(dfs.trendPct(norm(months([1, 2, 3]))), null, 'too little history'); assert.equal(dfs.trendPct(norm(months([5, 5, 5, 5, 5, 5, 0, 0, 0, 1, 1, 1]))), null, 'earlier period had no searches'); assert.equal(dfs.trendPct(norm(months([5, 5, 5, 5, 5, 5, 4, 4, 4, 2, 2, 2]))), -50);
-  await assert.rejects(c.keywordOverview({ keywords: Array.from({ length: 701 }, (_, i) => `k${i}`) }), /en fazla 700/);
-  assert.deepEqual(await c.keywordOverview({ keywords: [] }), { records: [], cost: 0 });
-  assert.throws(() => dfs.createClient({ login: '', password: 'x' }), /login ve API şifresi/);
+test('Apify client: request shape (token in the header, the actor path with ~, the input of each actor), records read from BOTH actors\' field names, trend from the history', async () => {
+  let seen; const f = async (url, o) => { seen = { url, o, body: JSON.parse(o.body) }; return { ok: true, status: 200, json: async () => [item('chatgpt pricing', 33100, { monthly: months([100, 100, 100, 100, 100, 100, 100, 100, 100, 150, 450, 300]), intent: 'commercial' }), { keyword: 'no data kw', data_status: 'no_data', monthly_searches: [] }] }; };
+  const c = apify.createClient({ token: 'tok-secret', fetchImpl: f });
+  const r = await c.keywordOverview({ keywords: ['chatgpt pricing', 'no data kw', 'silent one'], country: 'GB', language: 'en' });
+  assert.equal(seen.url, 'https://api.apify.com/v2/acts/gaelasao~keyword-research-api/run-sync-get-dataset-items?timeout=240'); assert.equal(seen.o.method, 'POST'); assert.equal(seen.o.headers.Authorization, 'Bearer tok-secret'); assert.ok(!seen.url.includes('tok-secret'), 'never in the address');
+  assert.deepEqual(seen.body, { keywords: ['chatgpt pricing', 'no data kw', 'silent one'], mode: 'metrics', location: 'GB', language: 'en', includeTrend: true });
+  const a = r.records[0]; assert.deepEqual([a.keyword, a.found, a.searchVolume, a.cpc, a.paidCompetition, a.competitionLevel, a.keywordDifficulty, a.intent], ['chatgpt pricing', true, 33100, 1.25, 0.42, 'medium', 38, 'commercial']);
+  assert.equal(kd.trendPct(a.monthly), 200, 'last 3 months 900 vs the 3 before 300 = +200%');
+  assert.deepEqual([r.records[1].found, r.records[1].searchVolume], [false, null], 'the actor says "no data": that is an answer (null, not 0)'); assert.deepEqual([r.missing, r.units], [['silent one'], 3], 'a keyword the actor did not mention is "no answer", NOT "no data"');
+  // the other actor, other field names and input
+  let seen2; const c2 = apify.createClient({ token: 't', actor: 'plainrows/keyword-search-volume', fetchImpl: async (u, o) => { seen2 = { u, body: JSON.parse(o.body) }; return { ok: true, status: 200, json: async () => [{ keyword: 'a b', found: true, searchVolume: 880, cpcUsd: 0.9, competition: 'HIGH', competitionLevel: 'HIGH', keywordDifficulty: 51, searchIntent: ['transactional', 'x'], monthlySearches: [{ year: 2026, month: 1, searchVolume: 5 }] }, { keyword: 'c d', found: false }] }; } });
+  const r2 = await c2.keywordOverview({ keywords: ['a b', 'c d'] });
+  assert.match(seen2.u, /acts\/plainrows~keyword-search-volume\//); assert.deepEqual(seen2.body, { keywords: ['a b', 'c d'], mode: 'volume', country: 'US', languageCode: 'en', historyMonths: 12 });
+  assert.deepEqual([r2.records[0].searchVolume, r2.records[0].cpc, r2.records[0].paidCompetition, r2.records[0].intent, r2.records[0].monthly], [880, 0.9, 0.8, 'transactional', [{ year: 2026, month: 1, searchVolume: 5 }]]); assert.equal(r2.records[1].found, false);
+  assert.deepEqual(await c.keywordOverview({ keywords: [] }), { records: [], missing: [], units: 0 });
+  await assert.rejects(c.keywordOverview({ keywords: Array.from({ length: 1001 }, (_, i) => `k${i}`) }), /en fazla 1000/); await assert.rejects(c.keywordOverview({ keywords: ['a b'], country: 'FR' }), /desteklenmiyor/);
+  assert.throws(() => apify.createClient({ token: '' }), /belirteci gerekli/);
+  assert.equal(kd.trendPct(norm(months([1, 2, 3]))), null, 'too little history'); assert.equal(kd.trendPct(norm(months([5, 5, 5, 5, 5, 5, 0, 0, 0, 1, 1, 1]))), null, 'earlier period had no searches');
 });
 
-test('DataForSEO client: errors are read from the answer AND from each task; "no results" is empty; the secret never appears in a message', async () => {
-  const mk = (resp, status) => dfs.createClient({ login: 'l', password: 'TOPSECRET', fetchImpl: reply(resp, status) });
-  const code = async (p) => { try { await p; } catch (e) { return [e.code, e.message, e.retryable]; } return ['none']; };
-  assert.equal((await code(mk({}, 401).keywordOverview({ keywords: ['a b'] })))[0], 'auth');
-  // seen on a REAL, not yet verified account: HTTP 403 with the reason in the JSON body (status_code 40104)
-  const unverified = await code(mk({ version: '0.1', status_code: 40104, status_message: 'Please verify your account before using the API.', cost: 0, tasks_count: 0, tasks: null }, 403).keywordOverview({ keywords: ['a b'] }));
-  assert.equal(unverified[0], 'verify'); assert.match(unverified[1], /henüz doğrulanmamış.*app\.dataforseo\.com/);
-  assert.equal((await code(mk({}, 402).keywordOverview({ keywords: ['a b'] })))[0], 'funds');
-  assert.equal((await code(mk({}, 500).keywordOverview({ keywords: ['a b'] })))[0], 'http');
-  const topErr = await code(mk(envelope(null, { topCode: 40100, taskCode: 40100, msg: 'Authentication failed' })).keywordOverview({ keywords: ['a b'] })); assert.equal(topErr[0], 'auth'); assert.match(topErr[1], /kod 40100/);
-  const taskErr = await code(mk(envelope(null, { taskCode: 40210, msg: 'insufficient funds' })).keywordOverview({ keywords: ['a b'] })); assert.equal(taskErr[0], 'funds', 'the HTTP and the top-level code were fine, the TASK failed');
-  const rl = await code(mk(envelope(null, { taskCode: 40202 })).keywordOverview({ keywords: ['a b'] })); assert.deepEqual([rl[0], rl[2]], ['rate_limit', true]);
-  const empty = await mk(envelope(null, { taskCode: 40102, cost: 0 })).serpOrganic({ keyword: 'zzzz qqqq' }); assert.deepEqual([empty.organic.length, empty.empty, empty.cost], [0, true, 0]);
-  assert.equal((await code(mk(null).keywordOverview({ keywords: ['a b'] })))[0], 'bad_answer');
-  const net = await code(dfs.createClient({ login: 'l', password: 'TOPSECRET', fetchImpl: async () => { const e = new Error('connect failed TOPSECRET'); throw e; } }).keywordOverview({ keywords: ['a b'] }));
-  assert.equal(net[0], 'network'); assert.ok(!net[1].includes('TOPSECRET'));
-  const to = await code(dfs.createClient({ login: 'l', password: 'x', fetchImpl: async () => { const e = new Error('t'); e.name = 'TimeoutError'; throw e; } }).keywordOverview({ keywords: ['a b'] })); assert.equal(to[0], 'timeout');
+test('Apify client: errors in words (token, credit, actor gone, run too long, rate limit, bad input, server, network, timeout), "maybe billed" only where it could be, the token never in a message, a non-list answer is refused', async () => {
+  const mk = (resp, status) => apify.createClient({ token: 'TOPSECRET', fetchImpl: reply(resp, status) });
+  const code = (p) => p.then(() => null, (e) => [e.code, e.message, !!e.maybeBilled, !!e.retryable]);
+  const ask = (c) => c.keywordOverview({ keywords: ['a b'] });
+  assert.deepEqual((await code(ask(mk({ error: { type: 'x', message: 'bad' } }, 401)))).slice(0, 1), ['auth']); assert.match((await code(ask(mk({}, 401))))[1], /reddedildi \(401\)/);
+  assert.equal((await code(ask(mk({ error: { type: 'not-enough-usage', message: 'Not enough credit left' } }, 402))))[0], 'funds'); assert.equal((await code(ask(mk({ error: { message: 'Monthly usage limit exceeded' } }, 403))))[0], 'funds', '403 that talks about usage is the credit');
+  const gone = await code(ask(mk({ error: { type: 'record-not-found' } }, 404))); assert.deepEqual([gone[0], /kaldırılmış ya da adı değişmiş/.test(gone[1])], ['not_found', true]);
+  const slow = await code(ask(mk({}, 408))); assert.deepEqual([slow[0], slow[2], slow[3]], ['timeout', true, true], 'a run that did not finish may have been billed');
+  assert.deepEqual((await code(ask(mk({}, 429)))).slice(0, 1), ['rate_limit']); assert.equal((await code(ask(mk({ error: { message: 'Input is not valid: keywords' } }, 400))))[0], 'bad_request');
+  const srv = await code(ask(mk({}, 503))); assert.deepEqual([srv[0], srv[2], srv[3]], ['http', true, true]);
+  const net = await code(ask(apify.createClient({ token: 'TOPSECRET', fetchImpl: async () => { throw new Error('connect failed TOPSECRET'); } }))); assert.equal(net[0], 'network'); assert.ok(!net[1].includes('TOPSECRET'));
+  const to = await code(ask(apify.createClient({ token: 'x', fetchImpl: async () => { const e = new Error('t'); e.name = 'TimeoutError'; throw e; } }))); assert.deepEqual([to[0], to[2]], ['timeout', true]);
+  const notList = await code(ask(mk({ data: 'x' }, 200))); assert.deepEqual([notList[0], notList[2]], ['bad_answer', true]);
+  for (const st of [401, 402, 404, 408, 429, 400, 503]) assert.ok(!(await code(ask(mk({ error: { message: 'TOPSECRET' } }, st))))[1].includes('TOPSECRET'), `status ${st}`);
 });
 
-test('DataForSEO client: suggestions (flat items), related keywords (nested keyword_data), SERP (organic, people also ask, related searches, features), balance', async () => {
-  const sug = envelope({ seed_keyword: 'chatgpt', total_count: 2, items_count: 2, items: [kwItem('how to use chatgpt', 5400), kwItem('chatgpt plus price', 880)] }, { cost: 0.0101 });
-  const s = await dfs.createClient({ login: 'l', password: 'p', fetchImpl: reply(sug) }).keywordSuggestions({ keyword: 'chatgpt', limit: 50 });
-  assert.deepEqual(s.records.map((x) => [x.keyword, x.searchVolume]), [['how to use chatgpt', 5400], ['chatgpt plus price', 880]]); assert.equal(s.total, 2); assert.equal(s.cost, 0.0101);
-  const rel = envelope({ items_count: 1, items: [{ depth: 1, keyword_data: kwItem('chat gpt login', 1900), related_keywords: ['x'] }] });
-  assert.deepEqual((await dfs.createClient({ login: 'l', password: 'p', fetchImpl: reply(rel) }).relatedKeywords({ keyword: 'chatgpt' })).records.map((x) => x.keyword), ['chat gpt login']);
-  const serp = envelope({ keyword: 'chatgpt pricing', se_results_count: 85600000, item_types: ['organic', 'people_also_ask', 'related_searches', 'featured_snippet'], items: [
-    { type: 'organic', rank_group: 1, rank_absolute: 1, domain: 'openai.com', title: 'Pricing | OpenAI', url: 'https://openai.com/pricing', description: 'Plans', timestamp: '2026-11-01 10:00:00 +00:00' },
-    { type: 'organic', rank_group: 2, domain: 'www.theverge.com', title: 'ChatGPT Plus costs…', url: 'https://www.theverge.com/x' },
-    { type: 'people_also_ask', items: [{ type: 'people_also_ask_element', title: 'Is ChatGPT free?' }, { title: 'How much is ChatGPT Plus?' }] },
-    { type: 'related_searches', items: ['chatgpt plus price', { title: 'chatgpt pro' }] }, { type: 'featured_snippet', title: 'x' }] }, { cost: 0.003 });
-  const sr = await dfs.createClient({ login: 'l', password: 'p', fetchImpl: reply(serp) }).serpOrganic({ keyword: 'chatgpt pricing' });
-  assert.deepEqual(sr.organic.map((o) => [o.rank, o.domain]), [[1, 'openai.com'], [2, 'www.theverge.com']]);
-  const evil = envelope({ items: [{ type: 'organic', rank_group: 1, domain: 'x.test', title: 'x', url: 'javascript:alert(1)' }, { type: 'organic', rank_group: 2, domain: 'y.test', title: 'y', url: 'https://y.test/a' }] });
-  assert.deepEqual((await dfs.createClient({ login: 'l', password: 'p', fetchImpl: reply(evil) }).serpOrganic({ keyword: 'a b' })).organic.map((o) => o.url), ['', 'https://y.test/a'], 'a javascript: address from the provider never becomes a link'); assert.deepEqual(sr.questions, ['Is ChatGPT free?', 'How much is ChatGPT Plus?']);
-  assert.deepEqual(sr.related, ['chatgpt plus price', 'chatgpt pro']); assert.deepEqual(sr.features, ['people_also_ask', 'related_searches', 'featured_snippet']); assert.equal(sr.resultsCount, 85600000); assert.equal(sr.cost, 0.003);
-  const u = await dfs.createClient({ login: 'l', password: 'p', fetchImpl: reply(envelope({ login: 'l', money: { total: 10, balance: 7.5 } }, { cost: 0 })) }).userData(); assert.equal(u.balance, 7.5);
-  assert.deepEqual(dfs.LOCATIONS, { US: 2840, GB: 2826, CA: 2124, AU: 2036 });
+test('Apify client: the free account and actor checks read what is there and leave out what is not (usage is a bonus)', async () => {
+  const route = (map) => async (url) => { const p = new URL(url).pathname; const hit = map[p]; return hit === undefined ? { ok: false, status: 404, json: async () => ({}) } : { ok: true, status: 200, json: async () => hit }; };
+  const full = apify.createClient({ token: 't', fetchImpl: route({ '/v2/users/me': { data: { username: 'me', plan: { id: 'FREE' } } }, '/v2/users/me/limits': { data: { current: { monthlyUsageUsd: 0.5 }, limits: { maxMonthlyUsageUsd: 5 } } }, '/v2/acts/gaelasao~keyword-research-api': { data: { name: 'keyword-research-api', username: 'gaelasao', title: 'T' } } }) });
+  assert.deepEqual(await full.account(), { username: 'me', plan: 'FREE', usage: { usedUsd: 0.5, limitUsd: 5 } }); assert.deepEqual(await full.actorInfo(), { name: 'keyword-research-api', username: 'gaelasao', title: 'T' });
+  const bare = apify.createClient({ token: 't', fetchImpl: route({ '/v2/users/me': { data: { username: 'me' } } }) }); assert.deepEqual(await bare.account(), { username: 'me', plan: null, usage: null }, 'no limits endpoint: no usage, no failure');
+});
+
+test('keyword data helpers: the countries, the trend rule, the question test, the empty record', () => {
+  assert.deepEqual(kd.LOCATIONS, { US: 2840, GB: 2826, CA: 2124, AU: 2036 }); assert.deepEqual([kd.isQuestion('how to use chatgpt'), kd.isQuestion('chatgpt login'), kd.isQuestion('Is it real')], [true, false, true]);
+  assert.deepEqual(kd.emptyRecord('ABC'), { keyword: 'abc', found: false, searchVolume: null, cpc: null, paidCompetition: null, competitionLevel: null, keywordDifficulty: null, intent: null, monthly: [], avgReferringDomains: null });
+  assert.equal(kd.trendPct([{ searchVolume: 1 }, { searchVolume: 1 }, { searchVolume: 1 }, { searchVolume: 2 }, { searchVolume: 2 }, { searchVolume: 2 }]), 100);
+});
+
+test('Serper autocomplete: suggestions read as { value } or plain strings, lower-cased and de-duplicated; one credit; an empty or odd answer is an empty list', async () => {
+  let seen; const mk = (body) => serperLib.createClient({ apiKey: 'K', fetchImpl: async (u, o) => { seen = { u, body: JSON.parse(o.body), key: o.headers['X-API-KEY'] }; return { ok: true, status: 200, json: async () => body }; } });
+  const r = await mk({ suggestions: [{ value: 'ChatGPT login' }, { value: 'chatgpt plus' }, 'chatgpt plus', { value: ' ' }, null] }).autocomplete({ keyword: 'chatgpt', country: 'GB', language: 'en' });
+  assert.deepEqual([seen.u, seen.body, seen.key], ['https://google.serper.dev/autocomplete', { q: 'chatgpt', gl: 'gb', hl: 'en' }, 'K']); assert.deepEqual([r.suggestions, r.cost, r.units], [['chatgpt login', 'chatgpt plus'], null, 1]);
+  assert.deepEqual((await mk({}).autocomplete({ keyword: 'x' })).suggestions, []); assert.deepEqual((await mk({ suggestions: 'nope' }).autocomplete({ keyword: 'x' })).suggestions, []);
 });
 
 test('SERP competition: facts of the top 10 -> a 0-100 estimate with every factor visible; forums and small sites lower it; no results = no score', () => {

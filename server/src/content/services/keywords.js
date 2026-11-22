@@ -8,18 +8,20 @@ const settings = require('./settings');
 const limits = require('./limits');
 const providers = require('./providers');
 const runs = require('./runs');
-const dfs = require('./dataforseo');
+const kd = require('../lib/keywordData');
+const apify = require('./apify');
+const serper = require('./serper');
 
 /**
- * Keywords and their REAL search data (DataForSEO).
- *  - nothing here is invented: a keyword the provider has no data for is stored as "found = false" and shown as "Veri bulunamadı", never as 0
- *  - cost control: one batched request for up to 700 keywords, results cached for `seo.cacheDays` (a cached keyword is neither requested nor counted against the
- *    daily limit), the daily `seo_keywords` limit and the provider/platform budgets are checked BEFORE the paid call
- *  - the money is recorded from the API's own `cost` field
+ * Keywords and their REAL search data (an Apify actor, or a file the owner imports).
+ *  - nothing here is invented: a keyword the source answered "no data" for is stored as "found = false" and shown as "Veri bulunamadı", never as 0; a keyword the source did not
+ *    answer AT ALL is not stored (it is asked again later): a limit of the source must never look like "nobody searches for this"
+ *  - cost control: one batched run per `batchSize` keywords, results cached for `seo.cacheDays` (a cached keyword is neither requested nor counted against the daily limit),
+ *    the daily `seo_keywords` limit and a MONTHLY CAP ON THE NUMBER OF KEYWORDS are checked BEFORE the call (the price is not known to us: it is recorded as "Bilinmiyor")
+ *  - keyword IDEAS (no volume) come from Google's autocomplete and related searches through Serper
  */
 const BOT = 'keyword_research';
-const ENDPOINT_OVERVIEW = dfs.EP.overview;
-const MAX_PER_CALL = dfs.MAX_OVERVIEW_KEYWORDS;
+const op = (actor) => `apify:${actor}`;
 const ORIGINS = ['manual', 'news', 'related', 'suggestion', 'question'];
 
 /** a search phrase as the provider wants it: lower case, single spaces, 1-10 words, at most 80 characters, letters/digits and a few joiners */
@@ -30,10 +32,17 @@ function normalize(raw) {
 }
 
 async function credentials() {
-  const secret = await providers.secretFor('dataforseo');
-  const p = await providers.get('dataforseo');
-  if (!secret || !p.extra.login) throw new HttpError(409, 'DataForSEO henüz ayarlanmadı: API Kullanımı sayfasından login ve API şifresini girip bağlantıyı test edin');
-  return { login: p.extra.login, password: secret };
+  const secret = await providers.secretFor('apify');
+  const p = await providers.get('apify');
+  if (!secret) throw new HttpError(409, 'Apify henüz ayarlanmadı: API Kullanımı sayfasından Apify belirtecini kaydedip bağlantıyı test edin (apify.com’da ücretsiz hesap). Hiç ödeme yapmak istemezseniz “Dosyadan hacim aktar” ücretsiz yoldur.');
+  const e = p.extra || {}; const int = (v, d) => (Number.isInteger(Number(v)) && String(v).trim() !== '' ? Number(v) : d);
+  return { token: secret, actor: e.actor || apify.DEFAULT_ACTOR, batchSize: Math.min(apify.MAX_BATCH, Math.max(1, int(e.batchSize, 20))), monthlyCap: Math.max(0, int(e.monthlyKeywordCap, 600)) };
+}
+
+/** keywords asked through Apify so far this month (the safety cap counts them: the price per keyword is not known to us) */
+async function usedThisMonth(now, tz = require('../env').env().defaultTimezone) {
+  const { startOfMonth } = require('../lib/time');
+  return Number((await db.query("SELECT COALESCE(sum(units), 0)::bigint n FROM api_usage WHERE provider = 'apify' AND operation = 'keyword_overview' AND result = 'ok' AND created_at >= $1", [startOfMonth(now, tz)])).rows[0].n);
 }
 
 async function add(projectId, list, { origin = 'manual', country = 'US', language = 'en', topicId = null, categoryId = null } = {}) {
@@ -41,7 +50,7 @@ async function add(projectId, list, { origin = 'manual', country = 'US', languag
   if (!Array.isArray(list)) throw bad('Anahtar kelimeler bir liste olmalı');
   if (list.length > 500) throw bad('Tek seferde en fazla 500 anahtar kelime eklenebilir');
   const cc = V.str(country, 'Ülke', { max: 2 }).toUpperCase();
-  if (!dfs.LOCATIONS[cc]) throw bad(`Desteklenen ülkeler: ${Object.keys(dfs.LOCATIONS).join(', ')}`);
+  if (!kd.LOCATIONS[cc]) throw bad(`Desteklenen ülkeler: ${Object.keys(kd.LOCATIONS).join(', ')}`);
   const clean = [...new Set(list.map(normalize).filter(Boolean))];
   const invalid = list.length - list.filter((x) => normalize(x)).length;
   let added = 0;
@@ -95,7 +104,7 @@ async function exportCsv(projectId, q = {}) {
   const body = toCsv(items, [
     { label: 'Anahtar kelime', key: 'keyword' }, { label: 'Ülke', key: 'country' }, { label: 'Veri durumu', get: (r) => ({ none: 'Henüz sorgulanmadı', found: 'Var', not_found: 'Veri bulunamadı' }[r.dataState]) },
     { label: 'Aylık arama hacmi', get: (r) => r.metrics && r.metrics.searchVolume }, { label: 'CPC (USD)', get: (r) => r.metrics && r.metrics.cpc }, { label: 'Ücretli rekabet (0-1)', get: (r) => r.metrics && r.metrics.paidCompetition },
-    { label: 'Anahtar kelime zorluğu (DataForSEO)', get: (r) => r.metrics && r.metrics.keywordDifficulty }, { label: 'Arama niyeti', get: (r) => r.metrics && r.metrics.intent }, { label: 'Trend (%)', get: (r) => r.metrics && r.metrics.trendPct },
+    { label: 'Anahtar kelime zorluğu (veri kaynağının kendi sayısı)', get: (r) => r.metrics && r.metrics.keywordDifficulty }, { label: 'Arama niyeti', get: (r) => r.metrics && r.metrics.intent }, { label: 'Trend (%)', get: (r) => r.metrics && r.metrics.trendPct },
     { label: 'Organik rekabet tahmini (0-100)', get: (r) => r.serp && r.serp.competition }, { label: 'Son kontrol', get: (r) => r.metrics && new Date(r.metrics.fetchedAt).toISOString() }, { label: 'Kaynak', key: 'origin' },
   ]);
   return { filename: `keywords-${new Date().toISOString().slice(0, 10)}.csv`, contentType: 'text/csv; charset=utf-8', body };
@@ -115,21 +124,22 @@ async function needing(projectId, { ids, cacheDays, now }) {
     WHERE k.project_id = $1 ${sel} AND NOT EXISTS (SELECT 1 FROM keyword_metrics m WHERE m.keyword_id = k.id AND m.fetched_at >= $2) ORDER BY k.created_at, k.id`, p)).rows;
 }
 
-/** A dry run for the confirmation dialog: how many are cached, how many would be asked, what the limits and the budget allow, a rough price. */
+/** A dry run for the confirmation dialog: how many are cached, how many would be asked, what the limits allow. The price is NOT known to us (it is the actor's and the owner's plan). */
 async function plan(projectId, { ids, now = new Date() } = {}) {
   const cfg = (await settings.get('seo', projectId)).value;
   const need = await needing(projectId, { ids, cacheDays: cfg.cacheDays, now });
   const total = ids && ids.length ? ids.length : (await db.query('SELECT count(*)::int n FROM keywords WHERE project_id = $1', [projectId])).rows[0].n;
   const st = (await limits.status({ projectId, now })).items.find((i) => i.workType === 'seo_keywords');
-  const allowed = Math.min(need.length, st.project ? st.project.remaining : st.remaining, st.remaining);
-  const requests = Math.ceil(allowed / MAX_PER_CALL);
-  const p = await providers.get('dataforseo');
-  return { total, cached: total - need.length, toAsk: need.length, allowedToday: allowed, requests, estimatedCostUsd: Math.round(requests * dfs.ESTIMATE_USD.overview * 10000) / 10000, estimateNote: 'Tahmindir; gerçek tutar DataForSEO’nun cevabındaki maliyettir.',
-    limit: { limit: st.limit, done: st.done, remaining: st.remaining }, configured: p.configured && !!p.extra.login, cacheDays: cfg.cacheDays };
+  const p = await providers.get('apify'); const e = p.extra || {};
+  const cap = Number.isInteger(Number(e.monthlyKeywordCap)) && String(e.monthlyKeywordCap).trim() !== '' ? Number(e.monthlyKeywordCap) : 600; const batch = Number.isInteger(Number(e.batchSize)) && String(e.batchSize).trim() !== '' ? Math.max(1, Number(e.batchSize)) : 20;
+  const used = p.configured ? await usedThisMonth(now) : 0;
+  const allowed = Math.min(need.length, st.project ? st.project.remaining : st.remaining, st.remaining, Math.max(0, cap - used));
+  return { total, cached: total - need.length, toAsk: need.length, allowedToday: allowed, requests: Math.ceil(allowed / batch), estimatedCostUsd: null, estimateNote: 'Tutarı bilemeyiz: Apify aktörünün fiyatına ve planınıza bağlıdır (ücretsiz planda aylık kredi biter bitmez Apify durdurur). Güvenlik için aylık kelime sınırı geçerlidir.',
+    limit: { limit: st.limit, done: st.done, remaining: st.remaining }, monthly: { cap, used, remaining: Math.max(0, cap - used) }, configured: p.configured, cacheDays: cfg.cacheDays };
 }
 
-async function saveMetrics(keywordId, rec, { endpoint, cost, provider = 'dataforseo', now = new Date() }) {
-  const trend = rec.found ? dfs.trendPct(rec.monthly) : null;
+async function saveMetrics(keywordId, rec, { endpoint, cost, provider = 'apify', now = new Date() }) {
+  const trend = rec.found ? kd.trendPct(rec.monthly) : null;
   await db.query(`INSERT INTO keyword_metrics (keyword_id, endpoint, found, search_volume, cpc, paid_competition, competition_level, keyword_difficulty, intent, monthly_searches, trend_pct, avg_referring_domains, cost_micros, provider, fetched_at)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
   [keywordId, endpoint, rec.found, rec.searchVolume, rec.cpc, rec.paidCompetition, rec.competitionLevel, rec.keywordDifficulty, rec.intent, JSON.stringify(rec.monthly), trend, rec.avgReferringDomains, cost === null || cost === undefined ? null : Math.round(cost * 1e6), provider, now]);
@@ -144,7 +154,7 @@ async function saveMetrics(keywordId, rec, { endpoint, cost, provider = 'datafor
  */
 async function importMetrics(projectId, text, { country = 'US', language = 'en', userId = null, now = new Date() } = {}) {
   const cc = V.str(country, 'Ülke', { max: 2 }).toUpperCase();
-  if (!dfs.LOCATIONS[cc]) throw bad(`Desteklenen ülkeler: ${Object.keys(dfs.LOCATIONS).join(', ')}`);
+  if (!kd.LOCATIONS[cc]) throw bad(`Desteklenen ülkeler: ${Object.keys(kd.LOCATIONS).join(', ')}`);
   if (typeof text !== 'string' || !text.trim()) throw bad('Dosya boş');
   if (text.length > 2_000_000) throw bad('Dosya çok büyük (en fazla yaklaşık 2 MB)');
   let parsed;
@@ -161,7 +171,7 @@ async function importMetrics(projectId, text, { country = 'US', language = 'en',
     const before = new Set((await db.query('SELECT keyword FROM keywords WHERE project_id = $1 AND country = $2 AND language = $3 AND keyword = ANY($4)', [projectId, cc, language, phrases])).rows.map((r) => r.keyword));
     await db.query(`INSERT INTO keywords (project_id, keyword, country, language, origin) SELECT $1, k, $2, $3, 'manual' FROM unnest($4::text[]) AS k ON CONFLICT (project_id, keyword, country, language) DO NOTHING`, [projectId, cc, language, phrases]);
     const ids = new Map((await db.query('SELECT id, keyword FROM keywords WHERE project_id = $1 AND country = $2 AND language = $3 AND keyword = ANY($4)', [projectId, cc, language, phrases])).rows.map((r) => [r.keyword, r.id]));
-    const rows = phrases.map((k) => { const r = byKw.get(k); const trend = dfs.trendPct(r.monthly); if (trend !== null) out.trendRows++;
+    const rows = phrases.map((k) => { const r = byKw.get(k); const trend = kd.trendPct(r.monthly); if (trend !== null) out.trendRows++;
       return { keyword_id: ids.get(k), found: true, search_volume: r.volume, cpc: r.cpc, paid_competition: r.competition, competition_level: r.competitionLevel, keyword_difficulty: r.difficulty, monthly: r.monthly, trend_pct: trend }; });
     await db.query(`INSERT INTO keyword_metrics (keyword_id, provider, endpoint, found, search_volume, cpc, paid_competition, competition_level, keyword_difficulty, monthly_searches, trend_pct, fetched_at)
       SELECT x.keyword_id, 'csv', 'csv-import', x.found, x.search_volume, x.cpc, x.paid_competition, x.competition_level, x.keyword_difficulty, x.monthly, x.trend_pct, $2
@@ -174,7 +184,7 @@ async function importMetrics(projectId, text, { country = 'US', language = 'en',
 }
 
 /**
- * Asks DataForSEO for the keywords that have no fresh data. Returns what happened; never throws for "limit full" / "budget full" (those are answers).
+ * Asks Apify for the keywords that have no fresh data. Returns what happened; never throws for "limit full" / "monthly cap full" (those are answers).
  * @param opts { ids?, userId, manual, fetchImpl, now, trigger }
  */
 async function fetchMetrics(projectId, { ids, userId = null, manual = true, fetchImpl, now = new Date(), trigger = 'manual' } = {}) {
@@ -182,40 +192,46 @@ async function fetchMetrics(projectId, { ids, userId = null, manual = true, fetc
   const cfg = (await settings.get('seo', projectId)).value;
   const need = await needing(projectId, { ids, cacheDays: cfg.cacheDays, now });
   const total = ids && ids.length ? ids.length : (await db.query('SELECT count(*)::int n FROM keywords WHERE project_id = $1', [projectId])).rows[0].n;
-  const out = { requested: need.length, cached: total - need.length, fetched: 0, found: 0, notFound: 0, requests: 0, costUsd: 0, unknownCost: 0, limited: 0, stopped: null };
+  const out = { requested: need.length, cached: total - need.length, fetched: 0, found: 0, notFound: 0, noAnswer: 0, requests: 0, costUsd: 0, unknownCost: 0, limited: 0, stopped: null };
   if (!need.length) return { ...out, message: 'Tüm anahtar kelimelerin güncel verisi var (önbellekten)' };
-  const client = dfs.createClient({ ...creds, fetchImpl });
+  const client = apify.createClient({ token: creds.token, actor: creds.actor, fetchImpl });
+  const endpoint = op(creds.actor);
   const run = await runs.start(BOT, { projectId, trigger, userId });
   let status = 'ok';
   try {
+    let usedMonth = await usedThisMonth(now);
     const groups = new Map();
     for (const k of need) { const key2 = `${k.country}|${k.language}`; if (!groups.has(key2)) groups.set(key2, []); groups.get(key2).push(k); }
     outer: for (const [key2, all] of groups) {
       const [country, language] = key2.split('|');
-      for (let i = 0; i < all.length; i += MAX_PER_CALL) {
-        const batch = all.slice(i, i + MAX_PER_CALL);
-        const guard = await providers.guard('dataforseo', dfs.ESTIMATE_USD.overview, { projectId, now, operation: 'keyword_overview' });
+      for (let i = 0; i < all.length; i += creds.batchSize) {
+        const batch = all.slice(i, i + creds.batchSize);
+        const room = Math.max(0, creds.monthlyCap - usedMonth);
+        if (room <= 0) { out.stopped = `Aylık anahtar kelime güvenlik sınırına ulaşıldı (${creds.monthlyCap}); Apify kartından sınırı değiştirebilirsiniz`; out.limited += all.length - i; status = out.fetched ? 'partial' : 'partial'; break outer; }
+        const guard = await providers.guard('apify', 0, { projectId, now, operation: 'keyword_overview' });
         if (!guard.ok) { out.stopped = guard.message; status = 'partial'; break outer; }
-        const grant = await limits.reserveUpTo({ workType: 'seo_keywords', projectId, amount: batch.length, manual, now });
+        const grant = await limits.reserveUpTo({ workType: 'seo_keywords', projectId, amount: Math.min(batch.length, room), manual, now });
         if (!grant.ok) { out.stopped = grant.message; out.limited += batch.length; status = 'partial'; break outer; }
         const asked = batch.slice(0, grant.granted); out.limited += batch.length - asked.length;
-        if (grant.granted < batch.length) { out.stopped = `Günlük anahtar kelime limiti nedeniyle ${grant.granted}/${batch.length} sorgulandı`; status = 'partial'; }
+        if (grant.granted < batch.length) { out.stopped = grant.granted < Math.min(batch.length, room) ? `Günlük anahtar kelime limiti nedeniyle ${grant.granted}/${batch.length} sorgulandı` : `Aylık güvenlik sınırı nedeniyle ${grant.granted}/${batch.length} sorgulandı`; status = 'partial'; }
         let res;
         try { res = await client.keywordOverview({ keywords: asked.map((k) => k.keyword), country, language }); }
         catch (err) {
-          await providers.recordUsage({ provider: 'dataforseo', endpoint: ENDPOINT_OVERVIEW, operation: 'keyword_overview', requests: 1, units: asked.length, costUsd: null, result: 'error', projectId, meta: { code: err.code } });
+          await providers.recordUsage({ provider: 'apify', endpoint, operation: 'keyword_overview', requests: 1, units: null, costUsd: null, result: 'error', projectId, meta: { code: err.code } });
           if (!err.maybeBilled) await limits.release({ workType: 'seo_keywords', projectId, amount: asked.length, day: grant.day });
           out.stopped = err.message; status = out.fetched ? 'partial' : 'error'; break outer;
         }
-        out.requests++;
+        out.requests++; usedMonth += asked.length;
         const byKw = new Map(res.records.map((r) => [r.keyword, r]));
         for (const k of asked) {
-          const rec = byKw.get(k.keyword) || { found: false, searchVolume: null, cpc: null, paidCompetition: null, competitionLevel: null, keywordDifficulty: null, intent: null, monthly: [], avgReferringDomains: null };
-          await saveMetrics(k.id, rec, { endpoint: ENDPOINT_OVERVIEW, cost: res.cost === null ? null : res.cost / asked.length, now });
+          const rec = byKw.get(k.keyword);
+          if (!rec) { out.noAnswer++; continue; }                                                // no answer is not "no data": it is asked again next time
+          await saveMetrics(k.id, rec, { endpoint, cost: null, now });
           out.fetched++; if (rec.found) out.found++; else out.notFound++;
         }
-        if (res.cost === null || res.cost === undefined) out.unknownCost++; else out.costUsd = Math.round((out.costUsd + res.cost) * 1e6) / 1e6;
-        await providers.recordUsage({ provider: 'dataforseo', endpoint: ENDPOINT_OVERVIEW, operation: 'keyword_overview', requests: 1, units: asked.length, costUsd: res.cost, projectId, meta: { country, found: byKw.size } });
+        if (res.missing.length) await limits.release({ workType: 'seo_keywords', projectId, amount: res.missing.length, day: grant.day });
+        out.unknownCost++;
+        await providers.recordUsage({ provider: 'apify', endpoint, operation: 'keyword_overview', requests: 1, units: asked.length, costUsd: null, projectId, meta: { country, found: res.records.filter((r) => r.found).length, noAnswer: res.missing.length } });
       }
     }
     await runs.finish(run.id, { status, stats: out, error: status === 'error' ? out.stopped : null });
@@ -223,51 +239,52 @@ async function fetchMetrics(projectId, { ids, userId = null, manual = true, fetc
     await runs.finish(run.id, { status: 'error', stats: out, error: err.message });
     throw err;
   }
-  return { ...out, message: out.stopped || `${out.fetched} anahtar kelime sorgulandı (${out.found} veri bulundu, ${out.notFound} için veri bulunamadı)` };
+  return { ...out, message: out.stopped || `${out.fetched} anahtar kelimenin verisi alındı (${out.found} veri bulundu, ${out.notFound} için veri yok${out.noAnswer ? `, ${out.noAnswer} için aktör cevap vermedi: sonra yeniden denenir` : ''})` };
 }
 
 /**
- * Related / long-tail / question keywords for a seed phrase. The answer already holds each keyword's metrics, so they are stored with data in the same step.
+ * Keyword IDEAS for a seed phrase (no search volume: that comes from "veri çek" or a file): what Google suggests while one types ('suggestions') or the related searches and the
+ * "people also ask" questions of the real result page ('related'), both through Serper (one credit, counted against the day's SERP limit). New phrases are added as keywords.
  * @param opts { mode: 'suggestions' | 'related', limit (<= 100), country, topicId, categoryId, userId, manual, fetchImpl, now }
  */
 async function suggest(projectId, seed, { mode = 'suggestions', limit = 50, country = 'US', language = 'en', topicId = null, categoryId = null, userId = null, manual = true, fetchImpl, now = new Date() } = {}) {
   const kw = normalize(seed);
   if (!kw) throw bad('Başlangıç ifadesi 1-10 kelime ve en fazla 80 karakter olmalı');
   V.oneOf(mode, 'Tür', ['suggestions', 'related']);
-  const cc = String(country).toUpperCase(); if (!dfs.LOCATIONS[cc]) throw bad(`Desteklenen ülkeler: ${Object.keys(dfs.LOCATIONS).join(', ')}`);
+  const cc = String(country).toUpperCase(); if (!kd.LOCATIONS[cc]) throw bad(`Desteklenen ülkeler: ${Object.keys(kd.LOCATIONS).join(', ')}`);
   const lim = Math.min(100, Math.max(1, V.int(limit, 'Sınır', { min: 1, max: 100 })));
-  const creds = await credentials();
-  const endpoint = mode === 'related' ? dfs.EP.related : dfs.EP.suggestions;
-  const guard = await providers.guard('dataforseo', mode === 'related' ? dfs.ESTIMATE_USD.related : dfs.ESTIMATE_USD.suggestions, { projectId, now, operation: `keyword_${mode}` });
-  if (!guard.ok) return { added: 0, existing: 0, stopped: guard.message, costUsd: 0 };
-  const grant = await limits.reserveUpTo({ workType: 'seo_keywords', projectId, amount: lim, manual, now });
-  if (!grant.ok) return { added: 0, existing: 0, stopped: grant.message, costUsd: 0 };
-  const client = dfs.createClient({ ...creds, fetchImpl });
+  const secret = await providers.secretFor('serper');
+  if (!secret) throw new HttpError(409, 'Serper henüz ayarlanmadı: API Kullanımı sayfasından Serper API anahtarını kaydedip bağlantıyı test edin (serper.dev’de ücretsiz hesap, 2.500 sorgu)');
+  const endpoint = mode === 'related' ? serper.EP.search : serper.EP.autocomplete; const operation = `keyword_${mode}`;
+  const guard = await providers.guard('serper', serper.ESTIMATE_USD, { projectId, now, operation });
+  if (!guard.ok) return { added: 0, existing: 0, stopped: guard.message, costUsd: null };
+  const grant = await limits.reserve({ workType: 'serp_queries', projectId, amount: 1, manual, now });
+  if (!grant.ok) return { added: 0, existing: 0, stopped: grant.message, costUsd: null };
+  const client = serper.createClient({ apiKey: secret, fetchImpl });
   const run = await runs.start(BOT, { projectId, trigger: 'manual', userId });
-  let res;
-  try { res = mode === 'related' ? await client.relatedKeywords({ keyword: kw, country: cc, language, limit: grant.granted }) : await client.keywordSuggestions({ keyword: kw, country: cc, language, limit: grant.granted }); }
-  catch (err) {
-    await providers.recordUsage({ provider: 'dataforseo', endpoint, operation: `keyword_${mode}`, requests: 1, costUsd: null, result: 'error', projectId, meta: { code: err.code } });
-    if (!err.maybeBilled) await limits.release({ workType: 'seo_keywords', projectId, amount: grant.granted, day: grant.day });
+  let ideas; let units = 1;
+  try {
+    if (mode === 'related') { const r = await client.serpOrganic({ keyword: kw, country: cc, language, now }); ideas = [...r.related, ...r.questions]; units = r.units; }
+    else ideas = (await client.autocomplete({ keyword: kw, country: cc, language })).suggestions;
+  } catch (err) {
+    await providers.recordUsage({ provider: 'serper', endpoint, operation, requests: 1, costUsd: null, result: 'error', projectId, meta: { code: err.code } });
+    if (!err.maybeBilled) await limits.release({ workType: 'serp_queries', projectId, amount: 1, day: grant.day });
     await runs.finish(run.id, { status: 'error', stats: { seed: kw }, error: err.message });
     throw new HttpError(err.code === 'auth' ? 401 : 502, err.message, { code: err.code });
   }
-  let added = 0; let existing = 0; let withData = 0;
-  for (const rec of res.records) {
-    const k = normalize(rec.keyword); if (!k) continue;
+  let added = 0; let existing = 0;
+  for (const idea of [...new Set(ideas)].slice(0, lim)) {
+    const k = normalize(idea); if (!k || k === kw) continue;
     const origin = isQuestionKw(k) ? 'question' : mode === 'related' ? 'related' : 'suggestion';
     const ins = (await db.query('INSERT INTO keywords (project_id, keyword, country, language, origin, topic_id, category_id) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (project_id, keyword, country, language) DO NOTHING RETURNING id', [projectId, k, cc, language, origin, topicId, categoryId])).rows[0];
-    const id = ins ? ins.id : (await db.query('SELECT id FROM keywords WHERE project_id = $1 AND keyword = $2 AND country = $3 AND language = $4', [projectId, k, cc, language])).rows[0].id;
     if (ins) added++; else existing++;
-    await saveMetrics(id, rec, { endpoint, cost: null, now }); if (rec.found) withData++;
   }
-  if (res.records.length < grant.granted) await limits.release({ workType: 'seo_keywords', projectId, amount: grant.granted - res.records.length, day: grant.day });
-  await providers.recordUsage({ provider: 'dataforseo', endpoint, operation: `keyword_${mode}`, requests: 1, units: res.records.length, costUsd: res.cost, projectId, meta: { seed: kw, country: cc } });
-  await runs.finish(run.id, { status: 'ok', stats: { seed: kw, mode, returned: res.records.length, added, existing, withData, costUsd: res.cost } });
-  return { added, existing, returned: res.records.length, withData, costUsd: res.cost, stopped: null };
+  await providers.recordUsage({ provider: 'serper', endpoint, operation, requests: 1, units, costUsd: null, projectId, meta: { seed: kw, country: cc } });
+  await runs.finish(run.id, { status: 'ok', stats: { seed: kw, mode, returned: ideas.length, added, existing, withData: 0, costUsd: null } });
+  return { added, existing, returned: ideas.length, withData: 0, costUsd: null, stopped: null };
 }
 
-const isQuestionKw = (k) => dfs.isQuestion(k);
+const isQuestionKw = (k) => kd.isQuestion(k);
 
 const SUFFIX = new Set(['pro', 'max', 'plus', 'mini', 'ultra', 'air', 'lite', 'fold', 'flip', 'premium', 'family', 'advanced', 'enterprise', 'business', 'team', 'edition', 'go']);
 /** words that describe WHAT happened (a breach, a price rise), not WHICH product: they are attached to a product / company name, never used alone */
@@ -280,7 +297,7 @@ const NOT_A_NAME = new Set(['the', 'a', 'an', 'how', 'why', 'what', 'new', 'this
 const brandLike = (w) => (/^[A-Z]{3,}[a-z]*$/.test(w) || /[a-z][A-Z]/.test(w) || /[A-Za-z]\d|\d[A-Za-z]/.test(w)) && w.length >= 3;   // OpenAI, CISA, ChatGPT, iPhone, KB5132057, 26H2 (not plain "AI", not plain words)
 
 /**
- * A few plausible search phrases for a news event. They are only CANDIDATES (DataForSEO decides if anyone searches for them) and are built conservatively, because every
+ * A few plausible search phrases for a news event. They are only CANDIDATES (real search data decides if anyone searches for them) and are built conservatively, because every
  * candidate counts against the day's keyword limit. Names come from, in this order of trust: terms the niche filter matched (the categories' own curated lists),
  * brand-like words (ChatGPT, OpenAI, iPhone, KB5132057), and - only in a normally written headline - the proper name that opens it ("Staples Canada says ...").
  * Never guessed word sequences. A version number or a product suffix right after a name is kept ("windows 11", "airpods pro 3"). What happened (breach, price rise ...)
@@ -336,4 +353,4 @@ async function generateForTopic(topicId) {
   return { ...r, candidates: cands };
 }
 
-module.exports = { BOT, normalize, add, list, exportCsv, remove, plan, fetchMetrics, importMetrics, suggest, candidatesFor, generateForTopic, MAX_PER_CALL };
+module.exports = { BOT, normalize, add, list, exportCsv, remove, plan, fetchMetrics, importMetrics, suggest, candidatesFor, generateForTopic, usedThisMonth };

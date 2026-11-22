@@ -16,7 +16,7 @@ const BOTS = [
   { key: 'news_discovery', label: 'News Discovery Bot', phase: 2, about: 'Haber kaynaklarını ve dünya gündemini tarar, niş filtresinden geçirir.' },
   { key: 'trend_analysis', label: 'Trend Analysis Bot', phase: 2, about: 'Konuların yükselişini ve aranma eğilimini ölçer.' },
   { key: 'niche_discovery', label: 'Niche Discovery Bot', phase: 2, about: 'Yeni niş ve alt kategori fırsatlarını önerir (seçmez, yalnızca önerir).' },
-  { key: 'keyword_research', label: 'Keyword Research Bot', phase: 2, about: 'DataForSEO ile gerçek aranma hacmi ve zorluk verisi toplar.' },
+  { key: 'keyword_research', label: 'Keyword Research Bot', phase: 2, about: 'Apify üzerinden gerçek Google aranma hacmi, CPC ve zorluk verisi toplar (ücretsiz aylık kredi; yoksa dosyadan aktarma).' },
   { key: 'seo_competition', label: 'SEO Competition Bot', phase: 2, about: 'Google organik sonuçlarını ve rekabeti analiz eder.' },
   { key: 'content_opportunity', label: 'Content Opportunity Bot', phase: 2, about: 'İçerik fırsatlarını puanlar ve sıralar.' },
   { key: 'article_writer', label: 'AI Article Writer', phase: 3, about: 'Seçilen fırsattan kaynaklı, İngilizce makale yazar.' },

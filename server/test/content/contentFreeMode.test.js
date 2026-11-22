@@ -12,26 +12,15 @@ const S = require('../../src/content/services/settings');
 const { FetchError } = require('../../src/content/lib/safeFetch');
 
 /**
- * The FREE mode: no DataForSEO. SERP competition from Serper.dev, search volumes from an imported file, and ideas without a volume judged by a partial score that only
+ * The FREE mode: SERP competition from Serper.dev, search volumes from an imported file, and ideas without a volume judged by a partial score that only
  * a person's shortlist call can turn into production. Real Serper calls have never been made (no key): these tests use a fake fetch shaped like the vendor's public example.
  */
+const { fakeSerper } = require('./fakeSerper');
 const opts = { skip: H.skip };
 const NOW = new Date('2026-11-21T12:00:00Z');
 const KEY = 'serper-key-0123456789abcdef';
 const EASY = ['smallblog.dev', 'niche-tech.net', 'reddit.com', 'mysite.io', 'techie.org'];
 
-function fakeSerper(data = {}) {
-  const calls = []; const state = { status: 200, body: null, throwTimeout: false };
-  const fetchImpl = async (url, o) => {
-    const body = JSON.parse(o.body); calls.push({ url, body, key: o.headers['X-API-KEY'], method: o.method });
-    if (state.throwTimeout) { const e = new Error('t'); e.name = 'TimeoutError'; throw e; }
-    if (state.status !== 200) return { ok: false, status: state.status, json: async () => state.body || {} };
-    const d = data[body.q] || data['*'] || [];
-    return { ok: true, status: 200, json: async () => ({ searchParameters: { q: body.q }, organic: d.map((dom, i) => ({ title: `${dom} page`, link: `https://www.${dom}/p${i}`, snippet: 'snippet', position: i + 1, date: i % 2 ? '3 days ago' : 'Mar 10, 2022' })),
-      peopleAlsoAsk: [{ question: 'Is it worth it?', snippet: 's', title: 't', link: 'https://x.test/a' }], relatedSearches: [{ query: 'chatgpt plus cost' }], answerBox: { title: 'x' } }) };
-  };
-  return { fetchImpl, calls, state };
-}
 const rssOf = (items) => `<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>${items.map(([t, l, d]) => `<item><title>${t}</title><link>${l}</link><pubDate>${d || 'Fri, 21 Nov 2026 10:00:00 GMT'}</pubDate></item>`).join('')}</channel></rss>`;
 const feeds = (map) => async (url) => { if (!map[url]) throw new FetchError('http', 'HTTP 404', { status: 404 }); return { status: 200, body: map[url], url }; };
 async function withEvent(pid) {
@@ -75,15 +64,19 @@ test('Serper: needs its key; one query gives the organic estimate (source, credi
   assert.equal((await PR.usageReport({ now: NOW })).providers.find((p) => p.provider === 'serper').errors, 3);
 });
 
-test('Serper: the project can switch back to DataForSEO; each analysis remembers where it came from', opts, async () => {
+test('Serper is the only SERP source: each analysis remembers where it came from; a setting that names anything else is refused; an old stored value is repaired by the migration', opts, async () => {
   const { projectId: pid } = await P.seedDefault();
   await K.add(pid, ['gemini 3']); const kw = (await K.list(pid)).items[0];
   await PR.save('serper', { secret: KEY }); const f = fakeSerper({ 'gemini 3': EASY });
   await SERP.analyze(kw.id, { fetchImpl: f.fetchImpl, now: NOW });
-  await S.set('seo', { serpProvider: 'dataforseo' }, { scope: 'project', projectId: pid });
-  await assert.rejects(SERP.analyze(kw.id, { fetchImpl: f.fetchImpl, now: NOW, force: true }), /DataForSEO henüz ayarlanmadı/);
   assert.equal((await SERP.latest(kw.id)).provider, 'serper'); assert.equal(f.calls.length, 1);
-  await assert.rejects(S.set('seo', { serpProvider: 'bing' }), /şunlardan biri|geçersiz|seçenek/i);
+  await assert.rejects(S.set('seo', { serpProvider: 'dataforseo' }), /şunlardan biri|geçersiz|seçenek/i); await assert.rejects(S.set('seo', { serpProvider: 'bing' }), /şunlardan biri|geçersiz|seçenek/i);
+  // a database that still holds what DataForSEO left (the owner's saved login/password and the old setting): the migration removes the credentials and repairs the setting
+  await H.db().query("INSERT INTO api_providers (key, label, encrypted_secret, secret_last4, extra) VALUES ('dataforseo', 'DataForSEO', 'enc:v1:secret', 'word', '{\"login\":\"me@example.com\"}')");
+  await H.db().query("INSERT INTO automation_settings (scope, project_id, key, value) VALUES ('global', NULL, 'seo', '{\"serpProvider\":\"dataforseo\",\"cacheDays\":7}') ON CONFLICT DO NOTHING");
+  const sql = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../src/content/migrations/0013_remove_dataforseo.sql'), 'utf8'); await H.db().query(sql);
+  assert.equal((await H.db().query("SELECT count(*)::int n FROM api_providers WHERE key = 'dataforseo'")).rows[0].n, 0, 'the saved credentials are gone'); const st = await S.get('seo'); assert.deepEqual([st.value.serpProvider, st.value.cacheDays], ['serper', 7], 'the setting is repaired and the rest of it is kept');
+  assert.deepEqual(Object.keys((await PR.list()).reduce((a, p) => ({ ...a, [p.key]: 1 }), {})).includes('dataforseo'), false, 'the provider does not exist any more');
 });
 
 test('Serper connection test: says what happened in words, and the key never appears in the stored sentence', opts, async () => {
@@ -154,16 +147,16 @@ test('partial score: no volume anywhere -> judged on the most specific candidate
   assert.match(o.ineligibleReason, /Kısa liste/); assert.match(o.explain.note, /KISMİ PUAN/);
   const w = o.weights; assert.equal(o.provisional, Math.round((o.trend * w.trend + o.competition * w.competition + o.relevance * w.relevance + o.source * w.source) / (w.trend + w.competition + w.relevance + w.source)), 'the average of the four REAL parts, nothing else');
   assert.equal((await O.selectForGeneration(pid, { count: 3, now: NOW })).picked, 0, 'not shortlisted: never selected');
-  const sl = await O.setStatus(o.id, 'shortlisted'); assert.deepEqual([sl.eligible, sl.total, sl.partial, sl.ineligibleReason], [true, null, true, '']);
+  const sl = await O.setStatus(o.id, 'shortlisted', { now: NOW }); assert.deepEqual([sl.eligible, sl.total, sl.partial, sl.ineligibleReason], [true, null, true, '']);
   const sel = await O.selectForGeneration(pid, { count: 3, now: NOW }); assert.equal(sel.picked, 1); assert.match(sel.picks[0].why, /Kısmi puan \d+ \(hacim verisi yok, sizin onayınızla\)/);
   await O.refresh(pid, { now: NOW }); assert.equal((await O.list(pid)).items[0].eligible, true, 'a refresh keeps the person\'s decision');
   assert.equal((await O.list(pid, { minScore: String(o.provisional) })).total, 1, 'the minimum-score filter understands partial scores'); assert.equal((await O.list(pid, { minScore: '100' })).total, 0);
   await P.updateNiche(pid, { minOpportunityScore: 100 }); await O.refresh(pid, { now: NOW });
   assert.match((await O.list(pid)).items[0].ineligibleReason, /Kısmi puan \d+, en az 100 gerekli/);
-  await P.updateNiche(pid, { minOpportunityScore: 10 }); await O.setStatus(o.id, 'new'); assert.equal((await O.list(pid)).items[0].eligible, false, 'taking it off the shortlist withdraws the approval');
-  await O.setStatus(o.id, 'shortlisted');
+  await P.updateNiche(pid, { minOpportunityScore: 10 }); await O.setStatus(o.id, 'new', { now: NOW }); assert.equal((await O.list(pid)).items[0].eligible, false, 'taking it off the shortlist withdraws the approval');
+  await O.setStatus(o.id, 'shortlisted', { now: NOW });
   // real volume arrives (an imported file): the same idea now has a full, normal score and no approval is needed
-  await K.importMetrics(pid, `keyword,volume\n${cand},9900`, { now: NOW }); await O.setStatus(o.id, 'new'); await O.refresh(pid, { now: NOW });
+  await K.importMetrics(pid, `keyword,volume\n${cand},9900`, { now: NOW }); await O.setStatus(o.id, 'new', { now: NOW }); await O.refresh(pid, { now: NOW });
   o = (await O.list(pid)).items[0]; assert.deepEqual([o.partial, o.total !== null, o.eligible, o.status], [false, true, true, 'new']); assert.equal(o.demand, Math.round(20 * Math.log10(9901)));
 });
 

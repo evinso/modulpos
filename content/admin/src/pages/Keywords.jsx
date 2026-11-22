@@ -6,7 +6,7 @@ import { Alert, Async, Badge, Card, Empty, Field, Modal, NeedsProject, PageHead,
 import { dt, num, usd } from '../format.js';
 
 const STATE = { none: ['Henüz sorgulanmadı', ''], found: ['Veri var', 'ok'], not_found: ['Veri bulunamadı', 'warn'] };
-const SOURCE = { csv: 'dosyadan', dataforseo: 'DataForSEO' };
+const SOURCE = { csv: 'dosyadan', apify: 'Apify (Google verisi)' };
 
 /** a file the browser read as bytes -> text: UTF-16 (Keyword Planner's own export) by its byte-order mark, else UTF-8, else Windows-1254 (Turkish Excel) */
 function decodeFile(buf) {
@@ -67,20 +67,20 @@ function FetchModal({ projectId, ids, onClose, onDone }) {
   const [run, busy] = useAction(); const [result, setResult] = useState(null);
   const go = async () => { const r = await run(() => api.post('/keywords/fetch', { projectId, ids: ids.length ? ids : undefined })); if (r) { setResult(r); onDone(); } };
   return (
-    <Modal title="DataForSEO’dan gerçek veri çek" onClose={onClose}>
+    <Modal title="Apify’dan gerçek Google verisi çek" onClose={onClose}>
       <Async state={plan}>{(p) => (
         <div className="stack">
-          {result ? <Alert kind={result.stopped ? 'warn' : 'ok'} title="Tamamlandı">{result.message}{result.costUsd ? ` · Gerçek maliyet: ${usd(result.costUsd, 4)}` : ''}</Alert> : (
+          {result ? <Alert kind={result.stopped ? 'warn' : 'ok'} title="Tamamlandı">{result.message} · Maliyet: Bilinmiyor (Apify hesabınızdaki kullanımı Apify → Billing’den görün)</Alert> : (
             <>
-              {!p.configured && <Alert kind="bad" title="DataForSEO ayarlı değil">API Kullanımı sayfasından login ve API şifresini girip bağlantıyı test edin.</Alert>}
+              {!p.configured && <Alert kind="bad" title="Apify ayarlı değil">API Kullanımı sayfasından Apify belirtecini girip bağlantıyı test edin (apify.com’da kartsız ücretsiz hesap). Hiç ödeme yapmak istemezseniz “Dosyadan hacim aktar” ücretsiz yoldur.</Alert>}
               <div className="grid g2">
                 <div className="metric"><span className="l">Toplam seçili</span><span className="v">{p.total}</span></div><div className="metric"><span className="l">Zaten güncel (önbellek, {p.cacheDays} gün)</span><span className="v">{p.cached}</span></div>
-                <div className="metric"><span className="l">Sorgulanacak</span><span className="v">{p.toAsk}</span><span className="n">bugün izin verilen: {p.allowedToday}</span></div><div className="metric"><span className="l">Tahmini maliyet</span><span className="v">{usd(p.estimatedCostUsd, 4)}</span><span className="n">{p.requests} istek · {p.estimateNote}</span></div>
+                <div className="metric"><span className="l">Sorgulanacak</span><span className="v">{p.toAsk}</span><span className="n">bugün izin verilen: {p.allowedToday}</span></div><div className="metric"><span className="l">Maliyet</span><span className="v">Bilinmiyor</span><span className="n">{p.estimateNote}</span></div>
               </div>
-              <small className="faint">Günlük anahtar kelime limiti: {p.limit.done}/{p.limit.limit} kullanıldı, {p.limit.remaining} kaldı. Önbellekteki kelimeler ne istek ne limit harcar.</small>
+              <small className="faint">Günlük anahtar kelime limiti: {p.limit.done}/{p.limit.limit} kullanıldı, {p.limit.remaining} kaldı. <strong>Aylık güvenlik sınırı: {p.monthly.used}/{p.monthly.cap} kelime kullanıldı</strong> (Apify kartından değişir). Önbellekteki kelimeler ne istek ne limit harcar.</small>
               {p.toAsk === 0 && <Alert kind="info">Sorgulanacak kelime yok: hepsinin güncel verisi var.</Alert>}
             </>)}
-          <div className="row end"><button className="btn" onClick={onClose}>{result ? 'Kapat' : 'Vazgeç'}</button>{!result && <button className="btn primary" disabled={busy || !p.configured || p.allowedToday === 0} onClick={go}>Verileri çek (ücretli)</button>}</div>
+          <div className="row end"><button className="btn" onClick={onClose}>{result ? 'Kapat' : 'Vazgeç'}</button>{!result && <button className="btn primary" disabled={busy || !p.configured || p.allowedToday === 0} onClick={go}>Verileri çek (Apify kredisi harcar)</button>}</div>
         </div>
       )}</Async>
     </Modal>
@@ -92,15 +92,15 @@ function SuggestModal({ projectId, onClose, onDone }) {
   const [run, busy] = useAction(); const [res, setRes] = useState(null);
   const go = async (e) => { e.preventDefault(); const r = await run(() => api.post('/keywords/suggest', { projectId, ...f, limit: Number(f.limit) })); if (r) { setRes(r); onDone(); } };
   return (
-    <Modal title="Önerilen / ilgili anahtar kelimeler" onClose={onClose}>
+    <Modal title="Anahtar kelime fikirleri (Google önerileri)" onClose={onClose}>
       <form className="stack" onSubmit={go}>
-        <Field label="Başlangıç ifadesi" hint="Örn: chatgpt. DataForSEO bu ifadeden uzun kuyruklu ve soru anahtar kelimeleri getirir; her birinin gerçek verisiyle birlikte."><input className="input" value={f.seed} onChange={(e) => setF({ ...f, seed: e.target.value })} required /></Field>
-        <div className="grid g3"><Field label="Tür"><select className="input" value={f.mode} onChange={(e) => setF({ ...f, mode: e.target.value })}><option value="suggestions">Uzun kuyruk / soru önerileri</option><option value="related">İlgili anahtar kelimeler</option></select></Field>
+        <Field label="Başlangıç ifadesi" hint="Örn: chatgpt. Google’ın yazarken önerdiği ifadeler ya da gerçek sonuç sayfasındaki ilgili aramalar ve ‘insanlar şunu da sordu’ soruları gelir. Bunlar FİKİRDİR: aranma hacmi taşımaz; hacim için ‘Verisini çek’ ya da dosya kullanılır."><input className="input" value={f.seed} onChange={(e) => setF({ ...f, seed: e.target.value })} required /></Field>
+        <div className="grid g3"><Field label="Tür"><select className="input" value={f.mode} onChange={(e) => setF({ ...f, mode: e.target.value })}><option value="suggestions">Otomatik tamamlama önerileri</option><option value="related">İlgili aramalar ve sorular</option></select></Field>
           <Field label="En fazla (1–100)"><input className="input num" type="number" min={1} max={100} value={f.limit} onChange={(e) => setF({ ...f, limit: e.target.value })} /></Field>
           <Field label="Ülke"><select className="input" value={f.country} onChange={(e) => setF({ ...f, country: e.target.value })}>{COUNTRIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field></div>
-        <Alert kind="warn">Bu işlem DataForSEO’da ücretlidir (genelde bir istek başına yaklaşık 0,01 $; gerçek tutar yanıtta gelir) ve günlük anahtar kelime limitinizden düşer.</Alert>
-        {res && <Alert kind={res.stopped ? 'warn' : 'ok'}>{res.stopped || `${res.added} yeni anahtar kelime eklendi (${res.existing} zaten vardı, ${res.withData} tanesinin verisi var). Maliyet: ${usd(res.costUsd, 4)}`}</Alert>}
-        <div className="row end"><button type="button" className="btn" onClick={onClose}>Kapat</button><button className="btn primary" disabled={busy}>Getir (ücretli)</button></div>
+        <Alert kind="info">Bir Serper kredisi harcar (ücretsiz hesapta 2.500 sorgu) ve günün SERP sorgu limitinden bir yer alır; anahtar kelime limitinden düşmez.</Alert>
+        {res && <Alert kind={res.stopped ? 'warn' : 'ok'}>{res.stopped || `${res.added} yeni anahtar kelime fikri eklendi (${res.existing} zaten vardı). Hiçbirinin hacim verisi yok: ‘Verisini çek’ ya da dosya kullanın.`}</Alert>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Kapat</button><button className="btn primary" disabled={busy}>Fikirleri getir</button></div>
       </form>
     </Modal>
   );
@@ -122,19 +122,19 @@ export default function Keywords() {
   const del = async () => { if (await confirm({ title: 'Seçili anahtar kelimeler silinsin mi?', body: `${ids.length} anahtar kelime ve verileri silinir.`, confirmText: 'Sil', danger: true }) && await run(() => api.del(`/keywords${qs({ projectId, ids: ids.join(',') })}`), 'Silindi')) { setSel(new Set()); st.reload(); } };
   const serp = async (k) => { const r = await run(() => api.post(`/keywords/${k.id}/serp`, {})); if (r) { if (r.stopped) toast(r.stopped, 'bad'); st.reload(); } };
   const dl = () => run(() => api.download(`/keywords-export${qs({ ...f, projectId, page: undefined })}`));
-  const dfsOk = status.data && status.data.dataforseo.configured; const serpOk = status.data && status.data.serpReady;
+  const dataOk = status.data && status.data.apify.configured; const serpOk = status.data && status.data.serpReady;
   return (
     <div className="page">
       <PageHead title="Anahtar Kelime Araştırması" actions={<>
         {can('research.write') && <button className="btn" onClick={() => setModal('add')}><Plus size={15} />Kelime ekle</button>}
         {can('research.write') && <button className="btn primary" onClick={() => setModal('import')}><FileUp size={15} />Dosyadan hacim aktar</button>}
-        {paid && <button className="btn" onClick={() => setModal('suggest')}><Sparkles size={15} />Öneri getir (DataForSEO)</button>}
-        {paid && <button className="btn" onClick={() => setModal('fetch')}><CloudDownload size={15} />{ids.length ? `${ids.length} kelimenin verisini çek` : 'Verisi olmayanların verisini çek'} (DataForSEO)</button>}
+        {paid && <button className="btn" onClick={() => setModal('suggest')}><Sparkles size={15} />Fikir getir (Serper)</button>}
+        {paid && <button className="btn" onClick={() => setModal('fetch')}><CloudDownload size={15} />{ids.length ? `${ids.length} kelimenin verisini çek` : 'Verisi olmayanların verisini çek'} (Apify)</button>}
         <button className="btn" onClick={dl} disabled={busy}><Download size={15} />CSV</button></>}>
-        Aranma hacmi, CPC, ücretli rekabet, arama niyeti ve aylık geçmiş yalnızca gerçek veridir: bir veri servisinden (DataForSEO) ya da sizin yüklediğiniz dosyadan (Google Ads Anahtar Kelime Planlayıcı gibi) gelir; veri yoksa “Veri bulunamadı” yazar, yapay zekâ ile uydurulmaz. Ücretli reklam rekabeti organik rekabet sayılmaz: organik rekabet SEO Rekabet Analizi’nde ayrıca tahmin edilir.
+        Aranma hacmi, CPC, ücretli rekabet, arama niyeti ve aylık geçmiş yalnızca gerçek veridir: bir veri servisinden (Apify) ya da sizin yüklediğiniz dosyadan (Google Ads Anahtar Kelime Planlayıcı gibi) gelir; veri yoksa “Veri bulunamadı” yazar, yapay zekâ ile uydurulmaz. Ücretli reklam rekabeti organik rekabet sayılmaz: organik rekabet SEO Rekabet Analizi’nde ayrıca tahmin edilir.
       </PageHead>
-      {status.data && !dfsOk && <Alert kind="info" title="Aranma hacmi: DataForSEO bağlı değil">Hacim verisi için “Dosyadan hacim aktar” ücretsiz yoldur (Google Ads Anahtar Kelime Planlayıcı çıktısı). Servisten otomatik çekmek için <Link to="/api-usage">API Kullanımı ve Maliyetler</Link> sayfasından DataForSEO’yu bağlayın (hesap doğrulaması için ön ödeme ister). Kelime eklemek ve listelemek anahtarsız çalışır.</Alert>}
-      {status.data && !serpOk && <Alert kind="warn" title={`SERP kaynağı bağlı değil: ${status.data.serpProviderLabel}`}>Organik rekabeti ölçmek için <Link to="/api-usage">API Kullanımı ve Maliyetler</Link> sayfasından {status.data.serpProvider === 'serper' ? 'Serper.dev API anahtarını girin (serper.dev’de kartsız ücretsiz hesap, 2.500 sorgu)' : 'DataForSEO bilgilerini girin'} ve bağlantıyı test edin.</Alert>}
+      {status.data && !dataOk && <Alert kind="info" title="Aranma hacmi: Apify bağlı değil">Hacim verisi için iki yol var. <strong>Ücretsiz başlangıç:</strong> <Link to="/api-usage">API Kullanımı ve Maliyetler</Link> sayfasından Apify’ı bağlayın (apify.com’da kartsız ücretsiz hesap; Apify’ın fiyat sayfasına göre aylık 5 $ kredi verir, aktör anahtar kelime başına birkaç $/1.000 alır). <strong>Hiç ödeme yok:</strong> “Dosyadan hacim aktar” (Google Ads Anahtar Kelime Planlayıcı çıktısı; yalnızca kesin sayılar alınır). Kelime eklemek ve listelemek anahtarsız çalışır.</Alert>}
+      {status.data && !serpOk && <Alert kind="warn" title={`SERP kaynağı bağlı değil: ${status.data.serpProviderLabel}`}>Organik rekabeti ölçmek için <Link to="/api-usage">API Kullanımı ve Maliyetler</Link> sayfasından Serper.dev API anahtarını girin (serper.dev’de kartsız ücretsiz hesap, 2.500 sorgu) ve bağlantıyı test edin.</Alert>}
       <Card flat><div className="grid g4">
         <Field label="Ara"><input className="input" value={f.q} onChange={(e) => set('q', e.target.value)} /></Field>
         <Field label="Veri durumu"><select className="input" value={f.state} onChange={(e) => set('state', e.target.value)}><option value="">Hepsi</option>{Object.entries(STATE).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}</select></Field>
@@ -153,7 +153,7 @@ export default function Keywords() {
       <Async state={st}>{(d) => d && (d.total === 0 ? <Card><Empty title="Anahtar kelime yok">“Kelime ekle” ile elle ekleyin, “Dosyadan hacim aktar” ile hacimli bir liste yükleyin ya da İçerik Fırsatları sayfasında “Yenile ve puanla” ile haber olaylarından aday kelimeler üretin.</Empty></Card> : (
         <Card flat><div className="tbl-wrap"><table className="tbl"><thead><tr>
           <th style={{ width: 30 }}><input type="checkbox" aria-label="Sayfadakilerin hepsi" checked={d.items.every((k) => sel.has(k.id))} onChange={(e) => setSel(e.target.checked ? new Set(d.items.map((k) => k.id)) : new Set())} /></th>
-          <th>Anahtar kelime</th><th>Veri</th><th className="num">Aylık arama</th><th className="num">CPC</th><th className="num" title="Google Ads ücretli rekabet (0–1); organik rekabet DEĞİLDİR">Ücretli rek.</th><th className="num" title="DataForSEO’nun kendi zorluk metriği">KD</th><th>Niyet</th><th className="num">Trend</th><th>Organik rekabet</th><th>Son kontrol</th></tr></thead>
+          <th>Anahtar kelime</th><th>Veri</th><th className="num">Aylık arama</th><th className="num">CPC</th><th className="num" title="Google Ads ücretli rekabet (0–1); organik rekabet DEĞİLDİR">Ücretli rek.</th><th className="num" title="Veri kaynağının kendi zorluk sayısı (Google’ın değil)">KD</th><th>Niyet</th><th className="num">Trend</th><th>Organik rekabet</th><th>Son kontrol</th></tr></thead>
           <tbody>{d.items.map((k) => { const m = k.metrics; return (
             <tr key={k.id}><td><input type="checkbox" checked={sel.has(k.id)} onChange={() => toggle(k.id)} aria-label={`${k.keyword} seç`} /></td>
               <td><strong>{k.keyword}</strong> <span className="faint">{k.country}</span> {k.origin !== 'manual' && <Badge>{k.origin}</Badge>}{k.categoryName && <div className="faint">{k.categoryName}</div>}</td>

@@ -6,15 +6,14 @@ const settings = require('./settings');
 const limits = require('./limits');
 const providers = require('./providers');
 const runs = require('./runs');
-const dfs = require('./dataforseo');
 const serper = require('./serper');
 
 /**
- * Organic competition analysis of a query from Google's real top results (up to 10 results, from Serper.dev or DataForSEO: `seo.serpProvider`).
+ * Organic competition analysis of a query from Google's real top results (up to 10 results, from Serper.dev: `seo.serpProvider`).
  * The score (0-100, higher = harder for a NEW site) is OUR estimate built from visible facts of the result page. It is NOT Google's difficulty metric and
- * not DataForSEO's keyword difficulty (that one is shown separately, as the provider's own number). Every factor, its value and its weight are stored and shown.
+ * not a keyword-difficulty number of a data provider (that one is shown separately, as the provider's own number). Every factor, its value and its weight are stored and shown.
  */
-const DISCLAIMER = 'Bu puan, Google ilk-10 sonuçlarına (Serper.dev ya da DataForSEO) dayanan tahmini bir rekabet göstergesidir; Google’ın resmî zorluk metriği değildir.';
+const DISCLAIMER = 'Bu puan, Google ilk-10 sonuçlarına (Serper.dev) dayanan tahmini bir rekabet göstergesidir; Google’ın resmî zorluk metriği değildir.';
 const BOT = 'seo_competition';
 
 const root = (d) => String(d || '').toLowerCase().replace(/^www\./, '');
@@ -91,15 +90,6 @@ const SOURCES = {
       return (q) => c.serpOrganic({ keyword: q.keyword, country: q.country, language: q.language, now: q.now });
     },
   },
-  dataforseo: {
-    label: 'DataForSEO', endpoint: dfs.EP.serp, estimateUsd: dfs.ESTIMATE_USD.serp,
-    async open(fetchImpl) {
-      const secret = await providers.secretFor('dataforseo'); const p = await providers.get('dataforseo');
-      if (!secret || !p.extra.login) throw new HttpError(409, 'DataForSEO henüz ayarlanmadı: API Kullanımı sayfasından login ve API şifresini girip bağlantıyı test edin');
-      const c = dfs.createClient({ login: p.extra.login, password: secret, fetchImpl });
-      return async (q) => ({ ...(await c.serpOrganic({ keyword: q.keyword, country: q.country, language: q.language, device: q.device })), units: 1 });
-    },
-  },
 };
 
 async function latest(keywordId) {
@@ -138,7 +128,7 @@ async function analyze(keywordId, { force = false, userId = null, manual = true,
   const score = scoreSerp(res.organic, { keyword: kw.keyword, avgReferringDomains: metrics ? metrics.avg_referring_domains : null, now });
   const row = (await db.query(`INSERT INTO serp_analyses (project_id, keyword_id, device, competition, factors, results, questions, related, features, results_count, cost_micros, provider)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-  [kw.project_id, kw.id, key === 'dataforseo' ? cfg.serpDevice : 'desktop', score.competition, JSON.stringify({ factors: score.factors, reducers: score.reducers, label: score.label }), JSON.stringify(score.results), JSON.stringify([...new Set(res.questions)].slice(0, 12)),
+  [kw.project_id, kw.id, 'desktop', score.competition, JSON.stringify({ factors: score.factors, reducers: score.reducers, label: score.label }), JSON.stringify(score.results), JSON.stringify([...new Set(res.questions)].slice(0, 12)),
     JSON.stringify([...new Set(res.related)].slice(0, 12)), JSON.stringify(res.features), res.resultsCount, res.cost === null || res.cost === undefined ? null : Math.round(res.cost * 1e6), key])).rows[0];
   await providers.recordUsage({ provider: key, endpoint: src.endpoint, operation: 'serp_organic', requests: 1, units: res.units || 1, costUsd: res.cost, projectId: kw.project_id, meta: { keyword: kw.keyword } });
   await runs.finish(run.id, { status: 'ok', stats: { keyword: kw.keyword, competition: score.competition, costUsd: res.cost, provider: key } });

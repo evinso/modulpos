@@ -37,7 +37,7 @@ function components(p) {
   return {
     trend: { score: Math.max(nt.score, kt ?? 0), news: nt.score, keyword: kt, note: kt !== null && kt > nt.score ? 'Arama trendi haber trendinden güçlü' : 'Haber trendi (yeni konuların geçmiş arama hacmi düşük olabilir)' },
     competition: { score: p.serp && p.serp.competition !== null && p.serp.competition !== undefined ? clamp(100 - p.serp.competition) : null, estimate: p.serp ? p.serp.competition : null, note: 'Organik rekabet tahmini (Google’ın resmî metriği değil)' },
-    demand: { score: hasVolume ? demandScore(p.metrics.searchVolume) : null, volume: hasVolume ? p.metrics.searchVolume : null, note: 'DataForSEO aylık arama hacmi' },
+    demand: { score: hasVolume ? demandScore(p.metrics.searchVolume) : null, volume: hasVolume ? p.metrics.searchVolume : null, note: 'Aylık arama hacmi (Apify verisi ya da yüklediğiniz dosya)' },
     relevance: { score: clamp(p.cluster.relevance), note: 'Nişe uygunluk filtresi' },
     source: { score: clamp(p.cluster.reliability + (p.cluster.sourceCount >= 3 ? 5 : 0)), note: 'En güvenilir kaynak (+5: 3 ve üzeri kaynak)' },
   };
@@ -201,7 +201,7 @@ async function get(id) {
 }
 
 /** A person's call: shortlist it, reject it (never eligible again until reopened), or reopen it. */
-async function setStatus(id, status) {
+async function setStatus(id, status, { now = new Date() } = {}) {
   const st = V.oneOf(status, 'Durum', ['new', 'shortlisted', 'rejected']);
   const o = (await db.query('SELECT o.topic_id, o.status FROM content_opportunities o WHERE o.id = $1', [id])).rows[0];
   if (!o) throw new HttpError(404, 'Fırsat bulunamadı');
@@ -209,7 +209,7 @@ async function setStatus(id, status) {
   await db.query('UPDATE content_opportunities SET status = $2, updated_at = now() WHERE id = $1', [id, st]);
   await db.query("UPDATE topics SET status = $2 WHERE id = $1", [o.topic_id, st === 'rejected' ? 'rejected' : 'new']);
   if (st === 'rejected') { await db.query("UPDATE content_opportunities SET eligible = false, ineligible_reason = 'Reddedildi' WHERE id = $1", [id]); return get(id); }
-  return rescore(id);                                                      // a shortlist call can make a PARTIAL-score idea eligible (and taking it off the list makes it ineligible again)
+  return rescore(id, { now });                                             // a shortlist call can make a PARTIAL-score idea eligible (and taking it off the list makes it ineligible again)
 }
 
 /**

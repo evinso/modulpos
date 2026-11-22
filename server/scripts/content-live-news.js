@@ -24,7 +24,7 @@ Object.assign(process.env, { CONTENT_DATABASE_URL: url, CONTENT_ENCRYPTION_KEY: 
   console.log('\nsample relevant (first 10):'); for (const c of clusters.items.slice(0, 10)) console.log(`  ${String(c.relevance).padStart(3)} ${String(c.categoryName).padEnd(26)} ${c.title.slice(0, 80)}`);
   const O = require('../src/content/services/opportunities');
   const made = await O.refresh(projectId, { trigger: 'manual' });
-  console.log(`\nideas from the relevant events: ${made.topicsCreated} topics, ${made.keywordsAdded} candidate keywords (they are only candidates: DataForSEO decides if anyone searches for them)`);
+  console.log(`\nideas from the relevant events: ${made.topicsCreated} topics, ${made.keywordsAdded} candidate keywords (they are only candidates: real search data decides if anyone searches for them)`);
   const rows = (await db.query("SELECT t.title, array_agg(k.keyword ORDER BY k.keyword) AS kws FROM topics t JOIN keywords k ON k.topic_id = t.id GROUP BY t.id, t.title ORDER BY t.created_at DESC LIMIT 12")).rows;
   for (const r of rows) console.log(`  ${r.title.slice(0, 70)}\n     -> ${r.kws.join(' | ')}`);
   await db.end(); process.exit(run.status === 'error' ? 1 : 0);
