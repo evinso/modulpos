@@ -1,7 +1,11 @@
 const db = require('../db');
 const settings = require('./settings');
 const runs = require('./runs');
+const scheduler = require('./scheduler');
+const queue = require('./queue');
 const { bad } = require('../lib/http');
+const { env } = require('../env');
+const { startOfDay } = require('../lib/time');
 
 /**
  * The 15 bots of the platform. This registry is the truth about what exists: `implemented` is true only for a bot whose code runs.
@@ -25,23 +29,31 @@ const BOTS = [
   { key: 'seo_performance', label: 'SEO Performance Bot', phase: 6, about: 'Search Console verisiyle performansı izler.' },
   { key: 'reporting', label: 'Reporting Bot', phase: 7, about: 'Günlük/haftalık raporlar üretir.' },
 ];
-/** keys of bots whose code exists and runs. In phase 2 they are started BY HAND (panel buttons); the scheduler that starts them by itself is phase 4. */
+/** keys of bots whose code exists and runs. Six of them are scheduled by services/scheduler.js (the others run as part of the writer or on demand). */
 const IMPLEMENTED = new Set(['news_discovery', 'trend_analysis', 'niche_discovery', 'keyword_research', 'seo_competition', 'content_opportunity', 'article_writer', 'fact_checking', 'adsense_compliance']);
-const MANUAL_NOTE = { trend_analysis: 'Haber verisinden anlık hesaplanır (ayrı çalıştırma gerekmez)' };
+const MANUAL_NOTE = { trend_analysis: 'Haber verisinden anlık hesaplanır (ayrı çalıştırma gerekmez)', fact_checking: 'Makale yazılırken ve “Tüm kontroller” ile çalışır', adsense_compliance: 'Makale yazılırken ve “Tüm kontroller” ile çalışır' };
 
 async function state() { return (await settings.get('bots')).value; }
 
 async function list() {
-  const rows = new Map((await db.query('SELECT * FROM schedule_settings')).rows.map((r) => [r.bot_key, r]));
   const st = await state();
   const last = await runs.lastByBot();
+  const schedules = await scheduler.loadSchedules();
+  const waiting = new Map((await db.query("SELECT bot_key, count(*) FILTER (WHERE status = 'queued')::int AS queued, count(*) FILTER (WHERE status = 'running')::int AS running FROM jobs WHERE status IN ('queued', 'running') GROUP BY bot_key")).rows.map((r) => [r.bot_key, r]));
+  const cost = new Map((await db.query(`SELECT bot_key, COALESCE(sum((stats->>'costUsd')::numeric), 0) AS usd, count(*) FILTER (WHERE stats ? 'unknownCost' AND (stats->>'unknownCost')::int > 0)::int AS unknown
+    FROM automation_runs WHERE started_at >= $1 GROUP BY bot_key`, [startOfDay(new Date(), env().defaultTimezone)])).rows.map((r) => [r.bot_key, r]));
   return {
-    paused: st.paused, pausedAt: st.pausedAt, pausedBy: st.pausedBy,
+    paused: st.paused, pausedAt: st.pausedAt, pausedBy: st.pausedBy, scheduler: scheduler.status(),
     items: BOTS.map((b) => {
-      const r = rows.get(b.key); const l = last.get(b.key); const impl = IMPLEMENTED.has(b.key);
-      return { ...b, implemented: impl, manualOnly: impl, enabled: r ? r.enabled : true, status: impl ? (st.paused ? 'paused' : 'idle') : 'planned',
-        statusText: impl ? (st.paused ? 'Duraklatıldı' : (MANUAL_NOTE[b.key] || 'Elle çalıştırılır; otomatik zamanlama Aşama 4’te')) : `Aşama ${b.phase}’te gelecek`,
-        lastRunAt: l ? l.finishedAt : null, lastRunStatus: l ? l.status : null, nextRunAt: null, processed: l ? l.runs : (impl ? 0 : null), errors: l ? l.errors : (impl ? 0 : null) };
+      const l = last.get(b.key); const impl = IMPLEMENTED.has(b.key); const sc = schedules.get(b.key); const w = waiting.get(b.key); const c = cost.get(b.key);
+      const every = (m) => (m % 1440 === 0 ? `${m / 1440} günde bir` : m % 60 === 0 ? `${m / 60} saatte bir` : `${m} dakikada bir`);
+      const statusText = !impl ? `Aşama ${b.phase}’te gelecek` : st.paused ? 'Duraklatıldı'
+        : sc ? (sc.enabled ? `Otomatik: ${every(sc.intervalMinutes)}${sc.windowStart ? ` (${sc.windowStart}–${sc.windowEnd})` : ''}` : (sc.disabledReason ? 'Otomatik kapatıldı (hatalar)' : 'Otomatik kapalı; elle çalıştırılır'))
+          : (MANUAL_NOTE[b.key] || 'Başka bir botun parçası; onunla birlikte çalışır');
+      return { ...b, implemented: impl, scheduled: !!sc, manualOnly: impl && !sc, enabled: sc ? sc.enabled : true, status: !impl ? 'planned' : st.paused ? 'paused' : (sc && sc.enabled ? 'scheduled' : 'idle'), statusText,
+        schedule: sc ? { enabled: sc.enabled, intervalMinutes: sc.intervalMinutes, windowStart: sc.windowStart, windowEnd: sc.windowEnd, weekdaysOnly: sc.weekdaysOnly, timezone: sc.timezone, options: sc.options, spends: sc.spends, failStreak: sc.failStreak, disabledReason: sc.disabledReason } : null,
+        lastRunAt: l ? l.finishedAt : null, lastRunStatus: l ? l.status : null, nextRunAt: sc && sc.enabled && !st.paused ? sc.nextRunAt : null, processed: l ? l.runs : (impl ? 0 : null), errors: l ? l.errors : (impl ? 0 : null),
+        queued: w ? w.queued : 0, running: w ? w.running : 0, costTodayUsd: c ? Number(c.usd) : (impl ? 0 : null), costUnknownRuns: c ? c.unknown : 0 };
     }),
   };
 }

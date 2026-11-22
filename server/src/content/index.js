@@ -32,6 +32,7 @@ async function boot() {
       await prepareDefaults(seeded.projectId);
       state.status = 'ready'; state.error = null;
       keepDatabaseAwake();
+      if (env().schedulerEnabled) { require('./services/scheduler').start(); console.log('[Content] scheduler and worker started'); }
       console.log(`[Content] ready (${m.total} migrations, ${m.applied.length} applied now${seeded.created ? ', default project created' : ''})`);
       return;
     } catch (err) {
@@ -49,7 +50,11 @@ async function boot() {
 let keepTimer = null;
 function keepDatabaseAwake() {
   if (keepTimer) return;
-  keepTimer = setInterval(() => { require('./db').query('SELECT 1').catch((err) => console.error('[Content] keep-alive query failed:', err.message)); }, 6 * 3600 * 1000);
+  keepTimer = setInterval(() => {
+    require('./db').query('SELECT 1').catch((err) => console.error('[Content] keep-alive query failed:', err.message));
+    require('./services/queue').purge(30).catch(() => {});               // finished jobs older than 30 days (the run records stay)
+    require('./services/notifications').purge(90).catch(() => {});       // read notifications older than 90 days
+  }, 6 * 3600 * 1000);
   if (keepTimer.unref) keepTimer.unref();
 }
 

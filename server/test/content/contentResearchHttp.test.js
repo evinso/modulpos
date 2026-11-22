@@ -218,3 +218,20 @@ test('writing over HTTP: vendors, the write start (admin only, background run), 
   assert.ok((await c.get('/audit?action=article')).json.items.some((x) => x.action === 'article.write.start')); assert.ok(!JSON.stringify((await c.get('/providers')).json).includes('sk-ant-http-key'));
   assert.equal((await c.get('/articles/00000000-0000-0000-0000-000000000001/checks')).status, 404);
 });
+
+test('bots over HTTP: schedule edits, "run now", cancel and retry are admin-only, validated and audited; everyone signed in can read the bots and the queue', opts, async () => {
+  const c = await signedIn(); const editor = await signedIn('editor'); const viewer = await signedIn('viewer'); const pid = (await c.get('/projects')).json.projects[0].id;
+  const bots = (await viewer.get('/bots')).json; const news = bots.items.find((b) => b.key === 'news_discovery'); const writerBot = bots.items.find((b) => b.key === 'article_writer');
+  assert.deepEqual([news.scheduled, news.schedule.intervalMinutes, news.enabled, writerBot.enabled, writerBot.schedule.spends, writerBot.schedule.windowStart, bots.scheduler.running], [true, 120, true, false, true, '09:00', false], 'tests do not start the loops; paid bots start off');
+  assert.equal((await editor.put('/bots/news_discovery/schedule', { intervalMinutes: 60 })).status, 403); assert.equal((await viewer.post('/bots/news_discovery/run', { projectId: pid })).status, 403);
+  assert.equal((await c.put('/bots/news_discovery/schedule', { intervalMinutes: 2 })).status, 400); assert.equal((await c.put('/bots/trend_analysis/schedule', { enabled: true })).status, 400); assert.equal((await c.put('/bots/news_discovery/schedule', { windowStart: '09:00' })).status, 400);
+  const put = await c.put('/bots/article_writer/schedule', { enabled: true, intervalMinutes: 60, windowStart: '10:00', windowEnd: '18:00', options: { perRun: 2 } }); assert.equal(put.status, 200);
+  assert.deepEqual([put.json.schedule.enabled, put.json.bots.items.find((b) => b.key === 'article_writer').statusText], [true, 'Otomatik: 1 saatte bir (10:00–18:00)']);
+  const run = await c.post('/bots/news_discovery/run', { projectId: pid }); assert.equal(run.status, 202); assert.deepEqual([run.json.job.status, run.json.job.trigger, run.json.job.botKey], ['queued', 'manual', 'news_discovery']);
+  assert.equal((await c.post('/bots/news_discovery/run', { projectId: pid })).status, 409, 'the same job is not queued twice'); assert.equal((await c.post('/bots/news_discovery/run', { projectId: 'nope' })).status, 400); assert.equal((await c.post('/bots/nothing/run', { projectId: pid })).status, 400);
+  const jobs = (await viewer.get('/jobs?status=queued')).json; assert.deepEqual([jobs.jobs.length, jobs.counts.queued], [1, 1]); const id = jobs.jobs[0].id;
+  assert.equal((await editor.post(`/jobs/${id}/cancel`)).status, 403); const cancelled = await c.post(`/jobs/${id}/cancel`); assert.equal(cancelled.json.status, 'cancelled'); assert.equal((await c.post(`/jobs/${id}/cancel`)).status, 409);
+  assert.equal((await editor.post(`/jobs/${id}/retry`)).status, 403); const re = await c.post(`/jobs/${id}/retry`); assert.deepEqual([re.status, re.json.status, re.json.trigger], [202, 'queued', 'retry']); assert.equal((await c.post(`/jobs/${id}/retry`)).status, 409);
+  assert.equal((await c.post('/jobs/abc/cancel')).status, 404); assert.equal((await c.post('/jobs/999999/cancel')).status, 404);
+  const aud = (await c.get('/audit?action=bots')).json.items.map((x) => x.action); assert.ok(aud.includes('bots.schedule') && aud.includes('bots.run'));
+});

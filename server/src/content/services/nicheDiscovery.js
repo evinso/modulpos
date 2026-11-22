@@ -23,8 +23,8 @@ function pairs(title) {
 }
 const titleCase = (s) => s.replace(/\b[a-z]/g, (c) => c.toUpperCase());
 
-async function discover(projectId, { days = 14, minItems = 5, minSources = 3, now = new Date(), userId = null } = {}) {
-  const run = await runs.start(BOT, { projectId, trigger: 'manual', userId });
+async function discover(projectId, { days = 14, minItems = 5, minSources = 3, now = new Date(), userId = null, trigger = 'manual' } = {}) {
+  const run = await runs.start(BOT, { projectId, trigger, userId });
   try {
     const items = (await db.query(`SELECT title, url, source_name FROM news_items WHERE project_id = $1 AND status = 'irrelevant'
       AND coalesce(published_at, fetched_at) > $2::timestamptz - ($3 || ' days')::interval`, [projectId, now, String(days)])).rows;

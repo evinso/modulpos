@@ -14,6 +14,8 @@ const articles = require('../services/articles');
 const dashboard = require('../services/dashboard');
 const notifications = require('../services/notifications');
 const bots = require('../services/bots');
+const scheduler = require('../services/scheduler');
+const queue = require('../services/queue');
 const migrate = require('../migrate');
 const db = require('../db');
 
@@ -139,6 +141,12 @@ function buildRouter(getState) {
 
   // ── bots ────────────────────────────────────────────────────────────────────────────────────────────────
   r.get('/bots', wrap(async (_req, res) => res.json(await bots.list())));
+  r.put('/bots/:key/schedule', mw.need('bots.control'), wrap(async (req, res) => { const s = await scheduler.updateSchedule(req.params.key, req.body); await A(req, 'bots.schedule', 'bot', req.params.key, null, { enabled: s.enabled, intervalMinutes: s.intervalMinutes, window: s.windowStart ? `${s.windowStart}-${s.windowEnd}` : null }); res.json({ schedule: s, bots: await bots.list() }); }));
+  r.post('/bots/:key/run', mw.need('bots.control'), wrap(async (req, res) => { const job = await scheduler.runNow(req.params.key, req.body.projectId, { userId: uid(req) }); await A(req, 'bots.run', 'bot', req.params.key, null, { jobId: job.id }); res.status(202).json({ job }); }));
+  r.get('/jobs', wrap(async (req, res) => res.json({ jobs: await queue.list({ status: req.query.status || null, botKey: req.query.bot || null, projectId: req.query.projectId || null, limit: parseInt(req.query.limit, 10) || 50 }), counts: await queue.counts() })));
+  const jid = (req) => { const n = parseInt(req.params.jid, 10); if (!Number.isInteger(n) || n < 1) throw new HttpError(404, 'Görev bulunamadı'); return n; };
+  r.post('/jobs/:jid/cancel', mw.need('bots.control'), wrap(async (req, res) => { const j = await queue.cancel(jid(req)); await A(req, 'jobs.cancel', 'job', String(j.id), null, { bot: j.botKey }); res.json(j); }));
+  r.post('/jobs/:jid/retry', mw.need('bots.control'), wrap(async (req, res) => { const j = await queue.retry(jid(req), { userId: uid(req) }); await A(req, 'jobs.retry', 'job', String(j.id), null, { bot: j.botKey }); res.status(202).json(j); }));
   r.post('/bots/pause', mw.need('bots.control'), wrap(async (req, res) => { const out = await bots.setPaused(true, { userId: uid(req), email: req.cu.user.email }); await A(req, 'bots.pause', 'bots', 'all'); res.json(out); }));
   r.post('/bots/resume', mw.need('bots.control'), wrap(async (req, res) => { const out = await bots.setPaused(false, { userId: uid(req) }); await A(req, 'bots.resume', 'bots', 'all'); res.json(out); }));
 
