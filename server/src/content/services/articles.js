@@ -348,6 +348,8 @@ async function setStatus(id, status, { userId = null } = {}) {
 }
 
 async function remove(id) {
+  const sent = (await db.query('SELECT count(*)::int n FROM publications WHERE article_id = $1 AND wp_post_id IS NOT NULL', [V.uuid(id, 'Makale')])).rows[0].n;
+  if (sent) throw new HttpError(409, 'Bu makale WordPress’e gönderilmiş; yazı numarası kaybolmasın diye silinemez. Arşivleyin');
   const cur = await loadRow(id);
   if (!DELETABLE.has(cur.status)) throw new HttpError(409, `“${STATUS_LABELS[cur.status]}” durumundaki makale silinemez; önce arşivleyin ya da yayından kaldırın`);
   await db.query('DELETE FROM articles WHERE id = $1', [id]);

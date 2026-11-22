@@ -235,3 +235,30 @@ test('bots over HTTP: schedule edits, "run now", cancel and retry are admin-only
   assert.equal((await c.post('/jobs/abc/cancel')).status, 404); assert.equal((await c.post('/jobs/999999/cancel')).status, 404);
   const aud = (await c.get('/audit?action=bots')).json.items.map((x) => x.action); assert.ok(aud.includes('bots.schedule') && aud.includes('bots.run'));
 });
+
+test('WordPress over HTTP: connecting a site and every send are admin-only, the password never comes back, drafts reach the (fake) site through the queue, plans and the calendar are readable', opts, async () => {
+  const { startFakeWp } = require('./fakeWordPress'); const fake = await startFakeWp(); const SC = require('../../src/content/services/scheduler');
+  try {
+    const c = await signedIn(); const editor = await signedIn('editor'); const viewer = await signedIn('viewer'); const pid = (await c.get('/projects')).json.projects[0].id;
+    const body = { projectId: pid, name: 'Blog', apiUrl: fake.url, username: 'editor', password: 'abcd efgh ijkl mnop' };
+    assert.equal((await editor.post('/sites', body)).status, 403); assert.equal((await viewer.post('/sites', body)).status, 403); assert.equal((await c.post('/sites', { ...body, apiUrl: 'nope' })).status, 400);
+    const created = await c.post('/sites', body); assert.equal(created.status, 201); const sid = created.json.id; assert.ok(!created.text.includes('abcd efgh') && created.json.passwordLast4 === 'mnop');
+    assert.equal((await c.post('/sites', body)).status, 409); assert.equal((await viewer.get(`/sites?projectId=${pid}`)).json.sites.length, 1); assert.ok(!(await viewer.get(`/sites/${sid}`)).text.includes('abcd efgh'));
+    assert.equal((await editor.post(`/sites/${sid}/test`)).status, 403); const t = (await c.post(`/sites/${sid}/test`)).json; assert.deepEqual([t.ok, t.info.user], [true, 'Editor Joe']);
+    const cm = (await viewer.get(`/sites/${sid}/categories`)).json; assert.deepEqual([cm.wpCategories.length, cm.categories.length >= 5], [2, true]);
+    assert.equal((await editor.put(`/sites/${sid}/categories`, { entries: [] })).status, 403); const first = cm.categories[0]; const saved = await c.put(`/sites/${sid}/categories`, { entries: [{ categoryId: first.categoryId, wpCategoryId: 5, wpName: 'AI' }] }); assert.equal(saved.json.mapped, 1);
+    const art = (await editor.post('/articles', { projectId: pid, h1: 'Home router guide', contentHtml: '<h2>Hi</h2><p>Some real words here.</p>', categoryId: first.categoryId, tags: ['wifi'] })).json;
+    assert.equal((await editor.post(`/articles/${art.id}/publish`, { siteId: sid, mode: 'draft' })).status, 403); assert.equal((await c.post(`/articles/${art.id}/publish`, { siteId: sid, mode: 'draft' })).status, 202);
+    assert.equal((await c.post(`/articles/${art.id}/publish`, { siteId: sid, mode: 'draft' })).status, 409, 'it is already being sent'); assert.equal((await c.post(`/articles/${art.id}/publish`, { siteId: sid, mode: 'publish' })).status, 409);
+    let n = 0; while (await SC.workOnce({ ctx: {} })) { n++; if (n > 20) break; }
+    const pubs = (await viewer.get(`/publications?projectId=${pid}`)).json.publications; assert.deepEqual([pubs.length, pubs[0].status, pubs[0].articleTitle, pubs[0].siteName], [1, 'draft', 'Home router guide', 'Blog']);
+    const one = (await viewer.get(`/publications/${pubs[0].id}`)).json; assert.deepEqual(one.history.map((h) => h.action), ['prepare', 'create']); assert.equal((await viewer.get(`/articles/${art.id}/publications`)).json.publications.length, 1);
+    assert.equal((await c.post(`/publications/${pubs[0].id}/retry`)).status, 409, 'a sent draft is not "retried"'); assert.equal((await editor.post(`/publications/${pubs[0].id}/reset`)).status, 403);
+    assert.equal((await c.post('/publishing/plan', { siteId: sid, articleIds: [], mode: 'draft' })).status, 400); const pl = await c.post('/publishing/plan', { siteId: sid, articleIds: [art.id], mode: 'draft' }); assert.deepEqual([pl.status, pl.json.items.length, pl.json.unplanned.length, /zaten gönderilmiş/.test(JSON.stringify(pl.json.unplanned))], [200, 0, 1, true]);
+    assert.equal((await editor.post('/publishing/bulk', { siteId: sid, articleIds: [art.id], mode: 'draft' })).status, 403);
+    const cal = (await viewer.get(`/calendar?projectId=${pid}`)).json; assert.deepEqual([Array.isArray(cal.publications), cal.written.length >= 0, typeof cal.readyUnsent], [true, true, 'number']); assert.equal((await viewer.get(`/calendar?projectId=${pid}&from=2020-01-01&to=2026-01-01`)).status, 400);
+    assert.equal((await c.del(`/sites/${sid}?projectId=${pid}`)).status, 409); assert.equal((await c.put(`/sites/${sid}`, { status: 'paused' })).json.status, 'paused'); assert.equal((await c.post(`/articles/${art.id}/publish`, { siteId: sid, mode: 'draft' })).status, 409, 'a paused site receives nothing');
+    assert.equal((await c.del(`/articles/${art.id}?projectId=${pid}`)).status, 409, 'an article that has a post on a site cannot be deleted');
+    assert.ok((await c.get('/audit?action=site')).json.items.some((x) => x.action === 'site.create') && (await c.get('/audit?action=article.publish')).json.items.length >= 1);
+  } finally { await fake.close(); }
+});

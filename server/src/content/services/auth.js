@@ -23,6 +23,7 @@ const ROLES = ['admin', 'editor', 'viewer'];
 const PERMS = {
   'articles.write': ['admin', 'editor'], 'categories.write': ['admin', 'editor'], 'projects.write': ['admin'], 'settings.write': ['admin'],
   'providers.write': ['admin'], 'users.manage': ['admin'], 'bots.control': ['admin'], 'logs.read': ['admin', 'editor'],
+  'sites.write': ['admin'], 'publish.write': ['admin'],       // WordPress connections (they hold a password) | everything that sends content to a public site
   'research.write': ['admin', 'editor'], 'sources.write': ['admin'], 'research.paid': ['admin'],       // news runs / scoring | adding addresses the server will fetch | calls that cost money
 };
 const can = (role, perm) => !PERMS[perm] || PERMS[perm].includes(role);
