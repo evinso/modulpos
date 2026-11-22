@@ -27,10 +27,10 @@ const BOTS = [
   { key: 'content_health', label: 'Content Health Bot', phase: 6, about: 'Eski makalelerin sağlığını düzenli kontrol eder.' },
   { key: 'internal_linking', label: 'Internal Linking Bot', phase: 6, about: 'İç bağlantı fırsatlarını bulur.' },
   { key: 'seo_performance', label: 'SEO Performance Bot', phase: 6, about: 'Search Console verisiyle performansı izler.' },
-  { key: 'reporting', label: 'Reporting Bot', phase: 7, about: 'Günlük/haftalık raporlar üretir.' },
+  { key: 'reporting', label: 'Reporting Bot', phase: 7, about: 'Her sabah önceki günün, pazartesileri önceki haftanın raporunu üretir ve bildirir.' },
 ];
 /** keys of bots whose code exists and runs. Six of them are scheduled by services/scheduler.js (the others run as part of the writer or on demand). */
-const IMPLEMENTED = new Set(['news_discovery', 'trend_analysis', 'niche_discovery', 'keyword_research', 'seo_competition', 'content_opportunity', 'article_writer', 'fact_checking', 'adsense_compliance', 'content_publishing', 'content_health', 'content_refresh', 'seo_performance', 'internal_linking']);
+const IMPLEMENTED = new Set(['news_discovery', 'trend_analysis', 'niche_discovery', 'keyword_research', 'seo_competition', 'content_opportunity', 'article_writer', 'fact_checking', 'adsense_compliance', 'content_publishing', 'content_health', 'content_refresh', 'seo_performance', 'internal_linking', 'reporting']);
 const MANUAL_NOTE = { trend_analysis: 'Haber verisinden anlık hesaplanır (ayrı çalıştırma gerekmez)', fact_checking: 'Makale yazılırken ve “Tüm kontroller” ile çalışır', adsense_compliance: 'Makale yazılırken ve “Tüm kontroller” ile çalışır' };
 
 async function state() { return (await settings.get('bots')).value; }

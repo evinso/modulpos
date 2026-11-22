@@ -353,3 +353,20 @@ test('Telegram over HTTP: the webhook needs Telegram\'s secret (no cookie, no CS
     const sav = await c.put('/settings/telegram', { value: { notify: { newArticle: false } } }); assert.equal(sav.status, 200); assert.deepEqual([sav.json.value.notify.newArticle, sav.json.value.notify.critical], [false, true]);
   } finally { TGS.useFetch(null); }
 });
+
+test('reports, all sites and the cost analysis over HTTP: everyone signed in reads, an editor makes a report, a viewer cannot; the report is stored and readable; wrong ids and kinds are refused', opts, async () => {
+  const c = await signedIn(); const editor = await signedIn('editor'); const viewer = await signedIn('viewer'); const pid = (await c.get('/projects')).json.projects[0].id;
+  assert.equal((await viewer.post('/reports', { projectId: pid, kind: 'daily' })).status, 403); assert.equal((await editor.post('/reports', { projectId: pid, kind: 'monthly' })).status, 400);
+  const made = await editor.post('/reports', { projectId: pid, kind: 'weekly' }); assert.deepEqual([made.status, made.json.kind, made.json.data.seo.sites, typeof made.json.body], [201, 'weekly', [], 'string']);
+  const list = (await viewer.get(`/reports?projectId=${pid}`)).json.reports; assert.deepEqual([list.length, list[0].kind, list[0].body], [1, 'weekly', undefined], 'the list is light');
+  const one = await viewer.get(`/reports/${list[0].id}`); assert.deepEqual([one.status, one.json.body.startsWith('🗓 Haftalık rapor')], [200, true]); assert.equal((await viewer.get('/reports/00000000-0000-0000-0000-000000000009')).status, 404); assert.equal((await viewer.get(`/reports?projectId=${pid}&kind=nope`)).status, 400);
+  assert.equal((await viewer.get(`/reports?projectId=${pid}&kind=daily`)).json.reports.length, 0);
+  const pf = (await viewer.get('/portfolio?days=28')).json; assert.deepEqual([pf.days, pf.projects.length, pf.totals.sites], [28, 1, 0]); assert.equal((await viewer.get('/portfolio?days=5')).status, 400);
+  const co = (await viewer.get('/costs/analysis')).json; assert.deepEqual([co.days, co.totals.knownUsd, co.recommendations.length, co.forecast], [30, 0, 0, null]);
+  assert.ok((await c.get('/audit?action=report')).json.items.length >= 1);
+  const TGS = require('../../src/content/services/telegram'); const { fakeTelegram, update, TOKEN } = require('./fakeTelegram'); const tg = fakeTelegram(); TGS.useFetch(tg.fetchImpl);
+  try {
+    await c.put('/providers/telegram', { secret: TOKEN, extra: { chatIds: '1001' } });
+    await TGS.handleUpdate(update(31, 1001, '/report weekly')); assert.match(tg.sent().pop().text, /🗓 Haftalık rapor/); await TGS.handleUpdate(update(32, 1001, '/report')); assert.match(tg.sent().pop().text, /Henüz günlük rapor yok/);
+  } finally { TGS.useFetch(null); }
+});

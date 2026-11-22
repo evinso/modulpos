@@ -223,6 +223,7 @@ async function recordUsage({ provider, endpoint = '', operation = '', requests =
     const row = (await db.query(`INSERT INTO api_usage (provider, endpoint, operation, requests, units, cost_micros, currency, result, project_id, meta)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`, [String(provider).slice(0, 40), String(endpoint).slice(0, 200), String(operation).slice(0, 100), Math.max(0, requests | 0), units === null ? null : Math.round(units), micros,
       String(currency).slice(0, 8), ['ok', 'error', 'blocked_budget'].includes(result) ? result : 'ok', projectId, JSON.stringify(meta || {})])).rows[0];
+    if (micros !== null && micros > 0 && result === 'ok') await require('./costs').warnIfNearBudget(String(provider).slice(0, 40));
     return row.id;
   } catch (err) { console.error('[Content] api usage could not be written:', err.message); return null; }
 }
@@ -294,4 +295,4 @@ async function usageReport({ days = 30, tz = env().defaultTimezone, now = new Da
   };
 }
 
-module.exports = { PROVIDERS, KEYS, list, get, save, secretFor, test, recordUsage, guard, usageReport };
+module.exports = { PROVIDERS, KEYS, list, get, save, secretFor, test, recordUsage, guard, usageReport, spent };

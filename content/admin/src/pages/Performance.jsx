@@ -5,6 +5,7 @@ import { RefreshCw } from 'lucide-react';
 import { api } from '../api.js';
 import { Alert, Async, Badge, Card, Empty, Field, NeedsProject, PageHead, Tabs, useAction, useApp, useLoad } from '../ui.jsx';
 import { dt, num, shortDay } from '../format.js';
+import Portfolio from './Portfolio.jsx';
 
 const PERIOD = [['7', 'Son 7 gün'], ['28', 'Son 28 gün'], ['90', 'Son 90 gün']];
 const KIND = { low_ctr: ['Düşük tıklama oranı', 'warn'], click_drop: ['Tıklama düşüşü', 'bad'], demand_drop: ['Genel düşüş', ''], new_keyword: ['Yeni anahtar kelime fırsatı', 'info'], changed_intent: ['Arama niyeti değişmiş', 'warn'], link_need: ['İç bağlantı ihtiyacı', 'info'] };
@@ -39,7 +40,7 @@ function Opportunities({ siteId }) {
 }
 
 /** SEO Performansı: what Search Console reports for a site, never estimated; no data is said to be no data */
-export default function Performance() {
+function SitePerformance() {
   const { projectId, can } = useApp();
   const sites = useLoad(() => (projectId ? api.get(`/sites?projectId=${projectId}`) : Promise.resolve(null)), [projectId]);
   const [siteId, setSiteId] = useState(''); const [days, setDays] = useState('28'); const [run, busy] = useAction();
@@ -114,5 +115,16 @@ export default function Performance() {
         </div>
       ))}</Async>
     </div>
+  );
+}
+
+/** SEO Performansı: one site in detail, or all sites side by side */
+export default function Performance() {
+  const [view, setView] = useState('site');
+  return (
+    <>
+      <div className="page" style={{ paddingBottom: 0 }}><Tabs tabs={[['site', 'Site ayrıntısı'], ['all', 'Tüm siteler']]} value={view} onChange={setView} /></div>
+      {view === 'site' ? <SitePerformance /> : <div className="page"><PageHead title="Tüm siteler">Bütün projelerin sitelerini yan yana görün: hangi site dikkat çekiyor, hangisinin sorunu var. Her sayı kayıtlı veriden gelir; Search Console bağlı olmayan site “0 tıklama” değil “veri yok” der.</PageHead><Portfolio /></div>}
+    </>
   );
 }
