@@ -37,7 +37,7 @@ globalThis.__dfs = []; globalThis.__serper = []; const { startFakeWp } = sreq('.
 // Google (Search Console): the service-account JWT is really signed by the panel's saved key and VERIFIED by this fake; numbers are relative to the day asked for
 const { makeKey, fakeGoogle } = sreq('./test/content/fakeGoogle.js'); globalThis.__gkey = makeKey();
 const { fakeTelegram, update: tgUpdate, TOKEN: TG_TOKEN } = sreq('./test/content/fakeTelegram.js'); globalThis.__tg = fakeTelegram(); globalThis.__tgUpdate = tgUpdate; globalThis.__tgToken = TG_TOKEN; globalThis.__srv.telegram = sreq('./src/content/services/telegram'); globalThis.__srv.telegram.useFetch(globalThis.__tg.fetchImpl);          // Telegram's Bot API (a fake in its documented shapes)
-globalThis.__srv.notifications = sreq('./src/content/services/notifications');
+globalThis.__srv.notifications = sreq('./src/content/services/notifications'); globalThis.__srv.comparisons = sreq('./src/content/services/comparisons');
 globalThis.__fakeSite = sreq('./test/content/fakeSite.js'); globalThis.__site = await globalThis.__fakeSite.start(globalThis.__fakeSite.FRESH);          // a public WordPress site (a brand new install) for the AdSense audit
 globalThis.__google = fakeGoogle({ publicKey: globalThis.__gkey.publicKey, email: globalThis.__gkey.json.client_email, sites: [{ siteUrl: 'sc-domain:e2e.example', permissionLevel: 'siteRestrictedUser' }], rows: (b) => {
   const days = []; for (let d = new Date(`${b.startDate}T00:00:00Z`); d <= new Date(`${b.endDate}T00:00:00Z`); d = new Date(d.getTime() + 86400000)) days.push(d.toISOString().slice(0, 10));

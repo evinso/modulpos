@@ -370,3 +370,31 @@ test('reports, all sites and the cost analysis over HTTP: everyone signed in rea
     await TGS.handleUpdate(update(31, 1001, '/report weekly')); assert.match(tg.sent().pop().text, /🗓 Haftalık rapor/); await TGS.handleUpdate(update(32, 1001, '/report')); assert.match(tg.sent().pop().text, /Henüz günlük rapor yok/);
   } finally { TGS.useFetch(null); }
 });
+
+test('the blind comparison over HTTP: only an admin starts, picks or discards; everyone else reads it blind (not one vendor key on the wire) until it is decided, then everything is shown', opts, async () => {
+  const CMP = require('../../src/content/services/comparisons'); const dbm = require('../../src/content/db');
+  const c = await signedIn(); const editor = await signedIn('editor'); const viewer = await signedIn('viewer'); const pid = (await c.get('/projects')).json.projects[0].id;
+  await c.put('/providers/anthropic', { secret: 'sk-ant-http-key-0123456789' });
+  await c.post('/news/sources', { projectId: pid, name: 'Chrome', kind: 'rss', url: `${feedBase}/chrome.xml`, sourceType: 'official', reliability: 90 });
+  await waitRun(c, (await c.post('/news/run', { projectId: pid })).json.run.id); await c.post('/opportunities/refresh', { projectId: pid });
+  await dbm.query(`UPDATE news_items SET url = '${feedBase}/page.html?i=' || id::text`); await dbm.query("UPDATE content_opportunities SET eligible = true, ineligible_reason = '' WHERE keyword_id IS NOT NULL");
+  const opp = (await c.get(`/opportunities?projectId=${pid}&eligible=1`)).json.items[0];
+  for (const who of [editor, viewer]) assert.equal((await who.post('/comparisons', { opportunityId: opp.id })).status, 403, 'it spends money: admin only');
+  const callsBefore = models.calls.length; const one = await c.post('/comparisons', { opportunityId: opp.id }); assert.equal(one.status, 409); assert.match(one.json.error, /en az 2 hazır/); assert.equal(models.calls.length, callsBefore, 'nothing was asked');
+  await c.put('/providers/openai', { secret: 'sk-openai-http-key-0123456789', extra: { model: 'gpt-test' } });
+  assert.equal((await c.post('/comparisons', { opportunityId: 'nope' })).status, 400); assert.equal((await c.post('/comparisons', { opportunityId: '00000000-0000-0000-0000-000000000009' })).status, 404); assert.equal((await c.post('/comparisons', { opportunityId: opp.id, providers: ['anthropic', 'bing'] })).status, 400);
+  const start = await c.post('/comparisons', { opportunityId: opp.id }); assert.deepEqual([start.status, start.json.askedCount], [202, 2]); await CMP.wait(start.json.id);
+  assert.equal((await c.post('/comparisons', { opportunityId: opp.id })).status, 409, 'one open comparison per idea');
+  const blind = await viewer.get(`/comparisons/${start.json.id}`); assert.deepEqual([blind.status, blind.json.status, blind.json.blind, blind.json.entries.length, blind.json.entries.map((e) => e.label)], [200, 'ready', true, 2, ['A', 'B']]);
+  const wire = JSON.stringify({ ...blind.json, idea: undefined, entries: blind.json.entries.map((e) => ({ ...e, fields: Object.keys(e.fields) })) }); assert.ok(!/anthropic|openai|claude|gpt|"model"|"provider"|costUsd|tokens|duration/i.test(wire), wire.slice(0, 300));
+  assert.ok(blind.json.entries.every((e) => e.fields.contentHtml.length > 200 && e.measured.words > 50), 'the drafts and the free numbers are there');
+  const lst = (await viewer.get(`/comparisons?projectId=${pid}`)).json.comparisons; assert.deepEqual([lst.length, lst[0].blind], [1, true]); assert.equal((await viewer.get('/comparisons/stats')).json.decisions, 0);
+  assert.equal((await editor.post(`/comparisons/${start.json.id}/pick`, { label: 'A' })).status, 403); assert.equal((await viewer.post(`/comparisons/${start.json.id}/discard`, {})).status, 403);
+  assert.equal((await c.post(`/comparisons/${start.json.id}/pick`, { label: 'Z' })).status, 400); assert.equal((await viewer.get('/comparisons/00000000-0000-0000-0000-000000000009')).status, 404); assert.equal((await viewer.get('/comparisons/not-a-uuid')).status, 404);
+  const pick = await c.post(`/comparisons/${start.json.id}/pick`, { label: 'b' }); assert.equal(pick.status, 200); assert.deepEqual([pick.json.comparison.status, pick.json.comparison.blind, pick.json.comparison.pickedLabel, pick.json.comparison.providers.slice().sort()], ['picked', false, 'B', ['anthropic', 'openai']]);
+  await CMP.wait(`pick:${start.json.id}`); const shown = await viewer.get(`/comparisons/${start.json.id}`); assert.ok(/anthropic|openai/.test(shown.text) && shown.json.entries.every((e) => e.provider && e.model), 'after the decision everything is shown');
+  assert.equal((await c.post(`/comparisons/${start.json.id}/discard`, {})).status, 409); assert.equal((await viewer.get('/comparisons/stats')).json.decisions, 1);
+  const art = (await viewer.get(`/articles/${pick.json.articleId}`)).json; assert.deepEqual([art.createdBy, art.generation.blindPick], ['ai', 'B']);
+  const aud = (await c.get('/audit?action=comparison')).json.items; assert.ok(aud.some((x) => x.action === 'comparison.start') && aud.some((x) => x.action === 'comparison.pick'));
+  assert.ok(!aud.find((x) => x.action === 'comparison.start').after || !/anthropic|openai/.test(JSON.stringify(aud.find((x) => x.action === 'comparison.start').after)), 'the audit of the start does not name the vendors');
+});

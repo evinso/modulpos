@@ -166,4 +166,4 @@ async function closeStale() {
   return a + b + c;
 }
 
-module.exports = { BOT, PROMPT_VERSION, SYSTEM, userPrompt, normalizeOutput, pickProviders, start, wait, closeStale };
+module.exports = { BOT, PROMPT_VERSION, SYSTEM, userPrompt, normalizeOutput, pickProviders, loadIdea, start, wait, closeStale };
