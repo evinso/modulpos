@@ -59,11 +59,11 @@ content/render.content.yaml   Panel için ayrı Render statik site şeması (ana
 | 6 Güncelleme ve performans | Refresh motoru, içerik sağlığı, güncelleme merkezi, sürüm karşılaştırma (6a); Search Console, SEO performansı, iç bağlantılar, aynı makalenin ikinci alan adına gitmesine karşı koruma (6b) | Yapıldı (sahte model / WordPress / Google ile test edildi; gerçek Search Console HİÇ kullanılmadı) |
 | 7 İleri modüller | **7a:** AdSense site denetimi, Telegram. **7b:** günlük/haftalık raporlar, çoklu site performansı, maliyet analizi ve %80 bütçe uyarısı | Yapıldı (sahte Telegram / sahte site / sahte Google ile test edildi; gerçek Telegram ve gerçek bir yapay zekâ çağrısı HİÇ yapılmadı) |
 
-Henüz geliştirilmemiş aşamaların rakamları panelde "0" değil **"Aşama N'de etkinleşir"** olarak işaretlenir; sahte veri üretilmez.
+Panelde “0” gerçek bir sayımdır (baktı, bulamadı). Bilinemeyen bir değer (örneğin Search Console'a bağlı olmayan bir sitenin organik trafiği) “0” yerine **nedeniyle birlikte** yazılır; sahte veri üretilmez. Menüdeki bütün sayfalar çalışır; “Aşama N'de gelecek” yazan hiçbir ekran kalmadı (2026-11-23'te tek tek tarandı).
 
 ## Aşama 2: haber ve SEO motoru (nasıl çalışır)
 
-Hepsi elle çalıştırılır (ilgili sayfadaki düğmeler); otomatik zamanlama ve görev kuyruğu Aşama 4'te gelecek.
+Elle çalıştırılabilir (ilgili sayfadaki düğmeler); ayrıca Aşama 4'teki zamanlayıcı ve görev kuyruğu bunları botlar olarak kendiliğinden de çalıştırır (aşağıya bakın).
 
 1. **Dünya Gündemi** (`/news`): projenin haber kaynakları (varsayılan 22: CISA, OpenAI, Google, Chrome sürümleri, Apple, Microsoft, Mozilla, Ars Technica, TechCrunch, Wired, BleepingComputer, Engadget, CNET, 9to5Mac ... ve 4 Google Haberler araması; GDELT kapalı gelir) okunur. Her haber için başlık, bağlantı, kaynak, tarih, ülke, dil ve **400 karakterlik özet** saklanır; **tam metin alınmaz**. Aynı bağlantı bir kez saklanır; aynı olayı anlatan farklı kaynaklar tek **olay**da toplanır (kaç kaynak haber yaptığı trend sinyalidir). Okuma güvenlidir (iç ağ adreslerine gidemez, 4 MB ve 15 sn sınırı, ETag ile koşullu istek, hata/istek sınırında geri çekilme). Kaynak eklemek yalnızca admin yetkisidir.
 2. **Niş filtresi**: önce kapsam dışı konular (spor, magazin, siyaset, genel finans, sağlık teşhis/tedavi ...) elenir; sonra her kategorinin **kendi anahtar kelime listesine** göre puanlanır. Güçlü terim (ürün/şirket adı, "data breach", "price increase" gibi) başlıkta 40 puan; genel kelimeler (ai, app, update, privacy ...) tek başına geçiremez. Yapay zekâ kullanılmaz: kural tabanlıdır, **sınır durumlarda hata yapar**; sonuç neden verildiğini yazar, siz olayı elle “ilgili/ilgisiz” yapabilirsiniz (kararınız bir daha ezilmez) ve kategori anahtar kelime listelerini Strateji sayfasından düzeltebilirsiniz. Varsayılan listeler 490 gerçek başlık üzerinde ayarlandı (sürüm 3): fırsat/indirim, yatırım/halka arz, finans yayıncıları, podcast/özet yayınları, beta ve Insider sürüm notları, burç, kurumsal altyapı açıkları (VMware, Cisco, PHP ...) ve dava haberleri kapsam dışıdır; telefon/kulaklık gibi donanım adları artık güçlü terim değildir (yazılım güncellemesi değilse niş dışı). Gerçek veride başlıkların yaklaşık %35'i nişe uygun çıkar. Kapsam dışı eşleşmesi **başlığa ve yayıncıya** bakar, özete bakmaz. Listeleri değiştirince **Dünya Gündemi → Yeniden değerlendir** son 14 günün haberlerini yeni kurallarla tekrar süzer (elle verdiğiniz kararlar korunur). Canlı proje önceki varsayılandan yükseltilirken yalnızca **sizin düzenlemediğiniz** listeler değişir.
@@ -168,9 +168,26 @@ Aynı fikir, aynı kaynak metin ve aynı yönergeyle **2-3 hazır yapay zekâ sa
 
 - **Ücretsiz plan**: ikinci bir sürekli açık servis ModulPOS'un 750 saatlik aylık hakkını tüketip ikisini de durdururdu. Bu yüzden ModulPOS API'sinin içinde çalışır. Zamanlayıcı/kuyruk (Aşama 4) API uyanıkken çalışır; GitHub keepalive (10 dk) bunu çoğu zaman uyanık tutar. Ağır/sürekli çalışma gerekirse ücretli ayrı servis önerilir.
 - **Ayrı Prisma istemcisi yok**: ModulPOS derlemesini değiştirmemek için `pg` ile SQL göçleri (`server/src/content/migrations/NNNN_*.sql`, sağlama toplamı kontrollü, uygulanmış göç asla düzenlenmez) kullanılır.
-- **Redis yok**: kuyruk PostgreSQL'de (`FOR UPDATE SKIP LOCKED`) olacak; yeniden başlatmada iş kaybolmaz.
+- **Redis yok**: kuyruk PostgreSQL'de (`FOR UPDATE SKIP LOCKED`) tutulur; yeniden başlatmada iş kaybolmaz.
 - **Limitler**: `limits.reserve()` tek işlemde (transaction) genel → proje → kategori satırlarını sabit sırayla kilitler; 40 eşzamanlı istek 10 boş yere tam 10 onay verir (test edildi). "Gün", `CONTENT_TIMEZONE` (varsayılan Europe/Istanbul) gününe göredir.
 - **Zorunlu kontroller** (doğruluk, AdSense riski, tekrar/kanibalizasyon) hiçbir ekran ve istekle kapatılamaz; makale "Yayına hazır" olmadan bunlar tamamlanmalıdır.
+
+## Yedekleme ve geri alma
+
+**Veritabanı (içerik platformunun kendi Supabase projesi, şema `content`).** Supabase'in ücretsiz planı otomatik yedek almaz. ModulPOS'un GitHub'daki günlük yedeği (`DEPLOY_RENDER.md` → Backups) yalnızca **ModulPOS'un** veritabanını kapsar; içerik platformunun veritabanı o yedeğin DIŞINDADIR. Elle yedek, ModulPOS'un aynı betiğiyle alınır (kendi bağlantı adresinizi `DIRECT_URL` olarak verin: Supabase → Connect → *Session pooler*, port 5432):
+
+```bash
+cd server
+DIRECT_URL='postgresql://…içerik projesinin session adresi…' node scripts/backup.js --schema content --dir ~/content-backups
+```
+
+Dosyalar kişisel veri ve **şifreli** API anahtarları içerir: özel bir yerde saklayın. Anahtarlar `CONTENT_ENCRYPTION_KEY` olmadan okunamaz; bu anahtarı da parola yöneticisinde ayrıca yedekleyin (yedek dosyasıyla aynı yerde tutmayın).
+
+Geri yükleme (yerel bir PostgreSQL'de deneme yapıldı: yedek → boş ama göçleri çalışmış bir veritabanına geri yükleme, makale/proje/kategori/sürüm sayıları aynı çıktı; gerçek Supabase'deki `content` şemasıyla HİÇ denenmedi, ilk yedeği alınca bir deneme geri yüklemesi yapmanız önerilir): boş bir Supabase projesi açın, `CONTENT_DATABASE_URL` olarak ona verip API'yi bir kez başlatın (SQL göçleri tabloları kurar), sonra `DIRECT_URL=<o projenin adresi> node scripts/restore.js ~/content-backups/<klasör> --target-schema content` (önce `--apply` olmadan: ne yapacağını yazar). `_migrations` ve `roles` göçlerden dolu geldiği için “SKIPPED” görünür; bu beklenendir.
+
+**Kod ve göçler.** Geri alma: Render panelinde servis → *Deploys* → önceki bir sürümü yeniden yayımlayın; göçler yalnızca **ekleyicidir** (uygulanmış bir göç hiç düzenlenmez), eski kod yeni tablolarla çalışmaya devam eder. İstisna: `0013_remove_dataforseo.sql` kayıtlı DataForSEO bilgilerini **siler** (geri gelmez; zaten kaldırıldı). İçerik platformunu ModulPOS'a dokunmadan hemen kapatmak için Render'da `CONTENT_DISABLED=1` yazıp yeniden başlatın: `/api/content` yalnızca `503 kapalı` döner, ModulPOS etkilenmez.
+
+**Makale düzeyinde geri alma.** Her kayıt yeni bir sürüm üretir; editörde “Sürümler” bölümünden eski bir sürüme dönülür (dönüş de yeni bir sürüm olur, hiçbir şey silinmez). Yapay zekâ güncellemeleri uygulanmadan önce Güncelleme Merkezi'nde alan alan farkıyla görülür; uygulanmış bir güncelleme aynı yoldan (eski sürüme dön) geri alınır. Geri dönüş yalnızca **arşivdeki** metni değiştirir: yayımlanmış bir makalede editördeki WordPress kartı “sitedeki sürüm eski” der ve eski metni sitedeki **aynı yazıya** (aynı yazı numarası, ikinci yazı oluşmaz) göndermek için kartın “Sitede güncelle / uygula” düğmesine sizin basmanız gerekir; geri alma kendiliğinden WordPress'e gitmez.
 
 ## Güvenlik özeti
 
@@ -180,7 +197,7 @@ bcrypt (maliyet 12) + şifre politikası · oturum belirteci yalnızca SHA-256 o
 
 ```bash
 cd server && npm test                       # ModulPOS + içerik birim testleri (veritabanı gerekmez)
-cd server && CONTENT_TEST_DATABASE_URL=postgresql://…/content_test npm run test:content   # 176 entegrasyon testi, veritabanını SİLER (adı _test ile bitmeli)
+cd server && CONTENT_TEST_DATABASE_URL=postgresql://…/content_test npm run test:content   # 178 entegrasyon testi, veritabanını SİLER (adı _test ile bitmeli)
 cd server && CONTENT_TEST_DATABASE_URL=postgresql://…/content_test node scripts/content-live-news.js   # GERÇEK ağdan varsayılan kaynakları okur (CI'da yok)
 cd content/admin && npm run build
 cd content/admin && CONTENT_TEST_DATABASE_URL=… npm run test:smoke   # panel jsdom'da GERÇEK API + PostgreSQL'e karşı (kaynak ekleme, tarama, anahtar kelime, SERP, fırsat dahil)

@@ -1,6 +1,6 @@
 import { LayoutDashboard, Target, Globe2, TrendingUp, Compass, Search, BarChart3, Lightbulb, Sparkles, Archive, CalendarDays, HeartPulse, RefreshCw, Link2, ShieldCheck, Server, Send, LineChart, Bot, Gauge, Coins, Bell, FileText, History, Settings } from 'lucide-react';
 
-/** The side menu in the order of the specification. `to` = a working page; `phase` = the development phase that builds the page (shown dimmed, not clickable). */
+/** The side menu in the order of the specification. `to` = the page it opens. */
 export const MENU = [
   { label: 'Dashboard', to: '/', icon: LayoutDashboard, end: true },
   { label: 'Site Nişi ve İçerik Stratejisi', to: '/strategy', icon: Target },

@@ -10,18 +10,17 @@ const bots = require('./bots');
 const projects = require('./projects');
 
 /**
- * The dashboard. REAL numbers only: a figure whose source is built in a later phase (news found today, keywords, organic traffic ...) is reported as
- * { available: false, phase: N } and the screen says so; it is never shown as 0 (which would look like "measured, nothing found").
+ * The dashboard. REAL numbers only: a count of 0 is a real 0 ("looked, found nothing"); a figure that cannot be known (organic traffic of a site that
+ * is not connected to Search Console) says so in words and is never shown as 0.
  */
-const later = (key, label, phase) => ({ key, label, value: null, available: false, phase });
 const bucket = (rows, edges, labels) => labels.map((label, i) => ({ label, n: rows.filter((v) => v >= edges[i] && v < (edges[i + 1] === undefined ? Infinity : edges[i + 1])).length }));
 
 async function build({ projectId = null, days = 30, tz = env().defaultTimezone, now = new Date() } = {}) {
   const pid = projectId ? V.uuid(projectId, 'Proje') : null;
   if (pid) await projects.getProject(pid);
   const d = Math.min(90, Math.max(7, days | 0 || 30));
-  const [c, st, usage, notes, botList, projectList, research] = await Promise.all([
-    articles.counts(pid, { tz, days: d }), limits.status({ projectId: pid, tz, now }), providers.usageReport({ days: d, tz, now, limit: 1 }), notifications.list({ unreadOnly: true, limit: 5 }), bots.list(), projects.listProjects(), researchNumbers(pid, tz, now),
+  const [c, st, usage, notes, botList, projectList, research, organic] = await Promise.all([
+    articles.counts(pid, { tz, days: d }), limits.status({ projectId: pid, tz, now }), providers.usageReport({ days: d, tz, now, limit: 1 }), notifications.list({ unreadOnly: true, limit: 5 }), bots.list(), projects.listProjects(), researchNumbers(pid, tz, now), organicTraffic(pid, d, now),
   ]);
   const w = pid ? 'WHERE project_id = $1' : ''; const p = pid ? [pid] : [];
   const ai = (await db.query(`SELECT count(*)::int n FROM articles ${w ? `${w} AND` : 'WHERE'} created_by = 'ai'`, p)).rows[0].n;
@@ -54,13 +53,35 @@ async function build({ projectId = null, days = 30, tz = env().defaultTimezone, 
       categoryShare: c.categories,
       articleUpdates: fill(updates.map((x) => ({ day: day(x.day), value: x.n })), d, tz, now),
       apiCosts: fill(sumByDay(usage.daily), d, tz, now),
-      seoOpportunities: { available: true, buckets: research.scoreBuckets, eligible: research.eligible, total: research.opportunities }, searchVolume: { available: true, buckets: research.volumeBuckets, withData: research.keywordsWithData }, organicTraffic: { available: false, phase: 6 },
+      seoOpportunities: { available: true, buckets: research.scoreBuckets, eligible: research.eligible, total: research.opportunities }, searchVolume: { available: true, buckets: research.volumeBuckets, withData: research.keywordsWithData }, organicTraffic: organic,
     },
     limitsToday: today, notifications: { unread: notes.unread, latest: notes.items }, botsPaused: botList.paused,
     empty: c.total === 0,
   };
 }
 
+
+/**
+ * Organic traffic = the Search Console numbers already STORED by `searchconsole.sync` (clicks and impressions per day, summed over the sites of the project).
+ * Search Console reports 2-3 days late and leaves out days without any impression, so the chart ends at the newest stored day and a day without a row
+ * between two stored days counts as 0 (Google's silence there means no impressions). No connected site / nothing fetched yet = `available:false` with the reason.
+ */
+async function organicTraffic(pid, d, now) {
+  const sites = (await db.query(`SELECT id, gsc_property, gsc_synced_at FROM wp_sites ${pid ? 'WHERE project_id = $1' : ''}`, pid ? [pid] : [])).rows;
+  const fetched = sites.filter((x) => x.gsc_property && x.gsc_synced_at);
+  const none = (note) => ({ available: false, sites: sites.length, connectedSites: fetched.length, note });
+  if (!sites.length) return none('Henüz bağlı bir web sitesi yok.');
+  if (!fetched.length) return none(sites.some((x) => x.gsc_property) ? 'Search Console bağlantısı kuruldu ama veri henüz çekilmedi (Web Sitelerim → “Search Console verisini çek”).' : 'Search Console bağlı değil. Web Sitelerim sayfasında sitenin Search Console adresini yazıp veriyi çekin.');
+  const rows = (await db.query(`SELECT g.day::text AS day, sum(g.clicks)::int AS clicks, sum(g.impressions)::int AS impressions FROM gsc_daily g
+    WHERE g.site_id = ANY($1::uuid[]) AND g.day > $2::date - $3::int GROUP BY g.day ORDER BY g.day`, [fetched.map((x) => x.id), now.toISOString().slice(0, 10), d])).rows;
+  if (!rows.length) return none('Search Console henüz bu siteler için veri döndürmedi (yeni siteler ilk günlerde veri üretmez).');
+  const by = new Map(rows.map((r) => [r.day, r])); const series = [];
+  for (let t = Date.parse(`${rows[0].day}T00:00:00Z`); t <= Date.parse(`${rows[rows.length - 1].day}T00:00:00Z`); t += 86400000) {
+    const k = new Date(t).toISOString().slice(0, 10); const r = by.get(k); series.push({ day: k, clicks: r ? r.clicks : 0, impressions: r ? r.impressions : 0 });
+  }
+  return { available: true, sites: sites.length, connectedSites: fetched.length, through: rows[rows.length - 1].day, from: rows[0].day, series,
+    clicks: series.reduce((a, r) => a + r.clicks, 0), impressions: series.reduce((a, r) => a + r.impressions, 0), note: 'Search Console 2-3 gün geriden gelir; grafik elde olan son günde biter.' };
+}
 
 /** Real counts of the research modules (news, keywords, SERP, opportunities); a project filter narrows them. */
 async function researchNumbers(pid, tz, now) {

@@ -198,14 +198,14 @@ test('articles through HTTP: create, edit with version check, status rules, expo
   assert.equal((await c.get(`/articles/${id}`)).status, 404);
 });
 
-test('dashboard: real numbers, figures of later phases marked unavailable instead of 0, project filter', opts, async () => {
+test('dashboard: real numbers, organic traffic says why it has no data instead of showing 0, project filter', opts, async () => {
   const c = await signedIn();
   const p = (await c.get('/projects')).json.projects[0];
   await c.post('/articles', { projectId: p.id, h1: 'Dash one', contentHtml: '<p>a</p>' });
   const d = (await c.get(`/dashboard?projectId=${p.id}&days=14`)).json;
   const m = Object.fromEntries(d.metrics.map((x) => [x.key, x]));
   assert.equal(m.awaiting.value, 1); assert.deepEqual([m.news_found.available, m.news_found.value, m.keywords.value, m.seo_analyzed.value], [true, 0, 0, 0], 'phase 2 numbers are real counts now (nothing researched yet = a real 0)');
-  assert.deepEqual(d.metrics.filter((x) => !x.available).length, 0); assert.equal(d.charts.organicTraffic.available, false); assert.equal(d.charts.organicTraffic.phase, 6);
+  assert.deepEqual(d.metrics.filter((x) => !x.available).length, 0); assert.equal(d.charts.organicTraffic.available, false); assert.match(d.charts.organicTraffic.note, /Henüz bağlı bir web sitesi yok/); assert.equal('phase' in d.charts.organicTraffic, false, 'no phase wording: the reason is stated instead');
   assert.equal(m.cost_today.value, 0); assert.equal(m.active_bots.value, 15); assert.match(m.active_bots.note, /15’i hazır; 7’i otomatik çalışıyor/);
   assert.equal(d.charts.dailyProduction.length, 14); assert.equal(d.charts.dailyProduction.at(-1).value, 1); assert.equal(d.charts.categoryShare.length, 5);
   assert.equal(d.empty, false); assert.equal(d.charts.seoOpportunities.available, true); assert.equal(d.charts.searchVolume.buckets.length, 4);

@@ -100,10 +100,9 @@ function Shell() {
   return (
     <div className="shell">
       <aside className={`side ${open ? 'open' : ''}`} aria-label="Ana menü">
-        <div className="brand"><div className="logo">M</div><div>AI Content Intelligence<small>ModulPOS · Aşama 2</small></div></div>
+        <div className="brand"><div className="logo">M</div><div>AI Content Intelligence<small>ModulPOS</small></div></div>
         {MENU.map((m) => {
           const Icon = m.icon;
-          if (!m.to) return <div key={m.label} className="nav disabled" title={`Bu sayfa Aşama ${m.phase}’te geliştirilecek`} aria-disabled="true"><Icon size={17} />{m.label}<span className="tag">Aşama {m.phase}</span></div>;
           return (
             <NavLink key={m.label} to={m.to} end={m.end} className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}>
               <Icon size={17} />{m.label}{m.badge === 'unread' && unread > 0 && <span className="tag" style={{ color: 'var(--bad)' }}>{unread}</span>}

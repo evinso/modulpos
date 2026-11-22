@@ -18,7 +18,7 @@ export default function Notifications() {
   const readAll = async () => { if (await run(() => api.post('/notifications/read-all'), 'Hepsi okundu işaretlendi')) { st.reload(); refreshUnread(); } };
   return (
     <div className="page">
-      <PageHead title="Bildirimler" actions={<button className="btn" disabled={busy} onClick={readAll}><CheckCheck size={15} />Hepsini okundu yap</button>}>Bütçe dolması, hazır makale, başarısız görev gibi olaylar burada toplanır. Telegram’a iletme Aşama 7’de eklenecek.</PageHead>
+      <PageHead title="Bildirimler" actions={<button className="btn" disabled={busy} onClick={readAll}><CheckCheck size={15} />Hepsini okundu yap</button>}>Bütçe dolması, hazır makale, başarısız görev gibi olaylar burada toplanır. Telegram’a iletmek için aşağıdaki Telegram kartından botu bağlayın.</PageHead>
       {can('providers.write') && <TelegramCard />}
       <Tabs tabs={[['unread', 'Okunmamış'], ['all', 'Tümü']]} value={tab} onChange={(t) => { setTab(t); setPage(1); }} />
       <Async state={st}>{(d) => (d.total === 0 ? <Card><Empty title={tab === 'unread' ? 'Okunmamış bildirim yok' : 'Henüz bildirim yok'} /></Card> : (

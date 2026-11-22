@@ -48,9 +48,9 @@ await click(btn('Giriş yap'), 500);
 await wait(400);
 ok('after login the dashboard is shown (menu, project selector, theme)', !!nav('Makale Arşivi') && txt().includes('Onay bekleyen') && !!$('select[aria-label="Proje"]'));
 ok('the default project is selected: Global Tech Content Site, not connected', $('select[aria-label="Proje"]').value !== '' && txt().includes('Araştırma ve Arşiv Modu'));
-ok('every dashboard figure is a real count now (a 0 is a real 0); only organic traffic waits for its phase', $$('.metric.later').length === 0 && txt().includes('Organik trafik') && txt().includes('Aşama 6’te etkinleşir') && txt().includes('Bugün bulunan haber'));
+ok('every dashboard figure is a real count now (a 0 is a real 0); organic traffic says WHY it has no data (no site yet) and no card talks about a later phase', $$('.metric.later').length === 0 && txt().includes('Organik trafik') && txt().includes('Henüz bağlı bir web sitesi yok') && !/Aşama \d/.test(txt()) && txt().includes('Bugün bulunan haber'));
 ok('no articles yet: an honest empty state, not fake charts', txt().includes('Henüz makale yok'));
-ok('menu: every page is a link now, nothing is dimmed any more (SEO Performansı, İç Bağlantılar and AdSense Denetimi included)', $$('.nav.disabled').length === 0 && !!nav('AdSense Denetimi') && !!nav('SEO Performansı') && !!nav('İç Bağlantılar') && $$('.nav.disabled').every((n) => n.tagName === 'DIV') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
+ok('menu: every page is a link now, nothing is dimmed any more (SEO Performansı, İç Bağlantılar and AdSense Denetimi included)', $$('.side .nav').every((n) => n.tagName === 'A') && !/Aşama \d/.test($('.side').textContent) && !!nav('AdSense Denetimi') && !!nav('SEO Performansı') && !!nav('İç Bağlantılar') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
 
 // ── strategy ───────────────────────────────────────────────────────────────────────────────────────
 await click(nav('Site Nişi ve İçerik Stratejisi'), 400);
@@ -434,6 +434,9 @@ ok('the page of our own article is shown by the article title (a link), the fore
 await click(tab('Son 7 gün'), 900);
 ok('the 7-day view recomputes from the stored days (7 x 5 = 35 clicks)', txt().includes('Son 7 gün') && txt().includes('önceki 35'));
 ok('the opportunities card says what it is: signs only, and that seasonality cannot be judged', txt().includes('Fırsatlar ve işaretler') && txt().includes('Mevsimsellik'));
+await click(nav('Dashboard'), 1200);
+const gscClicks = (await q1("SELECT sum(clicks)::int n FROM gsc_daily WHERE day > (now() AT TIME ZONE 'UTC')::date - 30")).n;
+ok('the dashboard shows organic traffic from the stored Search Console days: a chart, the totals of the shown period, the newest day, and no phase wording', gscClicks > 0 && txt().includes(`${gscClicks.toLocaleString('tr-TR')} tıklama`) && txt().includes('Search Console 2-3 gün geriden gelir') && !txt().includes('Henüz bağlı bir web sitesi yok') && !/Aşama \d/.test(txt()));
 await click(nav('İçerik Sağlığı'), 900);
 ok('the health page now shows the clicks of each article (and no longer says "not connected")', txt().includes('Tıklama (28 gün)') && txt().includes('Tıklaması belirgin düşen') && !txt().includes('Search Console bağlı değil'));
 

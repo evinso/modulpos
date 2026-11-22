@@ -59,7 +59,7 @@ export default function Limits() {
         return (
           <>
             <Alert kind={paused ? 'warn' : 'ok'} title={paused ? 'Botlar duraklatıldı' : 'Botlar çalışabilir durumda'}>
-              <div className="row between"><span>{paused ? `Duraklatan: ${d.bots.pausedBy || '—'}. Otomatik işler çalışmaz.` : 'Henüz çalışan bot yok (botlar Aşama 2–4’te eklenir); bu anahtar şimdiden limit sistemine bağlıdır.'}</span>
+              <div className="row between"><span>{paused ? `Duraklatan: ${d.bots.pausedBy || '—'}. Otomatik işler çalışmaz.` : 'Botlar çalışmaya hazır. Bu anahtar kapatılırsa otomatik işler ve limit gerektiren yeni işler durur.'}</span>
                 {can('bots.control') && (paused ? <button className="btn sm primary" disabled={busy} onClick={() => pause(false)}><PlayCircle size={15} />Devam ettir</button> : <button className="btn sm" disabled={busy} onClick={() => pause(true)}><PauseCircle size={15} />Botları duraklat</button>)}</div>
             </Alert>
             <Card title={`Genel günlük limitler · ${d.day}`} actions={canEdit && <button className="btn sm" disabled={busy} onClick={reset}><RotateCcw size={14} />Varsayılana dön</button>}>
