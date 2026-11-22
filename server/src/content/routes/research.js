@@ -1,6 +1,7 @@
 const V = require('../lib/validate');
 const { HttpError, bad } = require('../lib/http');
 const projects = require('../services/projects');
+const articles = require('../services/articles');
 const news = require('../services/news');
 const trends = require('../services/trends');
 const keywords = require('../services/keywords');
@@ -10,6 +11,10 @@ const niche = require('../services/nicheDiscovery');
 const runs = require('../services/runs');
 const providers = require('../services/providers');
 const settings = require('../services/settings');
+const llm = require('../services/llm');
+const writer = require('../services/writer');
+const checks = require('../services/checks');
+const sourcesSvc = require('../services/sources');
 
 /**
  * Phase 2 endpoints: news sources and discovery, events, trends, niche suggestions, keywords, SERP, opportunities.
@@ -100,6 +105,32 @@ module.exports = function research(r, { wrap, mw, A, uid }) {
     const out = await serp.analyze(o.keywordId, { force: req.body.force === true, userId: uid(req) });
     await A(req, 'serp.analyze', 'opportunity', o.id, null, { keyword: o.keyword, cached: out.cached, competition: out.analysis && out.analysis.competition });
     res.json({ ...out, opportunity: await opportunities.rescore(o.id), disclaimer: serp.DISCLAIMER });
+  }));
+
+  // ── AI writing (phase 3): the writer, the checks ───────────────────────────────────────────────────────────
+  // which vendors are ready and which one would write / check (the pickers of the panel)
+  r.get('/writer/status', wrap(async (req, res) => {
+    const projectId = req.query.projectId ? V.uuid(req.query.projectId, 'Proje') : null;
+    const cfg = (await settings.get('quality', projectId)).value; const vendors = await llm.available();
+    let picks = null; try { picks = await writer.pickProviders(cfg, null); } catch { picks = null; }
+    res.json({ vendors, writerProvider: cfg.writerProvider, checkerProvider: cfg.checkerProvider, picks, ready: !!picks });
+  }));
+  // writes one article for an eligible idea (background run; costs money -> admin only)
+  r.post('/opportunities/:oid/write', PAID, wrap(async (req, res) => {
+    const out = await writer.start(req.params.oid, { userId: uid(req), provider: req.body.provider ? V.oneOf(req.body.provider, 'Sağlayıcı', llm.VENDORS) : null });
+    await A(req, 'article.write.start', 'opportunity', req.params.oid, null, { runId: out.run.id, writer: out.writer, checker: out.checker });
+    res.status(202).json(out);
+  }));
+  r.get('/articles/:id/checks', wrap(async (req, res) => res.json(await checks.latest(req.params.id))));
+  r.get('/articles/:id/source-list', wrap(async (req, res) => res.json({ sources: (await sourcesSvc.forArticle(req.params.id)).map((s) => ({ n: s.n, url: s.url, title: s.title, publisher: s.publisher, reliability: s.reliability, readOk: s.readOk, preview: String(s.text || '').slice(0, 300) })) })));
+  r.post('/articles/:id/checks/free', mw.need('articles.write'), wrap(async (req, res) => {
+    const out = await checks.runAll(req.params.id, { mode: 'free' }); await A(req, 'article.checks.free', 'article', req.params.id, null, { status: out.rules.status }); res.json({ ...out, latest: await checks.latest(req.params.id) });
+  }));
+  r.post('/articles/:id/checks/run', PAID, wrap(async (req, res) => {
+    const art = await articles.get(req.params.id); const cfg = (await settings.get('quality', art.projectId)).value; const picks = await writer.pickProviders(cfg, null);
+    const out = await checks.runAll(req.params.id, { mode: 'all', checkerProvider: picks.checker });
+    await A(req, 'article.checks.run', 'article', req.params.id, null, { checker: picks.checker, errors: out.errors.length, quality: out.applied.qualityScore, adsense: out.applied.adsenseRisk });
+    res.json({ ...out, latest: await checks.latest(req.params.id) });
   }));
 
   // the data source status the research pages show as a banner: which SERP source the project uses and whether each source is ready

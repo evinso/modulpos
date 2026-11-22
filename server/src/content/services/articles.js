@@ -5,6 +5,7 @@ const { toCsv } = require('../lib/csv');
 const { HttpError, bad } = require('../lib/http');
 const settings = require('./settings');
 const projects = require('./projects');
+const checks = require('./checks');
 
 /**
  * The article archive: articles live in the content database (never on a public site) until they are published to WordPress (phase 5).
@@ -40,7 +41,7 @@ function row(r, { withContent = true } = {}) {
     id: r.id, projectId: r.project_id, categoryId: r.category_id, categoryName: r.category_name, status: r.status, statusLabel: STATUS_LABELS[r.status], articleType: r.article_type, seoTitle: r.seo_title, h1: r.h1, slug: r.slug,
     metaDescription: r.meta_description, focusKeyword: r.focus_keyword, secondaryKeywords: r.secondary_keywords, excerpt: r.excerpt, faq: r.faq, tags: r.tags, targetCountry: r.target_country, language: r.language,
     qualityScore: r.quality_score, adsenseRisk: r.adsense_risk, factCheckedAt: r.fact_checked_at, lastUpdatedAt: r.last_updated_at, featuredImageUrl: r.featured_image_url, wordCount: r.word_count,
-    currentVersion: r.current_version, manualEdited: r.manual_edited, createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, archivedAt: r.archived_at,
+    currentVersion: r.current_version, generation: r.generation, manualEdited: r.manual_edited, createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, archivedAt: r.archived_at,
   };
   if (withContent) out.contentHtml = r.content_html;
   return out;
@@ -142,6 +143,30 @@ async function create(body, { userId = null } = {}) {
   });
 }
 
+/**
+ * An article written by a model (phase 3). The fields go through the same validation and HTML sanitiser as a typed article; the article starts in "fact_checking"
+ * (the checks run next), is marked created_by 'ai' and NOT manual_edited, and carries who wrote it (`generation`) and the sources it was written from.
+ * @param body the model's fields  @param o { projectId, categoryId, generation, sources: [{ url, title, publisher, text, reliability, readOk }] }
+ */
+async function createFromAi(body, { projectId, categoryId = null, generation = {}, sources: srcs = [] }) {
+  await projects.getProject(projectId);
+  const f = fields({ ...body, categoryId: categoryId || undefined }, { create: true });
+  return db.tx(async (c) => {
+    await checkCategory(c, projectId, f.categoryId);
+    const slug = await freeSlug(c, projectId, f.slug || H.slugify(f.h1));
+    const html = f.contentHtml || '';
+    const r = (await c.query(`INSERT INTO articles (project_id, category_id, status, article_type, seo_title, h1, slug, meta_description, focus_keyword, secondary_keywords, excerpt, content_html, faq, tags,
+        target_country, language, word_count, manual_edited, created_by, generation)
+      VALUES ($1,$2,'fact_checking',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,false,'ai',$17) RETURNING *`,
+    [projectId, f.categoryId || null, f.articleType, f.seoTitle || f.h1, f.h1, slug, f.metaDescription || '', f.focusKeyword || '', f.secondaryKeywords || [], f.excerpt || '', html, JSON.stringify(f.faq || []), f.tags || [],
+      f.targetCountry || 'US', f.language || 'en-US', H.wordCount(html), JSON.stringify(generation || {})])).rows[0];
+    await c.query('INSERT INTO article_versions (article_id, version, snapshot, reason, created_by) VALUES ($1,1,$2,$3,$4)', [r.id, JSON.stringify(snapshotOf(r)), 'Yapay zekâ ilk taslağı', 'ai']);
+    for (const s2 of srcs) await c.query('INSERT INTO article_sources (article_id, url, title, publisher, excerpt, reliability, read_ok, note, position) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+      [r.id, s2.url, String(s2.title || '').slice(0, 300), String(s2.publisher || '').slice(0, 150), String(s2.text || '').slice(0, 5000), Number.isFinite(s2.reliability) ? s2.reliability : null, !!s2.readOk, s2.readOk ? '' : 'Sayfa okunamadı: yalnızca başlık ve özet', s2.n || 0]);
+    return row(r);
+  });
+}
+
 async function loadRow(id, c = db) {
   const r = (await c.query('SELECT a.*, c.name_en AS category_name FROM articles a LEFT JOIN categories c ON c.id = a.category_id WHERE a.id = $1', [V.uuid(id, 'Makale')])).rows[0];
   if (!r) throw new HttpError(404, 'Makale bulunamadı');
@@ -209,7 +234,10 @@ async function update(id, body, { userId = null, by = 'manual' } = {}) {
     if (changed.length) {
       sets.push('current_version = current_version + 1');
       if (by === 'manual') sets.push('manual_edited = true');
-      if (changed.includes('contentHtml') || changed.includes('h1')) sets.push('fact_checked_at = NULL');        // changed facts must be checked again
+      if (changed.includes('contentHtml') || changed.includes('h1')) {
+        sets.push('fact_checked_at = NULL');                                                                          // changed facts must be checked again
+        if (cur.created_by === 'ai') { sets.push('quality_score = NULL'); if (!changed.includes('adsenseRisk')) sets.push('adsense_risk = NULL'); }   // so are the AdSense class and the quality score of a written article (unless the person sets the class in the same save)
+      }
     }
     if (wantsMeaningful) sets.push('last_updated_at = now()');
     vals.push(cur.id);
@@ -286,11 +314,17 @@ async function readiness(id) {
   if (!a.focus_keyword.trim()) add('no_focus', 'Odak anahtar kelime yok', false);
   if (!a.category_id) add('no_category', 'Kategori seçilmedi');
   if (a.word_count < MIN_WORDS) add('too_short', `İçerik ${a.word_count} kelime; en az ${MIN_WORDS} gerekli (ince içerik AdSense riskidir)`);
-  if (!a.fact_checked_at) add('not_fact_checked', 'Doğruluk kontrolü yapılmadı (zorunlu)');
+  if (!a.fact_checked_at) {
+    const fc = await checks.latestOf(a.id, 'fact', a.current_version);
+    if (fc && fc.status === 'error') add('fact_check_error', `Doğruluk kontrolü çalıştırılamadı: ${String(fc.result.error || '').slice(0, 160)}`);
+    else if (fc) add('fact_check_failed', `Doğruluk kontrolü sorun buldu: ${fc.result.counts.majorProblems} önemli iddia kaynaklarla doğrulanamadı ya da çelişiyor (editördeki “Kontroller”e bakın; yayımlanamaz)`);
+    else add('not_fact_checked', 'Doğruluk kontrolü yapılmadı (zorunlu)');
+  }
   if (!a.adsense_risk) add('no_adsense', 'AdSense risk kontrolü yapılmadı (zorunlu)');
   else if (a.adsense_risk !== 'low') add('adsense_risk', a.adsense_risk === 'blocked' ? 'AdSense açısından yayınlanamaz olarak işaretli' : 'AdSense riski “inceleme gerekli” olarak işaretli; çözüp “düşük” yapın');
   const nSources = (await db.query('SELECT count(*)::int n FROM article_sources WHERE article_id = $1', [a.id])).rows[0].n;
   if (nSources === 0) add('no_sources', NEWS_TYPES.has(a.article_type) ? 'Haber/güncelleme türü makalede kaynak gerekli' : 'Kaynak eklenmedi', NEWS_TYPES.has(a.article_type));
+  if (a.created_by === 'ai' && a.quality_score === null) add('no_quality', 'Kalite puanı verilmedi (kontrollerin hepsi çalışmadı); editörde “Kontrolleri çalıştır”');
   if (a.quality_score !== null && a.quality_score < q.minScore) add('low_quality', `Kalite puanı ${a.quality_score} (en az ${q.minScore} gerekli)`);
   const dup = (await db.query(`SELECT id, h1 FROM articles WHERE project_id = $1 AND id <> $2 AND status NOT IN ('archived', 'failed')
     AND ((focus_keyword <> '' AND focus_keyword = $3) OR lower(h1) = lower($4)) LIMIT 3`, [a.project_id, a.id, a.focus_keyword, a.h1])).rows;
@@ -387,4 +421,4 @@ async function counts(projectId = null, { tz = 'Europe/Istanbul', days = 30 } = 
     adsenseRisky: risk.risky, adsenseUnchecked: risk.unchecked, daily: daily.map((d) => ({ day: d.day instanceof Date ? d.day.toISOString().slice(0, 10) : String(d.day), count: d.n })) };
 }
 
-module.exports = { STATUSES, STATUS_LABELS, TYPES, TRANSITIONS, MIN_WORDS, create, get, list, update, listVersions, getVersion, restoreVersion, setSources, markFactChecked, readiness, setStatus, remove, bulk, exportArticles, counts };
+module.exports = { STATUSES, STATUS_LABELS, TYPES, TRANSITIONS, MIN_WORDS, create, createFromAi, get, list, update, listVersions, getVersion, restoreVersion, setSources, markFactChecked, readiness, setStatus, remove, bulk, exportArticles, counts };

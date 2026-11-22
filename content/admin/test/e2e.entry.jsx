@@ -50,7 +50,7 @@ ok('after login the dashboard is shown (menu, project selector, theme)', !!nav('
 ok('the default project is selected: Global Tech Content Site, not connected', $('select[aria-label="Proje"]').value !== '' && txt().includes('Araştırma ve Arşiv Modu'));
 ok('every dashboard figure is a real count now (a 0 is a real 0); only organic traffic waits for its phase', $$('.metric.later').length === 0 && txt().includes('Organik trafik') && txt().includes('Aşama 6’te etkinleşir') && txt().includes('Bugün bulunan haber'));
 ok('no articles yet: an honest empty state, not fake charts', txt().includes('Henüz makale yok'));
-ok('menu: the 8 pages of later phases are dimmed and not clickable, the research pages are links now', $$('.nav.disabled').length === 8 && $$('.nav.disabled').every((n) => n.tagName === 'DIV') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
+ok('menu: the 7 pages of later phases are dimmed and not clickable, the research and writing pages are links now', $$('.nav.disabled').length === 7 && $$('.nav.disabled').every((n) => n.tagName === 'DIV') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
 
 // ── strategy ───────────────────────────────────────────────────────────────────────────────────────
 await click(nav('Site Nişi ve İçerik Stratejisi'), 400);
@@ -133,7 +133,7 @@ ok('cost tiles say "Bilinmiyor" never an invented number when empty (no calls ye
 
 // ── bots, settings, logs, notifications ───────────────────────────────────────────────────────────
 await click(nav('Bot Yönetimi'), 500);
-ok('15 bots: the 6 of phase 2 are ready (by hand) and show real last runs, the rest say which phase builds them', $$('tbody tr').length === 15 && txt().includes('6 / 15 bot hazır') && txt().includes('Aşama 3’te gelecek') && txt().includes('Elle çalıştırılır') && txt().includes('zamanlayıcı yok'));
+ok('15 bots: the 9 of phases 2 and 3 are ready (by hand) and show real last runs, the rest say which phase builds them', $$('tbody tr').length === 15 && txt().includes('9 / 15 bot hazır') && /Aşama \d’te gelecek/.test(txt()) && txt().includes('Elle çalıştırılır') && txt().includes('zamanlayıcı yok'));
 await click(nav('Sistem Ayarları'), 500);
 ok('automation settings load; the three mandatory checks are locked', txt().includes('Kalite ve zorunlu kontroller') && $$('.badge').filter((b) => b.textContent === 'kilitli').length === 3);
 const scoring = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('Fırsat puanlama'));
@@ -271,6 +271,44 @@ ok('the dry run lists it as a partial score chosen with the person\'s approval',
 await click(btn('Kapat', $('.modal')) || aria('Kapat'), 300);
 await click(nav('SEO Rekabet Analizi'), 600);
 ok('the SERP page shows the source of each analysis and says the cost is a credit amount, not a made-up dollar figure', txt().includes('Serper.dev') && txt().includes('Serper kredisi (tutar bilinmiyor)'));
+
+// ── PHASE 3: the AI writer and the mandatory checks (the model vendors are a fake that answers in their documented shapes) ──────────────────
+await S.db.query("UPDATE news_items SET url = $1 || '/page.html?i=' || id::text", [globalThis.__feedBase]);
+await click(nav('API Kullanımı ve Maliyetler'), 500);
+const claudeCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('Anthropic'));
+ok('the Claude card exists, says its model defaults and that prices are optional', !!claudeCard && claudeCard.textContent.includes('claude-sonnet-5-5') && claudeCard.textContent.includes('isteğe bağlı'));
+await setVal(input('API anahtarı', claudeCard), 'sk-ant-e2e-key-0123456789'); await setVal(input('Giriş fiyatı', claudeCard), '3'); await setVal(input('Çıkış fiyatı', claudeCard), '15'); await click(btn('Kaydet', claudeCard), 700);
+ok('the Claude key is saved encrypted (only the end shown) with its prices', txt().includes('Kayıtlı · …6789') && !document.body.innerHTML.includes('sk-ant-e2e-key') && (await q1("SELECT extra->>'inputPricePerM' AS p FROM api_providers WHERE key = 'anthropic'")).p === '3');
+
+await click(nav('İçerik Fırsatları'), 700);
+const writeBtn = $$('tbody button').find((b) => b.textContent.includes('Makale yaz'));
+ok('an eligible idea (here the shortlisted partial one) offers "Makale yaz"; ideas that are not eligible do not', !!writeBtn && $$('tbody button').filter((b) => b.textContent.includes('Makale yaz')).length === (await q1("SELECT count(*)::int n FROM content_opportunities WHERE eligible AND status IN ('new', 'shortlisted')")).n);
+await click(writeBtn, 700);
+ok('the dialog names the writer vendor and model, says nothing is published automatically and what it costs', txt().includes('Anthropic (Claude) — claude-sonnet-5-5') && txt().includes('asla kendiliğinden yayımlanmaz') && txt().includes('3 model isteği') && txt().includes('günlük makale limitinden 1 yer'));
+await click(btn('Makaleyi yaz', $('.modal')), 400);
+for (let i = 0; i < 80; i += 1) { if ((await q1("SELECT status FROM automation_runs WHERE bot_key = 'article_writer' ORDER BY id DESC LIMIT 1")).status !== 'running') break; await new Promise((r) => setTimeout(r, 250)); }
+await wait(2800);
+const aiArt = await q1("SELECT * FROM articles WHERE created_by = 'ai'");
+ok('the draft exists, written by the model, waiting for a person: sources, stamp, AdSense class and quality score are filled', !!aiArt && aiArt.status === 'needs_review' && aiArt.fact_checked_at !== null && aiArt.adsense_risk === 'low' && aiArt.quality_score > 0 && aiArt.word_count >= 300 && aiArt.manual_edited === false && (await q1('SELECT count(*)::int n FROM article_sources WHERE article_id = $1', [aiArt.id])).n >= 1, JSON.stringify(aiArt ? { status: aiArt.status, q: aiArt.quality_score } : await q1("SELECT status, error, stats FROM automation_runs WHERE bot_key = 'article_writer' ORDER BY id DESC LIMIT 1")));
+ok('three model calls were made (write, fact check, review) and each is a usage row with the cost computed from the typed prices', globalThis.__models.calls.length === 3 && (await q1("SELECT count(*)::int n, bool_and(cost_micros IS NOT NULL) AS priced FROM api_usage WHERE provider = 'anthropic' AND result = 'ok'")).n === 3 && (await q1("SELECT bool_and(cost_micros IS NOT NULL) AS priced FROM api_usage WHERE provider = 'anthropic'")).priced === true);
+ok('the idea is now "written" and links to its article; the banner is gone', txt().includes('Makaleyi aç') && !txt().includes('Makale yazılıyor:') && (await q1("SELECT count(*)::int n FROM content_opportunities WHERE status = 'written' AND article_id IS NOT NULL")).n === 1);
+
+await click(btn('Makaleyi aç'), 900);
+ok('the editor shows the checks: quality score with its five weighted parts, the AdSense class with its disclaimer, the claims with their verified quotes', txt().includes('Kontroller ve kalite') && txt().includes('Özgünlük ve ek değer') && txt().includes('(%25)') && txt().includes('AdSense risk tahmini') && txt().includes('garanti etmez') && txt().includes('Destekleniyor') && txt().includes('Yazan: anthropic'));
+ok('the rules list names what was measured (copy overlap, keyword density, length)', txt().includes('Kaynaklardan kelimesi kelimesine kopya') && txt().includes('Anahtar kelime yoğunluğu') && txt().includes('13 kategori'));
+ok('the readiness card has no missing mandatory check for the fact check and the AdSense class', !txt().includes('Doğruluk kontrolü yapılmadı') && !txt().includes('AdSense risk kontrolü yapılmadı'));
+const callsBefore = globalThis.__models.calls.length;
+await click(btn('Ücretsiz kontroller'), 900);
+ok('the free checks call no model', globalThis.__models.calls.length === callsBefore && (await q1("SELECT count(*)::int n FROM article_checks WHERE kind = 'rules'")).n === 2);
+const body = $$('textarea.mono')[0]; await setVal(body, body.value + '<p>One more sentence added by an editor.</p>'); await click(btn('Kaydet'), 900);
+ok('editing the text withdraws the stamp, the AdSense class and the score (they described the old text)', (await q1('SELECT fact_checked_at, quality_score, adsense_risk, manual_edited FROM articles WHERE id = $1', [aiArt.id])).fact_checked_at === null && (await q1('SELECT quality_score FROM articles WHERE id = $1', [aiArt.id])).quality_score === null && (await q1('SELECT adsense_risk FROM articles WHERE id = $1', [aiArt.id])).adsense_risk === null && txt().includes('eski metne ait'));
+await click(btn('Tüm kontroller (yapay zekâ)'), 500);
+ok('running the model checks asks first and says it spends the service\'s credit', txt().includes('Tüm kontroller yapay zekâ ile çalıştırılsın mı?') && txt().includes('2 istek'));
+await click(btn('Çalıştır', $('.modal')), 1500);
+ok('the checks ran again on the new text: stamp, AdSense class and score are back, nothing stale is left', globalThis.__models.calls.length === callsBefore + 2 && (await q1('SELECT fact_checked_at, adsense_risk, quality_score FROM articles WHERE id = $1', [aiArt.id])).quality_score > 0 && !txt().includes('eski metne ait'));
+
+await click(nav('AI Makale Üretimi'), 700);
+ok('the writer page lists the vendors (who writes, who checks) and the history of the run with its cost and a link to the article', txt().includes('Yapay zekâ sağlayıcıları') && txt().includes('Anthropic (Claude)') && txt().includes('yazar') && txt().includes('kontrol') && txt().includes('yazan modelin kendisi yapar') && txt().includes('Yazım geçmişi') && txt().includes('3 kaynak') === false && /\$0\.\d+/.test(txt()) && !!btn('Makale'));
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);

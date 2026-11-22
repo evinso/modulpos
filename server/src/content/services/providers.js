@@ -17,8 +17,21 @@ const settings = require('./settings');
 const PROVIDERS = {
   openai: {
     label: 'OpenAI', secretLabel: 'API anahtarı', secretPattern: /^sk-[A-Za-z0-9_\-.]{16,}$/, paid: true,
-    extra: { model: { label: 'Makale modeli', max: 80, def: '' }, cheapModel: { label: 'Hızlı / ucuz model', max: 80, def: '' } },
-    help: 'platform.openai.com → API keys. Anahtar yalnızca sunucuda şifreli saklanır.',
+    extra: { model: { label: 'Makale modeli (tam adı, ör. hesabınızda görünen)', max: 80, def: '' }, cheapModel: { label: 'Hızlı / ucuz model', max: 80, def: '' },
+      inputPricePerM: { label: 'Giriş fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true }, outputPricePerM: { label: 'Çıkış fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true } },
+    help: 'platform.openai.com → API keys. Anahtar yalnızca sunucuda şifreli saklanır. Model adını OpenAI hesabınızdaki güncel adıyla yazın; fiyatları girerseniz maliyet hesaplanır, girmezseniz “Bilinmiyor” yazılır.',
+  },
+  anthropic: {
+    label: 'Anthropic (Claude)', secretLabel: 'API anahtarı', secretPattern: /^sk-ant-[A-Za-z0-9_\-]{16,}$/, paid: true,
+    extra: { model: { label: 'Makale modeli (boş = claude-sonnet-5-5)', max: 80, def: '' },
+      inputPricePerM: { label: 'Giriş fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true }, outputPricePerM: { label: 'Çıkış fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true } },
+    help: 'console.anthropic.com → API Keys (Plans & Billing’de kredi gerekir). ModulPOS’un kendi Anthropic anahtarından ayrıdır. Fiyatları girerseniz maliyet hesaplanır, girmezseniz “Bilinmiyor” yazılır.',
+  },
+  gemini: {
+    label: 'Google (Gemini)', secretLabel: 'API anahtarı', secretPattern: /^[A-Za-z0-9_-]{20,128}$/, paid: true,
+    extra: { model: { label: 'Makale modeli (tam adı, ör. hesabınızda görünen)', max: 80, def: '' },
+      inputPricePerM: { label: 'Giriş fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true }, outputPricePerM: { label: 'Çıkış fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true } },
+    help: 'aistudio.google.com → Get API key. Model adını Google hesabınızdaki güncel adıyla yazın; fiyatları girerseniz maliyet hesaplanır, girmezseniz “Bilinmiyor” yazılır.',
   },
   dataforseo: {
     label: 'DataForSEO', secretLabel: 'API şifresi', paid: true, extra: { login: { label: 'API oturum e-postası (login)', max: 200, def: '', required: true } },
@@ -77,7 +90,11 @@ async function save(key, body) {
   const extra = { ...(cur ? cur.extra : {}) };
   if (body.extra !== undefined) {
     if (body.extra === null || typeof body.extra !== 'object' || Array.isArray(body.extra)) throw bad('Ek ayarlar bir nesne olmalı');
-    for (const [k, f] of Object.entries(def.extra)) if (body.extra[k] !== undefined) extra[k] = V.str(body.extra[k], f.label, { max: f.max });
+    for (const [k, f] of Object.entries(def.extra)) {
+      if (body.extra[k] === undefined) continue;
+      extra[k] = V.str(body.extra[k], f.label, { max: f.max });
+      if (f.numeric && extra[k] !== '' && !(Number.isFinite(Number(extra[k])) && Number(extra[k]) >= 0 && Number(extra[k]) <= 1000)) throw bad(`${f.label}: 0 ile 1000 arasında bir sayı yazın (ör. 3 ya da 15.5)`);
+    }
   }
   if (key === 'telegram' && extra.chatIds) {
     const ids = extra.chatIds.split(',').map((x) => x.trim()).filter(Boolean);
@@ -130,6 +147,26 @@ const TESTS = {
     if (acc.status === 403 || aj.status_code === 40104) return { ok: false, balanceUsd: balance, message: `Kimlik bilgileri doğru ama DataForSEO hesabınız henüz doğrulanmamış: app.dataforseo.com adresinden doğrulayın; doğrulanana kadar ücretli sorgular çalışmaz.${bal}` };
     if (!acc.ok || (aj.status_code && aj.status_code !== 20000)) return { ok: false, balanceUsd: balance, message: `DataForSEO hesabı API'ye erişemiyor (${aj.status_code || acc.status}: ${String(aj.status_message || '').slice(0, 120)}).${bal}` };
     return { ok: true, message: balance === null ? 'DataForSEO bağlantısı çalışıyor (bakiye okunamadı).' : `DataForSEO bağlantısı çalışıyor ve hesap doğrulanmış.${bal}`, balanceUsd: balance };
+  },
+  async anthropic({ secret, fetchImpl }) {
+    const Anthropic = require('@anthropic-ai/sdk');
+    const client = new Anthropic({ apiKey: secret, fetch: fetchImpl, maxRetries: 0, timeout: 12000, dangerouslyAllowBrowser: true });          // server code only (see services/llm.js)
+    try { const page = await client.models.list({ limit: 5 }); return { ok: true, message: `Anthropic bağlantısı çalışıyor (${(page.data || []).length} model görünüyor).` }; }
+    catch (err) {
+      const st = Number(err && err.status) || 0;
+      if (st === 401 || st === 403) return { ok: false, message: `Anthropic anahtarı reddedildi (${st}). Anahtarı kontrol edin.` };
+      if (st === 429) return { ok: false, message: 'Anthropic isteği sınırladı (429); biraz sonra tekrar deneyin.' };
+      if (st) return { ok: false, message: `Anthropic beklenmedik cevap verdi (${st}).` };
+      throw err;
+    }
+  },
+  async gemini({ secret, fetchImpl }) {
+    const res = await fetchImpl('https://generativelanguage.googleapis.com/v1beta/models?pageSize=5', { headers: { 'x-goog-api-key': secret }, signal: AbortSignal.timeout(12000) });
+    if (res.status === 400 || res.status === 401 || res.status === 403) return { ok: false, message: `Gemini anahtarı reddedildi (${res.status}). Anahtarı kontrol edin.` };
+    if (res.status === 429) return { ok: false, message: 'Gemini isteği sınırladı (429); biraz sonra tekrar deneyin.' };
+    if (!res.ok) return { ok: false, message: `Gemini beklenmedik cevap verdi (${res.status}).` };
+    const j = await res.json().catch(() => ({}));
+    return { ok: true, message: `Gemini bağlantısı çalışıyor (${Array.isArray(j.models) ? j.models.length : '?'} model görünüyor).` };
   },
   async serper({ secret, fetchImpl }) {
     // Serper has no free "who am I" endpoint that is documented: the test is one real query (1 credit) and says so

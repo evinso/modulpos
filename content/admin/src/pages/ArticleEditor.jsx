@@ -5,6 +5,7 @@ import { ArrowLeft, Plus, Trash2, RotateCcw, Eye } from 'lucide-react';
 import { api } from '../api.js';
 import { Alert, Async, Badge, Card, Check, Field, Modal, PageHead, Spinner, useAction, useApp, useLoad } from '../ui.jsx';
 import { NEXT, RISK, STATUS, TYPE_LABELS, csvList, dt, num } from '../format.js';
+import ArticleChecks from './ArticleChecks.jsx';
 
 const EMPTY = { categoryId: '', articleType: 'evergreen_guide', h1: '', seoTitle: '', slug: '', metaDescription: '', focusKeyword: '', secondaryKeywords: '', excerpt: '', contentHtml: '', tags: '', featuredImageUrl: '', adsenseRisk: '', targetCountry: 'US', language: 'en-US', faq: [] };
 
@@ -127,6 +128,7 @@ export default function ArticleEditor() {
                 <div className="row" style={{ flexWrap: 'nowrap' }}><input className="input" placeholder="Soru" value={x.q} disabled={!canEdit} onChange={(e) => setF((s) => ({ ...s, faq: s.faq.map((y, j) => (j === i ? { ...y, q: e.target.value } : y)) }))} />{canEdit && <button className="btn sm ghost danger" onClick={() => setF((s) => ({ ...s, faq: s.faq.filter((_, j) => j !== i) }))} aria-label="Soruyu sil"><Trash2 size={14} /></button>}</div>
                 <textarea className="input" rows={2} placeholder="Cevap" value={x.a} disabled={!canEdit} onChange={(e) => setF((s) => ({ ...s, faq: s.faq.map((y, j) => (j === i ? { ...y, a: e.target.value } : y)) }))} /></div>))}</div>
           </Card>
+          {!isNew && art && <ArticleChecks art={art} onChanged={st.reload} />}
           {!isNew && art && <Sources articleId={id} initial={art.sources} canEdit={canEdit} onSaved={st.reload} />}
           {!isNew && art && <Versions articleId={id} current={art.currentVersion} canEdit={canEdit} onRestored={st.reload} />}
         </div>
@@ -143,7 +145,7 @@ export default function ArticleEditor() {
           </Card>
           <Card title="Zorunlu kontroller">
             <div className="stack">
-              <Field label="AdSense risk sonucu" hint="Aşama 3’te bot yapacak; şimdilik editör işaretler."><select className="input" value={f.adsenseRisk} onChange={set('adsenseRisk')} disabled={!canEdit}><option value="">Kontrol edilmedi</option>{Object.entries(RISK).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}</select></Field>
+              <Field label="AdSense risk sonucu" hint="Yapay zekâ incelemesi bunu kendisi yazar; elle değiştirirseniz sizin işaretinizdir."><select className="input" value={f.adsenseRisk} onChange={set('adsenseRisk')} disabled={!canEdit}><option value="">Kontrol edilmedi</option>{Object.entries(RISK).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}</select></Field>
               {!isNew && art && <div className="row between"><span>Doğruluk kontrolü</span>{art.factCheckedAt ? <span className="row"><Badge kind="ok">{dt(art.factCheckedAt)}</Badge>{canEdit && <button className="btn sm ghost" onClick={() => factCheck(false)}>Kaldır</button>}</span> : canEdit ? <button className="btn sm" disabled={busy} onClick={() => factCheck(true)}>Doğrulandı olarak işaretle</button> : <Badge kind="warn">yapılmadı</Badge>}</div>}
               {!isNew && <small className="faint">İçerik ya da başlık değişince doğruluk kontrolü sıfırlanır.</small>}
             </div>

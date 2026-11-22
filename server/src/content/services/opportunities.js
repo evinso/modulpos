@@ -173,7 +173,7 @@ async function rescore(id, { now = new Date() } = {}) {
 
 const shape = (r) => ({ id: r.id, projectId: r.project_id, topicId: r.topic_id, keywordId: r.keyword_id, keyword: r.keyword, categoryId: r.category_id, categoryName: r.category_name, title: r.title,
   trend: r.trend_score, competition: r.competition_score, demand: r.demand_score, relevance: r.relevance_score, source: r.source_score, total: r.total_score, provisional: r.provisional_score,
-  eligible: r.eligible, ineligibleReason: r.ineligible_reason, partial: !!(r.explain && r.explain.partial), status: r.status, weights: r.weights, explain: r.explain, computedAt: r.computed_at, clusterId: r.cluster_id, sourceCount: r.source_count });
+  eligible: r.eligible, ineligibleReason: r.ineligible_reason, partial: !!(r.explain && r.explain.partial), articleId: r.article_id, status: r.status, weights: r.weights, explain: r.explain, computedAt: r.computed_at, clusterId: r.cluster_id, sourceCount: r.source_count });
 
 async function list(projectId, q = {}) {
   const p = [projectId]; const w = ['o.project_id = $1'];

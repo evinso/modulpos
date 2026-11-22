@@ -20,6 +20,7 @@ import Niche from './pages/Niche.jsx';
 import Keywords from './pages/Keywords.jsx';
 import Serp from './pages/Serp.jsx';
 import Opportunities from './pages/Opportunities.jsx';
+import Writer from './pages/Writer.jsx';
 
 function AuthScreen({ setupNeeded, tokenConfigured, onDone }) {
   const [mode, setMode] = useState(setupNeeded ? 'setup' : 'login');
@@ -127,6 +128,7 @@ function Shell() {
           <Route path="/keywords" element={<Keywords />} />
           <Route path="/serp" element={<Serp />} />
           <Route path="/opportunities" element={<Opportunities />} />
+          <Route path="/writer" element={<Writer />} />
           <Route path="/limits" element={<Limits />} />
           <Route path="/api-usage" element={<ApiUsage />} />
           <Route path="/bots" element={<Bots />} />

@@ -26,7 +26,7 @@ const BOTS = [
   { key: 'reporting', label: 'Reporting Bot', phase: 7, about: 'Günlük/haftalık raporlar üretir.' },
 ];
 /** keys of bots whose code exists and runs. In phase 2 they are started BY HAND (panel buttons); the scheduler that starts them by itself is phase 4. */
-const IMPLEMENTED = new Set(['news_discovery', 'trend_analysis', 'niche_discovery', 'keyword_research', 'seo_competition', 'content_opportunity']);
+const IMPLEMENTED = new Set(['news_discovery', 'trend_analysis', 'niche_discovery', 'keyword_research', 'seo_competition', 'content_opportunity', 'article_writer', 'fact_checking', 'adsense_compliance']);
 const MANUAL_NOTE = { trend_analysis: 'Haber verisinden anlık hesaplanır (ayrı çalıştırma gerekmez)' };
 
 async function state() { return (await settings.get('bots')).value; }
