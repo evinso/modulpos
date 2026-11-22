@@ -16,7 +16,7 @@ export const MENU = [
   { label: 'İçerik Sağlığı', to: '/health', icon: HeartPulse },
   { label: 'Güncelleme Merkezi', to: '/updates', icon: RefreshCw },
   { label: 'İç Bağlantılar', to: '/internal-links', icon: Link2 },
-  { label: 'AdSense Denetimi', icon: ShieldCheck, phase: 7 },
+  { label: 'AdSense Denetimi', to: '/adsense', icon: ShieldCheck },
   { label: 'Web Sitelerim', to: '/sites', icon: Server },
   { label: 'Toplu Yayınlama', to: '/publishing', icon: Send },
   { label: 'SEO Performansı', to: '/performance', icon: LineChart },

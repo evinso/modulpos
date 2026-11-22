@@ -292,7 +292,11 @@ async function apply(articleId) {
   const fact = await latestOf(articleId, 'fact', a.version); const review = await latestOf(articleId, 'review', a.version); const quality = await latestOf(articleId, 'quality', a.version);
   const risk = review && review.status !== 'error' ? review.result.risk : null;
   const passes = fact && fact.status !== 'error' && fact.result.passes && fact.status !== 'fail';
+  const before = (await db.query('SELECT adsense_risk, h1 FROM articles WHERE id = $1', [articleId])).rows[0];
   await db.query('UPDATE articles SET quality_score = $2, adsense_risk = $3, fact_checked_at = $4, updated_at = now() WHERE id = $1', [articleId, quality && quality.result.score !== null ? quality.result.score : null, risk, passes ? new Date() : null]);
+  if (before && ['review', 'blocked'].includes(risk) && before.adsense_risk !== risk) {                 // only when the class CHANGES to a risky one: re-running the same check does not repeat the message
+    await require('./notifications').create({ type: 'adsense_risk', severity: risk === 'blocked' ? 'critical' : 'warning', title: `AdSense riski: ${risk === 'blocked' ? 'yayınlanamaz' : 'inceleme gerekli'}`, body: `“${String(before.h1 || '').slice(0, 100)}” makalesi AdSense risk kontrolünde ${risk === 'blocked' ? 'yayınlanamaz' : 'inceleme gerekli'} çıktı (resmî bir Google puanı değildir). Makale sayfasındaki “Kontroller ve kalite” bölümüne bakın.`, data: { articleId, risk } });
+  }
   return { qualityScore: quality && quality.result.score, adsenseRisk: risk, factChecked: !!passes };
 }
 

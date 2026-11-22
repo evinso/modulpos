@@ -206,7 +206,7 @@ test('dashboard: real numbers, figures of later phases marked unavailable instea
   const m = Object.fromEntries(d.metrics.map((x) => [x.key, x]));
   assert.equal(m.awaiting.value, 1); assert.deepEqual([m.news_found.available, m.news_found.value, m.keywords.value, m.seo_analyzed.value], [true, 0, 0, 0], 'phase 2 numbers are real counts now (nothing researched yet = a real 0)');
   assert.deepEqual(d.metrics.filter((x) => !x.available).length, 0); assert.equal(d.charts.organicTraffic.available, false); assert.equal(d.charts.organicTraffic.phase, 6);
-  assert.equal(m.cost_today.value, 0); assert.equal(m.active_bots.value, 14); assert.match(m.active_bots.note, /14’i hazır; 5’i otomatik çalışıyor/);
+  assert.equal(m.cost_today.value, 0); assert.equal(m.active_bots.value, 14); assert.match(m.active_bots.note, /14’i hazır; 6’i otomatik çalışıyor/);
   assert.equal(d.charts.dailyProduction.length, 14); assert.equal(d.charts.dailyProduction.at(-1).value, 1); assert.equal(d.charts.categoryShare.length, 5);
   assert.equal(d.empty, false); assert.equal(d.charts.seoOpportunities.available, true); assert.equal(d.charts.searchVolume.buckets.length, 4);
   assert.equal(d.limitsToday.find((x) => x.workType === 'new_article').limit, 3);

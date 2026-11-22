@@ -36,6 +36,9 @@ globalThis.__dfs = []; globalThis.__serper = []; const { startFakeWp } = sreq('.
 
 // Google (Search Console): the service-account JWT is really signed by the panel's saved key and VERIFIED by this fake; numbers are relative to the day asked for
 const { makeKey, fakeGoogle } = sreq('./test/content/fakeGoogle.js'); globalThis.__gkey = makeKey();
+const { fakeTelegram, update: tgUpdate, TOKEN: TG_TOKEN } = sreq('./test/content/fakeTelegram.js'); globalThis.__tg = fakeTelegram(); globalThis.__tgUpdate = tgUpdate; globalThis.__tgToken = TG_TOKEN; globalThis.__srv.telegram = sreq('./src/content/services/telegram'); globalThis.__srv.telegram.useFetch(globalThis.__tg.fetchImpl);          // Telegram's Bot API (a fake in its documented shapes)
+globalThis.__srv.notifications = sreq('./src/content/services/notifications');
+globalThis.__fakeSite = sreq('./test/content/fakeSite.js'); globalThis.__site = await globalThis.__fakeSite.start(globalThis.__fakeSite.FRESH);          // a public WordPress site (a brand new install) for the AdSense audit
 globalThis.__google = fakeGoogle({ publicKey: globalThis.__gkey.publicKey, email: globalThis.__gkey.json.client_email, sites: [{ siteUrl: 'sc-domain:e2e.example', permissionLevel: 'siteRestrictedUser' }], rows: (b) => {
   const days = []; for (let d = new Date(`${b.startDate}T00:00:00Z`); d <= new Date(`${b.endDate}T00:00:00Z`); d = new Date(d.getTime() + 86400000)) days.push(d.toISOString().slice(0, 10));
   const dims = b.dimensions.join(',');
@@ -73,6 +76,7 @@ const dfsAnswer = (p, body) => {
 globalThis.fetch = async (u, init = {}) => {
   if (/^https:\/\/(api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com)/.test(String(u))) return globalThis.__models.fetchImpl(u, init);
   if (/^https:\/\/(oauth2\.googleapis\.com|www\.googleapis\.com\/webmasters)/.test(String(u))) return globalThis.__google.fetchImpl(u, init);
+  if (String(u).startsWith('https://api.telegram.org')) return globalThis.__tg.fetchImpl(u, init);
   if (String(u).startsWith('https://google.serper.dev')) {                      // Serper.dev: easy results in the vendor's documented shape
     const body = init.body ? JSON.parse(init.body) : {}; globalThis.__serper.push({ q: body.q, key: (init.headers || {})['X-API-KEY'] });
     return { ok: true, status: 200, json: async () => ({ organic: ['smallblog.dev', 'niche-tech.net', 'mysite.io', 'techie.org'].map((d, i) => ({ title: `${d} result`, link: `https://${d}/`, position: i + 1, snippet: 's', date: '5 days ago' })), peopleAlsoAsk: [{ question: 'Is it real?' }], relatedSearches: [{ query: `${body.q} news` }] }) };
@@ -86,6 +90,6 @@ globalThis.fetch = async (u, init = {}) => {
   return res;
 };
 let code = 1;
-try { await import(out); code = 0; } catch (e) { process.stderr.write(`\nTEST CRASHED: ${(e && e.stack) || e}\n`); } finally { server.close(); feedServer.close(); await globalThis.__wp.close(); await db.end(); }
+try { await import(out); code = 0; } catch (e) { process.stderr.write(`\nTEST CRASHED: ${(e && e.stack) || e}\n`); } finally { server.close(); feedServer.close(); await globalThis.__wp.close(); await globalThis.__site.close(); await db.end(); }
 // the entry decides the exit code through process.exit; reaching here means it threw
 process.exit(code);

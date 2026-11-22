@@ -4,6 +4,9 @@
  */
 const BASE = (import.meta.env && import.meta.env.VITE_CONTENT_API_BASE_URL) || '/api/content';
 
+/** the public address of the API when the panel knows it (an absolute base address), else '' (the server then uses the address the panel called) */
+export const API_ORIGIN = (() => { try { return new URL(BASE).origin; } catch { return ''; } })();
+
 export class ApiError extends Error {
   constructor(status, message, data) { super(message); this.status = status; this.data = data || {}; }
 }

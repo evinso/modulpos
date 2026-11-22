@@ -3,11 +3,12 @@ import { CheckCheck } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { Async, Badge, Card, Empty, PageHead, Pager, Tabs, useAction, useApp, useLoad } from '../ui.jsx';
 import { dt } from '../format.js';
+import TelegramCard from './TelegramCard.jsx';
 
 const SEV = { info: ['Bilgi', 'info'], warning: ['Uyarı', 'warn'], critical: ['Kritik', 'bad'] };
 
 export default function Notifications() {
-  const { refreshUnread } = useApp();
+  const { refreshUnread, can } = useApp();
   const [tab, setTab] = useState('unread');
   const [page, setPage] = useState(1);
   const size = 25;
@@ -18,6 +19,7 @@ export default function Notifications() {
   return (
     <div className="page">
       <PageHead title="Bildirimler" actions={<button className="btn" disabled={busy} onClick={readAll}><CheckCheck size={15} />Hepsini okundu yap</button>}>Bütçe dolması, hazır makale, başarısız görev gibi olaylar burada toplanır. Telegram’a iletme Aşama 7’de eklenecek.</PageHead>
+      {can('providers.write') && <TelegramCard />}
       <Tabs tabs={[['unread', 'Okunmamış'], ['all', 'Tümü']]} value={tab} onChange={(t) => { setTab(t); setPage(1); }} />
       <Async state={st}>{(d) => (d.total === 0 ? <Card><Empty title={tab === 'unread' ? 'Okunmamış bildirim yok' : 'Henüz bildirim yok'} /></Card> : (
         <Card flat><div className="stack">{d.items.map((n) => (

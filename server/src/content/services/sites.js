@@ -13,7 +13,7 @@ const SEO_PLUGINS = ['none', 'rankmath', 'yoast'];
 
 const shape = (r) => r && ({ id: r.id, projectId: r.project_id, name: r.name, domain: r.domain, apiUrl: r.api_url, username: r.username, passwordLast4: r.password_last4, hasPassword: !!r.encrypted_password,
   defaultAuthorId: r.default_author_id, defaultCategoryId: r.default_category_id, timezone: r.timezone, language: r.language, dailyLimit: r.daily_limit, seoPlugin: r.seo_plugin, status: r.status,
-  lastTestedAt: r.last_tested_at, lastTestOk: r.last_test_ok, lastTestMessage: r.last_test_message, info: r.wp_info, gscProperty: r.gsc_property, gscSyncedAt: r.gsc_synced_at, gscError: r.gsc_error, createdAt: r.created_at, updatedAt: r.updated_at });
+  lastTestedAt: r.last_tested_at, lastTestOk: r.last_test_ok, lastTestMessage: r.last_test_message, info: r.wp_info, gscProperty: r.gsc_property, adsensePubId: r.adsense_pub_id, gscSyncedAt: r.gsc_synced_at, gscError: r.gsc_error, createdAt: r.created_at, updatedAt: r.updated_at });
 
 async function load(id) {
   const r = (await db.query('SELECT * FROM wp_sites WHERE id = $1', [V.uuid(id, 'Site')])).rows[0];
@@ -50,18 +50,23 @@ function fields(b, { create = false } = {}) {
     if (g && !/^(sc-domain:[a-z0-9.-]+\.[a-z]{2,}|https?:\/\/[^\s]+\/)$/i.test(g)) throw bad('Search Console sitesi “sc-domain:alanadi.com” ya da “https://alanadi.com/” (sonunda / ile) biçiminde olmalı');
     f.gscProperty = g || null;
   }
+  if (has('adsensePubId')) {
+    const p = b.adsensePubId === null ? '' : V.str(b.adsensePubId, 'AdSense yayıncı numarası', { max: 40 }).replace(/^ca-/i, '');
+    if (p && !/^pub-\d{10,20}$/i.test(p)) throw bad('AdSense yayıncı numarası “pub-1234567890123456” biçiminde olmalı (AdSense → Hesap → Hesap bilgileri)');
+    f.adsensePubId = p ? p.toLowerCase() : null;
+  }
   return f;
 }
 
-const COLS = { name: 'name', domain: 'domain', apiUrl: 'api_url', username: 'username', defaultAuthorId: 'default_author_id', defaultCategoryId: 'default_category_id', timezone: 'timezone', language: 'language', dailyLimit: 'daily_limit', seoPlugin: 'seo_plugin', status: 'status', gscProperty: 'gsc_property' };
+const COLS = { name: 'name', domain: 'domain', apiUrl: 'api_url', username: 'username', defaultAuthorId: 'default_author_id', defaultCategoryId: 'default_category_id', timezone: 'timezone', language: 'language', dailyLimit: 'daily_limit', seoPlugin: 'seo_plugin', status: 'status', gscProperty: 'gsc_property', adsensePubId: 'adsense_pub_id' };
 
 async function create(projectId, body) {
   const f = fields(body, { create: true });
   const host = new URL(f.apiUrl).hostname;
   try {
-    const r = (await db.query(`INSERT INTO wp_sites (project_id, name, domain, api_url, username, encrypted_password, password_last4, default_author_id, default_category_id, timezone, language, daily_limit, seo_plugin, gsc_property)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`, [projectId, f.name, f.domain || host, f.apiUrl, f.username, cryptoBox.encrypt(f.password), cryptoBox.last4(f.password), f.defaultAuthorId || null, f.defaultCategoryId || null,
-      f.timezone || 'Europe/Istanbul', f.language || 'en-US', f.dailyLimit ?? 5, f.seoPlugin || 'none', f.gscProperty || null])).rows[0];
+    const r = (await db.query(`INSERT INTO wp_sites (project_id, name, domain, api_url, username, encrypted_password, password_last4, default_author_id, default_category_id, timezone, language, daily_limit, seo_plugin, gsc_property, adsense_pub_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`, [projectId, f.name, f.domain || host, f.apiUrl, f.username, cryptoBox.encrypt(f.password), cryptoBox.last4(f.password), f.defaultAuthorId || null, f.defaultCategoryId || null,
+      f.timezone || 'Europe/Istanbul', f.language || 'en-US', f.dailyLimit ?? 5, f.seoPlugin || 'none', f.gscProperty || null, f.adsensePubId || null])).rows[0];
     return shape(r);
   } catch (err) { if (err.code === '23505') throw new HttpError(409, 'Bu WordPress adresi bu projede zaten ekli'); throw err; }
 }
