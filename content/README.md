@@ -164,6 +164,23 @@ Aynı fikir, aynı kaynak metin ve aynı yönergeyle **2-3 hazır yapay zekâ sa
 **Seçimleriniz** (`GET /comparisons/stats`): sağlayıcı başına gösterilen / seçilen taslak ve seçilme oranı, ortalama maliyet (tek çağrının fiyatı bilinmiyorsa “Bilinmiyor”, 0 değil), ortalama kelime. **En az 3 karardan sonra** bir “şimdilik önde” işareti çıkar. Metin bunun **yalnızca sizin tercihiniz olduğunu, kalite ölçümü olmadığını** ve az sayıda kararın rastlantı olabileceğini söyler; yazar sağlayıcıyı sayfa kendiliğinden değiştirmez (Ayarlar → Makale kalitesi).
 **Doğrulanmayanlar:** hiçbir gerçek yapay zekâ çağrısı yapılmadı (sahte modeller, belgelenmiş cevap biçimleriyle). **“Kör” olmanın sınırı:** üst bilgiler gizlidir ama bir yazının üslubu sağlayıcıyı ele verebilir; bu bilerek söylenir.
 
+## Otomasyon Modu (menünün en üstü) (nasıl çalışır)
+
+Tek sayfada üç mod ve 15 kutucuk. **Sayfanın kendine ait bir durumu yoktur**: her kutucuk, diğer sayfaların da düzenlediği gerçek anahtarı okur/yazar (botun zamanlaması, `publishing.autoPublish/mode/siteId`, `quality.manualApprovalNewArticles`, günlük limitler, günlük bütçe). Bot Yönetimi'ni açıp aynı anahtarları görürsünüz; mod, kutucukların durumundan **türetilir** (hiçbir mod kaydedilmez).
+
+| Mod | Ne açar | İnsan nerede? |
+|---|---|---|
+| **Elle** | hiçbir bot kendiliğinden çalışmaz | her şey sizde |
+| **Yarı otomatik** | haber, fırsat, niş, (bağlıysa) anahtar kelime + SERP, makale yazımı ve zorunlu kontroller, WordPress'e **taslak** gönderim, sağlık, iç bağlantı, Search Console, AdSense denetimi, raporlar | makaleyi siz “Yayına hazır” yaparsınız; siteye yalnızca TASLAK gider |
+| **Tam otomatik** | yarı otomatik + **otomatik onay** + **doğrudan yayın** + güncelleme taslakları | kontrolleri geçen makale siz bakmadan yayımlanır; geçemeyen sizi bekler |
+| **Özel** | kutucukların başka bir birleşimi | — |
+
+Kurallar: (1) Gerekli bağlantısı olmayan seçenek (model anahtarı + model adı, Apify, Serper, bağlantı testi geçmiş WordPress sitesi, Search Console) açılamaz; bir mod bunları **atlar ve söyler**, kendi seçiminiz sebebiyle **reddedilir**. “Tam otomatik”, model + test edilmiş WordPress sitesi yoksa hiç sunulmaz. (2) “Otomatik onay” ve “doğrudan yayımla” sizi döngüden çıkardığı için açık bir **onay** ister (sunucu `409 requiresConfirmation`, panel bir iletişim kutusu gösterir; o anda “Yayına hazır” bekleyen makale sayısı da yazılır). (3) Otomatik onay **kendi kuralını eklemez, hiçbirini gevşetmez** (`services/autoApprove.js`): makale, sizin onayınızda da geçmesi gereken `articles.readiness()` kapısından geçmeli (doğruluk kontrolü yapılmış ve başarısız değil, AdSense riski “düşük”, kalite puanı var ve en az `quality.minScore`, yeterli kelime, kategori, kaynak, tekrar yok, kapsam dışı konu yok). Geçemeyen makale “İnceleme bekliyor”da kalır; nedeni bildirimde ve çalışma kaydında (`autoApproveBlockedBy`) yazar. Yalnızca YAPAY ZEKÂ'nın yazdığı, “İnceleme bekliyor” durumundaki makale taşınır; her otomatik onay denetim kaydına `article.auto_approve` (`by: automation`) olarak girer. (4) Zorunlu kontroller, günlük limitler ve bütçe hiçbir modda kapanmaz.
+
+**Önerilen değerler** (yeni bir alan adı için günde 2 iyi yazı, çok sayıda zayıf yazıdan sağlıklıdır): günlük 2 yeni makale, günlük 2 yayın, yazım 09:00–23:00, yayın 09:00–21:00, hafta sonu yok, en düşük kalite 85, günlük bütçe 3 USD. Bir moda basınca **değiştirmediğiniz** değerler önerilene çekilir; kendi yazdığınız olduğu gibi kalır. Platform limiti yalnızca bu çağrının yükselttiği bir proje limitini engellemesin diye yükseltilir, asla düşürülmez. Bütçe yalnızca **fiyatı bilinen** harcamayı sayar: modelin fiyatı girilmemişse sayfa bunu açıkça uyarır (asıl koruma o zaman günlük makale limitidir). Sayfa ayrıca “başlamadan önce” kontrol listesi gösterir (niş, model, Apify, Serper, WordPress, Search Console, Telegram).
+
+**Doğrulanmayanlar:** hiçbir gerçek model, WordPress, Apify ya da Serper çağrısı yapılmadı; modlar sahte sağlayıcılarla ve gerçek PostgreSQL ile test edildi. Zamanlayıcı yalnızca canlı ortamda otomatik başlar. Sayfanın görünüşü tarayıcıda bakılmadı.
+
 ## Temel kararlar (neden böyle)
 
 - **Ücretsiz plan**: ikinci bir sürekli açık servis ModulPOS'un 750 saatlik aylık hakkını tüketip ikisini de durdururdu. Bu yüzden ModulPOS API'sinin içinde çalışır. Zamanlayıcı/kuyruk (Aşama 4) API uyanıkken çalışır; GitHub keepalive (10 dk) bunu çoğu zaman uyanık tutar. Ağır/sürekli çalışma gerekirse ücretli ayrı servis önerilir.

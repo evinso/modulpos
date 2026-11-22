@@ -255,3 +255,17 @@ test('the module is closed when not configured, and says so while the database i
   assert.equal(res.status, 503); assert.equal((await res.json()).state, 'starting');
   s2.close();
 });
+
+test('automation mode through HTTP: everybody signed in can read it, only the admin can change it, a refused mode changes nothing, the confirmation round trip works, every change is audited', opts, async () => {
+  const admin = await signedIn(); const viewer = await signedIn('viewer'); const editor = await signedIn('editor');
+  const project = (await admin.get('/projects')).json.projects[0];
+  const r = await viewer.get(`/automation?projectId=${project.id}`); assert.equal(r.status, 200); assert.equal(r.json.options.length, 15); assert.equal(r.json.modes.length, 3);
+  assert.equal((await viewer.get('/automation')).status, 400, 'a project is required');
+  for (const c of [viewer, editor]) assert.equal((await c.put('/automation', { projectId: project.id, mode: 'manual' })).status, 403);
+  const refused = await admin.put('/automation', { projectId: project.id, mode: 'full' }); assert.equal(refused.status, 409); assert.match(refused.json.error, /Tam otomatik mod için eksikler/); assert.ok(refused.json.problems.length >= 2);
+  const off = await admin.put('/automation', { projectId: project.id, mode: 'manual' }); assert.equal(off.status, 200); assert.equal(off.json.mode, 'manual'); assert.ok(off.json.applied.changes.length > 0);
+  assert.equal((await admin.put('/automation', { projectId: project.id, mode: 'custom', options: { writer: true } })).status, 409, 'no model connected: refused with the reason');
+  const bad = await admin.put('/automation', { projectId: project.id, mode: 'custom', options: { news: 'ja' } }); assert.equal(bad.status, 400);
+  const on = await admin.put('/automation', { projectId: project.id, mode: 'custom', options: { news: true, opportunities: true } }); assert.equal(on.status, 200); assert.equal(on.json.options.find((x) => x.key === 'news').on, true);
+  const audit = (await admin.get('/audit?action=automation')).json.items; assert.ok(audit.length >= 2); assert.equal(audit[0].action, 'automation.apply');
+});

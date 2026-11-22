@@ -7,6 +7,7 @@ const llm = require('./llm');
 const sources = require('./sources');
 const checks = require('./checks');
 const articles = require('./articles');
+const autoApprove = require('./autoApprove');
 
 /**
  * The AI article writer (phase 3). One idea -> one article draft that is ALWAYS left for a person to approve:
@@ -139,7 +140,9 @@ async function pipeline(o, run, { who, grant, cfg, fetchImpl, fetcher, now, user
     await db.query("UPDATE articles SET status = 'needs_review', updated_at = now() WHERE id = $1 AND status = 'fact_checking'", [article.id]);
     await db.query("UPDATE content_opportunities SET status = 'written', updated_at = now() WHERE id = $1", [o.id]);
     await db.query("UPDATE topics SET status = 'used' WHERE id = $1", [o.topic_id]);
-    await require('./notifications').create({ type: 'article_ready', severity: 'info', title: `Yeni makale taslağı hazır: ${String(article.h1 || '').slice(0, 90)}`, body: `Kalite ${res.applied.qualityScore === null ? 'ölçülemedi' : res.applied.qualityScore}, AdSense riski ${res.applied.adsenseRisk || 'ölçülemedi'}, doğruluk kontrolü ${res.applied.factChecked ? 'geçti' : 'geçmedi/yapılamadı'}${res.errors.length ? `, ${res.errors.length} kontrol çalışmadı` : ''}. Taslak onayınızı bekliyor; kendiliğinden yayımlanmaz.`, data: { articleId: article.id } });
+    const auto = await autoApprove.approveIfClean(article.id).catch((err) => ({ approved: false, reason: 'error', problems: [err.message] }));      // only when the owner switched it on; never throws into the run
+    stats.autoApproved = auto.approved; if (auto.problems && auto.problems.length) stats.autoApproveBlockedBy = auto.problems[0];
+    await require('./notifications').create({ type: 'article_ready', severity: 'info', title: `Yeni makale taslağı hazır: ${String(article.h1 || '').slice(0, 90)}`, body: `Kalite ${res.applied.qualityScore === null ? 'ölçülemedi' : res.applied.qualityScore}, AdSense riski ${res.applied.adsenseRisk || 'ölçülemedi'}, doğruluk kontrolü ${res.applied.factChecked ? 'geçti' : 'geçmedi/yapılamadı'}${res.errors.length ? `, ${res.errors.length} kontrol çalışmadı` : ''}. ${auto.approved ? 'Tüm zorunlu kontrollerden temiz geçtiği için Otomasyon Modu “Yayına hazır” yaptı.' : `Taslak onayınızı bekliyor${auto.reason === 'blocked' ? ` (otomatik onay yapılmadı: ${auto.problems[0]})` : ''}; elle onaylamadan yayımlanmaz.`}`, data: { articleId: article.id } });
     await runs.finish(run.id, { status: res.errors.length || res.applied.qualityScore === null ? 'partial' : 'ok', stats: { ...stats, step: 'done' }, error: res.errors.length ? res.errors[0].message : null });
   } catch (err) {
     const billed = err.maybeBilled === true || !!article || stats.calls > 0;

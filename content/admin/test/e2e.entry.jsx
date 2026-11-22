@@ -51,7 +51,7 @@ ok('the default project is selected: Global Tech Content Site, not connected', $
 ok('every dashboard figure is a real count now (a 0 is a real 0); organic traffic says WHY it has no data (no site yet) and no card talks about a later phase', $$('.metric.later').length === 0 && txt().includes('Organik trafik') && txt().includes('Henüz bağlı bir web sitesi yok') && !/Aşama \d/.test(txt()) && txt().includes('Bugün bulunan haber'));
 ok('no articles yet: an honest empty state, not fake charts', txt().includes('Henüz makale yok'));
 ok('menu: every page is a link now, nothing is dimmed any more (SEO Performansı, İç Bağlantılar and AdSense Denetimi included)', $$('.side .nav').every((n) => n.tagName === 'A') && !/Aşama \d/.test($('.side').textContent) && !!nav('AdSense Denetimi') && !!nav('SEO Performansı') && !!nav('İç Bağlantılar') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
-ok('menu is grouped by the way the work flows: five headings in order, every page exactly once, Dashboard first without a heading', JSON.stringify($$('.side .nav-sep').map((n) => n.textContent)) === JSON.stringify(['Strateji ve araştırma', 'İçerik', 'Yayın', 'Bakım ve performans', 'Otomasyon ve sistem']) && $$('.side a.nav').length === 25 && new Set($$('.side a.nav').map((a) => a.getAttribute('href'))).size === 25 && $$('.side a.nav')[0].textContent.includes('Dashboard') && $$('.side .nav-group')[0].querySelector('.nav-sep') === null && $$('.side .nav-group').every((g) => g.querySelectorAll('a.nav').length > 0) && !!$('.side .nav-group[aria-label="Yayın"] a[href="/sites"]') && !!$('.side .nav-group[aria-label="Otomasyon ve sistem"] a[href="/bots"]'));
+ok('menu is grouped by the way the work flows: five headings in order, every page exactly once, "Otomasyon Modu" at the very top (then Dashboard) without a heading', JSON.stringify($$('.side .nav-sep').map((n) => n.textContent)) === JSON.stringify(['Strateji ve araştırma', 'İçerik', 'Yayın', 'Bakım ve performans', 'Otomasyon ve sistem']) && $$('.side a.nav').length === 26 && new Set($$('.side a.nav').map((a) => a.getAttribute('href'))).size === 26 && $$('.side a.nav')[0].textContent.includes('Otomasyon Modu') && $$('.side a.nav')[1].textContent.includes('Dashboard') && $$('.side .nav-group')[0].querySelector('.nav-sep') === null && $$('.side .nav-group').every((g) => g.querySelectorAll('a.nav').length > 0) && !!$('.side .nav-group[aria-label="Yayın"] a[href="/sites"]') && !!$('.side .nav-group[aria-label="Otomasyon ve sistem"] a[href="/bots"]'));
 
 // ── strategy ───────────────────────────────────────────────────────────────────────────────────────
 await click(nav('Site Nişi ve İçerik Stratejisi'), 400);
@@ -596,6 +596,36 @@ await click(btn('Bunu kullan'), 900);
 ok('one click saves the model; the vendor is ready for the writer', (await q1("SELECT extra FROM api_providers WHERE key = 'gemini'")).extra.model === 'gemini-2.5-flash' && !txt().includes('Anahtar kayıtlı ama model seçilmedi') && txt().includes('Seçili model: gemini-2.5-flash') && !txt().includes('bir MODEL seçmeniz gerekir'));
 await S.providers.save('gemini', { clearSecret: true });
 ok('there is no DataForSEO card and no login field any more (the Apify card only says honestly that its default actor resells that data)', !$$('section.card h2').some((h) => /DataForSEO/.test(h.textContent)) && !input('API oturum e-postası') && !btn('Öneri getir (DataForSEO)'));
+
+// ── Otomasyon Modu: three modes + checkboxes over the settings that already exist ─────────────────────────────────────────────
+const autoSched = async (bot) => { const r = await q1('SELECT enabled FROM schedule_settings WHERE bot_key = $1', [bot]); return { enabled: r ? r.enabled : false }; };   // no row = the bot's default, which for the paid ones is off
+const boxFor = (label) => $$('label.check').find((l) => l.textContent.includes(label));
+await click(nav('Otomasyon Modu'), 900);
+ok('the page shows the current mode, three mode cards, the 15 options in 4 groups, the values and the checklist', txt().includes('Şu anki mod:') && ['Elle', 'Yarı otomatik', 'Tam otomatik'].every((m) => !!btn(`${m} modunu uygula`) || txt().includes(m)) && $$('label.check').length >= 15 + 1 && ['Araştırma', 'Yazım ve onay', 'Yayın', 'Bakım, izleme ve raporlar'].every((g) => txt().includes(g)) && txt().includes('Günlük yeni makale') && txt().includes('Başlamadan önce kontrol listesi'));
+await click(btn('Elle modunu uygula'), 1000);
+ok('"Elle" switches every bot off through the real bot schedules (Bot Yönetimi shows the same) and the page says so', txt().includes('Şu anki mod: Elle') && (await autoSched('news_discovery')).enabled === false && (await q1("SELECT count(*)::int n FROM schedule_settings WHERE enabled")).n === 0 && txt().includes('Haber taraması: kapatıldı'));
+await click(boxFor('Haber taraması').querySelector('input'), 150);
+ok('ticking a box only changes the form until "Seçimi uygula" is pressed', (await autoSched('news_discovery')).enabled === false);
+await click(btn('Seçimi uygula'), 1000);
+ok('"Seçimi uygula" turns exactly that bot on; the mode reads "Özel"; the same switch is on in the database', (await autoSched('news_discovery')).enabled === true && txt().includes('Şu anki mod: Özel') && txt().includes('Haber taraması: açıldı'));
+await click(boxFor('Taslak yerine doğrudan yayımla').querySelector('input'), 150);
+ok('ticking "publish live" also ticks "send to WordPress" (it cannot exist without it)', boxFor('Hazır makaleleri WordPress’e gönder').querySelector('input').checked === true);
+await click(boxFor('Hazır makaleleri WordPress’e gönder').querySelector('input'), 150);
+ok('un-ticking "send to WordPress" un-ticks "publish live" with it', boxFor('Taslak yerine doğrudan yayımla').querySelector('input').checked === false);
+ok('"Tam otomatik" is not offered while no WordPress site has passed its connection test, and the card says which one is missing', !!$$('.card').find((c) => c.textContent.includes('Tam otomatik') && c.textContent.includes('Bu mod için eksikler var') && c.textContent.includes('Bağlantı testi geçmiş')) && btn('Tam otomatik modunu uygula').disabled === true);
+await click(nav('Web Sitelerim'), 700); await click(btn('Bağlantıyı test et'), 1200); await click(nav('Otomasyon Modu'), 900);
+ok('after the real connection test the mode becomes available', (await q1('SELECT last_test_ok FROM wp_sites')).last_test_ok === true && btn('Tam otomatik modunu uygula').disabled === false);
+await click(btn('Tam otomatik modunu uygula'), 700);
+ok('"Tam otomatik" first asks, in words, because articles would go public without a person (and applies nothing yet)', !!$('.modal') && txt().includes('SİZ BAKMADAN') && (await autoSched('article_writer')).enabled !== true);
+await click(btn('Vazgeç', $('.modal')), 500);
+ok('declining changes nothing', (await autoSched('article_writer')).enabled !== true && !txt().includes('Şu anki mod: Tam otomatik'));
+await click(btn('Tam otomatik modunu uygula'), 700); await click(btn('Evet, devam et', $('.modal')), 1500);
+const qs2 = await q1("SELECT value FROM automation_settings WHERE key = 'quality'"); const ps2 = await q1("SELECT value FROM automation_settings WHERE key = 'publishing'");
+ok('after the yes: automatic approval and live publishing are on, the writer and the WordPress bot run on schedule, and the page reads "Tam otomatik"', txt().includes('Şu anki mod: Tam otomatik') && qs2.value.manualApprovalNewArticles === false && ps2.value.mode === 'publish' && ps2.value.autoPublish === true && (await autoSched('article_writer')).enabled === true && (await autoSched('content_publishing')).enabled === true);
+await click(nav('Bot Yönetimi'), 800);
+ok('Bot Yönetimi shows the very same switches (the page has no state of its own)', txt().includes('Otomatik: 3 saatte bir') || txt().includes('3 saatte bir'));
+await click(nav('Otomasyon Modu'), 800); await click(btn('Elle modunu uygula'), 1000);
+ok('and "Elle" takes everything back: manual approval again, WordPress as draft, no bot scheduled', txt().includes('Şu anki mod: Elle') && (await q1("SELECT value FROM automation_settings WHERE key = 'quality'")).value.manualApprovalNewArticles === true && (await q1("SELECT value FROM automation_settings WHERE key = 'publishing'")).value.mode === 'draft' && (await q1("SELECT count(*)::int n FROM schedule_settings WHERE enabled")).n === 0);
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);
