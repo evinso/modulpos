@@ -1,12 +1,14 @@
 import { Link } from 'react-router-dom';
 import { api, qs } from '../api.js';
-import { Alert, Async, Badge, Card, Empty, NeedsProject, PageHead, useApp, useLoad } from '../ui.jsx';
+import { useState } from 'react';
+import { Alert, Async, Badge, Card, Empty, NeedsProject, PageHead, Tabs, useApp, useLoad } from '../ui.jsx';
+import Compare from './Compare.jsx';
 import { dt, num, usd } from '../format.js';
 
 const RUN = { ok: ['Tamam', 'ok'], partial: ['Kısmen', 'warn'], error: ['Başarısız', 'bad'], running: ['Çalışıyor', 'info'] };
 
 /** The writer's overview: which model vendors are ready, who writes and who checks, and the history of every writing run with its cost. Writing itself starts from an idea. */
-export default function Writer() {
+function WriterOverview() {
   const { projectId } = useApp();
   const st = useLoad(() => (projectId ? api.get(`/writer/status${qs({ projectId })}`) : Promise.resolve(null)), [projectId]);
   const runs = useLoad(() => (projectId ? api.get(`/runs${qs({ bot: 'article_writer', projectId, limit: 30 })}`) : Promise.resolve(null)), [projectId]);
@@ -32,5 +34,16 @@ export default function Writer() {
                 <td className="num">{s.articleId && <Link className="btn sm" to={`/articles/${s.articleId}`}>Makale</Link>}</td></tr>); })}</tbody></table></div>))}</Async>
       </Card>
     </div>
+  );
+}
+
+/** AI Makale Üretimi: the overview of the writers and runs, and the blind comparison of vendors */
+export default function Writer() {
+  const [view, setView] = useState('overview');
+  return (
+    <>
+      <div className="page" style={{ paddingBottom: 0 }}><Tabs tabs={[['overview', 'Genel ve yazım geçmişi'], ['compare', 'Karşılaştır (kör test)']]} value={view} onChange={setView} /></div>
+      {view === 'overview' ? <WriterOverview /> : <div className="page"><PageHead title="Karşılaştır: hangi yapay zekâ sizin için daha iyi yazıyor?">Aynı fikri birkaç sağlayıcıya yazdırın, taslakları kimin yazdığını bilmeden okuyun, en iyisini seçin.</PageHead><Compare /></div>}
+    </>
   );
 }

@@ -13,6 +13,7 @@ const telegram = require('../services/telegram');
 const reports = require('../services/reports');
 const portfolio = require('../services/portfolio');
 const costs = require('../services/costs');
+const comparisons = require('../services/comparisons');
 
 /**
  * Phase 6 endpoints: content health, the Update Center (refresh proposals), version comparison.
@@ -22,7 +23,7 @@ const costs = require('../services/costs');
 module.exports = function refreshRoutes(r, { wrap, mw, A, uid }) {
   const pid = async (req) => { const id = V.uuid(req.method === 'GET' ? req.query.projectId : req.body.projectId, 'Proje'); await projects.getProject(id); return id; };
   const PAID = mw.need('research.paid'); const PUB = mw.need('publish.write'); const WRITE = mw.need('articles.write');
-  mw.uuidParams(r, ['uid', 'lid', 'aid', 'rid']);
+  mw.uuidParams(r, ['uid', 'lid', 'aid', 'rid', 'cid']);
 
   r.get('/health', wrap(async (req, res) => res.json(await health.overview(await pid(req)))));
   r.get('/articles/:id/assessment', wrap(async (req, res) => res.json(await health.assess(req.params.id))));
@@ -46,6 +47,14 @@ module.exports = function refreshRoutes(r, { wrap, mw, A, uid }) {
     await A(req, 'adsense.audit', 'project', id, null, { url });
     res.status(202).json({ queued: true, jobId: q.job.id, url });
   }));
+
+  // The blind writer comparison: reading is open to every role (and stays blind until decided); starting, picking and discarding spend money or create an article: admin ("research.paid")
+  r.get('/comparisons', wrap(async (req, res) => res.json({ comparisons: await comparisons.list(await pid(req)) })));
+  r.get('/comparisons/stats', wrap(async (req, res) => res.json(await comparisons.stats(req.query.projectId ? await pid(req) : null))));
+  r.get('/comparisons/:cid', wrap(async (req, res) => { const c = await comparisons.load(req.params.cid); await projects.getProject(c.projectId); res.json(c); }));
+  r.post('/comparisons', PAID, wrap(async (req, res) => { const out = await comparisons.start(req.body.opportunityId, { providers: req.body.providers || null, userId: uid(req) }); await A(req, 'comparison.start', 'opportunity', req.body.opportunityId, null, { asked: out.askedCount }); res.status(202).json(out); }));
+  r.post('/comparisons/:cid/pick', PAID, wrap(async (req, res) => { const out = await comparisons.pick(req.params.cid, req.body.label, { userId: uid(req) }); await A(req, 'comparison.pick', 'comparison', req.params.cid, null, { label: req.body.label, articleId: out.articleId }); res.json(out); }));
+  r.post('/comparisons/:cid/discard', PAID, wrap(async (req, res) => { const out = await comparisons.discard(req.params.cid, { userId: uid(req), note: req.body.note || '' }); await A(req, 'comparison.discard', 'comparison', req.params.cid); res.json(out); }));
 
   // Reports, all sites side by side, the cost analysis (reading is open to every role; making a report by hand needs "research.write")
   r.get('/reports', wrap(async (req, res) => res.json({ reports: await reports.list(await pid(req), { kind: req.query.kind || null }) })));

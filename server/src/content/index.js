@@ -15,7 +15,7 @@ async function prepareDefaults(projectId) {
   try {
     const up = await require('./services/projects').upgradeDefaults(projectId);
     const n = await require('./services/news').seedDefaultSources(projectId);
-    const stale = await require('./services/runs').closeStale() + await require('./services/writer').closeStale();
+    const stale = await require('./services/runs').closeStale() + await require('./services/writer').closeStale() + await require('./services/comparisons').closeStale();
     if (up.upgraded || n || stale) console.log(`[Content] defaults: ${up.upgraded ? `keywords ${up.keywords}, topics ${up.topics}; ` : ''}${n} news sources added${stale ? `; ${stale} stale run(s) closed` : ''}`);
   } catch (err) { console.error('[Content] preparing defaults failed (the module keeps running):', err.message); }
 }

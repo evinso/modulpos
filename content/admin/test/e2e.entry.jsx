@@ -540,6 +540,39 @@ await click(nav('API Kullanımı ve Maliyetler'), 900);
 ok('the cost analysis shows totals, the per-article cost as "Bilinmiyor" until priced runs exist, and its caveats', txt().includes('Maliyet analizi ve öneriler') && txt().includes('Makale başına (yazım + kontroller)') && txt().includes('Ay sonu tahmini') && txt().includes('Karşılaştır'));
 ok('every suggestion shown says what it cannot know', $$('.alert').filter((a) => a.textContent.includes('Ne yapılabilir') || a.textContent.includes('Bilemediğimiz')).every((a) => a.textContent.includes('Bilemediğimiz')));
 
+// ── PHASE 7c: the blind writer comparison ────────────────────────────────────────────────────────────────────────────────────────────
+const lastModal = () => $$('.modal').at(-1);
+await S.db.query("UPDATE daily_work_limits SET max_per_day = 10 WHERE work_type = 'new_article' AND scope = 'global'");      // (an earlier scenario of this run set the day's limit to 1)
+await S.db.query('UPDATE niche_profiles SET daily_article_limit = 20'); await S.db.query('UPDATE categories SET daily_max = NULL');
+await S.db.query("UPDATE content_opportunities SET status = 'new', article_id = NULL WHERE status = 'written'");          // the earlier scenario wrote this idea: make it free again for the comparison
+await click(nav('AI Makale Üretimi'), 800); await click(tab('Karşılaştır (kör test)'), 600);
+ok('with only one vendor ready the comparison explains that two are needed', txt().includes('En az 2 hazır sağlayıcı gerekir') && !btn('Kör karşılaştırmayı başlat'));
+await S.providers.save('openai', { secret: 'sk-openai-e2e-key-0123456789abcdef', extra: { model: 'gpt-test' } });
+await click(nav('Makale Arşivi'), 500); await click(nav('AI Makale Üretimi'), 800); await click(tab('Karşılaştır (kör test)'), 800);
+ok('with two vendors the form offers the idea, both vendors (a vendor without prices says its cost will be unknown) and the start button', !!aria('Karşılaştırılacak fikir') && txt().includes('fiyat girilmemiş: maliyeti bilinmez') && !!btn('Kör karşılaştırmayı başlat') && txt().includes('hangisini kimin yazdığını bilmeden'));
+await click(btn('Kör karşılaştırmayı başlat'), 500);
+ok('starting asks first: it costs one article per vendor and takes ONE place of the day', txt().includes('2 sağlayıcıya yazdırılsın mı?') && txt().includes('TEK yer alınır'));
+await click(btn('Başlat', lastModal()), 900);
+const cmpId = (await q1('SELECT id FROM writer_comparisons ORDER BY created_at DESC LIMIT 1')).id; await globalThis.__srv.comparisons.wait(cmpId); await wait(3600);
+ok('the drafts are ready and read blind: letters, the free numbers side by side, no vendor/model/cost anywhere', !!lastModal() && txt().includes('Kör okuma') && txt().includes('Taslak A') && txt().includes('Taslak B') && txt().includes('Ölçüm (modelsiz, ücretsiz)') && !txt().includes('Kim yazmış?') && !/claude-sonnet|gpt-test|\$\d/.test(lastModal().textContent));
+ok('the drafts are not articles yet', (await q1("SELECT count(*)::int n FROM articles WHERE generation->>'comparisonId' IS NOT NULL")).n === 0 && (await q1("SELECT status FROM content_opportunities WHERE status = 'queued' LIMIT 1")) !== undefined);
+await click(tab('Taslak B'), 400);
+ok('the text of a draft can be read (title, meta, the article)', !!$('.prose', lastModal()) && $('.prose', lastModal()).textContent.length > 200);
+await click($$('button', lastModal()).find((b) => b.textContent.includes('bunu seç')), 500);
+ok('picking asks first and says that the checks will run and nothing is published', txt().includes('makale yapılsın mı?') && txt().includes('kendiliğinden yayımlanmaz'));
+await click(btn('Bunu seç', lastModal()), 1200); await globalThis.__srv.comparisons.wait(`pick:${cmpId}`); await wait(800);
+const picked = await q1("SELECT status, picked_label, picked_article_id FROM writer_comparisons WHERE id = $1", [cmpId]);
+ok('the picked draft is now an article with its mandatory checks, and ONLY that one', picked.status === 'picked' && picked.picked_label === 'B' && (await q1("SELECT count(*)::int n FROM articles WHERE generation->>'comparisonId' = $1", [cmpId])).n === 1 && (await q1('SELECT status FROM articles WHERE id = $1', [picked.picked_article_id])).status === 'needs_review');
+ok('after the decision the vendors are shown: provider, model, cost (unknown where no price), tokens, time; a link to the article', txt().includes('Kim yazmış?') && txt().includes('anthropic') && txt().includes('openai') && txt().includes('gpt-test') && txt().includes('Bilinmiyor') && txt().includes('seçildi') && !!btn('Seçilen makaleyi aç'));
+await click(btn('Kapat', lastModal()), 300);
+ok('the list shows the decision and the tally says it is only the owner\'s preference, with no trend yet', txt().includes('Seçildi') && txt().includes('Seçimleriniz (1 karar)') && txt().includes('En az 3 karardan sonra') && !txt().includes('şimdilik önde'));
+// a second comparison, discarded: nothing becomes an article and the place comes back
+await S.db.query("UPDATE content_opportunities SET status = 'new', article_id = NULL WHERE status = 'written'"); const placesBefore = (await q1("SELECT coalesce(sum(used), 0)::int n FROM daily_work_usage WHERE work_type = 'new_article' AND scope = 'global'")).n;
+await click(nav('Makale Arşivi'), 500); await click(nav('AI Makale Üretimi'), 800); await click(tab('Karşılaştır (kör test)'), 800); await click(btn('Kör karşılaştırmayı başlat'), 500); await click(btn('Başlat', lastModal()), 900);
+const cmp2 = (await q1("SELECT id FROM writer_comparisons WHERE status <> 'picked' ORDER BY created_at DESC LIMIT 1")).id; await globalThis.__srv.comparisons.wait(cmp2); await wait(3600);
+await click(btn('Hiçbirini seçme', lastModal()), 500); await click(btn('Hiçbirini seçme', lastModal()), 900);
+ok('discarding: no article, the idea is free again, the day\'s place is given back, the vendors are shown', (await q1('SELECT status FROM writer_comparisons WHERE id = $1', [cmp2])).status === 'discarded' && (await q1("SELECT count(*)::int n FROM articles WHERE generation->>'comparisonId' IS NOT NULL")).n === 1 && (await q1("SELECT coalesce(sum(used), 0)::int n FROM daily_work_usage WHERE work_type = 'new_article' AND scope = 'global'")).n === placesBefore && txt().includes('Kim yazmış?'));
+
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);
 ok('logout returns to the login form and ends the session', txt().includes('Giriş yap') && !nav('Makale Arşivi'));
