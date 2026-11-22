@@ -32,7 +32,7 @@ const feedServer = http.createServer((req, res) => { if (req.url.startsWith('/pa
 await new Promise((r) => feedServer.listen(0, '127.0.0.1', r));
 globalThis.__feedBase = `http://127.0.0.1:${feedServer.address().port}`;
 globalThis.__srv.opportunities = sreq('./src/content/services/opportunities'); globalThis.__srv.news = sreq('./src/content/services/news');
-globalThis.__dfs = []; globalThis.__serper = []; const { startFakeWp } = sreq('./test/content/fakeWordPress.js'); globalThis.__wp = await startFakeWp(); globalThis.__srv.scheduler = sreq('./src/content/services/scheduler'); globalThis.__srv.publishing = sreq('./src/content/services/publishing'); const { fakeModels, PAGE } = sreq('./test/content/fakeModels.js'); globalThis.__models = fakeModels();
+globalThis.__dfs = []; globalThis.__serper = []; const { startFakeWp } = sreq('./test/content/fakeWordPress.js'); globalThis.__wp = await startFakeWp(); globalThis.__srv.scheduler = sreq('./src/content/services/scheduler'); globalThis.__srv.publishing = sreq('./src/content/services/publishing'); globalThis.__srv.settings = sreq('./src/content/services/settings'); const { fakeModels, PAGE } = sreq('./test/content/fakeModels.js'); globalThis.__models = fakeModels();
 
 const out = path.join(here, '.out-e2e.mjs');
 await build({

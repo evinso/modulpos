@@ -24,6 +24,8 @@ import Writer from './pages/Writer.jsx';
 import Sites from './pages/Sites.jsx';
 import Publishing from './pages/Publishing.jsx';
 import Calendar from './pages/Calendar.jsx';
+import Health from './pages/Health.jsx';
+import Updates from './pages/Updates.jsx';
 
 function AuthScreen({ setupNeeded, tokenConfigured, onDone }) {
   const [mode, setMode] = useState(setupNeeded ? 'setup' : 'login');
@@ -135,6 +137,8 @@ function Shell() {
           <Route path="/sites" element={<Sites />} />
           <Route path="/publishing" element={<Publishing />} />
           <Route path="/calendar" element={<Calendar />} />
+          <Route path="/health" element={<Health />} />
+          <Route path="/updates" element={<Updates />} />
           <Route path="/limits" element={<Limits />} />
           <Route path="/api-usage" element={<ApiUsage />} />
           <Route path="/bots" element={<Bots />} />

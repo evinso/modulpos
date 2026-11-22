@@ -162,22 +162,29 @@ async function runRules(articleId) {
   return rep;
 }
 
-async function runFact(articleId, { provider, fetchImpl, now } = {}) {
-  const a = asArticle(await loadArticle(articleId)); const srcs = await sources.forArticle(articleId);
+/** the fact check of ANY article-shaped object against sources, without touching the database (the refresh engine checks a proposal before it exists as a version) */
+async function factOf(a, srcs, { provider, fetchImpl, now } = {}) {
   if (!srcs.length || !srcs.some((s) => String(s.text || '').trim().length >= 40)) {                 // nothing to check against (a hand-typed source list keeps no page text): no model call is made, and it is not a pass
-    const res = { claims: [], counts: { total: 0 }, claimScore: null, status: 'error', passes: false, error: srcs.length ? 'Kaynakların metni kayıtlı değil (yalnızca adres girilmiş): doğruluk kontrolü yapılamaz' : 'Makalenin kaynağı yok: doğruluk kontrolü yapılamaz' };
-    await store(a.id, a.version, 'fact', 'error', res); return res;
+    return { status: 'error', noModel: true, res: { claims: [], counts: { total: 0 }, claimScore: null, status: 'error', passes: false, error: srcs.length ? 'Kaynakların metni kayıtlı değil (yalnızca adres girilmiş): doğruluk kontrolü yapılamaz' : 'Makalenin kaynağı yok: doğruluk kontrolü yapılamaz' } };
   }
   const user = `ARTICLE:\n${articleText(a)}\n\nSOURCES:\n${srcs.map(srcBlock).join('\n')}`;
-  let out;
-  try { out = await llm.complete({ provider, system: FACT_SYSTEM, user, maxTokens: 5000, json: true, projectId: a.projectId, operation: 'fact_check', fetchImpl, now }); }
-  catch (err) { const res = { claims: [], counts: { total: 0 }, claimScore: null, status: 'error', passes: false, error: err.message }; await store(a.id, a.version, 'fact', 'error', res, { provider, costUsd: err.costUsd }); throw err; }
+  const out = await llm.complete({ provider, system: FACT_SYSTEM, user, maxTokens: 5000, json: true, projectId: a.projectId, operation: 'fact_check', fetchImpl, now });
   const v = verifyClaims(out.data.claims, srcs);
   const readable = srcs.filter((s) => s.readOk).length;
   const reliab = srcs.map((s) => s.reliability).filter((x) => Number.isFinite(x)); const avgRel = reliab.length ? Math.round(reliab.reduce((x, y) => x + y, 0) / reliab.length) : null;
   const res = { ...v, sources: { total: srcs.length, fullPages: readable, avgReliability: avgRel }, note: readable === srcs.length ? '' : (readable ? `${srcs.length - readable} kaynağın sayfası okunamadı: onlar yalnızca başlık ve özetle karşılaştırıldı` : 'Kaynak sayfaları okunamadı: yalnızca başlık ve özetlerle karşılaştırıldı, doğrulama zayıf'), scope: 'Yalnızca makalenin kaynaklarına göre doğrulandı; web’in tamamı taranmadı.' };
-  await store(a.id, a.version, 'fact', v.status, res, { provider: out.provider, model: out.model, costUsd: out.costUsd });
-  return { ...res, usage: { provider: out.provider, model: out.model, inputTokens: out.inputTokens, outputTokens: out.outputTokens, costUsd: out.costUsd } };
+  return { status: v.status, res, out };
+}
+const usageOf = (out) => ({ provider: out.provider, model: out.model, inputTokens: out.inputTokens, outputTokens: out.outputTokens, costUsd: out.costUsd });
+
+async function runFact(articleId, { provider, fetchImpl, now } = {}) {
+  const a = asArticle(await loadArticle(articleId)); const srcs = await sources.forArticle(articleId);
+  let r;
+  try { r = await factOf(a, srcs, { provider, fetchImpl, now }); }
+  catch (err) { await store(a.id, a.version, 'fact', 'error', { claims: [], counts: { total: 0 }, claimScore: null, status: 'error', passes: false, error: err.message }, { provider, costUsd: err.costUsd }); throw err; }
+  if (r.noModel) { await store(a.id, a.version, 'fact', 'error', r.res); return r.res; }
+  await store(a.id, a.version, 'fact', r.status, r.res, { provider: r.out.provider, model: r.out.model, costUsd: r.out.costUsd });
+  return { ...r.res, usage: usageOf(r.out) };
 }
 
 /** statuses of the 13 categories, with the measured numbers overriding a model that was too kind; the class is the stricter of the model's and the one derived from the statuses */
@@ -204,23 +211,28 @@ function deriveReview(data, rules) {
 
 const rate = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= 100 ? Math.round(n) : null; };
 
-async function runReview(articleId, { provider, fetchImpl, now } = {}) {
-  const a = asArticle(await loadArticle(articleId)); const srcs = await sources.forArticle(articleId);
-  const rules = (await latestOf(articleId, 'rules', a.version)) || { result: await runRules(articleId) };
-  const r = rules.result; const m = r.metrics;
+async function reviewOf(a, srcs, rules, { provider, fetchImpl, now } = {}) {
+  const m = rules.metrics;
   const facts = `words ${m.words}; H2 headings ${m.h2}; focus keyword density ${m.densityPct}%; reading ease ${m.readingEase}; ${m.copyChecked ? `${m.copyOverlapPct}% of the text is word-for-word identical to the sources (longest copied run ${m.longestCopiedRun} words)` : 'copy check not possible'}; similarity to own articles ${m.duplicatePct}%`;
   const user = `ARTICLE (title: ${a.h1}; SEO title: ${a.seoTitle}; meta: ${a.metaDescription}; focus keyword: ${a.focusKeyword}; type: ${a.articleType}):\n${articleText(a)}\n\nMEASURED AUTOMATICALLY (trust these numbers): ${facts}\n\nSOURCES THE ARTICLE CITES (titles only): ${srcs.map((s) => `[${s.n}] ${s.publisher}: ${s.title}`).join(' | ') || 'none'}`;
-  let out;
-  try { out = await llm.complete({ provider, system: REVIEW_SYSTEM, user, maxTokens: 3500, json: true, projectId: a.projectId, operation: 'adsense_review', fetchImpl, now }); }
-  catch (err) { await store(a.id, a.version, 'review', 'error', { error: err.message }, { provider, costUsd: err.costUsd }); throw err; }
-  const d = deriveReview(out.data, r);
+  const out = await llm.complete({ provider, system: REVIEW_SYSTEM, user, maxTokens: 3500, json: true, projectId: a.projectId, operation: 'adsense_review', fetchImpl, now });
+  const d = deriveReview(out.data, rules);
   const ratings = { originality: rate(out.data.ratings && out.data.ratings.originality), usefulness: rate(out.data.ratings && out.data.ratings.usefulness), editorial: rate(out.data.ratings && out.data.ratings.editorial) };
   const complete = Object.values(ratings).every((x) => x !== null);
   const status = d.risk === 'blocked' ? 'fail' : d.risk === 'review' ? 'warn' : 'ok';
   const res = { ...d, ratings, ratingsComplete: complete, improvements: (Array.isArray(out.data.improvements) ? out.data.improvements : []).map((x) => String(x).slice(0, 300)).slice(0, 5), summary: String(out.data.summary || '').slice(0, 600),
     disclaimer: 'Bu bir risk tahminidir; Google AdSense onayı ya da reklam geliri garanti etmez.' };
-  await store(a.id, a.version, 'review', status, res, { provider: out.provider, model: out.model, costUsd: out.costUsd });
-  return { ...res, usage: { provider: out.provider, model: out.model, inputTokens: out.inputTokens, outputTokens: out.outputTokens, costUsd: out.costUsd } };
+  return { status, res, out };
+}
+
+async function runReview(articleId, { provider, fetchImpl, now } = {}) {
+  const a = asArticle(await loadArticle(articleId)); const srcs = await sources.forArticle(articleId);
+  const rules = (await latestOf(articleId, 'rules', a.version)) || { result: await runRules(articleId) };
+  let r;
+  try { r = await reviewOf(a, srcs, rules.result, { provider, fetchImpl, now }); }
+  catch (err) { await store(a.id, a.version, 'review', 'error', { error: err.message }, { provider, costUsd: err.costUsd }); throw err; }
+  await store(a.id, a.version, 'review', r.status, r.res, { provider: r.out.provider, model: r.out.model, costUsd: r.out.costUsd });
+  return { ...r.res, usage: usageOf(r.out) };
 }
 
 async function latestOf(articleId, kind, version = null) {
@@ -228,10 +240,8 @@ async function latestOf(articleId, kind, version = null) {
   return r ? { id: Number(r.id), version: r.article_version, kind: r.kind, status: r.status, result: r.result, provider: r.provider, model: r.model, costUsd: r.cost_micros === null ? null : Number(r.cost_micros) / 1e6, createdAt: r.created_at } : null;
 }
 
-/** originality 25 + accuracy 25 + usefulness 20 + SEO/readability 15 + editorial 15, from the checks of the CURRENT version; a missing or failed part = no score */
-async function runQuality(articleId) {
-  const a = asArticle(await loadArticle(articleId));
-  const rules = await latestOf(articleId, 'rules', a.version); const fact = await latestOf(articleId, 'fact', a.version); const review = await latestOf(articleId, 'review', a.version);
+/** originality 25 + accuracy 25 + usefulness 20 + SEO/readability 15 + editorial 15 from the three results ({ status, result } each); a missing or failed part = no score */
+function qualityOf(rules, fact, review) {
   const missing = [];
   if (!rules) missing.push('ücretsiz kurallar'); if (!fact || fact.status === 'error' || fact.result.claimScore === null) missing.push('doğruluk kontrolü'); if (!review || review.status === 'error' || !review.result.ratingsComplete) missing.push('editör/AdSense incelemesi');
   let parts = null; let score = null;
@@ -244,9 +254,36 @@ async function runQuality(articleId) {
     };
     score = clamp(Object.entries(WEIGHTS).reduce((x, [k, w]) => x + parts[k] * w, 0) / 100);
   }
-  const res = { score, parts, weights: WEIGHTS, missing, note: missing.length ? `Kalite puanı verilmedi: eksik ölçüm — ${missing.join(', ')}` : '' };
-  await store(a.id, a.version, 'quality', score === null ? 'error' : 'ok', res);
+  return { score, parts, weights: WEIGHTS, missing, note: missing.length ? `Kalite puanı verilmedi: eksik ölçüm — ${missing.join(', ')}` : '' };
+}
+
+async function runQuality(articleId) {
+  const a = asArticle(await loadArticle(articleId));
+  const res = qualityOf(await latestOf(articleId, 'rules', a.version), await latestOf(articleId, 'fact', a.version), await latestOf(articleId, 'review', a.version));
+  await store(a.id, a.version, 'quality', res.score === null ? 'error' : 'ok', res);
   return res;
+}
+
+/**
+ * ALL checks of an article-shaped object (a proposed update, not yet a version) without writing a row: { rules, fact, review, quality, errors, usage }.
+ * @param o { a: { projectId, seoTitle, h1, metaDescription, focusKeyword, contentHtml, articleType }, srcs, others, lengthPref, provider, fetchImpl, now }
+ */
+async function evaluate({ a, srcs, others = [], lengthPref = 'standard', provider, fetchImpl, now }) {
+  const rules = ruleReport(a, { sources: srcs, others, lengthPref });
+  const out = { rules: { status: rules.status, result: rules }, errors: [], usage: [] };
+  for (const [name, fn] of [['fact', () => factOf(a, srcs, { provider, fetchImpl, now })], ['review', () => reviewOf(a, srcs, rules, { provider, fetchImpl, now })]]) {
+    try { const r = await fn(); out[name] = { status: r.status, result: r.res, provider: r.out && r.out.provider, model: r.out && r.out.model, costUsd: r.out ? r.out.costUsd : null }; if (r.out) out.usage.push(usageOf(r.out)); }
+    catch (err) { out.errors.push({ check: name, code: err.code || 'error', message: err.message, fatal: !!err.fatal }); out[name] = { status: 'error', result: name === 'fact' ? { claims: [], counts: { total: 0 }, claimScore: null, status: 'error', passes: false, error: err.message } : { error: err.message } }; if (err.fatal) break; }
+  }
+  out.quality = { status: 'ok', result: qualityOf(out.rules, out.fact, out.review) };
+  return out;
+}
+
+/** a checked proposal became version `version` of the article: its results are stored for that version and put on the row like a normal check run */
+async function adopt(articleId, version, ev) {
+  for (const k of ['rules', 'fact', 'review']) if (ev[k]) await store(articleId, version, k, ev[k].status, ev[k].result, { provider: ev[k].provider, model: ev[k].model, costUsd: ev[k].costUsd });
+  await store(articleId, version, 'quality', ev.quality.result.score === null ? 'error' : 'ok', ev.quality.result);
+  return apply(articleId);
 }
 
 /** puts the newest results onto the article row: quality score, AdSense class, and the fact-check stamp (only when the important claims hold) */
@@ -293,4 +330,4 @@ async function latest(articleId) {
   return res;
 }
 
-module.exports = { WEIGHTS, LENGTHS, CATEGORIES, ruleReport, verifyClaims, deriveReview, runRules, runFact, runReview, runQuality, apply, runAll, latest, latestOf, srcBlock, articleText };
+module.exports = { WEIGHTS, LENGTHS, CATEGORIES, ruleReport, verifyClaims, deriveReview, factOf, reviewOf, qualityOf, evaluate, adopt, runRules, runFact, runReview, runQuality, apply, runAll, latest, latestOf, srcBlock, articleText, asArticle };

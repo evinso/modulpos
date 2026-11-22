@@ -6,6 +6,7 @@ const { HttpError, bad } = require('../lib/http');
 const settings = require('./settings');
 const projects = require('./projects');
 const checks = require('./checks');
+const { diffWords } = require('../lib/diff');
 
 /**
  * The article archive: articles live in the content database (never on a public site) until they are published to WordPress (phase 5).
@@ -260,6 +261,19 @@ async function getVersion(id, version) {
 }
 
 /** Puts an older version back as a NEW version (history is never rewritten). Keeps the current slug when the old one is taken now. */
+/** What changed between two versions of an article, field by field (word-level difference of the texts). */
+async function compareVersions(id, from, to) {
+  const a = await getVersion(id, V.int(from, 'Sürüm', { min: 1, max: 100000 })); const b = await getVersion(id, V.int(to, 'Sürüm', { min: 1, max: 100000 }));
+  const sa = a.snapshot; const sb = b.snapshot; const text = (h) => H.htmlToText(h || '');
+  const LABEL = { h1: 'Ana başlık (H1)', seoTitle: 'SEO başlığı', metaDescription: 'Meta açıklama', excerpt: 'Özet', focusKeyword: 'Odak anahtar kelime', slug: 'Bağlantı (slug)', articleType: 'Makale türü', targetCountry: 'Ülke', language: 'Dil', featuredImageUrl: 'Öne çıkan görsel', adsenseRisk: 'AdSense sonucu' };
+  const fields = [];
+  for (const [k, label] of Object.entries(LABEL)) if ((sa[k] ?? '') !== (sb[k] ?? '')) fields.push({ field: label, ...diffWords(String(sa[k] ?? ''), String(sb[k] ?? '')) });
+  if (sa.contentHtml !== sb.contentHtml) fields.push({ field: 'İçerik', ...diffWords(text(sa.contentHtml), text(sb.contentHtml)) });
+  const faq = (f) => (f || []).map((x) => `${x.q} ${text(x.a)}`).join(' | '); if (faq(sa.faq) !== faq(sb.faq)) fields.push({ field: 'SSS', ...diffWords(faq(sa.faq), faq(sb.faq)) });
+  for (const [k, label] of [['tags', 'Etiketler'], ['secondaryKeywords', 'İkincil anahtar kelimeler']]) if (JSON.stringify(sa[k] || []) !== JSON.stringify(sb[k] || [])) fields.push({ field: label, ...diffWords((sa[k] || []).join(', '), (sb[k] || []).join(', ')) });
+  return { from: { version: a.version, reason: a.reason, createdBy: a.createdBy, createdAt: a.createdAt }, to: { version: b.version, reason: b.reason, createdBy: b.createdBy, createdAt: b.createdAt }, fields };
+}
+
 async function restoreVersion(id, version, { userId = null } = {}) {
   const v = await getVersion(id, version);
   const cur = await loadRow(id);
@@ -423,4 +437,4 @@ async function counts(projectId = null, { tz = 'Europe/Istanbul', days = 30 } = 
     adsenseRisky: risk.risky, adsenseUnchecked: risk.unchecked, daily: daily.map((d) => ({ day: d.day instanceof Date ? d.day.toISOString().slice(0, 10) : String(d.day), count: d.n })) };
 }
 
-module.exports = { STATUSES, STATUS_LABELS, TYPES, TRANSITIONS, MIN_WORDS, create, createFromAi, get, list, update, listVersions, getVersion, restoreVersion, setSources, markFactChecked, readiness, setStatus, remove, bulk, exportArticles, counts };
+module.exports = { STATUSES, STATUS_LABELS, TYPES, TRANSITIONS, MIN_WORDS, create, createFromAi, get, list, update, listVersions, getVersion, restoreVersion, compareVersions, setSources, markFactChecked, readiness, setStatus, remove, bulk, exportArticles, counts };

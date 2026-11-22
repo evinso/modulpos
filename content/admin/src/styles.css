@@ -97,3 +97,8 @@ table.tbl { width: 100%; border-collapse: collapse; min-width: 640px; } .tbl th 
   .menu-btn { display: inline-flex; } .g2, .g3, .g4 { grid-template-columns: 1fr; } .page { padding: 14px; } .top { padding: 10px 14px; }
 }
 .span2 { grid-column: 1 / -1; }
+
+/* word-level differences (version comparison, update drafts) */
+.diff { line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+.diff ins { background: color-mix(in srgb, var(--ok) 22%, transparent); text-decoration: none; border-radius: 3px; padding: 0 2px; }
+.diff del { background: color-mix(in srgb, var(--bad) 22%, transparent); text-decoration: line-through; border-radius: 3px; padding: 0 2px; }

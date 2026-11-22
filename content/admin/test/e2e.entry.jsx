@@ -50,7 +50,7 @@ ok('after login the dashboard is shown (menu, project selector, theme)', !!nav('
 ok('the default project is selected: Global Tech Content Site, not connected', $('select[aria-label="Proje"]').value !== '' && txt().includes('Araştırma ve Arşiv Modu'));
 ok('every dashboard figure is a real count now (a 0 is a real 0); only organic traffic waits for its phase', $$('.metric.later').length === 0 && txt().includes('Organik trafik') && txt().includes('Aşama 6’te etkinleşir') && txt().includes('Bugün bulunan haber'));
 ok('no articles yet: an honest empty state, not fake charts', txt().includes('Henüz makale yok'));
-ok('menu: the 4 pages of phases 6 and 7 are dimmed and not clickable, the research, writing and WordPress pages are links now', $$('.nav.disabled').length === 4 && $$('.nav.disabled').every((n) => n.tagName === 'DIV') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
+ok('menu: the 2 pages of later phases (SEO performance, AdSense audit) are dimmed and not clickable, every other page is a link now', $$('.nav.disabled').length === 2 && $$('.nav.disabled').every((n) => n.tagName === 'DIV') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
 
 // ── strategy ───────────────────────────────────────────────────────────────────────────────────────
 await click(nav('Site Nişi ve İçerik Stratejisi'), 400);
@@ -133,7 +133,7 @@ ok('cost tiles say "Bilinmiyor" never an invented number when empty (no calls ye
 
 // ── bots, settings, logs, notifications ───────────────────────────────────────────────────────────
 await click(nav('Bot Yönetimi'), 500);
-ok('15 bots: the 10 of phases 2, 3 and 5 are ready and show real last runs, the rest say which phase builds them', $$('tbody tr').length === 15 && txt().includes('10 / 15 bot hazır') && /Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
+ok('15 bots: the 12 of phases 2, 3, 5 and 6 are ready and show real last runs, the rest say which phase builds them', $$('tbody tr').length === 15 && txt().includes('12 / 15 bot hazır') && /Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
 await click(nav('Sistem Ayarları'), 500);
 ok('automation settings load; the three mandatory checks are locked', txt().includes('Kalite ve zorunlu kontroller') && $$('.badge').filter((b) => b.textContent === 'kilitli').length === 3);
 const scoring = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('Fırsat puanlama'));
@@ -312,7 +312,7 @@ ok('the writer page lists the vendors (who writes, who checks) and the history o
 
 // ── PHASE 4: bot management, schedule editor, persistent queue ───────────────────────────────────────────────────────────
 await click(nav('Bot Yönetimi'), 700);
-ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 7);
+ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 9);
 const wrow = $$('tbody tr').find((r) => r.textContent.includes('AI Article Writer'));
 await click($$('button', wrow).find((b) => b.textContent.includes('Zamanlama')), 500);
 ok('the schedule dialog warns that this bot spends money and keeps the limits', txt().includes('Bu bot para harcar') && txt().includes('Makaleler yine kendiliğinden yayımlanmaz') && txt().includes('yalnızca BİR kez'));
@@ -371,8 +371,34 @@ ok('the places of the days were taken by the scheduled posts (the limit of each 
 await click(nav('İçerik Takvimi'), 800);
 ok('the calendar shows the scheduled posts on their days with their state', txt().includes('E2E router guide 0') && txt().includes('Zamanlandı') && txt().includes('3 yayın') || (txt().includes('E2E router guide 0') && txt().includes('Zamanlandı')));
 await click(nav('Bot Yönetimi'), 700);
-ok('the WordPress bot is listed (auto-publish is off by default)', txt().includes('Content Publishing Bot') && txt().includes('Otomatik kapalı; elle çalıştırılır') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 7);
+ok('the WordPress bot is listed (auto-publish is off by default)', txt().includes('Content Publishing Bot') && txt().includes('Otomatik kapalı; elle çalıştırılır') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 9);
 void made;
+
+// ── PHASE 6a: content health, update drafts (refresh engine), version comparison ────────────────────────────────────────────────────
+await S.settings.set('update', { policy: 'manual' });
+const hid = (await S.articles.create({ projectId: pid, h1: 'E2E pricing explainer', seoTitle: 'E2E pricing explainer', metaDescription: 'm'.repeat(100), focusKeyword: 'e2e pricing explainer', categoryId: (await q1('SELECT id FROM categories LIMIT 1')).id,
+  contentHtml: `<h2>Price</h2><p>${'The plan costs 20 dollars a month and renews each month for every subscriber. '.repeat(30)}</p><p>See <a href="${globalThis.__feedBase}/gone-page">the old announcement</a>.</p>`, articleType: 'latest_update' })).id;
+await S.db.query("UPDATE articles SET status = 'ready', fact_checked_at = now(), adsense_risk = 'low', quality_score = 90 WHERE id = $1", [hid]);
+await S.db.query("INSERT INTO article_sources (article_id, url, title, publisher, excerpt, reliability, read_ok, position) VALUES ($1, $2, 'Report', 'Outlet', $3, 80, true, 1)", [hid, `${globalThis.__feedBase}/page.html`, 'OpenAI said on Tuesday that ChatGPT Plus will cost 22 dollars a month starting in January 2027, up from 20 dollars. The company said higher compute costs were behind the increase. Existing subscribers keep the current price through December.']);
+await click(nav('İçerik Sağlığı'), 800);
+ok('the health page shows counts and the article list; performance says it is not connected instead of inventing numbers', txt().includes('Güncelleme bekleyen') && txt().includes('E2E pricing explainer') && txt().includes('Search Console bağlı değil') && txt().includes('hiç kontrol edilmedi'));
+const hrow = () => $$('tbody tr').find((r) => r.textContent.includes('E2E pricing explainer'));
+await click($$('button', hrow()).find((b) => b.textContent.includes('Şimdi kontrol et')), 1500);
+ok('checking it finds the broken link: the reason is written, the article now waits for an update', txt().includes('1 bağlantı bozuk') && txt().includes('Güncelleme bekliyor') && (await q1('SELECT status FROM articles WHERE id = $1', [hid])).status === 'needs_update');
+await click($$('button', hrow()).find((b) => b.textContent.includes('Taslak hazırla')), 700); await drainQueue(); await wait(300);
+const prop = await q1("SELECT id, kind, status FROM refresh_proposals WHERE article_id = $1", [hid]);
+ok('a draft was prepared through the queue (the article itself is untouched until approval)', !!prop && prop.status === 'proposed' && (await q1('SELECT current_version v FROM articles WHERE id = $1', [hid])).v === 1, JSON.stringify(prop));
+await click(nav('Güncelleme Merkezi'), 800);
+ok('the update center lists it with its kind and a reason; a manual policy never applied it by itself', txt().includes('E2E pricing explainer') && txt().includes('Onay bekliyor') && txt().includes('Küçük güncelleme'));
+await click(btn('Ayrıntı'), 900);
+ok('the detail shows what changes word by word, the checks of the proposed text and the cost', !!$('.modal .diff ins') && txt().includes('Önerilen metnin kontrolleri') && txt().includes('Update: the plan details') && txt().includes('maliyet'));
+await click(btn('Onayla ve uygula', $('.modal')), 1500);
+ok('approving makes version 2 of the SAME article (same address), the broken link is gone, the list says applied', (await q1('SELECT current_version v, content_html h, slug FROM articles WHERE id = $1', [hid])).v === 2 && !(await q1('SELECT content_html h FROM articles WHERE id = $1', [hid])).h.includes('gone-page') && (await q1("SELECT status FROM refresh_proposals WHERE article_id = $1", [hid])).status === 'applied');
+await click(tab('Uygulanan'), 800); ok('the applied tab shows it', txt().includes('E2E pricing explainer') && txt().includes('Uygulandı'));
+await click(nav('Makale Arşivi'), 600); await click($$('tbody tr').find((r) => r.textContent.includes('E2E pricing explainer')), 900);
+await click(btn('Farkı göster'), 900);
+ok('the version comparison of the editor shows removed and added words', !!$('.modal .diff del') || !!$('.modal .diff ins'));
+await click(btn('Kapat', $('.modal')) || aria('Kapat'), 300);
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);
