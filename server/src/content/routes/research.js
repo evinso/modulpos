@@ -18,7 +18,7 @@ const sourcesSvc = require('../services/sources');
 
 /**
  * Phase 2 endpoints: news sources and discovery, events, trends, niche suggestions, keywords, SERP, opportunities.
- * Reading is open to every signed-in role. Free work (reading news, scoring, importing a volume file) needs "research.write" (admin, editor); sources and every call that can cost money (DataForSEO, Serper) need admin.
+ * Reading is open to every signed-in role. Free work (reading news, scoring, importing a volume file) needs "research.write" (admin, editor); sources and every call that can cost money (Apify, Serper) need admin.
  */
 module.exports = function research(r, { wrap, mw, A, uid }) {
   const pid = async (req) => { const id = V.uuid(req.method === 'GET' || req.method === 'DELETE' ? req.query.projectId : req.body.projectId, 'Proje'); await projects.getProject(id); return id; };
@@ -55,7 +55,7 @@ module.exports = function research(r, { wrap, mw, A, uid }) {
   r.post('/niche-suggestions/discover', W, wrap(async (req, res) => { const id = await pid(req); const out = await niche.discover(id, { userId: uid(req) }); await A(req, 'niche.discover', 'project', id, null, out); res.json({ ...out, suggestions: await niche.list(id) }); }));
   r.post('/niche-suggestions/:nid/decide', mw.need('categories.write'), wrap(async (req, res) => { const s = await niche.decide(req.params.nid, req.body, { userId: uid(req) }); await A(req, `niche.${req.body.action}`, 'niche_suggestion', s.id, null, { label: s.label, status: s.status, categoryId: s.linkedCategoryId }); res.json(s); }));
 
-  // ── keywords (DataForSEO) ──────────────────────────────────────────────────────────────────────────────────
+  // ── keywords (Apify data, Serper ideas, imported files) ──────────────────────────────────────────────────────────────────────────────────
   r.get('/keywords', wrap(async (req, res) => res.json(await keywords.list(await pid(req), req.query))));
   r.get('/keywords-export', wrap(async (req, res) => { const out = await keywords.exportCsv(await pid(req), req.query); res.set({ 'Content-Type': out.contentType, 'Content-Disposition': `attachment; filename="${out.filename}"` }); res.send(out.body); }));
   r.post('/keywords', W, wrap(async (req, res) => {
@@ -137,10 +137,12 @@ module.exports = function research(r, { wrap, mw, A, uid }) {
   r.get('/research/status', wrap(async (req, res) => {
     const projectId = req.query.projectId ? V.uuid(req.query.projectId, 'Proje') : null;
     const seo = (await settings.get('seo', projectId)).value;
-    const [dfsP, serperP] = [await providers.get('dataforseo'), await providers.get('serper')];
-    const ready = { dataforseo: dfsP.configured && !!dfsP.extra.login, serper: serperP.configured };
+    const [apifyP, serperP] = [await providers.get('apify'), await providers.get('serper')];
+    const ready = { apify: apifyP.configured, serper: serperP.configured };
+    const e = apifyP.extra || {}; const cap = Number.isInteger(Number(e.monthlyKeywordCap)) && String(e.monthlyKeywordCap).trim() !== '' ? Number(e.monthlyKeywordCap) : 600;
+    const used = apifyP.configured ? await keywords.usedThisMonth(new Date()) : 0;
     res.json({ serpProvider: seo.serpProvider, serpProviderLabel: serp.SOURCES[seo.serpProvider].label, serpReady: ready[seo.serpProvider], partialWithApproval: seo.partialWithApproval,
-      dataforseo: { configured: ready.dataforseo, lastTestOk: dfsP.lastTestOk, lastTestMessage: dfsP.lastTestMessage, dailyBudgetUsd: dfsP.dailyBudgetUsd, monthlyBudgetUsd: dfsP.monthlyBudgetUsd },
+      apify: { configured: ready.apify, actor: e.actor || null, lastTestOk: apifyP.lastTestOk, lastTestMessage: apifyP.lastTestMessage, monthlyCap: cap, usedThisMonth: used },
       serper: { configured: ready.serper, lastTestOk: serperP.lastTestOk, lastTestMessage: serperP.lastTestMessage } });
   }));
   void bad;

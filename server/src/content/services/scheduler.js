@@ -114,8 +114,8 @@ const HANDLERS = {
     return { status: 'ok', stats: s, message: `${s.created} yeni niş önerisi` };
   } },
   keyword_research: { idempotent: true, async run(job, ctx) {
-    const p = await providers.get('dataforseo');
-    if (!(p.configured && p.extra.login)) return { status: 'skipped', message: 'DataForSEO bağlı değil (aranma hacmi için dosyadan içe aktarma kullanılır)' };
+    const p = await providers.get('apify');
+    if (!p.configured) return { status: 'skipped', message: 'Apify bağlı değil (aranma hacmi için dosyadan içe aktarma kullanılır)' };
     const out = await keywords.fetchMetrics(job.projectId, { manual: job.trigger === 'manual', trigger: job.trigger === 'manual' ? 'manual' : 'schedule', userId: job.userId, fetchImpl: ctx.fetchImpl, now: ctx.now });
     return { status: out.stopped ? 'partial' : 'ok', stats: out, message: out.message };
   } },

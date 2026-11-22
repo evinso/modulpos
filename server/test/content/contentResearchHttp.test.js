@@ -10,7 +10,7 @@ const opts = { skip: H.skip };
 const ORIGIN = 'https://content.example.test';
 const PW = 'Correct-Horse-9-Battery';
 const FX = path.join(__dirname, '../fixtures/content');
-let server; let base; let feedServer; let feedBase; const realFetch = globalThis.fetch; const dfsCalls = []; const serperCalls = []; let googleFake = null; const models = require('./fakeModels').fakeModels();
+let server; let base; let feedServer; let feedBase; const realFetch = globalThis.fetch; const apifyCalls = []; const serperCalls = []; let googleFake = null; const models = require('./fakeModels').fakeModels();
 
 test.before(async () => {
   if (H.skip) return;
@@ -27,27 +27,24 @@ test.before(async () => {
     res.writeHead(200, { 'Content-Type': 'application/xml' }); res.end(require('../fixtures/freshen').freshen(fs.readFileSync(path.join(FX, f), 'utf8')));
   });
   await new Promise((r) => feedServer.listen(0, '127.0.0.1', r)); feedBase = `http://127.0.0.1:${feedServer.address().port}`;
-  // DataForSEO is only reachable through the global fetch: answer it here, let everything else (our own test client) through
+  // Apify and Serper are only reachable through the global fetch: answer them here, let everything else (our own test client) through
   globalThis.fetch = async (url, o) => {
     if (/^https:\/\/(api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com)/.test(String(url))) return models.fetchImpl(url, o);
     if (googleFake && /^https:\/\/(oauth2\.googleapis\.com|www\.googleapis\.com\/webmasters)/.test(String(url))) return googleFake.fetchImpl(url, o);
-    if (String(url).startsWith('https://google.serper.dev')) {                      // Serper.dev: the vendor's documented answer shape, easy results
-      const q = JSON.parse(o.body).q; serperCalls.push({ q, key: o.headers['X-API-KEY'] });
+    if (String(url).startsWith('https://google.serper.dev')) {                      // Serper.dev: the vendor's documented answer shape, easy results; /autocomplete answers one suggestion
+      const q = JSON.parse(o.body).q; serperCalls.push({ q, key: o.headers['X-API-KEY'], path: new URL(url).pathname });
+      if (/\/autocomplete$/.test(url)) return { ok: true, status: 200, json: async () => ({ suggestions: [{ value: `${q} release date` }] }) };
       return { ok: true, status: 200, json: async () => ({ organic: ['smallblog.dev', 'niche-tech.net', 'reddit.com', 'mysite.io'].map((d, i) => ({ title: d, link: `https://${d}/${i}`, position: i + 1, snippet: 's' })), peopleAlsoAsk: [{ question: `Is ${q} real?` }], relatedSearches: [{ query: `${q} news` }] }) };
     }
-    if (!String(url).startsWith('https://api.dataforseo.com')) return realFetch(url, o);
-    const p = new URL(url).pathname; const body = o.body ? JSON.parse(o.body)[0] : null; dfsCalls.push({ p, body });
-    const env = (result, cost) => ({ status_code: 20000, cost, tasks_count: 1, tasks: [{ status_code: 20000, cost, result: [result] }] });
-    const ki = (v) => ({ search_volume: v, cpc: 1.5, competition: 0.4, monthly_searches: [] });
-    let out;
-    if (p.endsWith('keyword_overview/live')) out = env({ items: body.keywords.map((k) => ({ keyword: k, keyword_info: ki(/chrome/.test(k) ? 22000 : 1300), keyword_properties: { keyword_difficulty: 33 }, search_intent_info: { main_intent: 'informational' } })) }, 0.0201);
-    else if (p.endsWith('organic/live/advanced')) out = env({ item_types: ['organic'], items: ['smallblog.dev', 'niche-tech.net', 'reddit.com', 'mysite.io'].map((d, i) => ({ type: 'organic', rank_group: i + 1, domain: d, title: d, url: `https://${d}/` })) }, 0.003);
-    else if (p.endsWith('keyword_suggestions/live')) out = env({ items: [{ keyword: `${body.keyword} release date`, keyword_info: ki(500) }] }, 0.0101);
-    else out = { status_code: 20000, tasks: [{ status_code: 40501, status_message: 'bad' }] };
-    return { ok: true, status: 200, json: async () => out };
+    if (String(url).startsWith('https://api.apify.com')) {                           // Apify: a synchronous actor run returns the dataset items (the default actor's output field names)
+      const p = new URL(url).pathname; const body = o.body ? JSON.parse(o.body) : null; apifyCalls.push({ p, body, auth: o.headers.Authorization });
+      if (/run-sync-get-dataset-items$/.test(p)) return { ok: true, status: 200, json: async () => body.keywords.map((k) => ({ keyword: k, search_volume: /chrome/.test(k) ? 22000 : 1300, cpc: 1.5, competition: 0.4, keyword_difficulty: 33, search_intent: 'informational', monthly_searches: [], data_status: 'ok' })) };
+      return { ok: true, status: 200, json: async () => ({ data: {} }) };
+    }
+    return realFetch(url, o);
   };
 });
-test.beforeEach(async () => { if (!H.skip) { await H.clean(); await require('../../src/content/services/projects').seedDefault(); dfsCalls.length = 0; serperCalls.length = 0; } });
+test.beforeEach(async () => { if (!H.skip) { await H.clean(); await require('../../src/content/services/projects').seedDefault(); apifyCalls.length = 0; serperCalls.length = 0; } });
 test.after(async () => { globalThis.fetch = realFetch; delete process.env.CONTENT_ALLOW_PRIVATE_FETCH; if (feedServer) await new Promise((r) => feedServer.close(r)); if (server) await new Promise((r) => server.close(r)); if (!H.skip) await H.close(); });
 
 function client() {
@@ -92,7 +89,7 @@ test('inputs: a project is required and must exist, ids are checked, bad bodies 
   assert.equal((await c.post('/news/sources', { projectId: pid, name: 'x2', kind: 'rss', url: 'http://169.254.169.254/latest' })).status, 400, 'the metadata address is refused');
   assert.equal((await c.post('/news/sources', { projectId: pid, name: 'x3', kind: 'rss', url: 'http://127.0.0.1:8080/feed' })).status, 400); process.env.CONTENT_ALLOW_PRIVATE_FETCH = '1';
   assert.equal((await c.post('/keywords', { projectId: pid, keywords: [] })).json.added, 0); assert.equal((await c.post('/keywords', { projectId: pid, keywords: 'a b', country: 'DE' })).status, 400);
-  assert.equal((await c.post('/keywords/fetch', { projectId: pid })).status, 409, 'DataForSEO is not set up: a clear 409');
+  assert.equal((await c.post('/keywords/fetch', { projectId: pid })).status, 409, 'Apify is not set up: a clear 409');
   assert.equal((await c.get(`/opportunities-select?projectId=${pid}&count=999`)).status, 400);
 });
 
@@ -125,25 +122,25 @@ test('NEWS end to end with no fakes: sources over real HTTP (the safe fetcher), 
   const aud = (await c.get('/audit?action=news')).json; assert.ok(aud.items.some((x) => x.action === 'news.run') && aud.items.some((x) => x.action === 'news.source.create'));
 });
 
-test('SEO end to end over HTTP: set up DataForSEO, keywords from events, paid fetch with a plan first, SERP, opportunities, selection - and the paid calls obey limits and budget', opts, async () => {
+test('SEO end to end over HTTP: set up Apify and Serper, keywords from events, a data run with a plan first, SERP, opportunities, selection - and the calls obey the limits and the monthly keyword cap', opts, async () => {
   const c = await signedIn(); const pid = (await c.get('/projects')).json.projects[0].id;
-  await require('../../src/content/services/settings').set('seo', { serpProvider: 'dataforseo', partialWithApproval: false });      // an owner who pays for DataForSEO (the free mode has its own test file)
+  await require('../../src/content/services/settings').set('seo', { serpProvider: 'serper', partialWithApproval: false });      // an owner with real data sources (the free mode has its own test file)
   await c.post('/news/sources', { projectId: pid, name: 'Chrome', kind: 'rss', url: `${feedBase}/chrome.xml`, sourceType: 'official', reliability: 90 });
   const run = await waitRun(c, (await c.post('/news/run', { projectId: pid })).json.run.id); assert.equal(run.status, 'ok');
-  assert.equal((await c.get('/research/status')).json.dataforseo.configured, false);
+  assert.equal((await c.get('/research/status')).json.apify.configured, false);
   const ref = (await c.post('/opportunities/refresh', { projectId: pid })).json; assert.ok(ref.topicsCreated >= 1 && ref.keywordsAdded >= 1);
   let ops = (await c.get(`/opportunities?projectId=${pid}`)).json; assert.equal(ops.items.every((o) => !o.eligible && o.total === null), true, 'no data yet: nothing is eligible, no total');
   assert.match(ops.items[0].ineligibleReason, /Anahtar kelime verisi henüz çekilmedi/);
-  const ps = (await c.put('/providers/dataforseo', { secret: 'api-pass-123', extra: { login: 'me@example.com' }, dailyBudgetUsd: 5 })).json; assert.equal(ps.configured, true);
-  assert.equal((await c.get('/research/status')).json.dataforseo.configured, true);
-  const plan = (await c.post('/keywords/plan', { projectId: pid })).json; assert.ok(plan.toAsk >= 1 && plan.requests === 1 && plan.configured && plan.estimatedCostUsd > 0);
-  const fetched = (await c.post('/keywords/fetch', { projectId: pid })).json; assert.equal(fetched.requests, 1); assert.equal(fetched.costUsd, 0.0201); assert.equal(dfsCalls.length, 1);
-  assert.equal((await c.post('/keywords/fetch', { projectId: pid })).json.requested, 0); assert.equal(dfsCalls.length, 1, 'second time: cache');
+  const ps = (await c.put('/providers/apify', { secret: 'apify_api_http_token_0123456789' })).json; assert.equal(ps.configured, true); await c.put('/providers/serper', { secret: 'serper-key-0123456789abcdef' });
+  assert.deepEqual([(await c.get('/research/status')).json.apify.configured, (await c.get('/research/status')).json.apify.monthlyCap], [true, 600]);
+  const plan = (await c.post('/keywords/plan', { projectId: pid })).json; assert.ok(plan.toAsk >= 1 && plan.requests === 1 && plan.configured && plan.estimatedCostUsd === null && plan.monthly.cap === 600);
+  const fetched = (await c.post('/keywords/fetch', { projectId: pid })).json; assert.equal(fetched.requests, 1); assert.deepEqual([fetched.costUsd, fetched.unknownCost], [0, 1], 'the cost is unknown, not 0'); assert.equal(apifyCalls.length, 1); assert.equal(apifyCalls[0].auth, 'Bearer apify_api_http_token_0123456789');
+  assert.equal((await c.post('/keywords/fetch', { projectId: pid })).json.requested, 0); assert.equal(apifyCalls.length, 1, 'second time: cache');
   const kws = (await c.get(`/keywords?projectId=${pid}&state=found`)).json.items; assert.ok(kws.length >= 1 && kws.every((k) => k.metrics.searchVolume !== null));
   const sr = (await c.post(`/keywords/${kws[0].id}/serp`, {})).json; assert.equal(sr.cached, false); assert.ok(sr.analysis.competition <= 25); assert.match(sr.disclaimer, /resmî zorluk metriği değildir/);
   assert.equal((await c.post(`/keywords/${kws[0].id}/serp`, {})).json.cached, true); assert.equal((await c.get(`/keywords/${kws[0].id}/serp`)).json.analysis.competition, sr.analysis.competition);
   assert.equal((await c.get(`/serp?projectId=${pid}`)).json.analyses.length, 1);
-  const sug = (await c.post('/keywords/suggest', { projectId: pid, seed: 'chrome update', limit: 10 })).json; assert.equal(sug.added, 1);
+  const sug = (await c.post('/keywords/suggest', { projectId: pid, seed: 'chrome update', limit: 10 })).json; assert.equal(sug.added, 1); assert.equal(sug.withData, 0, 'an autocomplete idea has no data'); assert.equal(serperCalls.at(-1).path, '/autocomplete');
   assert.equal((await c.post('/keywords/suggest', { projectId: pid, seed: 'chrome update', limit: 0 })).status, 400);
   await c.post('/opportunities/refresh', { projectId: pid }); ops = (await c.get(`/opportunities?projectId=${pid}`)).json;
   const withKw = ops.items.find((o) => o.keywordId && o.total === null); assert.match(withKw.ineligibleReason, /Eksik veri: SERP analizi yapılmadı/);
@@ -154,13 +151,13 @@ test('SEO end to end over HTTP: set up DataForSEO, keywords from events, paid fe
   const one = (await c.get(`/opportunities/${scored[0].id}`)).json; assert.equal(one.explain.components.demand.volume > 0, true);
   const sel = (await c.get(`/opportunities-select?projectId=${pid}`)).json; assert.ok(sel.picked <= 3 && sel.room === 3, 'never more than the day\'s room (3)');
   assert.equal((await c.post(`/opportunities/${scored[0].id}/status`, { status: 'shortlisted' })).json.status, 'shortlisted');
-  // the paid call obeys the budget: with a nearly-empty budget the next paid call is refused BEFORE it is made
-  await c.put('/providers/dataforseo', { dailyBudgetUsd: 0.005 }); await c.post('/keywords', { projectId: pid, keywords: 'brand new chrome keyword' }); const before = dfsCalls.length;
-  const blocked = (await c.post('/keywords/fetch', { projectId: pid })).json; assert.match(blocked.stopped, /DataForSEO günlük bütçesi doldu/); assert.equal(dfsCalls.length, before);
-  assert.equal((await c.get('/usage?days=1')).json.providers[0].provider, 'dataforseo'); assert.equal((await c.get('/usage?days=1')).json.providers[0].blockedByBudget >= 1, true);
+  // the monthly keyword cap stops the next run BEFORE the actor is called
+  await c.put('/providers/apify', { extra: { monthlyKeywordCap: '1' } }); await c.post('/keywords', { projectId: pid, keywords: 'brand new chrome keyword' }); const before = apifyCalls.length;
+  const blocked = (await c.post('/keywords/fetch', { projectId: pid })).json; assert.match(blocked.stopped, /Aylık anahtar kelime güvenlik sınırına ulaşıldı \(1\)/); assert.equal(apifyCalls.length, before);
+  const usage = (await c.get('/usage?days=1')).json.providers.find((x) => x.provider === 'apify'); assert.deepEqual([usage.requests >= 1, usage.unknownCalls >= 1, usage.costUsd], [true, true, 0], 'unknown costs are counted, never added as money');
   const csv = await c.get(`/keywords-export?projectId=${pid}`); assert.equal(csv.status, 200); assert.match(csv.headers.get('content-disposition'), /keywords-\d{4}-\d{2}-\d{2}\.csv/); assert.ok(csv.text.includes('Aylık arama hacmi'));
   assert.equal((await c.del(`/keywords?projectId=${pid}&ids=${kws[0].id}`)).json.deleted, 1);
-  const noSecret = JSON.stringify([ps, (await c.get('/providers')).json]); assert.ok(!noSecret.includes('api-pass-123'));
+  const noSecret = JSON.stringify([ps, (await c.get('/providers')).json]); assert.ok(!noSecret.includes('http_token_0123456789'));
   const bots = (await c.get('/bots')).json.items; assert.ok(bots.find((b) => b.key === 'keyword_research').lastRunAt && bots.find((b) => b.key === 'news_discovery').lastRunAt, 'the bot table shows real last runs');
 });
 
@@ -173,7 +170,7 @@ test('free mode over HTTP: Serper key, SERP from Serper, a volume file imported 
   const ps = (await c.put('/providers/serper', { secret: 'serper-key-0123456789abcdef' })).json; assert.deepEqual([ps.configured, ps.secretLast4, ps.paid], [true, 'cdef', true]);
   assert.equal((await c.get(`/research/status?projectId=${pid}`)).json.serpReady, true);
   assert.equal((await editor.post(`/keywords/${kid}/serp`, {})).status, 403, 'the SERP call can cost money: admin only'); assert.equal(serperCalls.length, 0);
-  const an = (await c.post(`/keywords/${kid}/serp`, {})).json; assert.equal(an.analysis.provider, 'serper'); assert.equal(an.analysis.providerLabel, 'Serper.dev'); assert.equal(an.analysis.costUsd, null); assert.equal(serperCalls.length, 1); assert.equal(serperCalls[0].key, 'serper-key-0123456789abcdef'); assert.equal(dfsCalls.length, 0, 'DataForSEO is not involved');
+  const an = (await c.post(`/keywords/${kid}/serp`, {})).json; assert.equal(an.analysis.provider, 'serper'); assert.equal(an.analysis.providerLabel, 'Serper.dev'); assert.equal(an.analysis.costUsd, null); assert.equal(serperCalls.length, 1); assert.equal(serperCalls[0].key, 'serper-key-0123456789abcdef'); assert.equal(apifyCalls.length, 0, 'DataForSEO is not involved');
   const used = (await c.get('/usage?days=1')).json; assert.equal(used.providers.find((p) => p.provider === 'serper').requests, 1);
   assert.ok(!JSON.stringify((await c.get('/providers')).json).includes('serper-key-0123456789abcdef'), 'the key is never returned');
   // the volume file: editors may import (free), viewers may not

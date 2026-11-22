@@ -159,7 +159,7 @@ test('providers through HTTP: the key goes in, only its last 4 come out, nothing
   const aud = await c.get('/audit?entity=provider');
   assert.ok(!aud.text.includes('ABCDEFGHIJ'), 'the audit trail holds no key'); assert.ok(aud.json.items.some((x) => x.action === 'provider.save'));
   assert.equal((await c.put('/providers/unknown', {})).status, 400);
-  const t = await c.post('/providers/dataforseo/test');
+  const t = await c.post('/providers/apify/test');
   assert.equal(t.status, 409, 'nothing saved: no call is made');
   assert.equal((await c.get('/usage')).json.today.costUsd, 0);
 });

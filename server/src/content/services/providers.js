@@ -7,7 +7,7 @@ const { HttpError, bad } = require('../lib/http');
 const settings = require('./settings');
 
 /**
- * External services (OpenAI, DataForSEO, Telegram ...): their keys, a connection test, every call that costs money, and the budget guard.
+ * External services (OpenAI, Apify, Serper, Telegram ...): their keys, a connection test, every call that costs money, and the budget guard.
  *  - a key is stored AES-256-GCM encrypted and is NEVER returned: the panel only learns "configured" and the last four characters
  *  - the test calls a free endpoint of the service itself (list models / account data / getMe); the answer is a sentence, the secret never appears in it
  *  - usage rows hold the cost in micro-USD; a call whose cost cannot be computed is stored with NULL and shown as "Bilinmiyor" (never as 0)
@@ -33,9 +33,12 @@ const PROVIDERS = {
       inputPricePerM: { label: 'Giriş fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true }, outputPricePerM: { label: 'Çıkış fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true } },
     help: 'aistudio.google.com → Get API key. Anahtarı kaydedip “Bağlantıyı test et”e basın: anahtarınızla kullanılabilen modeller listelenir, birini tek tıkla seçersiniz (model adı seçilmeden anahtar makale yazımında kullanılamaz). Fiyatları girerseniz maliyet hesaplanır, girmezseniz “Bilinmiyor” yazılır.',
   },
-  dataforseo: {
-    label: 'DataForSEO', secretLabel: 'API şifresi', paid: true, extra: { login: { label: 'API oturum e-postası (login)', max: 200, def: '', required: true } },
-    help: 'İSTEĞE BAĞLI: bu servisi kullanmak ya da para ödemek zorunda değilsiniz. Sistem onsuz çalışır: SERP rekabeti için Serper.dev (ücretsiz başlangıç) ve aranma hacmi için dosyadan aktarma (Anahtar Kelime Araştırması → “Dosyadan hacim aktar”) vardır. DataForSEO hesabı doğrulamak için ön ödeme ister. Kullanacaksanız: app.dataforseo.com → API Access: login (e-posta) ve API şifresi (panel şifreniz değil).',
+  apify: {
+    label: 'Apify (Google anahtar kelime verisi)', secretLabel: 'Apify API belirteci (token)', secretPattern: /^[A-Za-z0-9_.-]{20,200}$/, paid: false,
+    extra: { actor: { label: 'Aktör (kullanıcı/ad)', max: 120, def: 'gaelasao/keyword-research-api' },
+      batchSize: { label: 'Çalıştırma başına anahtar kelime (ücretsiz Apify planında 20)', max: 5, def: '20', range: [1, 1000] },
+      monthlyKeywordCap: { label: 'Aylık en çok sorgulanacak anahtar kelime (güvenlik sınırı)', max: 6, def: '600', range: [0, 100000] } },
+    help: 'Aranma hacmi, CPC ve rekabet verisi için ÖNERİLEN ÜCRETSİZ BAŞLANGIÇ: apify.com’da kart gerektirmeyen ücretsiz hesap açın (Apify’ın fiyat sayfasına göre aylık 5 USD kredi verir), Settings → API & Integrations’tan belirteci kopyalayıp buraya yapıştırın. Aktör, anahtar kelime başına ücret alan bir Apify programıdır (varsayılanı DataForSEO verisini satar; fiyat birkaç USD / 1.000 kelime, Apify’ın aktör sayfasında yazar). Aktör başkasının programıdır: değişebilir ya da kalkabilir (bağlantı testi var olup olmadığına bakar). Maliyeti biz bilemeyiz (“Bilinmiyor” görünür): güvenlik için aylık kelime sınırı vardır; ücretsiz planda kredi bitince Apify kendisi durdurur, kart bağlamadıkça borçlanamazsınız. Hiç ödeme yapmak istemezseniz “Dosyadan hacim aktar” ücretsiz yoldur.',
   },
   serper: {
     label: 'Serper.dev', secretLabel: 'API anahtarı', secretPattern: /^[A-Za-z0-9_-]{16,128}$/, paid: true, extra: {},
@@ -105,6 +108,7 @@ async function save(key, body) {
       extra[k] = V.str(body.extra[k], f.label, { max: f.max });
       if (k === 'model') extra[k] = extra[k].replace(/^models\//, '').trim();             // Google lists models as "models/gemini-…": the call adds that part itself
       if (f.numeric && extra[k] !== '' && !(Number.isFinite(Number(extra[k])) && Number(extra[k]) >= 0 && Number(extra[k]) <= 1000)) throw bad(`${f.label}: 0 ile 1000 arasında bir sayı yazın (ör. 3 ya da 15.5)`);
+      if (f.range && extra[k] !== '' && !(Number.isInteger(Number(extra[k])) && Number(extra[k]) >= f.range[0] && Number(extra[k]) <= f.range[1])) throw bad(`${f.label}: ${f.range[0]} ile ${f.range[1]} arasında bir tam sayı yazın`);
     }
   }
   if (key === 'telegram' && extra.chatIds) {
@@ -142,23 +146,13 @@ const TESTS = {
     const models = (Array.isArray(j.data) ? j.data : []).map((m) => String(m && m.id || '')).filter((id) => /^(gpt-|o\d)/i.test(id) && !/embed|audio|image|tts|whisper|realtime|moderation|transcribe|search|codex|instruct|vision-preview|dall|sora/i.test(id)).sort().map((id) => ({ id, label: id }));
     return { ok: true, message: `OpenAI bağlantısı çalışıyor (${Array.isArray(j.data) ? j.data.length : '?'} model görünüyor).${models.length ? ' Makale için bir model seçin.' : ''}`, models };
   },
-  async dataforseo({ secret, extra, fetchImpl }) {
-    if (!extra.login) return { ok: false, message: 'DataForSEO için API oturum e-postası (login) girilmeli.' };
-    const auth = Buffer.from(`${extra.login}:${secret}`).toString('base64');
-    const res = await fetchImpl('https://api.dataforseo.com/v3/appendix/user_data', { headers: { Authorization: `Basic ${auth}` }, signal: AbortSignal.timeout(12000) });
-    if (res.status === 401) return { ok: false, message: 'DataForSEO login ya da API şifresi reddedildi (401).' };
-    if (!res.ok) return { ok: false, message: `DataForSEO beklenmedik cevap verdi (${res.status}).` };
-    const j = await res.json().catch(() => ({}));
-    if (j.status_code && j.status_code !== 20000) return { ok: false, message: `DataForSEO hata döndürdü: ${String(j.status_message || j.status_code).slice(0, 200)}` };
-    const t = j.tasks && j.tasks[0] && j.tasks[0].result && j.tasks[0].result[0];
-    const balance = t && t.money && typeof t.money.balance === 'number' ? t.money.balance : null;
-    const bal = balance === null ? '' : ` Bakiye: $${balance.toFixed(2)}`;
-    // account data works even for an UNVERIFIED account; every other endpoint then answers 40104. A free listing call tells the difference.
-    const acc = await fetchImpl('https://api.dataforseo.com/v3/serp/google/languages', { headers: { Authorization: `Basic ${auth}` }, signal: AbortSignal.timeout(12000) });
-    const aj = await acc.json().catch(() => ({}));
-    if (acc.status === 403 || aj.status_code === 40104) return { ok: false, balanceUsd: balance, message: `Kimlik bilgileri doğru ama DataForSEO hesabınız henüz doğrulanmamış: app.dataforseo.com adresinden doğrulayın; doğrulanana kadar ücretli sorgular çalışmaz.${bal}` };
-    if (!acc.ok || (aj.status_code && aj.status_code !== 20000)) return { ok: false, balanceUsd: balance, message: `DataForSEO hesabı API'ye erişemiyor (${aj.status_code || acc.status}: ${String(aj.status_message || '').slice(0, 120)}).${bal}` };
-    return { ok: true, message: balance === null ? 'DataForSEO bağlantısı çalışıyor (bakiye okunamadı).' : `DataForSEO bağlantısı çalışıyor ve hesap doğrulanmış.${bal}`, balanceUsd: balance };
+  async apify({ secret, extra, fetchImpl }) {
+    const apify = require('./apify');
+    const client = apify.createClient({ token: secret, actor: extra.actor || apify.DEFAULT_ACTOR, fetchImpl });
+    const acc = await client.account();
+    let info; try { info = await client.actorInfo(); } catch (err) { if (err.code === 'not_found') return { ok: false, message: `Belirteç doğru (${acc.username || 'hesap'}) ama ${err.message}` }; throw err; }
+    const u = acc.usage && acc.usage.usedUsd !== null && acc.usage.limitUsd !== null ? ` Bu ay kullanılan: $${acc.usage.usedUsd.toFixed(2)} / $${acc.usage.limitUsd.toFixed(2)}.` : '';
+    return { ok: true, message: `Apify bağlantısı çalışıyor (hesap: ${acc.username || '?'}${acc.plan ? `, plan: ${acc.plan}` : ''}). Aktör “${info.username ? `${info.username}/` : ''}${info.name || extra.actor}” bulundu.${u} Test ücretsizdir; anahtar kelime sorgusu yalnızca “veri çek” dediğinizde çalışır.` };
   },
   async anthropic({ secret, fetchImpl }) {
     const Anthropic = require('@anthropic-ai/sdk');
@@ -216,7 +210,7 @@ async function test(key, { fetchImpl = globalThis.fetch } = {}) {
   let out;
   try { out = await TESTS[key]({ secret, extra: row.extra || {}, fetchImpl }); }
   catch (err) {
-    const msg = err && err.name === 'TimeoutError' ? 'Servis 12 saniyede cevap vermedi.' : (err && (err.name === 'GscError' || err.name === 'TelegramError') ? err.message : 'Servise ulaşılamadı (ağ hatası).');
+    const msg = err && err.name === 'TimeoutError' ? 'Servis 12 saniyede cevap vermedi.' : (err && (err.name === 'GscError' || err.name === 'TelegramError' || err.name === 'ApifyError') ? err.message : 'Servise ulaşılamadı (ağ hatası).');
     out = { ok: false, message: msg };
   }
   const message = String(out.message).split(secret).join('[gizli]').slice(0, 300);        // the secret must never end up in a stored sentence

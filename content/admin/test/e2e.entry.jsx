@@ -123,7 +123,7 @@ await click(btn('Devam ettir'), 600);
 
 // ── api keys ───────────────────────────────────────────────────────────────────────────────────────
 await click(nav('API Kullanımı ve Maliyetler'), 500);
-ok('three providers are listed, none configured', $$('.card h2').filter((h) => ['OpenAI', 'DataForSEO', 'Telegram'].includes(h.textContent)).length === 3 && txt().includes('Anahtar yok'));
+ok('three providers are listed, none configured', $$('.card h2').filter((h) => ['OpenAI', 'Apify (Google anahtar kelime verisi)', 'Telegram'].includes(h.textContent)).length === 3 && txt().includes('Anahtar yok'));
 const openai = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'OpenAI');
 await setVal(input('API anahtarı', openai), 'sk-test-abcdefghijklmnop1234');
 await click(btn('Kaydet', openai), 600);
@@ -192,35 +192,35 @@ await click(nav('Niş Keşif Merkezi'), 500); await click(btn('Yeni öneri ara')
 ok('niche discovery runs without inventing anything (an honest empty list)', txt().includes('Hiçbir öneri kendiliğinden siteye eklenmez') && (txt().includes('Öneri yok') || txt().includes('günde')));
 
 await click(nav('Anahtar Kelime Araştırması'), 500);
-ok('without DataForSEO the page says so and still lists/adds keywords', txt().includes('DataForSEO bağlı değil') && txt().includes('Anahtar kelime yok'));
+ok('without Apify the page offers both ways (the free start and no payment at all) and still lists/adds keywords', txt().includes('Apify bağlı değil') && txt().includes('Ücretsiz başlangıç') && txt().includes('Hiç ödeme yok') && !txt().includes('DataForSEO') && txt().includes('Anahtar kelime yok'));
 await click(btn('Kelime ekle'), 300); await setVal($('.modal textarea'), 'chrome data breach\nunknown thing keyword\nunknown thing keyword'); await click(btn('Ekle', $('.modal')), 600);
-ok('keywords are cleaned and stored without any API call', (await q1("SELECT count(*)::int n FROM keywords")).n === 2 && globalThis.__dfs.length === 0 && txt().includes('Henüz sorgulanmadı'));
+ok('keywords are cleaned and stored without any API call', (await q1("SELECT count(*)::int n FROM keywords")).n === 2 && globalThis.__apify.length === 0 && txt().includes('Henüz sorgulanmadı'));
 await click(nav('API Kullanımı ve Maliyetler'), 500);
-const dfsCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'DataForSEO');
-await setVal(input('API şifresi', dfsCard), 'dfs-pass-123'); await setVal(input('API oturum e-postası', dfsCard), 'me@example.com'); await click(btn('Kaydet', dfsCard), 700);
-ok('DataForSEO is saved (key encrypted, only the end shown)', txt().includes('Kayıtlı · …-123') && !document.body.innerHTML.includes('dfs-pass-123') || txt().includes('Kayıtlı'));
-// the free source is the default: nothing is connected yet, the page and the settings say so; then this scenario pays for DataForSEO (the free mode follows at the end)
+const apifyCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'Apify (Google anahtar kelime verisi)');
+ok('the Apify card explains the free start, that it is somebody else\'s actor, and that the price is unknown to us', !!apifyCard && apifyCard.textContent.includes('ÖNERİLEN ÜCRETSİZ BAŞLANGIÇ') && apifyCard.textContent.includes('Maliyeti biz bilemeyiz') && apifyCard.textContent.includes('Aylık en çok sorgulanacak anahtar kelime') && !apifyCard.textContent.includes('Günlük bütçe'));
+await setVal(input('Apify API belirteci', apifyCard), 'apify_api_e2e_token_0123456789'); await click(btn('Kaydet', apifyCard), 700); await click(btn('Bağlantıyı test et', apifyCard), 800);
+ok('Apify is saved (key encrypted, only the end shown); the free test reads the account, the usage and the actor', txt().includes('Kayıtlı · …6789') && !document.body.innerHTML.includes('apify_api_e2e_token_0123456789') && txt().includes('hesap: e2e-owner') && txt().includes('Bu ay kullanılan: $0.40 / $5.00') && globalThis.__apify.every((c) => c.method === 'GET'));
+const serperCard0 = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'Serper.dev');
+await setVal(input('API anahtarı', serperCard0), 'serper-key-0123456789abcdef'); await click(btn('Kaydet', serperCard0), 700);
 await click(nav('Anahtar Kelime Araştırması'), 500);
-ok('the default SERP source (Serper.dev) is not connected: the page says so and the SERP button is off', txt().includes('SERP kaynağı bağlı değil: Serper.dev') && txt().includes('Dosyadan hacim aktar') && !!btn('Kelime ekle'));
+ok('Apify and Serper are connected: the SERP banner and the Apify banner are gone', !txt().includes('SERP kaynağı bağlı değil') && !txt().includes('Apify bağlı değil') && !!btn('Dosyadan hacim aktar') && !!btn('Kelime ekle'));
 await click(nav('Sistem Ayarları'), 500);
 const seoCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('SEO araştırması'));
-ok('SEO settings: Serper.dev is the default SERP source and the partial-score switch is on', input('SERP veri kaynağı', seoCard).value === 'serper' && txt().includes('Aranma hacmi yokken onayla kısmi puanla üretime izin ver') && $$('input[type=checkbox]', seoCard).filter((c) => c.checked).length >= 2);
-await setVal(input('SERP veri kaynağı', seoCard), 'dataforseo'); await click(btn('Kaydet', seoCard), 700);
-ok('choosing DataForSEO as the SERP source is saved', (await q1("SELECT value->>'serpProvider' AS p FROM automation_settings WHERE key = 'seo' AND scope = 'global'")).p === 'dataforseo');
+ok('SEO settings: there is no SERP-source choice any more (Serper.dev is the only one) and the partial-score switch is on', !input('SERP veri kaynağı', seoCard) && !input('SERP cihazı', seoCard) && txt().includes('Aranma hacmi yokken onayla kısmi puanla üretime izin ver') && $$('input[type=checkbox]', seoCard).filter((c) => c.checked).length >= 2);
 await click(nav('Anahtar Kelime Araştırması'), 600);
 await click(btn('Verisi olmayanların verisini çek'), 700);
-ok('before spending money it shows how many are asked, the cache and a rough price', txt().includes('Sorgulanacak') && txt().includes('Zaten güncel') && txt().includes('Tahmini maliyet') && txt().includes('Tahmindir; gerçek tutar'));
-await click(btn('Verileri çek (ücretli)'), 800);
-ok('the fetch result reports the REAL cost from the API answer', txt().includes('2 anahtar kelime sorgulandı') && txt().includes('1 veri bulundu') && txt().includes('veri bulunamadı') && txt().includes('$0.0201'), (txt().match(/\d anahtar kelime sorgulandı[^$]*\$[\d.]+/) || [''])[0]);
+ok('before spending anything it shows how many are asked, the cache, that the cost is unknown, and the monthly keyword cap', txt().includes('Sorgulanacak') && txt().includes('Zaten güncel') && txt().includes('Bilinmiyor') && txt().includes('Tutarı bilemeyiz') && txt().includes('Aylık güvenlik sınırı: 0/600'));
+await click(btn('Verileri çek (Apify kredisi harcar)'), 800);
+ok('the fetch result says how many answered and that the cost is unknown (never a made-up number)', txt().includes('2 anahtar kelimenin verisi alındı') && txt().includes('1 veri bulundu') && txt().includes('1 için veri yok') && txt().includes('Maliyet: Bilinmiyor'));
 await click(btn('Kapat', $('.modal')), 300);
-ok('values from the provider are shown; the missing one says "Veri bulunamadı" (never a 0)', txt().includes('14.800') && txt().includes('Veri bulunamadı') && globalThis.__dfs.length === 1);
+ok('values from the provider are shown; the missing one says "Veri bulunamadı" (never a 0)', txt().includes('14.800') && txt().includes('Veri bulunamadı') && globalThis.__apify.filter((c) => c.method === 'POST').length === 1);
 await click(btn('SERP analizi'), 800);
 ok('a SERP analysis from the keyword row fills the organic competition', !!$('.bar') && (await q1('SELECT count(*)::int n FROM serp_analyses')).n === 1);
 
 await click(nav('SEO Rekabet Analizi'), 600);
 ok('SERP page: says the score is not Google\'s metric, lists the analysis', txt().includes('Google’ın resmî zorluk metriği değildir') && txt().includes('chrome data breach'));
 await click(btn('Ayrıntı'), 400);
-ok('detail shows every factor, the top results with their kind, and the user questions', txt().includes('Puanı oluşturan etkenler') && txt().includes('Bağımsız site') && txt().includes('What happened?') && txt().includes('Rekabet tahmini'));
+ok('detail shows every factor, the top results with their kind, and the user questions', txt().includes('Puanı oluşturan etkenler') && txt().includes('Bağımsız site') && txt().includes('Is it real?') && txt().includes('Rekabet tahmini'));
 await click(btn('Kapat') || aria('Kapat'), 300);
 
 await click(nav('İçerik Fırsatları'), 500);
@@ -237,21 +237,22 @@ await click(btn('Kapat', $('.modal')) || aria('Kapat'), 300);
 await S.db.query('UPDATE niche_profiles SET min_opportunity_score = 10');
 await click(nav('Sistem Ayarları'), 500);
 const seoCard2 = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('SEO araştırması'));
-await setVal(input('SERP veri kaynağı', seoCard2), 'serper'); await click(btn('Kaydet', seoCard2), 700);
 await click(nav('API Kullanımı ve Maliyetler'), 500);
 const serperCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'Serper.dev');
 ok('the Serper.dev card explains the free start and the 1-credit test', !!serperCard && serperCard.textContent.includes('2.500 ücretsiz sorgu') && serperCard.textContent.includes('1 sorgu (1 kredi)'));
+globalThis.__serper.length = 0;                                                      // (the earlier SERP analysis called Serper too: count from here)
 await setVal(input('API anahtarı', serperCard), 'serper-key-0123456789abcdef'); await click(btn('Kaydet', serperCard), 700);
 await click(btn('Bağlantıyı test et', serperCard), 800);
 ok('the Serper key is saved (only the end shown) and the connection test works', txt().includes('Kayıtlı · …cdef') && txt().includes('Serper bağlantısı çalışıyor') && !document.body.innerHTML.includes('serper-key-0123456789abcdef') && globalThis.__serper.length === 1 && globalThis.__serper[0].key === 'serper-key-0123456789abcdef');
 
 await click(nav('Anahtar Kelime Araştırması'), 600);
 ok('with Serper connected the SERP banner is gone', !txt().includes('SERP kaynağı bağlı değil'));
+const usageBeforeImport = (await q1('SELECT count(*)::int n FROM api_usage')).n;
 await click(btn('Dosyadan hacim aktar'), 400);
 ok('the import dialog explains where to get the file and that ranges are skipped', txt().includes('Anahtar Kelime Planlayıcı') && txt().includes('aralıklar ve “10K” gibi yuvarlak değerler atlanır'));
 await setVal($('.modal textarea'), 'Keyword,Volume\nchrome flags,5400\nbig range keyword,1K - 10K\nrounded keyword,10K\n,50'); await click(btn('İçe aktar', $('.modal')), 800);
 ok('the result names what was imported and every skipped kind with an example', txt().includes('1 anahtar kelimenin hacmi içe aktarıldı') && txt().includes('hacim aralık olarak geldi (ör. big range keyword)') && txt().includes('yuvarlak değer var (ör. rounded keyword)') && txt().includes('geçerli bir kelime yok'));
-ok('only the exact number is stored, as real data from the file', (await q1("SELECT search_volume, provider FROM keyword_metrics m JOIN keywords k ON k.id = m.keyword_id WHERE k.keyword = 'chrome flags'")).search_volume === 5400 && (await q1("SELECT count(*)::int n FROM keywords WHERE keyword IN ('big range keyword', 'rounded keyword')")).n === 0 && (await q1("SELECT count(*)::int n FROM api_usage WHERE provider = 'serper'")).n === 0, JSON.stringify([await q1("SELECT search_volume, provider FROM keyword_metrics m JOIN keywords k ON k.id = m.keyword_id WHERE k.keyword = 'chrome flags'"), await q1("SELECT count(*)::int n FROM api_usage WHERE provider = 'serper'")]));
+ok('only the exact number is stored, as real data from the file', (await q1("SELECT search_volume, provider FROM keyword_metrics m JOIN keywords k ON k.id = m.keyword_id WHERE k.keyword = 'chrome flags'")).search_volume === 5400 && (await q1("SELECT count(*)::int n FROM keywords WHERE keyword IN ('big range keyword', 'rounded keyword')")).n === 0 && (await q1('SELECT count(*)::int n FROM api_usage')).n === usageBeforeImport, 'an import calls no service: no usage row');
 await click(btn('Kapat', $('.modal')), 300);
 ok('the keyword table shows the volume with its source (file)', txt().includes('chrome flags') && txt().includes('5.400') && txt().includes('dosyadan'));
 
@@ -590,7 +591,7 @@ ok('the connection test lists the models this key can write with (not the embedd
 await click(btn('Bunu kullan'), 900);
 ok('one click saves the model; the vendor is ready for the writer', (await q1("SELECT extra FROM api_providers WHERE key = 'gemini'")).extra.model === 'gemini-2.5-flash' && !txt().includes('Anahtar kayıtlı ama model seçilmedi') && txt().includes('Seçili model: gemini-2.5-flash') && !txt().includes('bir MODEL seçmeniz gerekir'));
 await S.providers.save('gemini', { clearSecret: true });
-ok('the DataForSEO card tells that it is optional and that nothing needs it', txt().includes('İSTEĞE BAĞLI: bu servisi kullanmak ya da para ödemek zorunda değilsiniz'));
+ok('there is no DataForSEO card and no login field any more (the Apify card only says honestly that its default actor resells that data)', !$$('section.card h2').some((h) => /DataForSEO/.test(h.textContent)) && !input('API oturum e-postası') && !btn('Öneri getir (DataForSEO)'));
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);

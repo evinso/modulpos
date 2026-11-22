@@ -32,7 +32,7 @@ const feedServer = http.createServer((req, res) => { if (req.url.startsWith('/pa
 await new Promise((r) => feedServer.listen(0, '127.0.0.1', r));
 globalThis.__feedBase = `http://127.0.0.1:${feedServer.address().port}`;
 globalThis.__srv.opportunities = sreq('./src/content/services/opportunities'); globalThis.__srv.news = sreq('./src/content/services/news');
-globalThis.__dfs = []; globalThis.__serper = []; const { startFakeWp } = sreq('./test/content/fakeWordPress.js'); globalThis.__wp = await startFakeWp(); globalThis.__srv.scheduler = sreq('./src/content/services/scheduler'); globalThis.__srv.publishing = sreq('./src/content/services/publishing'); globalThis.__srv.settings = sreq('./src/content/services/settings'); const { fakeModels, PAGE } = sreq('./test/content/fakeModels.js'); globalThis.__models = fakeModels();
+globalThis.__apify = []; globalThis.__serper = []; const { startFakeWp } = sreq('./test/content/fakeWordPress.js'); globalThis.__wp = await startFakeWp(); globalThis.__srv.scheduler = sreq('./src/content/services/scheduler'); globalThis.__srv.publishing = sreq('./src/content/services/publishing'); globalThis.__srv.settings = sreq('./src/content/services/settings'); const { fakeModels, PAGE } = sreq('./test/content/fakeModels.js'); globalThis.__models = fakeModels();
 
 // Google (Search Console): the service-account JWT is really signed by the panel's saved key and VERIFIED by this fake; numbers are relative to the day asked for
 const { makeKey, fakeGoogle } = sreq('./test/content/fakeGoogle.js'); globalThis.__gkey = makeKey();
@@ -67,22 +67,23 @@ window.HTMLAnchorElement.prototype.click = function click() { globalThis.__downl
 
 // the browser: keeps the session cookie, sends the origin of the panel
 const realFetch = globalThis.fetch; let cookie = '';
-const dfsAnswer = (p, body) => {
-  const env = (result, cost) => ({ status_code: 20000, cost, tasks_count: 1, tasks: [{ status_code: 20000, cost, result: [result] }] });
-  if (p.endsWith('keyword_overview/live')) return env({ items: body.keywords.filter((k) => !/unknown/.test(k)).map((k) => ({ keyword: k, keyword_info: { search_volume: /breach|chrome|techcrunch/.test(k) ? 14800 : 880, cpc: 2.1, competition: 0.35, monthly_searches: [] }, keyword_properties: { keyword_difficulty: 29 }, search_intent_info: { main_intent: 'informational' } })) }, 0.0201);
-  if (p.endsWith('organic/live/advanced')) return env({ item_types: ['organic', 'people_also_ask'], items: [...['smallblog.dev', 'niche-tech.net', 'mysite.io', 'techie.org'].map((d, i) => ({ type: 'organic', rank_group: i + 1, domain: d, title: `${d} result`, url: `https://${d}/` })), { type: 'people_also_ask', items: [{ title: 'What happened?' }] }] }, 0.003);
-  return { status_code: 20000, tasks: [{ status_code: 40501, status_message: 'unexpected' }] };
-};
 globalThis.fetch = async (u, init = {}) => {
   if (String(u).startsWith('https://generativelanguage.googleapis.com/v1beta/models?')) return { status: 200, ok: true, json: async () => ({ models: [{ name: 'models/gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-embedding-001', supportedGenerationMethods: ['embedContent'] }] }) };          // the model list of Google AI Studio
   if (/^https:\/\/(api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com)/.test(String(u))) return globalThis.__models.fetchImpl(u, init);
   if (/^https:\/\/(oauth2\.googleapis\.com|www\.googleapis\.com\/webmasters)/.test(String(u))) return globalThis.__google.fetchImpl(u, init);
   if (String(u).startsWith('https://api.telegram.org')) return globalThis.__tg.fetchImpl(u, init);
   if (String(u).startsWith('https://google.serper.dev')) {                      // Serper.dev: easy results in the vendor's documented shape
-    const body = init.body ? JSON.parse(init.body) : {}; globalThis.__serper.push({ q: body.q, key: (init.headers || {})['X-API-KEY'] });
+    const body = init.body ? JSON.parse(init.body) : {}; globalThis.__serper.push({ q: body.q, key: (init.headers || {})['X-API-KEY'], path: new URL(u).pathname });
+    if (/\/autocomplete$/.test(String(u))) return { ok: true, status: 200, json: async () => ({ suggestions: [{ value: `${body.q} price` }, { value: `how to ${body.q}` }] }) };
     return { ok: true, status: 200, json: async () => ({ organic: ['smallblog.dev', 'niche-tech.net', 'mysite.io', 'techie.org'].map((d, i) => ({ title: `${d} result`, link: `https://${d}/`, position: i + 1, snippet: 's', date: '5 days ago' })), peopleAlsoAsk: [{ question: 'Is it real?' }], relatedSearches: [{ query: `${body.q} news` }] }) };
   }
-  if (String(u).startsWith('https://api.dataforseo.com')) { const body = init.body ? JSON.parse(init.body)[0] : null; globalThis.__dfs.push(new URL(u).pathname); return { ok: true, status: 200, json: async () => dfsAnswer(new URL(u).pathname, body) }; }
+  if (String(u).startsWith('https://api.apify.com')) {                                                  // Apify: the account, the actor, and a synchronous actor run (the default actor's output names)
+    const p = new URL(u).pathname; const body = init.body ? JSON.parse(init.body) : null; globalThis.__apify.push({ p, method: init.method || 'GET', auth: (init.headers || {}).Authorization });
+    if (/run-sync-get-dataset-items$/.test(p)) return { ok: true, status: 200, json: async () => body.keywords.map((k) => (/unknown/.test(k) ? { keyword: k, search_volume: null, monthly_searches: [], data_status: 'no_data' } : { keyword: k, search_volume: /breach|chrome|techcrunch/.test(k) ? 14800 : 880, cpc: 2.1, competition: 0.35, keyword_difficulty: 29, search_intent: 'informational', monthly_searches: [], data_status: 'ok' })) };
+    if (p === '/v2/users/me') return { ok: true, status: 200, json: async () => ({ data: { username: 'e2e-owner', plan: { id: 'FREE' } } }) };
+    if (p === '/v2/users/me/limits') return { ok: true, status: 200, json: async () => ({ data: { current: { monthlyUsageUsd: 0.4 }, limits: { maxMonthlyUsageUsd: 5 } } }) };
+    return { ok: true, status: 200, json: async () => ({ data: { name: 'keyword-research-api', username: 'gaelasao' } }) };
+  }
   const headers = { ...(init.headers || {}), Origin: 'https://content.example.test', ...(cookie ? { Cookie: cookie } : {}) };
   globalThis.__inflight = (globalThis.__inflight || 0) + 1;
   let res;

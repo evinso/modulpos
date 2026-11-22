@@ -13,7 +13,7 @@ test('serper: result dates as the page shows them become ISO times; anything els
   for (const x of ['', null, undefined, 'yesterday', 'Last week', '2022-03-10', 'Foo 3, 2025', 'Mar 45, 2025']) assert.equal(serper.parseResultDate(x, NOW), null, String(x));
 });
 
-test('serper: the answer becomes the same shape as the DataForSEO client\'s (www dropped, only web links, features named, credits as units, cost unknown)', () => {
+test('serper: the answer becomes the flat shape the SERP score reads (www dropped, only web links, features named, credits as units, cost unknown)', () => {
   const n = serper.normalize({
     organic: [{ title: 'A', link: 'https://www.Example.com/a', snippet: 's', position: 1, date: '2 days ago' }, { title: 'B', link: 'javascript:alert(1)', position: 2 }, { title: 'C', link: 'https://blog.test/c' }, { title: 'no link' }],
     peopleAlsoAsk: [{ question: 'Why?' }, {}], relatedSearches: [{ query: 'foo' }, { nope: 1 }], answerBox: { title: 'x' }, knowledgeGraph: { title: 'k' }, images: [], credits: 2 }, { now: NOW });

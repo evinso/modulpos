@@ -13,29 +13,14 @@ const L = require('../../src/content/services/limits');
 const S = require('../../src/content/services/settings');
 const A = require('../../src/content/services/articles');
 const { FetchError } = require('../../src/content/lib/safeFetch');
+const { fakeApify } = require('./fakeApify');
+const { fakeSerper } = require('./fakeSerper');
+const APIFY = 'apify-token-0123456789abcdef'; const SERPER = 'serper-key-0123456789abcdef';
 
 const opts = { skip: H.skip };
 const NOW = new Date('2026-11-21T12:00:00Z');
 const count = async (sql, p = []) => (await H.db().query(sql, p)).rows[0].n;
 
-/** the DataForSEO of these tests: answers in the documented shape from tables the test fills; remembers every call and what it was asked */
-function fakeDfs(data = {}) {
-  const calls = []; const state = { fail: null, cost: 0.0201, serpCost: 0.003 };
-  const env = (result, cost) => ({ status_code: 20000, status_message: 'Ok.', cost, tasks_count: 1, tasks_error: 0, tasks: [{ id: 'x', status_code: 20000, status_message: 'Ok.', cost, result_count: 1, result: [result] }] });
-  const item = (k, v) => ({ keyword: k, keyword_info: { search_volume: v.volume, cpc: v.cpc ?? 1.1, competition: v.comp ?? 0.3, competition_level: 'LOW', monthly_searches: v.monthly || [] }, keyword_properties: { keyword_difficulty: v.kd ?? 30 }, search_intent_info: { main_intent: v.intent || 'informational' }, avg_backlinks_info: v.refs === undefined ? undefined : { referring_domains: v.refs } });
-  const fetchImpl = async (url, o) => {
-    const path = new URL(url).pathname; const body = o.body ? JSON.parse(o.body)[0] : null; calls.push({ path, body, auth: o.headers.Authorization });
-    if (state.fail) { if (state.fail === 'timeout') { const e = new Error('t'); e.name = 'TimeoutError'; throw e; } return { ok: true, status: 200, json: async () => ({ status_code: 20000, tasks_count: 1, tasks: [{ status_code: state.fail, status_message: 'x', cost: 0 }] }) }; }
-    let res;
-    if (path.endsWith('keyword_overview/live')) res = env({ items: body.keywords.filter((k) => data.volumes && data.volumes[k]).map((k) => item(k, data.volumes[k])) }, state.cost);
-    else if (path.endsWith('keyword_suggestions/live')) res = env({ items: (data.suggest || []).slice(0, body.limit).map(([k, v]) => item(k, { volume: v })) }, 0.0101);
-    else if (path.endsWith('related_keywords/live')) res = env({ items: (data.related || []).map(([k, v]) => ({ keyword_data: item(k, { volume: v }) })) }, 0.0103);
-    else if (path.endsWith('organic/live/advanced')) { const d = (data.serp && data.serp[body.keyword]) || []; res = env({ se_results_count: 1000, item_types: ['organic', 'people_also_ask'], items: [...d.map((dom, i) => ({ type: 'organic', rank_group: i + 1, domain: dom, title: `${dom} result`, url: `https://${dom}/p` })), { type: 'people_also_ask', items: [{ title: `What is ${body.keyword}?` }] }] }, state.serpCost); }
-    else throw new Error(`unexpected ${path}`);
-    return { ok: true, status: 200, json: async () => res };
-  };
-  return { fetchImpl, calls, state };
-}
 const rssOf = (items) => `<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>${items.map(([t, l, d]) => `<item><title>${t}</title><link>${l}</link><pubDate>${d || 'Fri, 21 Nov 2026 10:00:00 GMT'}</pubDate></item>`).join('')}</channel></rss>`;
 const feeds = (map) => async (url) => { if (!map[url]) throw new FetchError('http', 'HTTP 404', { status: 404 }); return { status: 200, body: map[url], url }; };
 
@@ -43,11 +28,11 @@ test.before(async () => { if (!H.skip) await H.freshDatabase(); });
 test.beforeEach(async () => { if (!H.skip) await H.clean(); });
 test.after(async () => { if (!H.skip) await H.close(); });
 
-/** a project of an owner who PAYS for DataForSEO (full data: SERP from DataForSEO, no partial scores); the free mode is tested in contentFreeMode.test.js */
+/** a project with real data sources set up: Google volumes through Apify, SERP through Serper, no partial scores (the free mode without them is tested in contentFreeMode.test.js) */
 async function site(configure = true) {
   const { projectId } = await P.seedDefault();
-  await S.set('seo', { serpProvider: 'dataforseo', partialWithApproval: false });
-  if (configure) await PR.save('dataforseo', { secret: 'api-pass-123', extra: { login: 'me@example.com' } });
+  await S.set('seo', { serpProvider: 'serper', partialWithApproval: false });
+  if (configure) { await PR.save('apify', { secret: APIFY }); await PR.save('serper', { secret: SERPER }); }
   return projectId;
 }
 
@@ -63,84 +48,93 @@ test('keywords: add (cleaned, no duplicates), list with filters, csv, delete; st
   assert.equal(await K.remove(pid, [l.items[0].id]), 1); assert.equal((await K.list(pid)).total, 2); await assert.rejects(K.remove(pid, []), /1 ile 500/);
 });
 
-test('metrics: needs the provider; asks in ONE batch, stores real values and "Veri bulunamadı", records the cost the API reported, then serves from cache', opts, async () => {
+test('metrics: needs the provider; asks in ONE batch, stores real values and "Veri bulunamadı", records the cost as UNKNOWN (never 0), then serves from cache', opts, async () => {
   const pid = await site(false);
   await K.add(pid, ['chatgpt plus price', 'gemini 3', 'zzz unknown thing']);
-  await assert.rejects(K.fetchMetrics(pid, { now: NOW }), (e) => e.status === 409 && /DataForSEO henüz ayarlanmadı/.test(e.message));
-  await PR.save('dataforseo', { secret: 'api-pass-123', extra: { login: 'me@example.com' } });
+  await assert.rejects(K.fetchMetrics(pid, { now: NOW }), (e) => e.status === 409 && /Apify henüz ayarlanmadı/.test(e.message) && /Dosyadan hacim aktar/.test(e.message));
+  await PR.save('apify', { secret: APIFY });
   const monthly = Array.from({ length: 12 }, (_, i) => ({ year: 2026 - (i < 1 ? 1 : 0), month: ((i + 11) % 12) + 1, search_volume: [100, 100, 100, 100, 100, 100, 100, 100, 100, 150, 200, 300][i] }));
-  const f = fakeDfs({ volumes: { 'chatgpt plus price': { volume: 9900, cpc: 2.4, comp: 0.5, kd: 41, intent: 'commercial', monthly, refs: 80 }, 'gemini 3': { volume: 18100 } } });
-  const plan = await K.plan(pid, { now: NOW }); assert.deepEqual([plan.total, plan.cached, plan.toAsk, plan.requests, plan.configured], [3, 0, 3, 1, true]); assert.ok(plan.estimatedCostUsd > 0);
+  const f = fakeApify({ volumes: { 'chatgpt plus price': { volume: 9900, cpc: 2.4, comp: 0.5, kd: 41, intent: 'commercial', monthly }, 'gemini 3': { volume: 18100 }, 'zzz unknown thing': { none: true } } });
+  const plan = await K.plan(pid, { now: NOW }); assert.deepEqual([plan.total, plan.cached, plan.toAsk, plan.requests, plan.configured, plan.estimatedCostUsd], [3, 0, 3, 1, true, null], 'the price is not known to us: no made-up number'); assert.match(plan.estimateNote, /Tutarı bilemeyiz/);
   const r = await K.fetchMetrics(pid, { fetchImpl: f.fetchImpl, now: NOW });
-  assert.deepEqual([r.requested, r.fetched, r.found, r.notFound, r.requests, r.costUsd], [3, 3, 2, 1, 1, 0.0201]);
-  assert.equal(f.calls.length, 1); assert.equal(f.calls[0].body.keywords.length, 3); assert.equal(f.calls[0].body.location_code, 2840);
+  assert.deepEqual([r.requested, r.fetched, r.found, r.notFound, r.noAnswer, r.requests, r.costUsd, r.unknownCost], [3, 3, 2, 1, 0, 1, 0, 1]);
+  const ask = f.asked(); assert.equal(ask.length, 1); assert.deepEqual([ask[0].body.keywords.length, ask[0].body.location, ask[0].body.mode, ask[0].path], [3, 'US', 'metrics', '/v2/acts/gaelasao~keyword-research-api/run-sync-get-dataset-items']); assert.equal(ask[0].auth, `Bearer ${APIFY}`, 'the token travels in the header, not in the address');
   const l = Object.fromEntries((await K.list(pid, {}, { now: NOW })).items.map((x) => [x.keyword, x]));
-  assert.deepEqual([l['chatgpt plus price'].dataState, l['chatgpt plus price'].metrics.searchVolume, l['chatgpt plus price'].metrics.cpc, l['chatgpt plus price'].metrics.keywordDifficulty, l['chatgpt plus price'].metrics.intent, l['chatgpt plus price'].metrics.trendPct], ['found', 9900, 2.4, 41, 'commercial', 116.7]);   // last 3 months 650 vs the 3 before 300
+  assert.deepEqual([l['chatgpt plus price'].dataState, l['chatgpt plus price'].metrics.searchVolume, l['chatgpt plus price'].metrics.cpc, l['chatgpt plus price'].metrics.keywordDifficulty, l['chatgpt plus price'].metrics.intent, l['chatgpt plus price'].metrics.trendPct, l['chatgpt plus price'].metrics.provider], ['found', 9900, 2.4, 41, 'commercial', 116.7, 'apify']);   // last 3 months 650 vs the 3 before 300
   assert.equal(l['zzz unknown thing'].dataState, 'not_found'); assert.equal(l['zzz unknown thing'].metrics.searchVolume, null, 'unknown stays null, never 0');
-  const u = await PR.usageReport({ days: 1, now: NOW }); assert.equal(u.recent[0].costUsd, 0.0201); assert.equal(u.recent[0].operation, 'keyword_overview'); assert.equal(u.recent[0].units, 3);
+  const u = await PR.usageReport({ days: 1, now: NOW }); assert.equal(u.recent[0].costUsd, null); assert.equal(u.recent[0].costText, 'Bilinmiyor'); assert.equal(u.recent[0].operation, 'keyword_overview'); assert.equal(u.recent[0].units, 3); assert.equal(u.recent[0].provider, 'apify');
   assert.equal((await L.status({ now: NOW })).items.find((i) => i.workType === 'seo_keywords').done, 3);
   const again = await K.fetchMetrics(pid, { fetchImpl: f.fetchImpl, now: new Date(NOW.getTime() + 86400000) });
-  assert.equal(again.requested, 0); assert.equal(f.calls.length, 1, 'cached: no second request, nothing billed'); assert.match(again.message, /önbellekten/);
+  assert.equal(again.requested, 0); assert.equal(f.asked().length, 1, 'cached: no second run'); assert.match(again.message, /önbellekten/);
   await K.add(pid, ['claude pro price']); const more = await K.fetchMetrics(pid, { fetchImpl: f.fetchImpl, now: new Date(NOW.getTime() + 86400000) });
-  assert.deepEqual([more.requested, more.cached], [1, 3], 'only the new one is asked');
+  assert.deepEqual([more.requested, more.cached, more.noAnswer], [1, 3, 1], 'only the new one is asked; the actor said nothing about it (no answer, not "no data")');
   const later = await K.fetchMetrics(pid, { fetchImpl: f.fetchImpl, now: new Date(NOW.getTime() + 31 * 86400000) });
-  assert.equal(later.requested, 3, 'after cacheDays (30) the data is asked again: the three fetched on day 0 (the one fetched on day 1 is still fresh: exactly 30 days)'); assert.ok((await K.list(pid, {}, { now: new Date(NOW.getTime() + 31 * 86400000) })).items.every((x) => !x.stale || true));
+  assert.equal(later.requested, 4, 'after cacheDays (30) the data is asked again; the one that got no answer is still waiting');
   const flt = await K.list(pid, { minVolume: 10000, state: 'found' }, { now: NOW }); assert.deepEqual(flt.items.map((x) => x.keyword), ['gemini 3']);
   assert.equal((await K.list(pid, { minTrend: 50 })).total, 1, 'trend filter'); assert.equal((await K.list(pid, { intent: 'commercial' })).total, 1);
 });
 
-test('metrics: batches of 700, daily limit cuts the batch (partial), budget guard refuses BEFORE calling, errors release the units, timeouts keep them', opts, async () => {
+test('metrics: batches of the chosen size, the daily limit cuts a batch (partial), the MONTHLY keyword cap stops BEFORE calling, errors release the units, timeouts keep them, an actor that says nothing is not "no data"', opts, async () => {
   const pid = await site();
+  await PR.save('apify', { extra: { batchSize: '500', monthlyKeywordCap: '5000' } });
   for (let i = 0; i < 3; i++) await K.add(pid, Array.from({ length: 500 }, (_, j) => `keyword number ${i * 500 + j}`));
   await L.setGlobalLimits({ seo_keywords: 5000 });
-  const f = fakeDfs({ volumes: {} });
+  const f = fakeApify({ volumes: Object.fromEntries(Array.from({ length: 1500 }, (_, i) => [`keyword number ${i}`, { volume: 10 + i }])) });
   const r = await K.fetchMetrics(pid, { fetchImpl: f.fetchImpl, now: NOW });
-  assert.deepEqual([r.requests, r.fetched, f.calls.map((c) => c.body.keywords.length)], [3, 1500, [700, 700, 100]]);
+  assert.deepEqual([r.requests, r.fetched, f.asked().map((c) => c.body.keywords.length)], [3, 1500, [500, 500, 500]]);
   await H.clean(); const pid2 = await site(); await K.add(pid2, ['a one', 'b two', 'c three', 'd four', 'e five']);
   await L.setGlobalLimits({ seo_keywords: 3 });
-  const f2 = fakeDfs({ volumes: { 'a one': { volume: 10 } } });
+  const f2 = fakeApify({ volumes: { 'a one': { volume: 10 }, 'b two': { volume: 20 }, 'c three': { volume: 30 }, 'd four': { volume: 40 }, 'e five': { volume: 50 } } });       // (which three are asked first is not fixed: every keyword has an answer)
   const p = await K.fetchMetrics(pid2, { fetchImpl: f2.fetchImpl, now: NOW });
-  assert.deepEqual([p.fetched, p.limited, f2.calls[0].body.keywords.length], [3, 2, 3]); assert.match(p.stopped, /limit/);
-  const none = await K.fetchMetrics(pid2, { fetchImpl: f2.fetchImpl, now: NOW }); assert.equal(f2.calls.length, 1, 'limit full: no call'); assert.match(none.stopped, /günlük limit doldu/);
+  assert.deepEqual([p.fetched, p.limited, f2.asked()[0].body.keywords.length], [3, 2, 3]); assert.match(p.stopped, /limit/);
+  const none = await K.fetchMetrics(pid2, { fetchImpl: f2.fetchImpl, now: NOW }); assert.equal(f2.asked().length, 1, 'limit full: no call'); assert.match(none.stopped, /günlük limit doldu/);
   await L.setGlobalLimits({ seo_keywords: 100 });
-  await PR.save('dataforseo', { dailyBudgetUsd: 0.01 });
-  const blocked = await K.fetchMetrics(pid2, { fetchImpl: f2.fetchImpl, now: NOW }); assert.equal(f2.calls.length, 1, 'budget: no call'); assert.match(blocked.stopped, /DataForSEO günlük bütçesi doldu/);
-  assert.equal(await count("SELECT count(*)::int n FROM api_usage WHERE result = 'blocked_budget'"), 1);
-  await PR.save('dataforseo', { dailyBudgetUsd: null });
+  await PR.save('apify', { extra: { monthlyKeywordCap: '3' } });
+  const capped = await K.fetchMetrics(pid2, { fetchImpl: f2.fetchImpl, now: NOW }); assert.equal(f2.asked().length, 1, 'monthly cap reached (3 asked): no call'); assert.match(capped.stopped, /Aylık anahtar kelime güvenlik sınırına ulaşıldı \(3\)/);
+  const plan = await K.plan(pid2, { now: NOW }); assert.deepEqual([plan.monthly.cap, plan.monthly.used, plan.monthly.remaining, plan.allowedToday], [3, 3, 0, 0]);
+  await PR.save('apify', { extra: { monthlyKeywordCap: '600' } });
   const before = (await L.status({ now: NOW })).items.find((i) => i.workType === 'seo_keywords').done;
-  f2.state.fail = 40100;
-  const bad = await K.fetchMetrics(pid2, { fetchImpl: f2.fetchImpl, now: NOW }); assert.match(bad.stopped, /kimlik doğrulaması/); assert.equal(bad.fetched, 0);
+  f2.state.fail = 401;
+  const bad = await K.fetchMetrics(pid2, { fetchImpl: f2.fetchImpl, now: NOW }); assert.match(bad.stopped, /belirteci reddedildi/); assert.equal(bad.fetched, 0);
   assert.equal((await L.status({ now: NOW })).items.find((i) => i.workType === 'seo_keywords').done, before, 'a refused call gives its units back');
   f2.state.fail = 'timeout'; await K.fetchMetrics(pid2, { fetchImpl: f2.fetchImpl, now: NOW });
   assert.equal((await L.status({ now: NOW })).items.find((i) => i.workType === 'seo_keywords').done, before + 2, 'a timeout may have been billed: the units stay used');
   const errs = (await PR.usageReport({ days: 1, now: NOW })).recent.filter((x) => x.result === 'error'); assert.equal(errs.length, 2); assert.ok(errs.every((x) => x.costUsd === null && x.costText === 'Bilinmiyor'));
   assert.equal(await count("SELECT count(*)::int n FROM automation_runs WHERE bot_key = 'keyword_research' AND status = 'error'"), 2);
+  // a plan limit of the actor (it only looked up the first keywords) or an empty answer: those keywords are NOT stored as "no data"
+  f2.state.fail = null; f2.state.noItems = true; const before2 = await count("SELECT count(*)::int n FROM keyword_metrics");
+  const silent = await K.fetchMetrics(pid2, { fetchImpl: f2.fetchImpl, now: NOW }); assert.deepEqual([silent.fetched, silent.noAnswer, silent.notFound], [0, 2, 0]); assert.match(silent.message, /2 için aktör cevap vermedi/); assert.equal(await count("SELECT count(*)::int n FROM keyword_metrics"), before2, 'nothing was stored');
+  assert.equal((await K.list(pid2)).items.filter((x) => x.dataState === 'none').length, 2, 'they are still waiting to be asked');
+  assert.equal((await L.status({ now: NOW })).items.find((i) => i.workType === 'seo_keywords').done, before + 2, 'the units of keywords nobody answered are given back');
 });
 
-test('suggestions: long-tail and question keywords arrive WITH their data; related keywords too; units are only used for what came back', opts, async () => {
+test('ideas: autocomplete suggestions and related searches arrive as keywords WITHOUT data (they are ideas, not measurements); one Serper credit counted against the SERP limit', opts, async () => {
   const pid = await site();
-  const f = fakeDfs({ suggest: [['how to use chatgpt', 5400], ['chatgpt plus price', 880], ['chatgpt login', 90500]], related: [['gpt chat', 300]] });
+  const f = fakeSerper({}, { chatgpt: ['how to use chatgpt', 'chatgpt plus price', 'chatgpt login', 'ChatGPT login'] });
   const r = await K.suggest(pid, 'ChatGPT', { limit: 50, fetchImpl: f.fetchImpl, now: NOW });
-  assert.deepEqual([r.added, r.returned, r.withData], [3, 3, 3]); assert.equal(r.costUsd, 0.0101);
-  assert.equal(f.calls[0].body.keyword, 'chatgpt'); assert.equal(f.calls[0].body.limit, 50);
+  assert.deepEqual([r.added, r.returned, r.withData, r.costUsd], [3, 3, 0, null]);
+  assert.match(f.calls[0].url, /\/autocomplete$/); assert.deepEqual([f.calls[0].body.q, f.calls[0].body.gl, f.calls[0].body.hl, f.calls[0].key], ['chatgpt', 'us', 'en', SERPER]);
   const l = Object.fromEntries((await K.list(pid, {}, { now: NOW })).items.map((x) => [x.keyword, x]));
-  assert.equal(l['how to use chatgpt'].origin, 'question'); assert.equal(l['chatgpt plus price'].origin, 'suggestion'); assert.equal(l['chatgpt login'].metrics.searchVolume, 90500);
-  assert.equal((await L.status({ now: NOW })).items.find((i) => i.workType === 'seo_keywords').done, 3, '50 reserved, 3 came back: 47 given back');
-  const rel = await K.suggest(pid, 'chatgpt', { mode: 'related', fetchImpl: f.fetchImpl, now: NOW }); assert.equal(rel.added, 1); assert.equal((await K.list(pid, { origin: 'related' })).total, 1);
+  assert.equal(l['how to use chatgpt'].origin, 'question'); assert.equal(l['chatgpt plus price'].origin, 'suggestion'); assert.equal(l['chatgpt login'].dataState, 'none', 'an idea has no data yet: not "0", not "not found"'); assert.equal(l['chatgpt login'].metrics, null);
+  const st = (await L.status({ now: NOW })).items; assert.deepEqual([st.find((i) => i.workType === 'serp_queries').done, st.find((i) => i.workType === 'seo_keywords').done], [1, 0], 'one SERP-type query, no keyword units');
+  const u = (await PR.usageReport({ days: 1, now: NOW })).recent[0]; assert.deepEqual([u.provider, u.operation, u.costUsd, u.units], ['serper', 'keyword_suggestions', null, 1]);
+  const rel = await K.suggest(pid, 'chatgpt', { mode: 'related', fetchImpl: f.fetchImpl, now: NOW }); assert.equal(rel.added, 2); assert.match(f.calls[1].url, /\/search$/);
+  assert.deepEqual((await K.list(pid, { origin: 'related' })).items.map((x) => x.keyword), ['chatgpt plus cost']); assert.deepEqual((await K.list(pid, { origin: 'question' })).items.map((x) => x.keyword).sort(), ['how to use chatgpt', 'is it worth it']);
   assert.deepEqual(await K.suggest(pid, 'chatgpt', { fetchImpl: f.fetchImpl, now: NOW }).then((x) => [x.added, x.existing]), [0, 3], 'known keywords are not duplicated');
   await assert.rejects(K.suggest(pid, '', {}), /Başlangıç ifadesi`?|1-10 kelime/); await assert.rejects(K.suggest(pid, 'x y', { limit: 500 }), /1 ile 100/);
-  f.state.fail = 40210; await assert.rejects(K.suggest(pid, 'claude', { fetchImpl: f.fetchImpl, now: NOW }), (e) => e.status === 502 && /bakiyesi yetersiz/.test(e.message));
+  f.state.status = 401; await assert.rejects(K.suggest(pid, 'claude', { fetchImpl: f.fetchImpl, now: NOW }), (e) => e.status === 401 && /reddedildi/.test(e.message));
+  await PR.save('serper', { clearSecret: true }); await assert.rejects(K.suggest(pid, 'claude', { fetchImpl: f.fetchImpl, now: NOW }), (e) => e.status === 409 && /Serper henüz ayarlanmadı/.test(e.message));
 });
 
-test('SERP: a real top 10 -> competition estimate with its factors, saved with the questions; cached; limit and budget respected', opts, async () => {
+test('SERP (Serper): a real top 10 -> competition estimate with its factors, saved with the questions; cached; limit and budget respected', opts, async () => {
   const pid = await site();
   await K.add(pid, ['obscure app thing', 'chatgpt pricing']);
   const kws = Object.fromEntries((await K.list(pid)).items.map((x) => [x.keyword, x.id]));
-  const f = fakeDfs({ serp: { 'obscure app thing': ['smallblog.dev', 'niche-tech.net', 'reddit.com', 'mysite.io', 'techie.org', 'a.blog'], 'chatgpt pricing': ['openai.com', 'theverge.com', 'techcrunch.com', 'wikipedia.org', 'forbes.com', 'cnet.com', 'zdnet.com', 'apple.com', 'wired.com', 'youtube.com'] } });
+  const f = fakeSerper({ 'obscure app thing': ['smallblog.dev', 'niche-tech.net', 'reddit.com', 'mysite.io', 'techie.org', 'a.blog'], 'chatgpt pricing': ['openai.com', 'theverge.com', 'techcrunch.com', 'wikipedia.org', 'forbes.com', 'cnet.com', 'zdnet.com', 'apple.com', 'wired.com', 'youtube.com'] });
   const easy = await SERP.analyze(kws['obscure app thing'], { fetchImpl: f.fetchImpl, now: NOW });
-  assert.equal(easy.cached, false); assert.ok(easy.analysis.competition <= 25, `easy ${easy.analysis.competition}`); assert.equal(easy.analysis.questions[0], 'What is obscure app thing?'); assert.match(easy.analysis.disclaimer, /resmî zorluk metriği değildir/);
-  assert.equal(easy.analysis.costUsd, 0.003); assert.ok(easy.analysis.factors.length >= 3 && easy.analysis.results[0].kind === 'independent');
-  assert.equal(f.calls[0].body.depth, 10); assert.equal(f.calls[0].body.device, 'desktop');
+  assert.equal(easy.cached, false); assert.ok(easy.analysis.competition <= 25, `easy ${easy.analysis.competition}`); assert.equal(easy.analysis.questions[0], 'Is it worth it?'); assert.match(easy.analysis.disclaimer, /resmî zorluk metriği değildir/);
+  assert.equal(easy.analysis.costUsd, null, 'a credit is not a dollar: unknown, never 0'); assert.ok(easy.analysis.factors.length >= 3 && easy.analysis.results[0].kind === 'independent');
+  assert.equal(f.calls[0].body.num, 10); assert.equal(f.calls[0].body.q, 'obscure app thing');
   const hard = await SERP.analyze(kws['chatgpt pricing'], { fetchImpl: f.fetchImpl, now: NOW }); assert.ok(hard.analysis.competition >= 70);
   const again = await SERP.analyze(kws['obscure app thing'], { fetchImpl: f.fetchImpl, now: NOW }); assert.equal(again.cached, true); assert.equal(f.calls.length, 2, 'a cached analysis costs nothing');
   const forced = await SERP.analyze(kws['obscure app thing'], { fetchImpl: f.fetchImpl, now: NOW, force: true }); assert.equal(forced.cached, false); assert.equal(f.calls.length, 3);
@@ -148,9 +142,9 @@ test('SERP: a real top 10 -> competition estimate with its factors, saved with t
   assert.equal((await SERP.list(pid)).length, 2);
   await L.setGlobalLimits({ serp_queries: 3 });
   const out = await SERP.analyze(kws['chatgpt pricing'], { fetchImpl: f.fetchImpl, now: NOW, force: true }); assert.match(out.stopped, /günlük limit doldu/); assert.equal(f.calls.length, 3);
-  await L.setGlobalLimits({ serp_queries: 30 }); await PR.save('dataforseo', { dailyBudgetUsd: 0.001 });
+  await L.setGlobalLimits({ serp_queries: 30 }); await PR.save('serper', { dailyBudgetUsd: 0.0005 });
   const budget = await SERP.analyze(kws['chatgpt pricing'], { fetchImpl: f.fetchImpl, now: NOW, force: true }); assert.match(budget.stopped, /bütçesi doldu/);
-  await PR.save('dataforseo', { dailyBudgetUsd: null }); f.state.fail = 40100;
+  await PR.save('serper', { dailyBudgetUsd: null }); f.state.status = 401;
   await assert.rejects(SERP.analyze(kws['chatgpt pricing'], { fetchImpl: f.fetchImpl, now: NOW, force: true }), (e) => e.status === 401);
   await assert.rejects(SERP.analyze('00000000-0000-0000-0000-000000000001', {}), /bulunamadı/);
 });
@@ -171,12 +165,12 @@ test('opportunities: nothing is scored from guesses - each missing piece of real
   assert.equal(o.eligible, false); assert.match(o.ineligibleReason, /Anahtar kelime verisi henüz çekilmedi/); assert.equal(o.total, null); assert.ok(o.provisional !== null, 'only a provisional score exists');
   assert.equal(o.relevance, 100 > 0 ? o.relevance : 0); assert.equal(o.explain.missing.includes('demand'), true);
   const kws = (await K.list(pid)).items.map((x) => x.keyword); assert.ok(kws.includes('chatgpt plus') && kws.some((k) => /pricing/.test(k)), kws.join(', '));
-  const f = fakeDfs({ volumes: { 'chatgpt plus': { volume: 74000 }, 'chatgpt plus pricing': { volume: 9900 } }, serp: { 'chatgpt plus': ['smallblog.dev', 'niche-tech.net', 'reddit.com', 'mysite.io', 'techie.org'] } });
+  const f = fakeApify({ volumes: { 'chatgpt plus': { volume: 74000 }, 'chatgpt plus pricing': { volume: 9900 } } }); const fs = fakeSerper({ 'chatgpt plus': ['smallblog.dev', 'niche-tech.net', 'reddit.com', 'mysite.io', 'techie.org'] });
   await K.fetchMetrics(pid, { fetchImpl: f.fetchImpl, now: NOW });
   await O.refresh(pid, { now: NOW }); o = (await O.list(pid)).items[0];
   assert.match(o.ineligibleReason, /Eksik veri: SERP analizi yapılmadı/); assert.equal(o.keyword, 'chatgpt plus', 'the keyword with the highest real volume represents the topic'); assert.equal(o.demand, Math.round(20 * Math.log10(74001)));
   const kw = (await K.list(pid)).items.find((x) => x.keyword === 'chatgpt plus');
-  await SERP.analyze(kw.id, { fetchImpl: f.fetchImpl, now: NOW });
+  await SERP.analyze(kw.id, { fetchImpl: fs.fetchImpl, now: NOW });
   await O.refresh(pid, { now: NOW }); o = (await O.list(pid)).items[0];
   assert.ok(o.total !== null && o.provisional !== null); assert.equal(o.competition, 100 - kw.serp?.competition || o.competition);
   const w = o.weights; assert.equal(o.total, Math.round((o.trend * w.trend + o.competition * w.competition + o.demand * w.demand + o.relevance * w.relevance + o.source * w.source) / 100), 'the total is exactly the weighted sum of the five parts');
@@ -194,14 +188,14 @@ test('opportunities: nothing is scored from guesses - each missing piece of real
 
 test('opportunities: never eligible when out of niche, rejected, or competing with an own article; a person can shortlist, reject, reopen', opts, async () => {
   const pid = await site(); await withEvent(pid);
-  const f = fakeDfs({ volumes: { 'chatgpt plus': { volume: 50000 }, 'chatgpt plus pricing': { volume: 5000 } }, serp: { 'chatgpt plus': ['smallblog.dev', 'niche-tech.net', 'mysite.io', 'techie.org', 'reddit.com'] } });
+  const f = fakeApify({ volumes: { 'chatgpt plus': { volume: 50000 }, 'chatgpt plus pricing': { volume: 5000 } } }); const fs = fakeSerper({ 'chatgpt plus': ['smallblog.dev', 'niche-tech.net', 'mysite.io', 'techie.org', 'reddit.com'] });
   await O.refresh(pid, { now: NOW }); await K.fetchMetrics(pid, { fetchImpl: f.fetchImpl, now: NOW });
-  const kwId = (await K.list(pid)).items.find((x) => x.keyword === 'chatgpt plus').id; await SERP.analyze(kwId, { fetchImpl: f.fetchImpl, now: NOW }); await O.refresh(pid, { now: NOW });
+  const kwId = (await K.list(pid)).items.find((x) => x.keyword === 'chatgpt plus').id; await SERP.analyze(kwId, { fetchImpl: fs.fetchImpl, now: NOW }); await O.refresh(pid, { now: NOW });
   let o = (await O.list(pid)).items[0]; assert.equal(o.eligible, true);
-  const sl = await O.setStatus(o.id, 'shortlisted'); assert.equal(sl.status, 'shortlisted'); assert.equal(sl.eligible, true);
+  const sl = await O.setStatus(o.id, 'shortlisted', { now: NOW }); assert.equal(sl.status, 'shortlisted'); assert.equal(sl.eligible, true);
   const rj = await O.setStatus(o.id, 'rejected'); assert.deepEqual([rj.eligible, rj.ineligibleReason], [false, 'Reddedildi']);
   await O.refresh(pid, { now: NOW }); assert.equal((await O.list(pid)).items[0].eligible, false, 'a refresh does not resurrect a rejected idea');
-  await O.setStatus(o.id, 'new'); await O.refresh(pid, { now: NOW }); assert.equal((await O.list(pid)).items[0].eligible, true);
+  await O.setStatus(o.id, 'new', { now: NOW }); await O.refresh(pid, { now: NOW });assert.equal((await O.list(pid)).items[0].eligible, true);
   await A.create({ projectId: pid, h1: 'Own article about ChatGPT Plus', focusKeyword: 'chatgpt plus', contentHtml: '<p>x</p>' });
   await O.refresh(pid, { now: NOW }); o = (await O.list(pid)).items[0]; assert.equal(o.eligible, false); assert.match(o.ineligibleReason, /kanibalizasyon/);
   await H.db().query("DELETE FROM articles"); await O.refresh(pid, { now: NOW });

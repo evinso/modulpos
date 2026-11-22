@@ -12,7 +12,7 @@ export default function Trends() {
   return (
     <div className="page">
       <PageHead title="Trend Analizi" actions={<select className="input" style={{ width: 'auto' }} value={hours} onChange={(e) => setHours(Number(e.target.value))} aria-label="Aralık">{[[24, 'Son 24 saat'], [48, 'Son 48 saat'], [72, 'Son 3 gün'], [168, 'Son 7 gün']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>}>
-        Trend, gerçek haber sayılarından hesaplanır: bir olayı kaç farklı kaynağın verdiği, son 12 saatteki haber sayısı ve tazelik. Arama trendi yalnızca DataForSEO’dan aylık arama geçmişi alınmış anahtar kelimeler için görünür; hiçbir değer uydurulmaz.
+        Trend, gerçek haber sayılarından hesaplanır: bir olayı kaç farklı kaynağın verdiği, son 12 saatteki haber sayısı ve tazelik. Arama trendi yalnızca aylık arama geçmişi alınmış (Apify verisi ya da dosya) anahtar kelimeler için görünür; hiçbir değer uydurulmaz.
       </PageHead>
       <Async state={st}>{(d) => d && (
         <>
@@ -35,7 +35,7 @@ export default function Trends() {
             </Card>
           </div>
           <Card title="Yükselen anahtar kelimeler (arama trendi)">
-            {d.keywordTrends.length === 0 ? <Alert kind="info">Henüz arama geçmişi olan anahtar kelime yok. Anahtar Kelime Araştırması sayfasında DataForSEO verisi çekildiğinde, son 3 ayın önceki 3 aya göre değişimi burada listelenir.</Alert> : (
+            {d.keywordTrends.length === 0 ? <Alert kind="info">Henüz arama geçmişi olan anahtar kelime yok. Anahtar Kelime Araştırması sayfasında Apify verisi çekildiğinde ya da aylık geçmişi olan bir dosya aktarıldığında, son 3 ayın önceki 3 aya göre değişimi burada listelenir.</Alert> : (
               <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Anahtar kelime</th><th className="num">Aylık arama</th><th className="num">Değişim (son 3 ay / önceki 3 ay)</th></tr></thead>
                 <tbody>{d.keywordTrends.map((k) => <tr key={k.id}><td>{k.keyword} <span className="faint">{k.country}</span></td><td className="num">{num(k.searchVolume)}</td><td className="num"><Badge kind={k.trendPct >= 0 ? 'ok' : 'bad'}>{k.trendPct > 0 ? '+' : ''}{k.trendPct}%</Badge></td></tr>)}</tbody></table></div>)}
           </Card>

@@ -64,7 +64,7 @@ export default function ApiUsage() {
       <PageHead title="API Kullanımı ve Maliyetler" actions={<select className="input" style={{ width: 'auto' }} value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Aralık">{[7, 30, 60, 90].map((d) => <option key={d} value={d}>Son {d} gün</option>)}</select>}>
         Harici servislerin anahtarları ve her ücretli çağrının kaydı. Maliyet servisin gerçek fiyatına göre hesaplanır; hesaplanamayan tutar “Bilinmiyor” yazılır, asla 0 gösterilmez.
       </PageHead>
-      <Alert kind="info" title="Gerçek servis testi">Aşağıdaki “Bağlantıyı test et” düğmeleri servisin kendi ücretsiz uç noktasını çağırır (OpenAI: modelleri listeler, DataForSEO: hesap bakiyesini okur, Telegram: botu sorgular). Serper’in ücretsiz bir uç noktası olmadığı için onun testi gerçek bir sorgu yapar ve 1 kredi harcar. Anahtarlarınızı girmeden test edilemez.</Alert>
+      <Alert kind="info" title="Gerçek servis testi">Aşağıdaki “Bağlantıyı test et” düğmeleri servisin kendi ücretsiz uç noktasını çağırır (OpenAI ve Gemini: modelleri listeler, Apify: hesabı ve aktörü okur, Telegram: botu sorgular). Serper’in ücretsiz bir uç noktası olmadığı için onun testi gerçek bir sorgu yapar ve 1 kredi harcar. Anahtarlarınızı girmeden test edilemez.</Alert>
       <Async state={prov}>{(d) => <div className="grid g3" style={{ alignItems: 'start' }}>{d.providers.map((p) => <Provider key={p.key} p={p} canEdit={canEdit} onChanged={() => { prov.reload(); use.reload(); }} />)}</div>}</Async>
       <Async state={use}>{(u) => (
         <>
