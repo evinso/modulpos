@@ -66,6 +66,9 @@ module.exports = function refreshRoutes(r, { wrap, mw, A, uid }) {
   // Telegram: setting it up is admin-only ("providers.write": the bot token lives with the other API keys); the webhook itself is in routes/index.js (no session)
   const TG = mw.need('providers.write');
   r.get('/telegram/status', TG, wrap(async (_req, res) => res.json(await telegram.status())));
+  r.get('/telegram/diagnose', TG, wrap(async (_req, res) => res.json(await telegram.diagnose())));
+  r.post('/telegram/find-chats', TG, wrap(async (_req, res) => res.json(await telegram.findChats())));
+  r.post('/telegram/chats', TG, wrap(async (req, res) => { const out = await telegram.addChat(req.body.chatId); await A(req, 'telegram.chat_add', 'telegram', 'chats', null, { chatId: String(req.body.chatId) }); res.json(out); }));
   r.get('/telegram/webhook/info', TG, wrap(async (_req, res) => res.json(await telegram.webhookInfo())));
   r.post('/telegram/webhook/set', TG, wrap(async (req, res) => {
     const base = req.body.baseUrl ? String(req.body.baseUrl).replace(/\/+$/, '') : `${req.protocol}://${req.get('host')}`;

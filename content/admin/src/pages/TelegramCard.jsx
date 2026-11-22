@@ -7,6 +7,25 @@ import { dt } from '../format.js';
 const NOTIFY = [['newArticle', 'Yeni makale taslağı hazır'], ['critical', 'Kritik düzeltme gerekiyor'], ['budget', 'API bütçesi %80’e geldi ya da doldu'], ['publishError', 'WordPress yayın hatası'], ['adsense', 'AdSense riski (makale ve site)'], ['botError', 'Bot hatası / bot kapandı'], ['report', 'Günlük ve haftalık rapor']];
 
 /** Telegram: the bot's state, the webhook, and which notifications go to the chat (admin only; the token lives in "API Kullanımı") */
+/** "Why is my bot silent?": what Telegram itself says about the bot and the webhook, in plain words, and the chats that wrote to the bot */
+function Diagnosis({ onChanged }) {
+  const { toast } = useApp(); const [run, busy] = useAction();
+  const st = useLoad(() => api.get('/telegram/diagnose'), []); const [found, setFound] = useState(null);
+  const findChats = async () => { const r = await run(() => api.post('/telegram/find-chats')); if (r) setFound(r); };
+  const add = async (c) => { if (await run(() => api.post('/telegram/chats', { chatId: c.chatId }), `${c.name || c.chatId} yetkili yapıldı`)) { setFound((f) => f && { ...f, chats: f.chats.filter((x) => x.chatId !== c.chatId) }); st.reload(); onChanged(); } };
+  return (
+    <div className="stack">
+      <div className="row"><strong>Kurulum kontrolü</strong><button className="btn sm" disabled={busy} onClick={() => st.reload()}>Yeniden kontrol et</button><button className="btn sm" disabled={busy} onClick={findChats}>Bota yazan sohbetleri bul</button></div>
+      <Async state={st}>{(d) => (<div className="stack">{d.findings.map((f) => <Alert key={f.code} kind={f.level === 'ok' ? 'ok' : f.level === 'warn' ? 'warn' : 'bad'}>{f.text}{f.action && <div><strong>Ne yapmalı:</strong> {f.action}</div>}</Alert>)}</div>)}</Async>
+      {found && (
+        <Alert kind={found.chats.length ? 'info' : 'warn'} title={found.chats.length ? 'Bota yazan sohbetler' : 'Bota yazan yetkisiz sohbet bulunamadı'}>
+          <div className="stack"><small className="faint">{found.note}</small>
+            {found.chats.map((c) => <div key={c.chatId} className="row"><span><strong>{c.name || '(adsız)'}</strong> <span className="faint">kimlik {c.chatId} · {c.type === 'private' ? 'özel sohbet' : c.type}</span></span><button className="btn sm primary" disabled={busy} onClick={() => add(c)}>Yetkili yap</button></div>)}</div>
+        </Alert>)}
+    </div>
+  );
+}
+
 export default function TelegramCard() {
   const { toast } = useApp();
   const st = useLoad(() => api.get('/telegram/status'), []);
@@ -18,6 +37,7 @@ export default function TelegramCard() {
         <Alert kind="info" title="Telegram bağlı değil">Telegram’dan bildirim almak ve komut vermek için: Telegram’da <strong>@BotFather</strong> ile bir bot oluşturun, belirteci “API Kullanımı ve Maliyetler → Telegram” kartına yapıştırın. Sonra bota <code>/start</code> yazın: size sohbet kimliğinizi söyler; onu aynı karttaki “Yetkili sohbet kimlikleri” alanına yazın. Ücretsizdir.</Alert>
       ) : (
         <div className="stack">
+          <Diagnosis key={`${d.webhook ? d.webhook.url : 'none'}-${d.chatIds.length}`} onChanged={st.reload} />
           <div className="row">
             {d.bot ? <Badge kind="ok">@{d.bot.username}</Badge> : <Badge>bot adı henüz okunmadı (API Kullanımı → Bağlantıyı test et)</Badge>}
             <Badge kind={d.chatIds.length ? 'ok' : 'warn'}>{d.chatIds.length} yetkili sohbet</Badge>
