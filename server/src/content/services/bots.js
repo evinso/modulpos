@@ -21,7 +21,7 @@ const BOTS = [
   { key: 'content_opportunity', label: 'Content Opportunity Bot', phase: 2, about: 'İçerik fırsatlarını puanlar ve sıralar.' },
   { key: 'article_writer', label: 'AI Article Writer', phase: 3, about: 'Seçilen fırsattan kaynaklı, İngilizce makale yazar.' },
   { key: 'fact_checking', label: 'Fact Checking Bot', phase: 3, about: 'İddiaları kaynaklarla doğrular.' },
-  { key: 'adsense_compliance', label: 'AdSense Compliance Bot', phase: 3, about: 'AdSense politika riskini denetler.' },
+  { key: 'adsense_compliance', label: 'AdSense Compliance Bot', phase: 3, about: 'Makalelerin AdSense politika riskini denetler (yazarken) ve haftada bir WordPress sitelerinin AdSense hazırlığını denetler.' },
   { key: 'content_publishing', label: 'Content Publishing Bot', phase: 5, about: 'Hazır makaleleri WordPress sitelerine gönderir.' },
   { key: 'content_refresh', label: 'Content Refresh Bot', phase: 6, about: 'Yayımlanmış makaleleri anlamlı değişiklik varsa günceller.' },
   { key: 'content_health', label: 'Content Health Bot', phase: 6, about: 'Eski makalelerin sağlığını düzenli kontrol eder.' },

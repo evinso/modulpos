@@ -5,15 +5,15 @@ import { Alert, Async, Badge, Card, Empty, Field, Modal, NeedsProject, PageHead,
 import { dt } from '../format.js';
 
 const PLUGINS = [['none', 'Yok / bilmiyorum (meta açıklama yazının özeti olarak gider)'], ['rankmath', 'Rank Math (resmî updateMeta yolu ile yazılır)'], ['yoast', 'Yoast SEO (yalnızca site alanları REST’e açtıysa yazılır)']];
-const EMPTY = { name: '', apiUrl: '', username: '', password: '', domain: '', defaultAuthorId: '', defaultCategoryId: '', timezone: 'Europe/Istanbul', language: 'en-US', dailyLimit: 5, seoPlugin: 'none', gscProperty: '' };
+const EMPTY = { name: '', apiUrl: '', username: '', password: '', domain: '', defaultAuthorId: '', defaultCategoryId: '', timezone: 'Europe/Istanbul', language: 'en-US', dailyLimit: 5, seoPlugin: 'none', gscProperty: '', adsensePubId: '' };
 
 function SiteModal({ projectId, site, onClose, onSaved }) {
-  const [f, setF] = useState(site ? { ...EMPTY, name: site.name, apiUrl: site.apiUrl, username: site.username, domain: site.domain, defaultAuthorId: site.defaultAuthorId || '', defaultCategoryId: site.defaultCategoryId || '', timezone: site.timezone, language: site.language, dailyLimit: site.dailyLimit, seoPlugin: site.seoPlugin, gscProperty: site.gscProperty || '' } : EMPTY);
+  const [f, setF] = useState(site ? { ...EMPTY, name: site.name, apiUrl: site.apiUrl, username: site.username, domain: site.domain, defaultAuthorId: site.defaultAuthorId || '', defaultCategoryId: site.defaultCategoryId || '', timezone: site.timezone, language: site.language, dailyLimit: site.dailyLimit, seoPlugin: site.seoPlugin, gscProperty: site.gscProperty || '', adsensePubId: site.adsensePubId || '' } : EMPTY);
   const [run, busy] = useAction();
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
   const save = async (e) => {
     e.preventDefault();
-    const body = { ...f, dailyLimit: Number(f.dailyLimit), defaultAuthorId: f.defaultAuthorId === '' ? null : Number(f.defaultAuthorId), defaultCategoryId: f.defaultCategoryId === '' ? null : Number(f.defaultCategoryId), gscProperty: f.gscProperty.trim() === '' ? null : f.gscProperty.trim() };
+    const body = { ...f, dailyLimit: Number(f.dailyLimit), defaultAuthorId: f.defaultAuthorId === '' ? null : Number(f.defaultAuthorId), defaultCategoryId: f.defaultCategoryId === '' ? null : Number(f.defaultCategoryId), gscProperty: f.gscProperty.trim() === '' ? null : f.gscProperty.trim(), adsensePubId: f.adsensePubId.trim() === '' ? null : f.adsensePubId.trim() };
     if (!body.password) delete body.password;
     const r = await run(() => (site ? api.put(`/sites/${site.id}`, body) : api.post('/sites', { projectId, ...body })), site ? 'Site kaydedildi' : 'Site eklendi');
     if (r) { onSaved(r); onClose(); }
@@ -37,6 +37,7 @@ function SiteModal({ projectId, site, onClose, onSaved }) {
           <Field label="SEO eklentisi"><select className="input" value={f.seoPlugin} onChange={set('seoPlugin')}>{PLUGINS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
         </div>
         <Field label="Search Console sitesi (isteğe bağlı)" hint="SEO Performansı için. Alan adı mülkü: sc-domain:siteniz.com · URL öneki mülkü: https://siteniz.com/ (Search Console’da nasıl eklediyseniz öyle). Boş bırakırsanız performans verisi çekilmez."><input className="input" value={f.gscProperty} onChange={set('gscProperty')} placeholder="sc-domain:siteniz.com" autoComplete="off" /></Field>
+        <Field label="AdSense yayıncı numarası (isteğe bağlı)" hint="AdSense başvurunuz açıldıktan sonra: pub-1234567890123456 (AdSense → Hesap → Hesap bilgileri). Yazarsanız “AdSense Denetimi” sitedeki AdSense kodunu ve ads.txt satırını da denetler. Başvurmadan önce boş bırakın."><input className="input" value={f.adsensePubId} onChange={set('adsensePubId')} placeholder="pub-1234567890123456" autoComplete="off" /></Field>
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Vazgeç</button><button className="btn primary" disabled={busy}>Kaydet</button></div>
       </form>
     </Modal>

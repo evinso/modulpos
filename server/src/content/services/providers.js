@@ -48,7 +48,7 @@ const PROVIDERS = {
   telegram: {
     label: 'Telegram', secretLabel: 'Bot token', secretPattern: /^\d{6,}:[A-Za-z0-9_-]{20,}$/, paid: false,
     extra: { chatIds: { label: 'Yetkili sohbet kimlikleri (virgülle)', max: 300, def: '' } },
-    help: '@BotFather ile bot oluşturun; yalnızca buraya yazdığınız sohbet kimlikleri komut verebilir.',
+    help: 'Telegram’da @BotFather ile bir bot oluşturup belirteci (token) buraya yapıştırın. Sonra bota /start yazın: size sohbet kimliğinizi söyler; onu “Yetkili sohbet kimlikleri” alanına yazın (birden çok sohbet virgülle). Yalnızca burada yazılı sohbetler komut verebilir ve bildirim alır. Sonra Bildirimler sayfasından webhook’u kurun.',
   },
 };
 const KEYS = Object.keys(PROVIDERS);
@@ -178,6 +178,7 @@ const TESTS = {
     const j = await res.json().catch(() => ({}));
     return { ok: true, message: `Gemini bağlantısı çalışıyor (${Array.isArray(j.models) ? j.models.length : '?'} model görünüyor).` };
   },
+  async telegram({ secret, extra, fetchImpl }) { return require('./telegram').testConnection({ secret, extra, fetchImpl }); },
   async searchconsole({ secret, fetchImpl }) {
     const gsc = require('./searchconsole');
     const client = gsc.createClient({ keyJson: secret, fetchImpl });
@@ -194,13 +195,6 @@ const TESTS = {
     if (!res.ok) return { ok: false, message: `Serper beklenmedik cevap verdi (${res.status}).` };
     return { ok: true, message: 'Serper bağlantısı çalışıyor (test 1 kredi harcadı).' };
   },
-  async telegram({ secret, fetchImpl }) {
-    const res = await fetchImpl(`https://api.telegram.org/bot${secret}/getMe`, { signal: AbortSignal.timeout(12000) });
-    if (res.status === 401 || res.status === 404) return { ok: false, message: 'Telegram bot token reddedildi.' };
-    if (!res.ok) return { ok: false, message: `Telegram beklenmedik cevap verdi (${res.status}).` };
-    const j = await res.json().catch(() => ({}));
-    return j.ok ? { ok: true, message: `Telegram botu çalışıyor (@${j.result && j.result.username ? j.result.username : '?'}).` } : { ok: false, message: 'Telegram bot token reddedildi.' };
-  },
 };
 
 /** Calls the service's free endpoint with the saved key; remembers and returns the result. `fetchImpl` is injectable for tests. */
@@ -212,7 +206,7 @@ async function test(key, { fetchImpl = globalThis.fetch } = {}) {
   let out;
   try { out = await TESTS[key]({ secret, extra: row.extra || {}, fetchImpl }); }
   catch (err) {
-    const msg = err && err.name === 'TimeoutError' ? 'Servis 12 saniyede cevap vermedi.' : (err && err.name === 'GscError' ? err.message : 'Servise ulaşılamadı (ağ hatası).');
+    const msg = err && err.name === 'TimeoutError' ? 'Servis 12 saniyede cevap vermedi.' : (err && (err.name === 'GscError' || err.name === 'TelegramError') ? err.message : 'Servise ulaşılamadı (ağ hatası).');
     out = { ok: false, message: msg };
   }
   const message = String(out.message).split(secret).join('[gizli]').slice(0, 300);        // the secret must never end up in a stored sentence
@@ -262,10 +256,19 @@ async function guard(provider, estimateUsd = 0, { tz = env().defaultTimezone, no
     if (s.micros + est > Number(c.limit)) {
       const message = `${c.label} doldu ($${(s.micros / MICROS).toFixed(2)} / $${(Number(c.limit) / MICROS).toFixed(2)}${est ? `, bu işlem ~$${(est / MICROS).toFixed(2)}` : ''})`;
       await recordUsage({ provider, operation, requests: 0, costUsd: null, result: 'blocked_budget', projectId, meta: { budget: c.label } });
+      await announceBudget(c.label, message, dayStart);
       return { ok: false, reason: 'budget', message };
     }
   }
   return { ok: true };
+}
+
+/** "budget full" tells the owner ONCE per budget and day (every refused call is still written as a usage row) */
+async function announceBudget(label, message, dayStart) {
+  try {
+    const seen = (await db.query("SELECT 1 FROM notifications WHERE type = 'budget_full' AND data->>'budget' = $1 AND created_at >= $2 LIMIT 1", [label, dayStart])).rows[0];
+    if (!seen) await require('./notifications').create({ type: 'budget_full', severity: 'warning', title: 'API bütçesi doldu', body: `${message}. Bu bütçe dolana kadar ücretli işlemler başlamaz; bütçeyi API Kullanımı sayfasından değiştirebilirsiniz.`, data: { budget: label } });
+  } catch (err) { console.error('[Content] budget notice failed:', err.message); }
 }
 
 /** The numbers of the cost page: today, this month, per provider, per day (last `days` days) and the latest calls. Unknown costs are counted, never added as 0. */

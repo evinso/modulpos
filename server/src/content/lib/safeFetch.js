@@ -95,7 +95,7 @@ async function fetchText(rawUrl, { timeoutMs = 15000, maxBytes = 4 * 1024 * 1024
     if (res.status === 304) return { status: 304, body: '', url: url.toString(), etag, lastModified, notModified: true };
     if (res.status === 429 || res.status === 503) throw new FetchError('rate_limited', `Kaynak istek sınırı koydu (HTTP ${res.status})`, { status: res.status, retryAfterSec: retryAfterSeconds(res.headers) });
     if (res.status < 200 || res.status >= 300) throw new FetchError('http', `Kaynak HTTP ${res.status} döndürdü`, { status: res.status });
-    return { status: res.status, body: res.body, url: url.toString(), etag: res.headers.etag || null, lastModified: res.headers['last-modified'] || null, notModified: false };
+    return { status: res.status, body: res.body, url: url.toString(), headers: res.headers, etag: res.headers.etag || null, lastModified: res.headers['last-modified'] || null, notModified: false };
   }
   throw new FetchError('redirect', 'Çok fazla yönlendirme');
 }

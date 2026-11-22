@@ -50,7 +50,7 @@ ok('after login the dashboard is shown (menu, project selector, theme)', !!nav('
 ok('the default project is selected: Global Tech Content Site, not connected', $('select[aria-label="Proje"]').value !== '' && txt().includes('Araştırma ve Arşiv Modu'));
 ok('every dashboard figure is a real count now (a 0 is a real 0); only organic traffic waits for its phase', $$('.metric.later').length === 0 && txt().includes('Organik trafik') && txt().includes('Aşama 6’te etkinleşir') && txt().includes('Bugün bulunan haber'));
 ok('no articles yet: an honest empty state, not fake charts', txt().includes('Henüz makale yok'));
-ok('menu: the one page of a later phase (AdSense audit) is dimmed and not clickable, every other page is a link now (SEO Performansı and İç Bağlantılar included)', $$('.nav.disabled').length === 1 && !!nav('SEO Performansı') && !!nav('İç Bağlantılar') && $$('.nav.disabled').every((n) => n.tagName === 'DIV') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
+ok('menu: every page is a link now, nothing is dimmed any more (SEO Performansı, İç Bağlantılar and AdSense Denetimi included)', $$('.nav.disabled').length === 0 && !!nav('AdSense Denetimi') && !!nav('SEO Performansı') && !!nav('İç Bağlantılar') && $$('.nav.disabled').every((n) => n.tagName === 'DIV') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
 
 // ── strategy ───────────────────────────────────────────────────────────────────────────────────────
 await click(nav('Site Nişi ve İçerik Stratejisi'), 400);
@@ -312,7 +312,7 @@ ok('the writer page lists the vendors (who writes, who checks) and the history o
 
 // ── PHASE 4: bot management, schedule editor, persistent queue ───────────────────────────────────────────────────────────
 await click(nav('Bot Yönetimi'), 700);
-ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 11);
+ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 12);
 const wrow = $$('tbody tr').find((r) => r.textContent.includes('AI Article Writer'));
 await click($$('button', wrow).find((b) => b.textContent.includes('Zamanlama')), 500);
 ok('the schedule dialog warns that this bot spends money and keeps the limits', txt().includes('Bu bot para harcar') && txt().includes('Makaleler yine kendiliğinden yayımlanmaz') && txt().includes('yalnızca BİR kez'));
@@ -371,7 +371,7 @@ ok('the places of the days were taken by the scheduled posts (the limit of each 
 await click(nav('İçerik Takvimi'), 800);
 ok('the calendar shows the scheduled posts on their days with their state', txt().includes('E2E router guide 0') && txt().includes('Zamanlandı') && txt().includes('3 yayın') || (txt().includes('E2E router guide 0') && txt().includes('Zamanlandı')));
 await click(nav('Bot Yönetimi'), 700);
-ok('the WordPress bot is listed (auto-publish is off by default)', txt().includes('Content Publishing Bot') && txt().includes('Otomatik kapalı; elle çalıştırılır') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 11);
+ok('the WordPress bot is listed (auto-publish is off by default)', txt().includes('Content Publishing Bot') && txt().includes('Otomatik kapalı; elle çalıştırılır') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 12);
 void made;
 
 // ── PHASE 6a: content health, update drafts (refresh engine), version comparison ────────────────────────────────────────────────────
@@ -456,6 +456,71 @@ const after = await q1('SELECT current_version v, content_html h, fact_checked_a
 ok('the link is in the article as version 2, only those words changed, and the checks of the article stayed', after.v === 2 && /<a href="https:\/\/e2e\.example\/quantum-widget-handbook\/"[^>]*>Quantum Widget Handbook<\/a>/.test(after.h) && after.fact_checked_at !== null && after.quality_score === 90 && after.adsense_risk === 'low');
 await click(tab('Uygulanan'), 800);
 ok('the applied tab lists it with its version', txt().includes('E2E link source') && txt().includes('sürümünde uygulandı'));
+
+// ── PHASE 7a: AdSense site audit ────────────────────────────────────────────────────────────────────────────────────────────────────
+const SITE = globalThis.__site;
+await click(nav('AdSense Denetimi'), 800);
+ok('the audit page says what it reads, that it is free and read-only, and that the result is not an approval; nothing was audited yet', txt().includes('herkese açık sayfalarını') && txt().includes('Sonuç bir onay değildir') && txt().includes('Henüz denetim yapılmadı') && !!btn('Denetle'));
+await setVal(input('Site adresi'), SITE.url); await click(btn('Denetle'), 500); await drainQueue(); await wait(3600);
+ok('the audit of a brand new WordPress install ran through the queue: "Eksikler var", the address, the count of missing required items', txt().includes('Eksikler var') && txt().includes(SITE.url) && txt().includes('Zorunlu eksikler: 3') && (await q1("SELECT count(*)::int n FROM adsense_audits WHERE status = 'done'")).n === 1);
+await click(btn('Ayrıntı'), 900);
+ok('the detail groups the checks, names the draft privacy page of WordPress, and the manual items say they cannot be decided automatically', !!$('.modal') && txt().includes('Gerekli sayfalar') && txt().includes('Teknik durum') && txt().includes('taslağı oluşturur') && txt().includes('Elle kontrol (otomatik denetim karar veremez)') && txt().includes('tahmin etmez') && txt().includes('AdSense onayını garanti etmez'));
+await click($$('button', $('.modal')).find((b) => b.textContent.includes('Nasıl düzeltilir?')), 300);
+ok('"how to fix" opens the advice of an item', txt().includes('Ayarlar → Gizlilik') || txt().includes('Hosting panelinden') || txt().includes('gerçek bir'));
+await click(btn('Kapat', $('.modal')), 300);
+// the owner publishes the pages: the SAME address is audited again and the change is shown
+Object.assign(SITE.config, { pages: [...globalThis.__fakeSite.READY.pages], posts: 14, postWords: 650, author: { name: 'Jane Doe', bio: 'Jane writes about technology.' }, description: 'AI news explained', firstPostTitle: null, cmp: 'complianz' });
+await click(btn('Yeniden denetle'), 500); await drainQueue(); await wait(3600);
+ok('the second audit of the same address says how many items changed since the first', txt().includes('öncekine göre') && (await q1("SELECT count(*)::int n FROM adsense_audits WHERE status = 'done'")).n === 2);
+await click(btn('Ayrıntı'), 900);
+ok('the detail lists what got better (privacy policy: Eksik → Geçti)', txt().includes('Önceki denetimden bu yana değişenler') && /Gizlilik Politikası[^:]*: Eksik → Geçti/.test(txt()));
+await click(btn('Kapat', $('.modal')), 300);
+// the publisher number lives in the site's settings (admin), validated
+await click(nav('Web Sitelerim'), 700); await click($$('button.btn').find((b) => b.textContent.trim() === 'Ayarlar'), 400);
+ok('the site settings have the AdSense publisher number field with its explanation', !!input('AdSense yayıncı numarası', $('.modal')) && txt().includes('pub-1234567890123456'));
+await setVal(input('AdSense yayıncı numarası', $('.modal')), 'abc'); await click(btn('Kaydet', $('.modal')), 600);
+ok('a wrong form is refused and nothing is saved', !!$('.modal') && (await q1('SELECT adsense_pub_id FROM wp_sites')).adsense_pub_id === null);
+await setVal(input('AdSense yayıncı numarası', $('.modal')), 'ca-pub-1234567890123456'); await click(btn('Kaydet', $('.modal')), 900);
+ok('the number is saved as pub-… (ca- dropped)', (await q1('SELECT adsense_pub_id FROM wp_sites')).adsense_pub_id === 'pub-1234567890123456');
+await click(nav('Bot Yönetimi'), 700);
+ok('the AdSense bot is scheduled weekly and says what it does', txt().includes('AdSense Compliance Bot') && txt().includes('haftada bir WordPress sitelerinin AdSense hazırlığını') && txt().includes('Otomatik: 7 günde bir'));
+
+// ── PHASE 7a: Telegram ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+const TGF = globalThis.__tg;
+await click(nav('Bildirimler'), 800);
+ok('without a bot the Telegram card explains how to start (BotFather, the id the bot tells)', txt().includes('Telegram bağlı değil') && txt().includes('@BotFather') && txt().includes('/start'));
+await click(nav('API Kullanımı ve Maliyetler'), 600);
+const tgCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'Telegram');
+ok('the provider card explains where the token and the chat id come from', !!tgCard && tgCard.textContent.includes('@BotFather') && tgCard.textContent.includes('Yetkili sohbet kimlikleri'));
+await setVal(input('Bot token', tgCard), globalThis.__tgToken); await setVal(input('Yetkili sohbet kimlikleri', tgCard), '1001, 1002'); await click(btn('Kaydet', tgCard), 700);
+await click(btn('Bağlantıyı test et', tgCard), 800);
+ok('the token is saved (only its end shown), the test says which bot answered and how many chats are authorized, the token is nowhere on the page', txt().includes('@modulpos_test_bot') && txt().includes('2 yetkili sohbet') && !document.body.innerHTML.includes(globalThis.__tgToken));
+await click(nav('Bildirimler'), 800);
+ok('the Telegram card now shows the bot, the chats, and that commands are off until the webhook is set', txt().includes('@modulpos_test_bot') && txt().includes('2 yetkili sohbet') && txt().includes('webhook kurulu değil: komutlar çalışmaz'));
+await click(btn('Test mesajı gönder'), 700);
+ok('the test message reached both chats', TGF.sent().filter((m) => m.text.includes('test mesajı')).length === 2);
+await click(btn('Webhook’u kur'), 700);
+ok('setting the webhook without an https address is refused in words (the test API is plain http)', txt().includes('https') && !(await q1("SELECT value FROM telegram_state WHERE key = 'webhook'")));
+await setVal(input('API’nin herkese açık adresi'), 'https://api.example.com'); await click(btn('Webhook’u kur'), 800);
+const hook = await q1("SELECT value FROM telegram_state WHERE key = 'webhook'");
+ok('with an https address Telegram was given the webhook and the secret; the card says it is set', !!hook && hook.value.url === 'https://api.example.com/api/content/telegram/webhook' && TGF.st.webhook.secret === globalThis.__srv.telegram.webhookSecret(globalThis.__tgToken) && txt().includes('webhook kurulu') && !txt().includes('webhook kurulu değil'));
+await click(btn('Telegram’ın gördüğü durum'), 700);
+ok('Telegram\'s own view (pending updates, its last error) is shown', txt().includes('Bekleyen güncelleme: 2') && txt().includes('503 Service Unavailable'));
+// an owner command through the webhook, and a stranger
+const sentBefore = TGF.sent().length;
+await globalThis.__srv.telegram.handleUpdate(globalThis.__tgUpdate(91, 1001, '/status')); await globalThis.__srv.telegram.handleUpdate(globalThis.__tgUpdate(92, 5555, '/status'));
+ok('the owner\'s /status is answered from the real data; the stranger gets nothing', TGF.sent().length === sentBefore + 1 && /Makaleler:/.test(TGF.sent().pop().text));
+// a notification is forwarded, and the switches decide
+await globalThis.__srv.notifications.create({ type: 'publish_failed', severity: 'warning', title: 'E2E yayın hatası', body: 'detay' }); await globalThis.__srv.notifications.flush();
+ok('a WordPress failure reaches both chats and the card shows the last delivery', TGF.sent().filter((m) => m.text.includes('E2E yayın hatası')).length === 2);
+await click(nav('API Kullanımı ve Maliyetler'), 400); await click(nav('Bildirimler'), 800);
+ok('the card shows the last delivery', txt().includes('Son gönderim') && txt().includes('2 sohbete gitti'));
+const sw = $$('label.check').find((l) => l.textContent.includes('WordPress yayın hatası')); await click($('input', sw), 700);
+ok('a switch is saved on the server', (await q1("SELECT value FROM automation_settings WHERE key = 'telegram' AND scope = 'global'")).value.notify.publishError === false);
+await globalThis.__srv.notifications.create({ type: 'publish_failed', severity: 'warning', title: 'E2E ikinci hata' }); await globalThis.__srv.notifications.flush();
+ok('and a switched-off kind no longer goes to Telegram (it stays in the panel)', !TGF.sent().some((m) => m.text.includes('E2E ikinci hata')) && txt().includes('Bildirimler'));
+await click(btn('Webhook’u kaldır'), 700);
+ok('removing the webhook tells Telegram and the card says commands are off again', TGF.st.webhook === null && txt().includes('webhook kurulu değil'));
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);

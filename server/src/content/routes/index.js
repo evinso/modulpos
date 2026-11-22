@@ -16,6 +16,7 @@ const notifications = require('../services/notifications');
 const bots = require('../services/bots');
 const scheduler = require('../services/scheduler');
 const queue = require('../services/queue');
+const telegram = require('../services/telegram');
 const migrate = require('../migrate');
 const db = require('../db');
 
@@ -35,6 +36,13 @@ function buildRouter(getState) {
     if (st.status === 'ready') return next();
     return res.status(503).json({ error: st.status === 'failed' ? 'İçerik veritabanına bağlanılamadı; birkaç dakika sonra yeniden denenecek' : 'İçerik modülü başlıyor, birkaç saniye sonra tekrar deneyin', state: st.status });
   });
+  // Telegram's webhook: no session and no CSRF header (Telegram sends neither); it is protected by the secret Telegram puts in a header (see services/telegram.js)
+  const hookLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, message: { error: 'Çok fazla istek' } });
+  r.post('/telegram/webhook', hookLimiter, wrap(async (req, res) => {
+    if (!(await telegram.verifyWebhook(req.get('x-telegram-bot-api-secret-token')))) return res.status(401).json({ error: 'Yetkisiz' });
+    await telegram.handleUpdate(req.body);                                                  // a failure here is a 500: Telegram delivers the update again
+    res.json({ ok: true });
+  }));
   r.use(mw.csrf);
   // the handlers read req.body fields: no body / another content type = an empty object; a JSON array or scalar is refused (400), never a crash
   r.use((req, _res, next) => {

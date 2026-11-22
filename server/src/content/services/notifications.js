@@ -8,12 +8,21 @@ const { HttpError } = require('../lib/http');
  */
 const SEVERITIES = ['info', 'warning', 'critical'];
 
+/** the same message to Telegram when it is set up (phase 7): never waited for, never throwing; `flush()` lets a test wait for it */
+const pending = new Set();
+function toTelegram(n) {
+  const p = Promise.resolve().then(() => require('./telegram').forward(n)).catch(() => {}).finally(() => pending.delete(p));
+  pending.add(p);
+}
+const flush = () => Promise.all([...pending]);
+
 const shape = (r) => ({ id: r.id, type: r.type, severity: r.severity, title: r.title, body: r.body, data: r.data, read: !!r.read_at, readAt: r.read_at, createdAt: r.created_at });
 
 async function create({ type, severity = 'info', title, body = '', data = {} }) {
   try {
     const sev = SEVERITIES.includes(severity) ? severity : 'info';
     const r = (await db.query('INSERT INTO notifications (type, severity, title, body, data) VALUES ($1,$2,$3,$4,$5) RETURNING id', [String(type).slice(0, 60), sev, String(title).slice(0, 200), String(body).slice(0, 2000), JSON.stringify(data || {})])).rows[0];
+    toTelegram({ type: String(type).slice(0, 60), severity: sev, title: String(title).slice(0, 200), body: String(body).slice(0, 2000) });
     return r.id;
   } catch (err) { console.error('[Content] notification could not be written:', err.message); return null; }
 }
@@ -39,4 +48,4 @@ async function markAllRead() { return (await db.query('UPDATE notifications SET 
 
 async function purge(days = 90) { return (await db.query("DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < now() - ($1 || ' days')::interval", [String(days)])).rowCount; }
 
-module.exports = { SEVERITIES, create, list, unreadCount, markRead, markAllRead, purge };
+module.exports = { SEVERITIES, flush, create, list, unreadCount, markRead, markAllRead, purge };

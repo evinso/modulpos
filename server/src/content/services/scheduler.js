@@ -22,6 +22,7 @@ const health = require('./health');
 const refresh = require('./refresh');
 const searchconsole = require('./searchconsole');
 const internalLinks = require('./internalLinks');
+const adsenseAudit = require('./adsenseAudit');
 
 /**
  * The scheduler and the background worker (phase 4). No n8n, no external cron: one in-process loop pair that only needs the content database.
@@ -41,6 +42,7 @@ const DEFAULTS = {
   content_health:      { enabled: true,  intervalMinutes: 720,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 10 }, spends: false, label: 'İçerik sağlığı kontrolü' },
   content_refresh:     { enabled: false, intervalMinutes: 360,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 1 }, spends: true, label: 'İçerik güncelleme' },
   seo_performance:     { enabled: false, intervalMinutes: 1440, windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: {}, spends: false, label: 'Search Console verisi' },
+  adsense_compliance:  { enabled: true,  intervalMinutes: 10080, windowStart: null,   windowEnd: null,    weekdaysOnly: false, options: {}, spends: false, label: 'AdSense site denetimi' },
   internal_linking:    { enabled: true,  intervalMinutes: 1440, windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: {}, spends: false, label: 'İç bağlantı önerileri' },
   content_publishing:  { enabled: false, intervalMinutes: 60,   windowStart: '09:00', windowEnd: '21:00', weekdaysOnly: false, options: { perRun: 2 }, spends: false, label: 'WordPress yayını' },
 };
@@ -192,6 +194,25 @@ HANDLERS.seo_performance = { idempotent: true, async run(job, ctx) {
   for (const s of rows) { try { await searchconsole.sync(s.id, { fetchImpl: ctx.fetchImpl, now: ctx.now }); stats.synced++; } catch (err) { stats.failed.push({ site: s.name, error: err.message, retryable: err.retryable === true }); } }
   if (!stats.synced && stats.failed.length) { const e = new Error(stats.failed[0].error); e.retryable = stats.failed.every((f) => f.retryable); throw e; }
   return { status: stats.failed.length ? 'partial' : 'ok', stats, message: `${stats.synced} siteden Search Console verisi alındı${stats.failed.length ? `; ${stats.failed.length} site alınamadı` : ''}` };
+} };
+
+/**
+ * AdSense site audit (free, read-only, public pages only): one address a person asked for (payload.url / payload.siteId), or the weekly pass over the project's active sites
+ * (a site audited in the last 6 days is left alone). An unreachable site is a RESULT of the audit, not a failure of the job.
+ */
+HANDLERS.adsense_compliance = { idempotent: true, async run(job, ctx) {
+  const pl = job.payload || {};
+  const one = (target) => adsenseAudit.run(target, { userId: job.userId, trigger: job.trigger === 'manual' ? 'manual' : 'schedule', net: ctx.auditNet, now: ctx.now });
+  if (pl.siteId || pl.url) {
+    const a = await one(pl.siteId ? { siteId: pl.siteId } : { projectId: job.projectId, url: pl.url });
+    return { status: 'ok', stats: { auditId: a.id, verdict: a.verdict, summary: a.summary }, message: `${a.url}: ${a.verdictText}` };
+  }
+  const rows = (await db.query("SELECT s.id, s.name FROM wp_sites s WHERE s.project_id = $1 AND s.status = 'active' AND NOT EXISTS (SELECT 1 FROM adsense_audits a WHERE a.site_id = s.id AND a.status = 'done' AND a.started_at > $2::timestamptz - interval '6 days') ORDER BY s.created_at", [job.projectId, ctx.now || new Date()])).rows;
+  if (!rows.length) return { status: 'skipped', message: 'Denetlenecek etkin WordPress sitesi yok (ya da bu hafta zaten denetlendi)' };
+  const stats = { audited: 0, failed: [] };
+  for (const s of rows) { try { await one({ siteId: s.id }); stats.audited++; } catch (err) { stats.failed.push({ site: s.name, error: err.message }); } }
+  if (!stats.audited && stats.failed.length) throw new Error(stats.failed[0].error);
+  return { status: stats.failed.length ? 'partial' : 'ok', stats, message: `${stats.audited} site denetlendi${stats.failed.length ? `; ${stats.failed.length} site denetlenemedi` : ''}` };
 } };
 
 /** internal link suggestions (never applied by the bot: a person decides) */

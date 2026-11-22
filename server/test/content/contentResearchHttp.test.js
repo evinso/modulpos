@@ -300,3 +300,56 @@ test('Search Console and internal links over HTTP: connecting and reading are by
     } finally { await fake.close(); }
   } finally { googleFake = null; }
 });
+
+test('AdSense site audit over HTTP: anyone signed in reads, an editor starts one (it goes through the queue, one per address), the publisher number is admin-only, and the result is the stored checklist', opts, async () => {
+  const fakeSite = require('./fakeSite'); const site = await fakeSite.start(fakeSite.FRESH); const SC = require('../../src/content/services/scheduler');
+  try {
+    const c = await signedIn(); const editor = await signedIn('editor'); const viewer = await signedIn('viewer'); const pid = (await c.get('/projects')).json.projects[0].id;
+    assert.equal((await viewer.post('/adsense/audits', { projectId: pid, url: site.url })).status, 403); assert.equal((await editor.post('/adsense/audits', { projectId: pid, url: 'ftp://x.com' })).status, 400); assert.equal((await editor.post('/adsense/audits', { projectId: pid })).status, 400);
+    const o0 = (await viewer.get(`/adsense/overview?projectId=${pid}`)).json; assert.deepEqual([o0.latest.length, o0.pending.length, o0.sites.length], [0, 0, 0]);
+    const q = await editor.post('/adsense/audits', { projectId: pid, url: `${site.url}/` }); assert.deepEqual([q.status, q.json.queued, q.json.url], [202, true, site.url]);
+    assert.equal((await editor.post('/adsense/audits', { projectId: pid, url: site.url })).status, 409, 'one audit per address at a time');
+    assert.deepEqual((await viewer.get(`/adsense/overview?projectId=${pid}`)).json.pending.map((p) => [p.url, p.status]), [[site.url, 'queued']]);
+    const job = await SC.workOnce({ ctx: {} }); assert.deepEqual([job.botKey, job.outcome], ['adsense_compliance', 'done']);
+    const o1 = (await viewer.get(`/adsense/overview?projectId=${pid}`)).json; assert.deepEqual([o1.latest.length, o1.pending.length, o1.latest[0].verdict, o1.latest[0].verdictLabel], [1, 0, 'not_ready', 'Eksikler var']);
+    const one = (await viewer.get(`/adsense/audits/${o1.latest[0].id}`)).json; assert.ok(one.items.length > 20 && one.items.every((i) => i.detail && i.status)); assert.equal(one.items.find((i) => i.key === 'privacy').status, 'missing');
+    assert.equal((await viewer.get(`/adsense/audits/00000000-0000-0000-0000-000000000009`)).status, 404); assert.equal((await viewer.get('/adsense/audits/not-a-uuid')).status, 404);
+    assert.equal((await viewer.get(`/adsense/audits?projectId=${pid}&url=${encodeURIComponent(site.url)}`)).json.audits.length, 1);
+    // a connected site: the publisher number is admin-only and validated; an audit by site id uses it
+    const sid = (await c.post('/sites', { projectId: pid, name: 'Blog', apiUrl: site.url, username: 'editor', password: 'abcd efgh ijkl mnop' })).json.id;
+    assert.equal((await editor.put(`/sites/${sid}`, { adsensePubId: 'pub-1234567890123456' })).status, 403); assert.equal((await c.put(`/sites/${sid}`, { adsensePubId: 'nope' })).status, 400);
+    const put = await c.put(`/sites/${sid}`, { adsensePubId: 'ca-pub-1234567890123456' }); assert.deepEqual([put.status, put.json.adsensePubId], [200, 'pub-1234567890123456']);
+    const q2 = await editor.post('/adsense/audits', { projectId: pid, siteId: sid }); assert.equal(q2.status, 202); await SC.workOnce({ ctx: {} });
+    const a2 = (await viewer.get(`/adsense/overview?projectId=${pid}`)).json.latest[0]; const d2 = (await viewer.get(`/adsense/audits/${a2.id}`)).json; assert.equal(d2.items.find((i) => i.key === 'adsense_code').status, 'missing', 'the number is known: the code is looked for');
+    assert.equal((await editor.post('/adsense/audits', { projectId: pid, siteId: '00000000-0000-0000-0000-000000000009' })).status, 404);
+    assert.ok((await c.get('/audit?action=adsense')).json.items.length >= 2);
+  } finally { await site.close(); }
+});
+
+test('Telegram over HTTP: the webhook needs Telegram\'s secret (no cookie, no CSRF header), a stranger is ignored, a retry after a failure is handled once, and the setup routes are admin-only without ever returning the token', opts, async () => {
+  const { fakeTelegram, update, TOKEN } = require('./fakeTelegram'); const tg = fakeTelegram(); const TGS = require('../../src/content/services/telegram'); TGS.useFetch(tg.fetchImpl); TGS.resetCounters();
+  try {
+    const c = await signedIn(); const editor = await signedIn('editor'); await signedIn('viewer');
+    const hook = (body, secret) => realFetch(`${base}/telegram/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(secret ? { 'X-Telegram-Bot-Api-Secret-Token': secret } : {}) }, body: JSON.stringify(body) });   // as Telegram calls it: no cookie, no X-Requested-With
+    assert.equal((await hook(update(1, 1001, '/status'), 'anything')).status, 401, 'not configured: nobody gets in');
+    assert.equal((await editor.put('/providers/telegram', { secret: TOKEN, extra: { chatIds: '1001' } })).status, 403); const saved = await c.put('/providers/telegram', { secret: TOKEN, extra: { chatIds: '1001' } }); assert.equal(saved.status, 200); assert.ok(!saved.text.includes(TOKEN));
+    const secret = TGS.webhookSecret(TOKEN);
+    assert.equal((await hook(update(1, 1001, '/status'))).status, 401); assert.equal((await hook(update(1, 1001, '/status'), 'wrong')).status, 401); assert.equal(tg.sent().length, 0, 'nothing was answered');
+    const ok = await hook(update(2, 1001, '/help'), secret); assert.deepEqual([ok.status, (await ok.json()).ok], [200, true]); assert.equal(tg.sent().length, 1); assert.match(tg.sent()[0].text, /\/status/);
+    assert.equal((await hook(update(2, 1001, '/help'), secret)).status, 200); assert.equal(tg.sent().length, 1, 'the same update twice: one answer');
+    assert.equal((await hook(update(3, 5555, '/status'), secret)).status, 200); assert.equal(tg.sent().length, 1, 'a stranger gets the same 200 and no answer');
+    assert.equal((await hook({}, secret)).status, 200); assert.equal((await hook({ update_id: 4, message: { text: 'hi' } }, secret)).status, 200, 'broken updates do not crash it');
+    // Telegram is unreachable while we answer: the update is NOT lost, the retry is handled
+    tg.st.down = true; assert.equal((await hook(update(5, 1001, '/help'), secret)).status, 500); tg.st.down = false;
+    assert.equal((await hook(update(5, 1001, '/help'), secret)).status, 200); assert.equal(tg.sent().length, 2, 'the retry was answered');
+    // setup routes
+    for (const [m, p] of [['get', '/telegram/status'], ['get', '/telegram/webhook/info'], ['post', '/telegram/webhook/set'], ['post', '/telegram/webhook/delete'], ['post', '/telegram/test-message']]) assert.equal((await editor[m](p)).status, 403, p);
+    const st = await c.get('/telegram/status'); assert.deepEqual([st.status, st.json.configured, st.json.chatIds, st.json.webhook], [200, true, ['1001'], null]); assert.ok(!st.text.includes(TOKEN) && !st.text.includes(secret));
+    const nohttps = await c.post('/telegram/webhook/set'); assert.equal(nohttps.status, 400); assert.match(nohttps.json.error, /https/, 'the test server is http: Telegram would refuse it');
+    const set = await c.post('/telegram/webhook/set', { baseUrl: 'https://api.example.com/' }); assert.deepEqual([set.status, set.json.url], [200, 'https://api.example.com/api/content/telegram/webhook']); assert.equal(tg.st.webhook.secret, secret);
+    assert.equal((await c.get('/telegram/webhook/info')).json.pending, 2); assert.equal((await c.post('/telegram/test-message')).json.sent, 1);
+    assert.equal((await c.post('/telegram/webhook/delete')).status, 200); assert.equal(tg.st.webhook, null);
+    assert.ok((await c.get('/audit?action=telegram')).json.items.length >= 3);
+    const sav = await c.put('/settings/telegram', { value: { notify: { newArticle: false } } }); assert.equal(sav.status, 200); assert.deepEqual([sav.json.value.notify.newArticle, sav.json.value.notify.critical], [false, true]);
+  } finally { TGS.useFetch(null); }
+});

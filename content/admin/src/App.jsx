@@ -28,6 +28,7 @@ import Health from './pages/Health.jsx';
 import Updates from './pages/Updates.jsx';
 import Performance from './pages/Performance.jsx';
 import InternalLinks from './pages/InternalLinks.jsx';
+import AdsenseAudit from './pages/AdsenseAudit.jsx';
 
 function AuthScreen({ setupNeeded, tokenConfigured, onDone }) {
   const [mode, setMode] = useState(setupNeeded ? 'setup' : 'login');
@@ -143,6 +144,7 @@ function Shell() {
           <Route path="/updates" element={<Updates />} />
           <Route path="/performance" element={<Performance />} />
           <Route path="/internal-links" element={<InternalLinks />} />
+          <Route path="/adsense" element={<AdsenseAudit />} />
           <Route path="/limits" element={<Limits />} />
           <Route path="/api-usage" element={<ApiUsage />} />
           <Route path="/bots" element={<Bots />} />

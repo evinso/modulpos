@@ -82,6 +82,11 @@ const GROUPS = {
     defaults: { paused: false, pausedAt: null, pausedBy: null },
     validate: (v) => ({ paused: V.bool(v.paused, 'Botlar duraklatıldı', false), pausedAt: v.pausedAt || null, pausedBy: v.pausedBy || null }),
   },
+  telegram: {
+    projectOverride: false,
+    defaults: { notify: { newArticle: true, critical: true, budget: true, publishError: true, adsense: true, botError: true } },
+    validate: (v) => { const n = v.notify || {}; const b = (k, l) => V.bool(n[k], l, true); return { notify: { newArticle: b('newArticle', 'Yeni makale hazır'), critical: b('critical', 'Kritik düzeltme'), budget: b('budget', 'API bütçesi doldu'), publishError: b('publishError', 'WordPress yayın hatası'), adsense: b('adsense', 'AdSense riski'), botError: b('botError', 'Bot hatası') } }; },
+  },
   setup: {
     projectOverride: false,
     defaults: { completed: false, step: 1, archiveMode: true },
