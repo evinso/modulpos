@@ -133,7 +133,7 @@ ok('cost tiles say "Bilinmiyor" never an invented number when empty (no calls ye
 
 // ── bots, settings, logs, notifications ───────────────────────────────────────────────────────────
 await click(nav('Bot Yönetimi'), 500);
-ok('15 bots: the 9 of phases 2 and 3 are ready (by hand) and show real last runs, the rest say which phase builds them', $$('tbody tr').length === 15 && txt().includes('9 / 15 bot hazır') && /Aşama \d’te gelecek/.test(txt()) && txt().includes('Elle çalıştırılır') && txt().includes('zamanlayıcı yok'));
+ok('15 bots: the 9 of phases 2 and 3 are ready (by hand) and show real last runs, the rest say which phase builds them', $$('tbody tr').length === 15 && txt().includes('9 / 15 bot hazır') && /Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
 await click(nav('Sistem Ayarları'), 500);
 ok('automation settings load; the three mandatory checks are locked', txt().includes('Kalite ve zorunlu kontroller') && $$('.badge').filter((b) => b.textContent === 'kilitli').length === 3);
 const scoring = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('Fırsat puanlama'));
@@ -309,6 +309,25 @@ ok('the checks ran again on the new text: stamp, AdSense class and score are bac
 
 await click(nav('AI Makale Üretimi'), 700);
 ok('the writer page lists the vendors (who writes, who checks) and the history of the run with its cost and a link to the article', txt().includes('Yapay zekâ sağlayıcıları') && txt().includes('Anthropic (Claude)') && txt().includes('yazar') && txt().includes('kontrol') && txt().includes('yazan modelin kendisi yapar') && txt().includes('Yazım geçmişi') && txt().includes('3 kaynak') === false && /\$0\.\d+/.test(txt()) && !!btn('Makale'));
+
+// ── PHASE 4: bot management, schedule editor, persistent queue ───────────────────────────────────────────────────────────
+await click(nav('Bot Yönetimi'), 700);
+ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 6);
+const wrow = $$('tbody tr').find((r) => r.textContent.includes('AI Article Writer'));
+await click($$('button', wrow).find((b) => b.textContent.includes('Zamanlama')), 500);
+ok('the schedule dialog warns that this bot spends money and keeps the limits', txt().includes('Bu bot para harcar') && txt().includes('Makaleler yine kendiliğinden yayımlanmaz') && txt().includes('yalnızca BİR kez'));
+await setVal(input('Her çalışmada en fazla', $('.modal')), '2'); await setVal(input('Ne sıklıkla', $('.modal')), '240'); await click($$('input[type=checkbox]', $('.modal'))[0], 100); await click(btn('Kaydet', $('.modal')), 700);
+const sched = await q1("SELECT enabled, interval_minutes, window_start, window_end, options FROM schedule_settings WHERE bot_key = 'article_writer'");
+ok('the schedule is saved in the database (on, every 4 hours, 09:00-23:00, 2 per run) and the page says so', sched.enabled === true && sched.interval_minutes === 240 && sched.window_start === '09:00' && sched.options.perRun === 2 && txt().includes('Otomatik: 4 saatte bir (09:00–23:00)'));
+const nrow = $$('tbody tr').find((r) => r.textContent.includes('News Discovery Bot'));
+await click($$('button', nrow).find((b) => b.textContent.includes('Şimdi çalıştır')), 700);
+ok('"run now" queues a manual job (nothing runs it here: the loops are off in tests) and the page shows it waiting', (await q1("SELECT status, trigger FROM jobs WHERE bot_key = 'news_discovery'")).status === 'queued' && txt().includes('1 sırada'));
+await click(tab('Görev kuyruğu'), 700);
+ok('the queue tab lists the job with its source, state and a cancel button', txt().includes('news_discovery') && txt().includes('elle') && txt().includes('Sırada') && !!btn('İptal'));
+await click(btn('İptal'), 700);
+ok('cancelling works and the job is not run later', (await q1("SELECT status FROM jobs WHERE bot_key = 'news_discovery'")).status === 'cancelled' && txt().includes('İptal') && !!btn('Yeniden dene'));
+await click(btn('Yeniden dene'), 700);
+ok('a cancelled job can be queued again by the owner', (await q1("SELECT status, trigger FROM jobs WHERE bot_key = 'news_discovery' ORDER BY id DESC LIMIT 1")).trigger === 'retry');
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);

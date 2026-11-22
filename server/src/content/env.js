@@ -20,6 +20,7 @@ function env() {
     isProd: e.NODE_ENV === 'production',
     allowPrivateFetch: e.NODE_ENV !== 'production' && e.CONTENT_ALLOW_PRIVATE_FETCH === '1',   // tests only: lets safeFetch reach 127.0.0.1
     defaultTimezone: e.CONTENT_TIMEZONE || 'Europe/Istanbul',
+    schedulerEnabled: e.CONTENT_SCHEDULER === '1' || (e.NODE_ENV === 'production' && e.CONTENT_SCHEDULER !== '0'),   // the background loops: on in production unless CONTENT_SCHEDULER=0; tests start them by hand
   };
 }
 
