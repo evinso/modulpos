@@ -5,6 +5,9 @@ const articles = require('../services/articles');
 const health = require('../services/health');
 const refresh = require('../services/refresh');
 const queue = require('../services/queue');
+const sites = require('../services/sites');
+const searchconsole = require('../services/searchconsole');
+const internalLinks = require('../services/internalLinks');
 
 /**
  * Phase 6 endpoints: content health, the Update Center (refresh proposals), version comparison.
@@ -14,12 +17,23 @@ const queue = require('../services/queue');
 module.exports = function refreshRoutes(r, { wrap, mw, A, uid }) {
   const pid = async (req) => { const id = V.uuid(req.method === 'GET' ? req.query.projectId : req.body.projectId, 'Proje'); await projects.getProject(id); return id; };
   const PAID = mw.need('research.paid'); const PUB = mw.need('publish.write'); const WRITE = mw.need('articles.write');
-  mw.uuidParams(r, ['uid']);
+  mw.uuidParams(r, ['uid', 'lid']);
 
   r.get('/health', wrap(async (req, res) => res.json(await health.overview(await pid(req)))));
   r.get('/articles/:id/assessment', wrap(async (req, res) => res.json(await health.assess(req.params.id))));
   r.post('/articles/:id/health-check', WRITE, wrap(async (req, res) => { const out = await health.checkOne(req.params.id); await A(req, 'article.health_check', 'article', req.params.id, null, { flagged: out.flagged, broken: out.links.broken.length }); res.json(out); }));
   r.get('/articles/:id/diff', wrap(async (req, res) => res.json(await articles.compareVersions(req.params.id, req.query.from, req.query.to))));
+
+  // Search Console (numbers as Google reported them; nothing is estimated)
+  r.get('/performance', wrap(async (req, res) => { const s = await sites.load(req.query.siteId); await projects.getProject(s.project_id); res.json(await searchconsole.performance(s.id, { days: parseInt(req.query.days, 10) || 28 })); }));
+  r.get('/performance/opportunities', wrap(async (req, res) => { const s = await sites.load(req.query.siteId); res.json(await searchconsole.opportunities(s.id)); }));
+  r.post('/sites/:sid/gsc-sync', mw.need('sites.write'), wrap(async (req, res) => { const out = await searchconsole.sync(req.params.sid); await A(req, 'site.gsc_sync', 'wp_site', req.params.sid, null, out); res.json(out); }));
+
+  // internal links: found free, applied by a person
+  r.get('/internal-links', wrap(async (req, res) => res.json({ links: await internalLinks.list(await pid(req), { status: req.query.status || 'suggested' }) })));
+  r.post('/internal-links/find', mw.need('research.write'), wrap(async (req, res) => { const id = await pid(req); const out = await internalLinks.suggest(id); await A(req, 'internal_links.find', 'project', id, null, out); res.json(out); }));
+  r.post('/internal-links/:lid/apply', PUB, wrap(async (req, res) => { const out = await internalLinks.apply(req.params.lid, { userId: uid(req) }); await A(req, 'internal_links.apply', 'internal_link', req.params.lid, null, { anchor: out.link && out.link.anchor }); res.json(out); }));
+  r.post('/internal-links/:lid/reject', WRITE, wrap(async (req, res) => { await internalLinks.reject(req.params.lid); await A(req, 'internal_links.reject', 'internal_link', req.params.lid); res.json({ ok: true }); }));
 
   r.get('/updates', wrap(async (req, res) => res.json({ proposals: await refresh.list(await pid(req), { status: req.query.status || null, articleId: req.query.articleId || null, limit: parseInt(req.query.limit, 10) || 50 }) })));
   r.get('/updates/:uid', wrap(async (req, res) => res.json(await refresh.detail(req.params.uid))));

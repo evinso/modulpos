@@ -34,6 +34,18 @@ globalThis.__feedBase = `http://127.0.0.1:${feedServer.address().port}`;
 globalThis.__srv.opportunities = sreq('./src/content/services/opportunities'); globalThis.__srv.news = sreq('./src/content/services/news');
 globalThis.__dfs = []; globalThis.__serper = []; const { startFakeWp } = sreq('./test/content/fakeWordPress.js'); globalThis.__wp = await startFakeWp(); globalThis.__srv.scheduler = sreq('./src/content/services/scheduler'); globalThis.__srv.publishing = sreq('./src/content/services/publishing'); globalThis.__srv.settings = sreq('./src/content/services/settings'); const { fakeModels, PAGE } = sreq('./test/content/fakeModels.js'); globalThis.__models = fakeModels();
 
+// Google (Search Console): the service-account JWT is really signed by the panel's saved key and VERIFIED by this fake; numbers are relative to the day asked for
+const { makeKey, fakeGoogle } = sreq('./test/content/fakeGoogle.js'); globalThis.__gkey = makeKey();
+globalThis.__google = fakeGoogle({ publicKey: globalThis.__gkey.publicKey, email: globalThis.__gkey.json.client_email, sites: [{ siteUrl: 'sc-domain:e2e.example', permissionLevel: 'siteRestrictedUser' }], rows: (b) => {
+  const days = []; for (let d = new Date(`${b.startDate}T00:00:00Z`); d <= new Date(`${b.endDate}T00:00:00Z`); d = new Date(d.getTime() + 86400000)) days.push(d.toISOString().slice(0, 10));
+  const dims = b.dimensions.join(',');
+  if (dims === 'date,page') return days.flatMap((day) => [{ keys: [day, 'https://e2e.example/my-router-post/'], clicks: 4, impressions: 100, ctr: 0.04, position: 4 }, { keys: [day, 'https://e2e.example/not-ours/'], clicks: 1, impressions: 50, ctr: 0.02, position: 9 }]);
+  if (dims === 'query,page') return [{ keys: ['e2e wifi router', 'https://e2e.example/my-router-post/'], clicks: 20, impressions: 400, ctr: 0.05, position: 4 }];
+  if (dims === 'country') return [{ keys: ['usa'], clicks: 100, impressions: 2000, ctr: 0.05, position: 4 }, { keys: ['gbr'], clicks: 20, impressions: 500, ctr: 0.04, position: 6 }];
+  if (dims === 'device') return [{ keys: ['MOBILE'], clicks: 90, impressions: 1500, ctr: 0.06, position: 4 }, { keys: ['DESKTOP'], clicks: 30, impressions: 1000, ctr: 0.03, position: 5 }];
+  return [];
+} });
+
 const out = path.join(here, '.out-e2e.mjs');
 await build({
   entryPoints: [path.join(here, 'e2e.entry.jsx')], bundle: true, platform: 'node', format: 'esm', outfile: out, loader: { '.jsx': 'jsx', '.js': 'js' }, jsx: 'automatic', logLevel: 'error',
@@ -60,6 +72,7 @@ const dfsAnswer = (p, body) => {
 };
 globalThis.fetch = async (u, init = {}) => {
   if (/^https:\/\/(api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com)/.test(String(u))) return globalThis.__models.fetchImpl(u, init);
+  if (/^https:\/\/(oauth2\.googleapis\.com|www\.googleapis\.com\/webmasters)/.test(String(u))) return globalThis.__google.fetchImpl(u, init);
   if (String(u).startsWith('https://google.serper.dev')) {                      // Serper.dev: easy results in the vendor's documented shape
     const body = init.body ? JSON.parse(init.body) : {}; globalThis.__serper.push({ q: body.q, key: (init.headers || {})['X-API-KEY'] });
     return { ok: true, status: 200, json: async () => ({ organic: ['smallblog.dev', 'niche-tech.net', 'mysite.io', 'techie.org'].map((d, i) => ({ title: `${d} result`, link: `https://${d}/`, position: i + 1, snippet: 's', date: '5 days ago' })), peopleAlsoAsk: [{ question: 'Is it real?' }], relatedSearches: [{ query: `${body.q} news` }] }) };

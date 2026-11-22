@@ -128,11 +128,11 @@ async function plan(projectId, { ids, now = new Date() } = {}) {
     limit: { limit: st.limit, done: st.done, remaining: st.remaining }, configured: p.configured && !!p.extra.login, cacheDays: cfg.cacheDays };
 }
 
-async function saveMetrics(keywordId, rec, { endpoint, cost, provider = 'dataforseo' }) {
+async function saveMetrics(keywordId, rec, { endpoint, cost, provider = 'dataforseo', now = new Date() }) {
   const trend = rec.found ? dfs.trendPct(rec.monthly) : null;
-  await db.query(`INSERT INTO keyword_metrics (keyword_id, endpoint, found, search_volume, cpc, paid_competition, competition_level, keyword_difficulty, intent, monthly_searches, trend_pct, avg_referring_domains, cost_micros, provider)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-  [keywordId, endpoint, rec.found, rec.searchVolume, rec.cpc, rec.paidCompetition, rec.competitionLevel, rec.keywordDifficulty, rec.intent, JSON.stringify(rec.monthly), trend, rec.avgReferringDomains, cost === null || cost === undefined ? null : Math.round(cost * 1e6), provider]);
+  await db.query(`INSERT INTO keyword_metrics (keyword_id, endpoint, found, search_volume, cpc, paid_competition, competition_level, keyword_difficulty, intent, monthly_searches, trend_pct, avg_referring_domains, cost_micros, provider, fetched_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+  [keywordId, endpoint, rec.found, rec.searchVolume, rec.cpc, rec.paidCompetition, rec.competitionLevel, rec.keywordDifficulty, rec.intent, JSON.stringify(rec.monthly), trend, rec.avgReferringDomains, cost === null || cost === undefined ? null : Math.round(cost * 1e6), provider, now]);
 }
 
 /**
@@ -211,7 +211,7 @@ async function fetchMetrics(projectId, { ids, userId = null, manual = true, fetc
         const byKw = new Map(res.records.map((r) => [r.keyword, r]));
         for (const k of asked) {
           const rec = byKw.get(k.keyword) || { found: false, searchVolume: null, cpc: null, paidCompetition: null, competitionLevel: null, keywordDifficulty: null, intent: null, monthly: [], avgReferringDomains: null };
-          await saveMetrics(k.id, rec, { endpoint: ENDPOINT_OVERVIEW, cost: res.cost === null ? null : res.cost / asked.length });
+          await saveMetrics(k.id, rec, { endpoint: ENDPOINT_OVERVIEW, cost: res.cost === null ? null : res.cost / asked.length, now });
           out.fetched++; if (rec.found) out.found++; else out.notFound++;
         }
         if (res.cost === null || res.cost === undefined) out.unknownCost++; else out.costUsd = Math.round((out.costUsd + res.cost) * 1e6) / 1e6;
@@ -259,7 +259,7 @@ async function suggest(projectId, seed, { mode = 'suggestions', limit = 50, coun
     const ins = (await db.query('INSERT INTO keywords (project_id, keyword, country, language, origin, topic_id, category_id) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (project_id, keyword, country, language) DO NOTHING RETURNING id', [projectId, k, cc, language, origin, topicId, categoryId])).rows[0];
     const id = ins ? ins.id : (await db.query('SELECT id FROM keywords WHERE project_id = $1 AND keyword = $2 AND country = $3 AND language = $4', [projectId, k, cc, language])).rows[0].id;
     if (ins) added++; else existing++;
-    await saveMetrics(id, rec, { endpoint, cost: null }); if (rec.found) withData++;
+    await saveMetrics(id, rec, { endpoint, cost: null, now }); if (rec.found) withData++;
   }
   if (res.records.length < grant.granted) await limits.release({ workType: 'seo_keywords', projectId, amount: grant.granted - res.records.length, day: grant.day });
   await providers.recordUsage({ provider: 'dataforseo', endpoint, operation: `keyword_${mode}`, requests: 1, units: res.records.length, costUsd: res.cost, projectId, meta: { seed: kw, country: cc } });

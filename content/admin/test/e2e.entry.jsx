@@ -50,7 +50,7 @@ ok('after login the dashboard is shown (menu, project selector, theme)', !!nav('
 ok('the default project is selected: Global Tech Content Site, not connected', $('select[aria-label="Proje"]').value !== '' && txt().includes('Araştırma ve Arşiv Modu'));
 ok('every dashboard figure is a real count now (a 0 is a real 0); only organic traffic waits for its phase', $$('.metric.later').length === 0 && txt().includes('Organik trafik') && txt().includes('Aşama 6’te etkinleşir') && txt().includes('Bugün bulunan haber'));
 ok('no articles yet: an honest empty state, not fake charts', txt().includes('Henüz makale yok'));
-ok('menu: the 2 pages of later phases (SEO performance, AdSense audit) are dimmed and not clickable, every other page is a link now', $$('.nav.disabled').length === 2 && $$('.nav.disabled').every((n) => n.tagName === 'DIV') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
+ok('menu: the one page of a later phase (AdSense audit) is dimmed and not clickable, every other page is a link now (SEO Performansı and İç Bağlantılar included)', $$('.nav.disabled').length === 1 && !!nav('SEO Performansı') && !!nav('İç Bağlantılar') && $$('.nav.disabled').every((n) => n.tagName === 'DIV') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
 
 // ── strategy ───────────────────────────────────────────────────────────────────────────────────────
 await click(nav('Site Nişi ve İçerik Stratejisi'), 400);
@@ -133,7 +133,7 @@ ok('cost tiles say "Bilinmiyor" never an invented number when empty (no calls ye
 
 // ── bots, settings, logs, notifications ───────────────────────────────────────────────────────────
 await click(nav('Bot Yönetimi'), 500);
-ok('15 bots: the 12 of phases 2, 3, 5 and 6 are ready and show real last runs, the rest say which phase builds them', $$('tbody tr').length === 15 && txt().includes('12 / 15 bot hazır') && /Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
+ok('15 bots: the 14 of phases 2, 3, 5 and 6 are ready and show real last runs, the rest says which phase builds it', $$('tbody tr').length === 15 && txt().includes('14 / 15 bot hazır') && /Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
 await click(nav('Sistem Ayarları'), 500);
 ok('automation settings load; the three mandatory checks are locked', txt().includes('Kalite ve zorunlu kontroller') && $$('.badge').filter((b) => b.textContent === 'kilitli').length === 3);
 const scoring = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('Fırsat puanlama'));
@@ -312,7 +312,7 @@ ok('the writer page lists the vendors (who writes, who checks) and the history o
 
 // ── PHASE 4: bot management, schedule editor, persistent queue ───────────────────────────────────────────────────────────
 await click(nav('Bot Yönetimi'), 700);
-ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 9);
+ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 11);
 const wrow = $$('tbody tr').find((r) => r.textContent.includes('AI Article Writer'));
 await click($$('button', wrow).find((b) => b.textContent.includes('Zamanlama')), 500);
 ok('the schedule dialog warns that this bot spends money and keeps the limits', txt().includes('Bu bot para harcar') && txt().includes('Makaleler yine kendiliğinden yayımlanmaz') && txt().includes('yalnızca BİR kez'));
@@ -371,7 +371,7 @@ ok('the places of the days were taken by the scheduled posts (the limit of each 
 await click(nav('İçerik Takvimi'), 800);
 ok('the calendar shows the scheduled posts on their days with their state', txt().includes('E2E router guide 0') && txt().includes('Zamanlandı') && txt().includes('3 yayın') || (txt().includes('E2E router guide 0') && txt().includes('Zamanlandı')));
 await click(nav('Bot Yönetimi'), 700);
-ok('the WordPress bot is listed (auto-publish is off by default)', txt().includes('Content Publishing Bot') && txt().includes('Otomatik kapalı; elle çalıştırılır') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 9);
+ok('the WordPress bot is listed (auto-publish is off by default)', txt().includes('Content Publishing Bot') && txt().includes('Otomatik kapalı; elle çalıştırılır') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 11);
 void made;
 
 // ── PHASE 6a: content health, update drafts (refresh engine), version comparison ────────────────────────────────────────────────────
@@ -399,6 +399,63 @@ await click(nav('Makale Arşivi'), 600); await click($$('tbody tr').find((r) => 
 await click(btn('Farkı göster'), 900);
 ok('the version comparison of the editor shows removed and added words', !!$('.modal .diff del') || !!$('.modal .diff ins'));
 await click(btn('Kapat', $('.modal')) || aria('Kapat'), 300);
+
+// ── PHASE 6b: Search Console performance, internal links ───────────────────────────────────────────────────────────────────────────
+await click(nav('Web Sitelerim'), 700);
+ok('the site card says Search Console is not connected yet', txt().includes('Search Console bağlı değil') && !btn('Search Console verisini çek'));
+await click($$('button.btn').find((b) => b.textContent.trim() === 'Ayarlar'), 400);
+ok('the settings dialog has the Search Console property field with a hint for both property kinds', !!input('Search Console sitesi', $('.modal')) && txt().includes('sc-domain:siteniz.com'));
+await setVal(input('Search Console sitesi', $('.modal')), 'blog.example'); await click(btn('Kaydet', $('.modal')), 600);
+ok('a wrong property form is refused by the server and the dialog stays open', !!$('.modal') && (await q1('SELECT gsc_property FROM wp_sites')).gsc_property === null);
+await setVal(input('Search Console sitesi', $('.modal')), 'sc-domain:e2e.example'); await click(btn('Kaydet', $('.modal')), 900);
+ok('the property is saved and the card says the data was not fetched yet, with the fetch button', (await q1('SELECT gsc_property FROM wp_sites')).gsc_property === 'sc-domain:e2e.example' && txt().includes('Search Console: henüz çekilmedi') && !!btn('Search Console verisini çek'));
+
+await click(nav('SEO Performansı'), 800);
+ok('without data the performance page says so (no invented numbers) and explains the 4 setup steps', txt().includes('Search Console bağlı değil') && txt().includes('servis hesabı') && txt().includes('henüz çekilmedi') && !txt().includes('Ortalama tıklama oranı'));
+
+await click(nav('API Kullanımı ve Maliyetler'), 500);
+const gscCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'Google Search Console');
+ok('the Search Console card asks for the service-account JSON and says how to get it', !!gscCard && gscCard.textContent.includes('Servis hesabı anahtarı (JSON)') && gscCard.textContent.includes('Kısıtlı'));
+await setVal(input('Servis hesabı anahtarı', gscCard), 'this is not json'); await click(btn('Kaydet', gscCard), 600);
+ok('a key that is not the JSON file is refused and nothing is saved', (await q1("SELECT count(*)::int n FROM api_providers WHERE key = 'searchconsole' AND encrypted_secret IS NOT NULL")).n === 0);
+await setVal(input('Servis hesabı anahtarı', gscCard), JSON.stringify(globalThis.__gkey.json)); await click(btn('Kaydet', gscCard), 700);
+await click(btn('Bağlantıyı test et', gscCard), 900);
+ok('the key is saved (only its end shown), the real signed token request is accepted and the account sees the site; the key is nowhere in the page', txt().includes('Search Console bağlantısı çalışıyor') && txt().includes('sc-domain:e2e.example') && !document.body.innerHTML.includes('PRIVATE KEY') && globalThis.__google.st.tokens === 1);
+
+// the AI article's post gets a public address so the page of Google's report can be matched to the article
+const gArt = await q1("SELECT p.id pid, p.article_id aid, a.h1 FROM publications p JOIN articles a ON a.id = p.article_id WHERE p.mode = 'draft' ORDER BY p.created_at LIMIT 1");
+await S.db.query("UPDATE publications SET status = 'published', wp_url = 'https://e2e.example/my-router-post/' WHERE id = $1", [gArt.pid]);
+await click(nav('Web Sitelerim'), 700); await click(btn('Search Console verisini çek'), 1500);
+ok('fetching stores 90 days of daily rows from the (signed) request; the card shows when', (await q1('SELECT count(*)::int n FROM gsc_daily')).n === 180 && txt().includes('Search Console: veri') && globalThis.__google.queries().length === 5);
+await click(nav('SEO Performansı'), 1000);
+ok('the numbers are those of the report: 28 days x (4 + 1) clicks of the two pages = 140, with the previous period for comparison', txt().includes('Ortalama tıklama oranı') && txt().includes('Ortalama sıra') && txt().includes('önceki 140') && txt().includes('Tıklama') && txt().includes('Gösterim'));
+ok('the page of our own article is shown by the article title (a link), the foreign page by its address; countries and devices are there', txt().includes(gArt.h1) && txt().includes('https://e2e.example/not-ours/') && txt().includes('ABD') && txt().includes('Mobil') && txt().includes('e2e wifi router'));
+await click(tab('Son 7 gün'), 900);
+ok('the 7-day view recomputes from the stored days (7 x 5 = 35 clicks)', txt().includes('Son 7 gün') && txt().includes('önceki 35'));
+ok('the opportunities card says what it is: signs only, and that seasonality cannot be judged', txt().includes('Fırsatlar ve işaretler') && txt().includes('Mevsimsellik'));
+await click(nav('İçerik Sağlığı'), 900);
+ok('the health page now shows the clicks of each article (and no longer says "not connected")', txt().includes('Tıklama (28 gün)') && txt().includes('Tıklaması belirgin düşen') && !txt().includes('Search Console bağlı değil'));
+
+// internal links: a source article that already says the target's focus phrase
+const catId = (await q1('SELECT id FROM categories LIMIT 1')).id; const linkBody = (extra) => `<h2>Intro</h2><p>${'Plain words for the reader and nothing else. '.repeat(70)}${extra}</p>`;
+const tgt = await S.articles.create({ projectId: pid, h1: 'E2E quantum guide', seoTitle: 'E2E quantum guide', metaDescription: 'm'.repeat(100), focusKeyword: 'quantum widget handbook', categoryId: catId, contentHtml: linkBody(''), articleType: 'evergreen_guide' });
+const src = await S.articles.create({ projectId: pid, h1: 'E2E link source', seoTitle: 'E2E link source', metaDescription: 'm'.repeat(100), focusKeyword: 'link source topic', categoryId: catId, contentHtml: linkBody(' Readers who want more should open the Quantum Widget Handbook today.'), articleType: 'evergreen_guide' });
+await S.db.query("UPDATE articles SET status = 'ready', fact_checked_at = now(), adsense_risk = 'low', quality_score = 90 WHERE id = ANY($1)", [[tgt.id, src.id]]);
+await click(nav('İç Bağlantılar'), 700);
+await click(btn('Yeni öneri ara'), 1000);
+ok('the search finds the one place where a source article already says the target\'s phrase: the anchor keeps the written case, the sentence is shown with the words marked', txt().includes('E2E link source') && txt().includes('E2E quantum guide') && txt().includes('“Quantum Widget Handbook”') && !!$$('mark').find((m) => m.textContent === 'Quantum Widget Handbook'));
+ok('the target is not public yet: the suggestion is a draft and cannot be applied', txt().includes('Taslak') && $$('button').filter((b) => b.textContent.includes('Bağlantıyı ekle')).every((b) => b.disabled));
+await S.db.query("INSERT INTO publications (project_id, article_id, site_id, mode, status, wp_post_id, wp_url, article_version) SELECT $1, $2, s.id, 'publish', 'published', 777, 'https://e2e.example/quantum-widget-handbook/', 1 FROM wp_sites s LIMIT 1", [pid, tgt.id]);
+await click(tab('Eskiyen'), 400); await click(tab('Bekleyen'), 900);
+const lcard = $$('section.card').find((c) => c.textContent.includes('E2E link source') && c.textContent.includes('Quantum Widget Handbook'));
+ok('once the target has a public address the draft label is gone and the button is on', !!lcard && !lcard.textContent.includes('Taslak') && !!$$('button', lcard).find((b) => b.textContent.includes('Bağlantıyı ekle') && !b.disabled) && lcard.textContent.includes('https://e2e.example/quantum-widget-handbook/'));
+await click($$('button', lcard).find((b) => b.textContent.includes('Bağlantıyı ekle')), 500);
+ok('the dialog explains what happens (new version, text unchanged, checks stay)', !!$('.dialog, .modal') && txt().includes('kontroller geçerli kalır'));
+await click(btn('Bağlantıyı ekle', $('.modal, .dialog')), 1400);
+const after = await q1('SELECT current_version v, content_html h, fact_checked_at, quality_score, adsense_risk FROM articles WHERE id = $1', [src.id]);
+ok('the link is in the article as version 2, only those words changed, and the checks of the article stayed', after.v === 2 && /<a href="https:\/\/e2e\.example\/quantum-widget-handbook\/"[^>]*>Quantum Widget Handbook<\/a>/.test(after.h) && after.fact_checked_at !== null && after.quality_score === 90 && after.adsense_risk === 'low');
+await click(tab('Uygulanan'), 800);
+ok('the applied tab lists it with its version', txt().includes('E2E link source') && txt().includes('sürümünde uygulandı'));
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);

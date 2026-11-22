@@ -25,7 +25,7 @@ module.exports = function wordpress(r, { wrap, mw, A, uid }) {
 
   // one article to one site (a background job; the answer is the publication row)
   r.post('/articles/:id/publish', PUB, wrap(async (req, res) => {
-    const pub = await publishing.submit(req.params.id, V.uuid(req.body.siteId, 'Site'), { mode: req.body.mode, scheduledAt: req.body.scheduledAt, userId: uid(req) });
+    const pub = await publishing.submit(req.params.id, V.uuid(req.body.siteId, 'Site'), { mode: req.body.mode, scheduledAt: req.body.scheduledAt, userId: uid(req), allowCrossDomain: req.body.allowCrossDomain === true });
     await A(req, 'article.publish', 'article', req.params.id, null, { siteId: pub.siteId, mode: pub.mode, publicationId: pub.id }); res.status(202).json(pub);
   }));
   r.get('/articles/:id/publications', wrap(async (req, res) => { const a = await articles.get(req.params.id); res.json({ publications: await publishing.list(a.projectId, { articleId: a.id }) }); }));

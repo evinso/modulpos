@@ -41,6 +41,10 @@ const PROVIDERS = {
     label: 'Serper.dev', secretLabel: 'API anahtarı', secretPattern: /^[A-Za-z0-9_-]{16,128}$/, paid: true, extra: {},
     help: 'serper.dev → ücretsiz hesap açın (2.500 ücretsiz sorgu, kart gerekmez) → API Key. Yalnızca Google ilk-10 sonuçlarını verir (organik rekabet tahmini için); aranma hacmi vermez. Bağlantı testi 1 sorgu (1 kredi) harcar.',
   },
+  searchconsole: {
+    label: 'Google Search Console', secretLabel: 'Servis hesabı anahtarı (JSON)', secretKind: 'json', paid: false, extra: {},
+    help: 'Google Cloud → IAM → Servis Hesapları → bir hesap oluşturun → Anahtarlar → JSON anahtar indirin (Search Console API açık olmalı). Sonra Search Console → Ayarlar → Kullanıcılar ve izinler’de o hesabın e-postasını siteye “Kısıtlı” kullanıcı olarak ekleyin. JSON dosyasının tüm içeriğini buraya yapıştırın; sunucuda şifreli saklanır, bir daha gösterilmez. Ücretsizdir.',
+  },
   telegram: {
     label: 'Telegram', secretLabel: 'Bot token', secretPattern: /^\d{6,}:[A-Za-z0-9_-]{20,}$/, paid: false,
     extra: { chatIds: { label: 'Yetkili sohbet kimlikleri (virgülle)', max: 300, def: '' } },
@@ -83,9 +87,15 @@ async function save(key, body) {
   if (body.clearSecret === true) { enc = null; l4 = null; }
   else if (typeof body.secret === 'string' && body.secret.trim() !== '') {
     const s = body.secret.trim();
-    if (s.length > 400 || /\s/.test(s)) throw bad(`${def.secretLabel} geçersiz görünüyor (boşluk içermemeli)`);
-    if (def.secretPattern && !def.secretPattern.test(s)) throw bad(`${def.secretLabel} beklenen biçimde değil`);
-    enc = cryptoBox.encrypt(s); l4 = cryptoBox.last4(s);
+    if (def.secretKind === 'json') {                                   // a Google service-account key: the whole JSON file, checked for the two fields we need
+      let j; try { j = JSON.parse(s); } catch { throw bad(`${def.secretLabel} geçerli bir JSON değil: indirilen dosyanın TÜM içeriğini yapıştırın`); }
+      if (s.length > 12000 || !j || typeof j.client_email !== 'string' || !/BEGIN (RSA )?PRIVATE KEY/.test(String(j.private_key || ''))) throw bad(`${def.secretLabel} beklenen biçimde değil: client_email ve private_key alanları olmalı`);
+      enc = cryptoBox.encrypt(s); l4 = cryptoBox.last4(String(j.private_key_id || j.client_email));
+    } else {
+      if (s.length > 400 || /\s/.test(s)) throw bad(`${def.secretLabel} geçersiz görünüyor (boşluk içermemeli)`);
+      if (def.secretPattern && !def.secretPattern.test(s)) throw bad(`${def.secretLabel} beklenen biçimde değil`);
+      enc = cryptoBox.encrypt(s); l4 = cryptoBox.last4(s);
+    }
   } else if (body.secret !== undefined && body.secret !== null && typeof body.secret !== 'string') throw bad(`${def.secretLabel} metin olmalı`);
   const extra = { ...(cur ? cur.extra : {}) };
   if (body.extra !== undefined) {
@@ -168,6 +178,12 @@ const TESTS = {
     const j = await res.json().catch(() => ({}));
     return { ok: true, message: `Gemini bağlantısı çalışıyor (${Array.isArray(j.models) ? j.models.length : '?'} model görünüyor).` };
   },
+  async searchconsole({ secret, fetchImpl }) {
+    const gsc = require('./searchconsole');
+    const client = gsc.createClient({ keyJson: secret, fetchImpl });
+    const sites = await client.listSites();
+    return { ok: true, message: `Search Console bağlantısı çalışıyor: servis hesabı (${client.email}) ${sites.length} siteye erişebiliyor${sites.length ? ` (${sites.slice(0, 3).map((s) => s.siteUrl).join(', ')})` : '. Search Console’da siteye bu e-postayı kullanıcı olarak ekleyin'}.` };
+  },
   async serper({ secret, fetchImpl }) {
     // Serper has no free "who am I" endpoint that is documented: the test is one real query (1 credit) and says so
     const res = await fetchImpl('https://google.serper.dev/search', { method: 'POST', headers: { 'X-API-KEY': secret, 'Content-Type': 'application/json' }, body: JSON.stringify({ q: 'test', num: 1 }), signal: AbortSignal.timeout(15000) });
@@ -196,7 +212,7 @@ async function test(key, { fetchImpl = globalThis.fetch } = {}) {
   let out;
   try { out = await TESTS[key]({ secret, extra: row.extra || {}, fetchImpl }); }
   catch (err) {
-    const msg = err && err.name === 'TimeoutError' ? 'Servis 12 saniyede cevap vermedi.' : 'Servise ulaşılamadı (ağ hatası).';
+    const msg = err && err.name === 'TimeoutError' ? 'Servis 12 saniyede cevap vermedi.' : (err && err.name === 'GscError' ? err.message : 'Servise ulaşılamadı (ağ hatası).');
     out = { ok: false, message: msg };
   }
   const message = String(out.message).split(secret).join('[gizli]').slice(0, 300);        // the secret must never end up in a stored sentence

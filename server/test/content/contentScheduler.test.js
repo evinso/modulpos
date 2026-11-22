@@ -77,14 +77,14 @@ test('queue: failures are retried with growing pauses, a hopeless error or the l
 
 test('tick: defaults (free bots on, paid bots off), one job per bot and project, no pile-up after a sleep, nothing while paused, gates and working hours obeyed', opts, async () => {
   const pid = await setup();
-  const t1 = await SC.tick({ now: MON }); assert.deepEqual(t1.enqueued.map((e) => e.bot).sort(), ['content_health', 'content_opportunity', 'news_discovery', 'niche_discovery'], 'paid bots start OFF');
+  const t1 = await SC.tick({ now: MON }); assert.deepEqual(t1.enqueued.map((e) => e.bot).sort(), ['content_health', 'content_opportunity', 'internal_linking', 'news_discovery', 'niche_discovery'], 'paid bots start OFF');
   assert.deepEqual((await SC.tick({ now: plus(MON, 1) })).enqueued, [], 'nothing is due a minute later'); assert.deepEqual((await SC.tick({ now: plus(MON, 119) })).enqueued, []);
   const s = await SC.getSchedule('news_discovery'); assert.equal(new Date(s.nextRunAt).getTime(), plus(MON, 120).getTime());
   const t2 = await SC.tick({ now: plus(MON, 121) }); assert.deepEqual(t2.enqueued, [], 'the earlier jobs are still waiting: no second copy of the same job');
   for (const j of await jobsOf('queued')) await H.db().query("UPDATE jobs SET status = 'done' WHERE id = $1", [j.id]);
   const t3 = await SC.tick({ now: plus(MON, 12 * 60) }); assert.deepEqual(t3.enqueued.map((e) => e.bot).sort(), ['content_health', 'content_opportunity', 'news_discovery'], 'after a long sleep ONE job per bot, not one per missed interval (the daily niche bot is not due yet)');
   for (const j of await jobsOf('queued')) await H.db().query("UPDATE jobs SET status = 'done' WHERE id = $1", [j.id]);
-  assert.deepEqual((await SC.tick({ now: plus(MON, 25 * 60) })).enqueued.map((e) => e.bot).sort(), ['content_health', 'content_opportunity', 'news_discovery', 'niche_discovery'], 'a day later the daily bot is due');
+  assert.deepEqual((await SC.tick({ now: plus(MON, 25 * 60) })).enqueued.map((e) => e.bot).sort(), ['content_health', 'content_opportunity', 'internal_linking', 'news_discovery', 'niche_discovery'], 'a day later the daily bots are due');
   assert.equal((await SC.getSchedule('news_discovery')).failStreak, 0);
   // paused: nothing
   for (const j of await jobsOf('queued')) await H.db().query("UPDATE jobs SET status = 'done' WHERE id = $1", [j.id]);
@@ -124,7 +124,7 @@ test('worker: the news bot runs through the queue (a scheduled run record, the o
   const first = await SC.workOnce({ now: MON, ctx }); assert.deepEqual([first.botKey, first.outcome], ['news_discovery', 'done']); assert.match(first.result.message, /\d+ yeni haber/);
   const run = (await R.list({ botKey: 'news_discovery', projectId: pid }))[0]; assert.deepEqual([run.trigger, run.status], ['schedule', 'ok']);
   const second = await SC.workOnce({ now: MON, ctx }); assert.equal(second.botKey, 'content_opportunity'); assert.equal(second.outcome, 'done'); assert.ok(second.result.stats.topicsCreated >= 1, 'the idea of the scanned event exists');
-  const third = await SC.workOnce({ now: MON, ctx }); assert.equal(third.botKey, 'niche_discovery'); const fourth = await SC.workOnce({ now: MON, ctx }); assert.deepEqual([fourth.botKey, fourth.outcome], ['content_health', 'skipped']); assert.equal(await SC.workOnce({ now: MON, ctx }), null, 'queue empty');
+  const third = await SC.workOnce({ now: MON, ctx }); assert.equal(third.botKey, 'niche_discovery'); const fourth = await SC.workOnce({ now: MON, ctx }); assert.deepEqual([fourth.botKey, fourth.outcome], ['content_health', 'skipped']); const fifth = await SC.workOnce({ now: MON, ctx }); assert.deepEqual([fifth.botKey, fifth.outcome], ['internal_linking', 'done']); assert.equal(await SC.workOnce({ now: MON, ctx }), null, 'queue empty');
   let now = plus(MON, 24 * 60);
   // a scan where every source fails is still a finished scan ("partial"/ok with errors), so force real failures: the handler throws
   // (a scan in which every source fails is still a finished scan, so real job failures are forced: the handler throws)

@@ -144,6 +144,17 @@ async function settle(articleId, { now = new Date() } = {}) {
   return status;
 }
 
+/** the live post(s) of an article: same post id, new text, through the queue. A failure here never undoes an archive change; it is reported. @returns [{ siteId, queued, error? }] */
+async function pushToSites(articleId, { userId = null, auto = false, now = new Date() } = {}) {
+  const wp = [];
+  const pubs = (await db.query("SELECT p.id, p.site_id, p.mode, p.status FROM publications p JOIN wp_sites s ON s.id = p.site_id WHERE p.article_id = $1 AND p.wp_post_id IS NOT NULL AND s.status = 'active' AND p.status IN ('published', 'draft')", [articleId])).rows;
+  for (const pb of pubs) {
+    try { const sent = await publishing.prepare(articleId, pb.site_id, { mode: pb.status === 'published' ? 'publish' : 'draft', userId, manual: !auto, now }); await publishing.enqueue(sent.id, { userId, trigger: auto ? 'schedule' : 'manual', now }); wp.push({ siteId: pb.site_id, queued: true }); }
+    catch (err) { wp.push({ siteId: pb.site_id, queued: false, error: err.message }); }
+  }
+  return wp;
+}
+
 /**
  * Applies a proposal: a NEW VERSION of the same article (same slug, same WordPress post), its checks stored for that version, the new sources added, "Last Updated" moved only for a
  * meaningful change, then (best effort) the WordPress post(s) updated. @returns the proposal
@@ -166,13 +177,7 @@ async function apply(proposalId, { userId = null, auto = false, now = new Date()
   await db.query("UPDATE refresh_proposals SET status = 'applied', applied_version = $2, decided_by = $3, decided_at = $4, auto = $5, updated_at = now() WHERE id = $1", [p.id, newVersion, userId, now, auto]);
   await db.query("UPDATE articles SET health = '{}', last_checked_at = $2 WHERE id = $1", [a.id, now]);
   await settle(a.id, { now });
-  // the live post(s): same post id, new text. A failure here does not undo the archive update; it is written on the proposal.
-  const wp = [];
-  const pubs = (await db.query("SELECT p.id, p.site_id, p.mode, p.status FROM publications p JOIN wp_sites s ON s.id = p.site_id WHERE p.article_id = $1 AND p.wp_post_id IS NOT NULL AND s.status = 'active' AND p.status IN ('published', 'draft')", [a.id])).rows;
-  for (const pb of pubs) {
-    try { const sent = await publishing.prepare(a.id, pb.site_id, { mode: pb.status === 'published' ? 'publish' : 'draft', userId, manual: !auto, now }); await publishing.enqueue(sent.id, { userId, trigger: auto ? 'schedule' : 'manual', now }); wp.push({ siteId: pb.site_id, queued: true }); }
-    catch (err) { wp.push({ siteId: pb.site_id, queued: false, error: err.message }); }
-  }
+  const wp = await pushToSites(a.id, { userId, auto, now });
   await db.query('UPDATE refresh_proposals SET generation = generation || $2::jsonb WHERE id = $1', [p.id, JSON.stringify({ wp, applied: applied || null })]);
   if (p.kind === 'critical') await notifications.create({ type: 'critical_correction', severity: 'critical', title: `Kritik düzeltme uygulandı: ${a.h1.slice(0, 80)}`, body: p.summary, data: { proposalId: p.id, articleId: a.id } });
   return get(p.id);
@@ -209,4 +214,4 @@ async function list(projectId, { status = null, articleId = null, limit = 50 } =
   return (await db.query(`SELECT r.*, a.h1 AS article_h1, a.current_version AS article_current_version FROM refresh_proposals r JOIN articles a ON a.id = r.article_id WHERE ${w.join(' AND ')} ORDER BY (r.kind = 'critical' AND r.status = 'proposed') DESC, r.created_at DESC LIMIT $${prm.length}`, prm)).rows.map(shape);
 }
 
-module.exports = { BOT, KIND_LABEL, UPDATE_SYSTEM, mayAutoApply, propose, apply, reject, settle, get, detail, list };
+module.exports = { BOT, KIND_LABEL, UPDATE_SYSTEM, mayAutoApply, propose, apply, reject, settle, pushToSites, get, detail, list };
