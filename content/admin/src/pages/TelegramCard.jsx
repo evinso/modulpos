@@ -4,7 +4,7 @@ import { api, API_ORIGIN } from '../api.js';
 import { Alert, Async, Badge, Card, Check, Field, useAction, useApp, useLoad } from '../ui.jsx';
 import { dt } from '../format.js';
 
-const NOTIFY = [['newArticle', 'Yeni makale taslağı hazır'], ['critical', 'Kritik düzeltme gerekiyor'], ['budget', 'API bütçesi doldu'], ['publishError', 'WordPress yayın hatası'], ['adsense', 'AdSense riski (makale ve site)'], ['botError', 'Bot hatası / bot kapandı']];
+const NOTIFY = [['newArticle', 'Yeni makale taslağı hazır'], ['critical', 'Kritik düzeltme gerekiyor'], ['budget', 'API bütçesi %80’e geldi ya da doldu'], ['publishError', 'WordPress yayın hatası'], ['adsense', 'AdSense riski (makale ve site)'], ['botError', 'Bot hatası / bot kapandı'], ['report', 'Günlük ve haftalık rapor']];
 
 /** Telegram: the bot's state, the webhook, and which notifications go to the chat (admin only; the token lives in "API Kullanımı") */
 export default function TelegramCard() {

@@ -10,6 +10,9 @@ const searchconsole = require('../services/searchconsole');
 const internalLinks = require('../services/internalLinks');
 const adsenseAudit = require('../services/adsenseAudit');
 const telegram = require('../services/telegram');
+const reports = require('../services/reports');
+const portfolio = require('../services/portfolio');
+const costs = require('../services/costs');
 
 /**
  * Phase 6 endpoints: content health, the Update Center (refresh proposals), version comparison.
@@ -19,7 +22,7 @@ const telegram = require('../services/telegram');
 module.exports = function refreshRoutes(r, { wrap, mw, A, uid }) {
   const pid = async (req) => { const id = V.uuid(req.method === 'GET' ? req.query.projectId : req.body.projectId, 'Proje'); await projects.getProject(id); return id; };
   const PAID = mw.need('research.paid'); const PUB = mw.need('publish.write'); const WRITE = mw.need('articles.write');
-  mw.uuidParams(r, ['uid', 'lid', 'aid']);
+  mw.uuidParams(r, ['uid', 'lid', 'aid', 'rid']);
 
   r.get('/health', wrap(async (req, res) => res.json(await health.overview(await pid(req)))));
   r.get('/articles/:id/assessment', wrap(async (req, res) => res.json(await health.assess(req.params.id))));
@@ -43,6 +46,13 @@ module.exports = function refreshRoutes(r, { wrap, mw, A, uid }) {
     await A(req, 'adsense.audit', 'project', id, null, { url });
     res.status(202).json({ queued: true, jobId: q.job.id, url });
   }));
+
+  // Reports, all sites side by side, the cost analysis (reading is open to every role; making a report by hand needs "research.write")
+  r.get('/reports', wrap(async (req, res) => res.json({ reports: await reports.list(await pid(req), { kind: req.query.kind || null }) })));
+  r.get('/reports/:rid', wrap(async (req, res) => { const rep = await reports.get(req.params.rid); await projects.getProject(rep.projectId); res.json(rep); }));
+  r.post('/reports', mw.need('research.write'), wrap(async (req, res) => { const id = await pid(req); const rep = await reports.generate(id, req.body.kind, { userId: uid(req), trigger: 'manual', announce: false }); await A(req, 'report.generate', 'project', id, null, { kind: rep.kind, dayTo: rep.dayTo }); res.status(201).json(rep); }));
+  r.get('/portfolio', wrap(async (req, res) => res.json(await portfolio.overview({ days: parseInt(req.query.days, 10) || 28 }))));
+  r.get('/costs/analysis', wrap(async (req, res) => res.json(await costs.analysis({ days: parseInt(req.query.days, 10) || 30 }))));
 
   // Telegram: setting it up is admin-only ("providers.write": the bot token lives with the other API keys); the webhook itself is in routes/index.js (no session)
   const TG = mw.need('providers.write');

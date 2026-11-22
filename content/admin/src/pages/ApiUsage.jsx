@@ -3,6 +3,7 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 import { api, qs } from '../api.js';
 import { Alert, Async, Badge, Card, Field, PageHead, useAction, useApp, useLoad } from '../ui.jsx';
 import { dt, num, shortDay, usd } from '../format.js';
+import CostAnalysis from './CostAnalysis.jsx';
 
 function Provider({ p, canEdit, onChanged }) {
   const { confirm } = useApp();
@@ -67,6 +68,7 @@ export default function ApiUsage() {
               })()}
             </Card>
           </div>
+          <CostAnalysis />
           <Card title="Son çağrılar">
             {u.recent.length === 0 ? <p className="muted">Henüz harici API çağrısı yapılmadı. Haber/SEO/AI botları eklendikçe her çağrı burada görünür.</p> : (
               <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Tarih</th><th>Sağlayıcı</th><th>Uç nokta</th><th>İşlem</th><th className="num">İstek</th><th className="num">Birim</th><th className="num">Maliyet</th><th>Sonuç</th></tr></thead>

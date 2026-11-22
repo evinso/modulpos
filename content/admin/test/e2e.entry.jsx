@@ -133,7 +133,7 @@ ok('cost tiles say "Bilinmiyor" never an invented number when empty (no calls ye
 
 // ── bots, settings, logs, notifications ───────────────────────────────────────────────────────────
 await click(nav('Bot Yönetimi'), 500);
-ok('15 bots: the 14 of phases 2, 3, 5 and 6 are ready and show real last runs, the rest says which phase builds it', $$('tbody tr').length === 15 && txt().includes('14 / 15 bot hazır') && /Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
+ok('15 bots: every bot of the specification is ready now and shows its real last runs; none is "coming in a later phase"', $$('tbody tr').length === 15 && txt().includes('15 / 15 bot hazır') && !/Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
 await click(nav('Sistem Ayarları'), 500);
 ok('automation settings load; the three mandatory checks are locked', txt().includes('Kalite ve zorunlu kontroller') && $$('.badge').filter((b) => b.textContent === 'kilitli').length === 3);
 const scoring = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('Fırsat puanlama'));
@@ -312,7 +312,7 @@ ok('the writer page lists the vendors (who writes, who checks) and the history o
 
 // ── PHASE 4: bot management, schedule editor, persistent queue ───────────────────────────────────────────────────────────
 await click(nav('Bot Yönetimi'), 700);
-ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 12);
+ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 13);
 const wrow = $$('tbody tr').find((r) => r.textContent.includes('AI Article Writer'));
 await click($$('button', wrow).find((b) => b.textContent.includes('Zamanlama')), 500);
 ok('the schedule dialog warns that this bot spends money and keeps the limits', txt().includes('Bu bot para harcar') && txt().includes('Makaleler yine kendiliğinden yayımlanmaz') && txt().includes('yalnızca BİR kez'));
@@ -371,7 +371,7 @@ ok('the places of the days were taken by the scheduled posts (the limit of each 
 await click(nav('İçerik Takvimi'), 800);
 ok('the calendar shows the scheduled posts on their days with their state', txt().includes('E2E router guide 0') && txt().includes('Zamanlandı') && txt().includes('3 yayın') || (txt().includes('E2E router guide 0') && txt().includes('Zamanlandı')));
 await click(nav('Bot Yönetimi'), 700);
-ok('the WordPress bot is listed (auto-publish is off by default)', txt().includes('Content Publishing Bot') && txt().includes('Otomatik kapalı; elle çalıştırılır') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 12);
+ok('the WordPress bot is listed (auto-publish is off by default)', txt().includes('Content Publishing Bot') && txt().includes('Otomatik kapalı; elle çalıştırılır') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 13);
 void made;
 
 // ── PHASE 6a: content health, update drafts (refresh engine), version comparison ────────────────────────────────────────────────────
@@ -521,6 +521,24 @@ await globalThis.__srv.notifications.create({ type: 'publish_failed', severity: 
 ok('and a switched-off kind no longer goes to Telegram (it stays in the panel)', !TGF.sent().some((m) => m.text.includes('E2E ikinci hata')) && txt().includes('Bildirimler'));
 await click(btn('Webhook’u kaldır'), 700);
 ok('removing the webhook tells Telegram and the card says commands are off again', TGF.st.webhook === null && txt().includes('webhook kurulu değil'));
+
+// ── PHASE 7b: reports, all sites side by side, cost analysis ──────────────────────────────────────────────────────────────────────────
+await click(nav('Raporlar'), 800);
+ok('without a report the page explains when they are made and offers to make one now', txt().includes('Henüz günlük rapor yok') && txt().includes('ölçülür ve saklanır') && !!btn('Günlük raporu şimdi hazırla'));
+await click(btn('Günlük raporu şimdi hazırla'), 1500);
+ok('the daily report is made from the real data of yesterday and stored', (await q1("SELECT count(*)::int n FROM reports WHERE kind = 'daily'")).n === 1 && txt().includes('Makaleler') && txt().includes('Güncellemeler') && txt().includes('Görevler') && txt().includes('Araştırma') && txt().includes('Maliyet'));
+ok('sections without data say so instead of showing zeros: Search Console and the audit state what exists', txt().includes('SEO performansı') && txt().includes('AdSense site denetimi') && txt().includes('hazırlandığı anda ölçülmüş'));
+await click(btn('Düz metin'), 400);
+ok('the plain text (what Telegram gets) is available and has no placeholder leaks', txt().includes('📅 Günlük rapor') && !/NaN|undefined/.test(txt()));
+await click(tab('Haftalık'), 500); await click(btn('Haftalık raporu şimdi hazırla'), 1500);
+ok('the weekly report covers 7 days and is listed under its own tab', (await q1("SELECT count(*)::int n FROM reports WHERE kind = 'weekly'")).n === 1 && txt().includes('Haftalık'));
+// all sites
+await click(nav('SEO Performansı'), 800); await click(tab('Tüm siteler'), 1000);
+ok('all sites: the project, its sites with Search Console numbers or "veri yok", the cost per article and the honest notes', txt().includes('Tüm siteler') && txt().includes('E2E Blog') && txt().includes('140 → 140') && txt().includes('en çok:') && txt().includes('makale başına: Bilinmiyor') && txt().includes('0 tıklama değil'));
+// cost analysis
+await click(nav('API Kullanımı ve Maliyetler'), 900);
+ok('the cost analysis shows totals, the per-article cost as "Bilinmiyor" until priced runs exist, and its caveats', txt().includes('Maliyet analizi ve öneriler') && txt().includes('Makale başına (yazım + kontroller)') && txt().includes('Ay sonu tahmini') && txt().includes('Karşılaştır'));
+ok('every suggestion shown says what it cannot know', $$('.alert').filter((a) => a.textContent.includes('Ne yapılabilir') || a.textContent.includes('Bilemediğimiz')).every((a) => a.textContent.includes('Bilemediğimiz')));
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);

@@ -23,6 +23,7 @@ const refresh = require('./refresh');
 const searchconsole = require('./searchconsole');
 const internalLinks = require('./internalLinks');
 const adsenseAudit = require('./adsenseAudit');
+const reports = require('./reports');
 
 /**
  * The scheduler and the background worker (phase 4). No n8n, no external cron: one in-process loop pair that only needs the content database.
@@ -43,6 +44,7 @@ const DEFAULTS = {
   content_refresh:     { enabled: false, intervalMinutes: 360,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 1 }, spends: true, label: 'İçerik güncelleme' },
   seo_performance:     { enabled: false, intervalMinutes: 1440, windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: {}, spends: false, label: 'Search Console verisi' },
   adsense_compliance:  { enabled: true,  intervalMinutes: 10080, windowStart: null,   windowEnd: null,    weekdaysOnly: false, options: {}, spends: false, label: 'AdSense site denetimi' },
+  reporting:           { enabled: true,  intervalMinutes: 1440,  windowStart: '06:00', windowEnd: '12:00', weekdaysOnly: false, options: {}, spends: false, label: 'Günlük/haftalık rapor' },
   internal_linking:    { enabled: true,  intervalMinutes: 1440, windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: {}, spends: false, label: 'İç bağlantı önerileri' },
   content_publishing:  { enabled: false, intervalMinutes: 60,   windowStart: '09:00', windowEnd: '21:00', weekdaysOnly: false, options: { perRun: 2 }, spends: false, label: 'WordPress yayını' },
 };
@@ -213,6 +215,17 @@ HANDLERS.adsense_compliance = { idempotent: true, async run(job, ctx) {
   for (const s of rows) { try { await one({ siteId: s.id }); stats.audited++; } catch (err) { stats.failed.push({ site: s.name, error: err.message }); } }
   if (!stats.audited && stats.failed.length) throw new Error(stats.failed[0].error);
   return { status: stats.failed.length ? 'partial' : 'ok', stats, message: `${stats.audited} site denetlendi${stats.failed.length ? `; ${stats.failed.length} site denetlenemedi` : ''}` };
+} };
+
+/**
+ * Reports: the scheduled pass makes yesterday's daily report (and the weekly one on Mondays) when it does not exist yet and tells the owner; a person's "run now" remakes the daily
+ * report of the latest complete day without a notification (they are looking at it).
+ */
+HANDLERS.reporting = { idempotent: true, async run(job, ctx) {
+  if (job.trigger === 'manual') { const r = await reports.generate(job.projectId, 'daily', { now: ctx.now, userId: job.userId, trigger: 'manual', announce: false }); return { status: 'ok', stats: { reportId: r.id, kind: 'daily' }, message: `Günlük rapor yenilendi (${r.dayTo})` }; }
+  const out = await reports.generateDue(job.projectId, { now: ctx.now, userId: job.userId, trigger: 'schedule' });
+  if (!out.made.length) return { status: 'skipped', message: out.skipped.join('; ') || 'Rapor zamanı gelmedi' };
+  return { status: 'ok', stats: { made: out.made.map((r) => ({ id: r.id, kind: r.kind, dayTo: r.dayTo })) }, message: `${out.made.map((r) => (r.kind === 'weekly' ? 'haftalık' : 'günlük')).join(' ve ')} rapor hazırlandı` };
 } };
 
 /** internal link suggestions (never applied by the bot: a person decides) */

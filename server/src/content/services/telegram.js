@@ -76,7 +76,7 @@ async function broadcast(text, o = {}) {
 }
 
 // ── notifications → Telegram ────────────────────────────────────────────────────────────────────────────────────
-const GROUP_OF = { article_ready: 'newArticle', critical_correction: 'critical', budget_full: 'budget', publish_failed: 'publishError', adsense_risk: 'adsense', adsense_site: 'adsense', bot_disabled: 'botError', job_failed: 'botError' };
+const GROUP_OF = { article_ready: 'newArticle', critical_correction: 'critical', budget_full: 'budget', budget_warning: 'budget', report_ready: 'report', publish_failed: 'publishError', adsense_risk: 'adsense', adsense_site: 'adsense', bot_disabled: 'botError', job_failed: 'botError' };
 const ICON = { info: 'ℹ️', warning: '⚠️', critical: '🔴' };
 
 /** Called by notifications.create for every new notification. Never throws; sends only what the owner asked for. @returns what happened (for tests) */
@@ -116,7 +116,7 @@ async function defaultProject() {
 
 const COMMANDS = {
   async help() {
-    return ['Komutlar:', '/status — sistem durumu', '/trends — güncel gündem', '/articles — onay bekleyen ve hazır makaleler', '/generate — sıradaki fikri göster (yazdırmak için: /generate onay)', '/updates — güncelleme bekleyenler',
+    return ['Komutlar:', '/status — sistem durumu', '/trends — güncel gündem', '/articles — onay bekleyen ve hazır makaleler', '/generate — sıradaki fikri göster (yazdırmak için: /generate onay)', '/updates — güncelleme bekleyenler', '/report — en son günlük rapor (haftalık için: /report weekly)',
       '/adsense — AdSense riskleri ve site denetimi', '/cost — API maliyetleri', '/pause — botları duraklat', '/resume — botları devam ettir', '/id — bu sohbetin kimliği'].join('\n');
   },
   async status({ now }) {
@@ -162,6 +162,11 @@ const COMMANDS = {
     const budgets = list.filter((x) => x.dailyBudgetUsd !== null || x.monthlyBudgetUsd !== null).map((x) => `${x.label}: günlük ${x.dailyBudgetUsd === null ? '—' : usdText(x.dailyBudgetUsd)} / aylık ${x.monthlyBudgetUsd === null ? '—' : usdText(x.monthlyBudgetUsd)}`);
     return [`💰 API maliyeti`, `Bugün: ${usdText(u.today.costUsd)}${unk(u.today)} · ${u.today.requests} istek`, `Bu ay: ${usdText(u.month.costUsd)}${unk(u.month)} · ${u.month.requests} istek`,
       ...u.providers.filter((p) => p.requests || p.costUsd).map((p) => `• ${p.provider}: ${usdText(p.costUsd)} (${p.requests} istek${p.unknownCalls ? `, ${p.unknownCalls} tanesinin maliyeti bilinmiyor` : ''})`), ...(budgets.length ? ['Bütçeler:', ...budgets] : ['Bütçe sınırı tanımlı değil.'])].join('\n');
+  },
+  async report({ args }) {
+    const p = await defaultProject(); const kind = String(args[0] || '').toLowerCase() === 'weekly' ? 'weekly' : 'daily';
+    const r = await require('./reports').latest(p.id, kind);
+    return r ? r.body : `Henüz ${kind === 'weekly' ? 'haftalık' : 'günlük'} rapor yok. Raporlar her sabah kendiliğinden hazırlanır (pazartesileri haftalık da); panelde Raporlar sayfasından hemen üretebilirsiniz.`;
   },
   async pause({ chatId }) {
     const bots = require('./bots'); await bots.setPaused(true, { email: `telegram:${chatId}` }); await audit.audit({ user: { id: null, email: `telegram:${chatId}` }, ip: 'telegram' }, { action: 'bots.pause', entity: 'bots', entityId: 'telegram' });
