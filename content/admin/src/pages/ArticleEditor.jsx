@@ -7,6 +7,7 @@ import { Alert, Async, Badge, Card, Check, Field, Modal, PageHead, Spinner, useA
 import { NEXT, RISK, STATUS, TYPE_LABELS, csvList, dt, num } from '../format.js';
 import ArticleChecks from './ArticleChecks.jsx';
 import ArticleWordPress from './ArticleWordPress.jsx';
+import DiffView from './DiffView.jsx';
 
 const EMPTY = { categoryId: '', articleType: 'evergreen_guide', h1: '', seoTitle: '', slug: '', metaDescription: '', focusKeyword: '', secondaryKeywords: '', excerpt: '', contentHtml: '', tags: '', featuredImageUrl: '', adsenseRisk: '', targetCountry: 'US', language: 'en-US', faq: [] };
 
@@ -46,17 +47,22 @@ function Sources({ articleId, initial, canEdit, onSaved }) {
 function Versions({ articleId, current, canEdit, onRestored }) {
   const st = useLoad(() => api.get(`/articles/${articleId}/versions`), [articleId, current]);
   const { confirm, toast } = useApp();
-  const [view, setView] = useState(null);
+  const [view, setView] = useState(null); const [cmp, setCmp] = useState({ from: '', to: '' }); const [diff, setDiff] = useState(null);
   const [run] = useAction();
   const open = async (v) => setView(await api.get(`/articles/${articleId}/versions/${v}`).catch((e) => { toast(e.message, 'bad'); return null; }));
   const restore = async (v) => { if (await confirm({ title: `${v}. sürüme dönülsün mü?`, body: 'Eski sürüm YENİ bir sürüm olarak geri konur; geçmiş silinmez. Bağlantı (slug) değişmez.', confirmText: 'Geri dön' }) && await run(() => api.post(`/articles/${articleId}/versions/${v}/restore`), 'Sürüm geri yüklendi')) onRestored(); };
   return (
     <Card title="Sürüm geçmişi">
       <Async state={st}>{(d) => (
-        <div className="stack">{d.versions.map((v) => (
+        <div className="stack">
+          {d.versions.length > 1 && <div className="row"><span>Karşılaştır:</span>
+            <select className="input" style={{ width: 'auto' }} aria-label="Eski sürüm" value={cmp.from || d.versions[1].version} onChange={(e) => setCmp({ ...cmp, from: e.target.value })}>{d.versions.map((v) => <option key={v.version} value={v.version}>v{v.version}</option>)}</select><span>→</span>
+            <select className="input" style={{ width: 'auto' }} aria-label="Yeni sürüm" value={cmp.to || d.versions[0].version} onChange={(e) => setCmp({ ...cmp, to: e.target.value })}>{d.versions.map((v) => <option key={v.version} value={v.version}>v{v.version}</option>)}</select>
+            <button className="btn sm" onClick={async () => { const r = await api.get(`/articles/${articleId}/diff?from=${cmp.from || d.versions[1].version}&to=${cmp.to || d.versions[0].version}`).catch((e) => { toast(e.message, 'bad'); return null; }); if (r) setDiff(r); }}>Farkı göster</button></div>}{d.versions.map((v) => (
           <div key={v.version} className="row between"><span><Badge kind={v.version === current ? 'ok' : ''}>v{v.version}</Badge> {v.reason} <small className="faint">· {v.createdBy === 'ai' ? 'AI' : 'kişi'} · {dt(v.createdAt)} · {num(v.wordCount)} kelime</small></span>
             <span className="row"><button className="btn sm ghost" onClick={() => open(v.version)} aria-label="Görüntüle"><Eye size={14} /></button>{canEdit && v.version !== current && <button className="btn sm ghost" onClick={() => restore(v.version)} aria-label="Geri dön"><RotateCcw size={14} /></button>}</span></div>))}</div>
       )}</Async>
+      {diff && <Modal wide title={`v${diff.from.version} → v${diff.to.version}: ne değişti?`} onClose={() => setDiff(null)}><div className="stack">{diff.fields.length === 0 ? <Alert kind="info">Bu iki sürüm arasında fark yok.</Alert> : diff.fields.map((f) => <DiffView key={f.field} field={f} />)}<small className="faint">v{diff.to.version}: {diff.to.reason} ({diff.to.createdBy === 'ai' ? 'yapay zekâ' : 'kişi'}, {dt(diff.to.createdAt)}). Eski sürüme dönmek için listedeki geri alma düğmesini kullanın; geçmiş silinmez.</small></div></Modal>}
       {view && <Modal wide title={`Sürüm ${view.version} — ${view.snapshot.h1}`} onClose={() => setView(null)}><div className="grid g2"><Field label="SEO başlığı"><div>{view.snapshot.seoTitle}</div></Field><Field label="Meta açıklama"><div>{view.snapshot.metaDescription}</div></Field></div><Preview html={view.snapshot.contentHtml} title={view.snapshot.h1} /></Modal>}
     </Card>
   );

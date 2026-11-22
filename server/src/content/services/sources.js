@@ -26,17 +26,14 @@ function mainText(html) {
 const domainOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, '').toLowerCase(); } catch { return ''; } };
 
 /**
- * @param opts { max, fetcher (test seam: (url) -> { body }) }
- * @returns [{ n, url, title, publisher, publishedAt, reliability, text, readOk }] (n = 1.. as the model sees them)
+ * Reads the pages of some news items (the same guarded, capped reading as everywhere): at most `max` DIFFERENT publishers, the most reliable first; a page that cannot be read
+ * falls back to the headline and summary with `readOk = false`.
+ * @param items [{ url, title, summary, source_name, published_at, reliability }]
+ * @returns [{ n, url, title, publisher, publishedAt, reliability, text, readOk }]
  */
-async function gatherForTopic(topicId, { max = 5, fetcher = (u) => safeFetch.fetchText(u, { timeoutMs: 12000, maxBytes: 1.5 * 1024 * 1024 }) } = {}) {
-  const t = (await db.query('SELECT id, cluster_id, title FROM topics WHERE id = $1', [topicId])).rows[0];
-  if (!t) throw new HttpError(404, 'Konu bulunamadı');
-  if (!t.cluster_id) return [];
-  const items = (await db.query(`SELECT i.url, i.title, i.summary, i.source_name, i.published_at, GREATEST(i.reliability, COALESCE(s.reliability, 0)) AS reliability
-    FROM news_items i LEFT JOIN news_sources s ON s.id = i.source_id WHERE i.cluster_id = $1 ORDER BY GREATEST(i.reliability, COALESCE(s.reliability, 0)) DESC, i.published_at DESC NULLS LAST`, [t.cluster_id])).rows;
+async function gatherItems(items, { max = 5, fetcher = (u) => safeFetch.fetchText(u, { timeoutMs: 12000, maxBytes: 1.5 * 1024 * 1024 }), startAt = 1 } = {}) {
   const seen = new Set(); const picked = [];
-  for (const it of items) { const key = it.source_name.toLowerCase() || domainOf(it.url); if (seen.has(key)) continue; seen.add(key); picked.push(it); if (picked.length >= max) break; }
+  for (const it of items) { const key = String(it.source_name || '').toLowerCase() || domainOf(it.url); if (seen.has(key)) continue; seen.add(key); picked.push(it); if (picked.length >= max) break; }
   // pages are read side by side (at most 3 at a time): the free server is slow enough already
   const out = new Array(picked.length);
   let next = 0;
@@ -47,10 +44,20 @@ async function gatherForTopic(topicId, { max = 5, fetcher = (u) => safeFetch.fet
       try { const r = await fetcher(it.url); page = mainText(r && r.body); } catch { page = ''; }
       const readOk = page.length >= MIN_PAGE_TEXT;
       const text = readOk ? page : `${it.title}. ${it.summary || ''}`.trim();
-      out[i] = { n: i + 1, url: it.url, title: it.title, publisher: it.source_name, publishedAt: it.published_at, reliability: it.reliability, text, readOk };
+      out[i] = { n: startAt + i, url: it.url, title: it.title, publisher: it.source_name, publishedAt: it.published_at, reliability: it.reliability, text, readOk };
     }
   }));
   return out;
+}
+
+/** the research material of a news event (the idea an article is written for) */
+async function gatherForTopic(topicId, opts = {}) {
+  const t = (await db.query('SELECT id, cluster_id, title FROM topics WHERE id = $1', [topicId])).rows[0];
+  if (!t) throw new HttpError(404, 'Konu bulunamadı');
+  if (!t.cluster_id) return [];
+  const items = (await db.query(`SELECT i.url, i.title, i.summary, i.source_name, i.published_at, GREATEST(i.reliability, COALESCE(s.reliability, 0)) AS reliability
+    FROM news_items i LEFT JOIN news_sources s ON s.id = i.source_id WHERE i.cluster_id = $1 ORDER BY GREATEST(i.reliability, COALESCE(s.reliability, 0)) DESC, i.published_at DESC NULLS LAST`, [t.cluster_id])).rows;
+  return gatherItems(items, opts);
 }
 
 /** The saved sources of an article as the checks need them (full cached text); `preview` is what the API may show. */
@@ -59,4 +66,4 @@ async function forArticle(articleId) {
   return rows.map((r, i) => ({ n: r.position || i + 1, id: r.id, url: r.url, title: r.title, publisher: r.publisher, text: r.excerpt, reliability: r.reliability, readOk: r.read_ok }));
 }
 
-module.exports = { MAX_TEXT, MIN_PAGE_TEXT, mainText, gatherForTopic, forArticle };
+module.exports = { MAX_TEXT, MIN_PAGE_TEXT, mainText, gatherItems, gatherForTopic, forArticle };

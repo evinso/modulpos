@@ -124,4 +124,33 @@ async function fetchBinary(rawUrl, { timeoutMs = 20000, maxBytes = 5 * 1024 * 10
   throw new FetchError('redirect', 'Çok fazla yönlendirme');
 }
 
-module.exports = { fetchText, fetchBinary, request, FetchError, isPrivateIp, checkUrl, UA };
+/**
+ * Is this address alive? HEAD first, then a small GET when a server refuses HEAD; up to 3 redirects, each checked. Never throws for an HTTP answer.
+ * @returns { status: 'ok' | 'redirect' | 'broken' | 'error', http, finalUrl, note }
+ * broken = the page is gone (404/410) or the name does not exist; error = could not tell (blocked 401/403/429, a busy server, a timeout): never reported as broken.
+ */
+async function probe(rawUrl, { timeoutMs = 10000 } = {}) {
+  let url; try { url = checkUrl(rawUrl); } catch (err) { return { status: 'error', http: null, finalUrl: null, note: err.message }; }
+  const first = url.toString(); let moved = false;
+  for (let hop = 0; hop <= 3; hop++) {
+    let res;
+    try {
+      res = await once(url, { method: 'HEAD', timeoutMs, maxBytes: 1024, headers: { Accept: '*/*' } });
+      if ([400, 403, 405, 501].includes(res.status)) res = await once(url, { method: 'GET', timeoutMs, maxBytes: 65536, headers: { Accept: '*/*' } }).catch((e) => (e && e.code === 'too_large' ? { status: 200, headers: {} } : Promise.reject(e)));
+    } catch (err) {
+      if (err && err.code === 'too_large') return { status: moved ? 'redirect' : 'ok', http: 200, finalUrl: url.toString(), note: '' };
+      if (err && err.code === 'ssrf') return { status: 'error', http: null, finalUrl: null, note: 'İç ağ adresi: kontrol edilmedi' };
+      if (err && /ENOTFOUND/.test(String(err.message))) return { status: 'broken', http: null, finalUrl: null, note: 'Alan adı bulunamadı' };
+      return { status: 'error', http: null, finalUrl: null, note: err && err.code === 'timeout' ? 'Sunucu cevap vermedi' : 'Bağlanılamadı' };
+    }
+    if ([301, 302, 303, 307, 308].includes(res.status) && res.headers.location) {
+      try { url = checkUrl(new URL(res.headers.location, url).toString()); moved = true; continue; } catch { return { status: 'error', http: res.status, finalUrl: null, note: 'Yönlendirme adresi geçersiz' }; }
+    }
+    if (res.status >= 200 && res.status < 300) return { status: moved ? 'redirect' : 'ok', http: res.status, finalUrl: url.toString() !== first ? url.toString() : null, note: moved ? 'Başka bir adrese yönleniyor' : '' };
+    if (res.status === 404 || res.status === 410) return { status: 'broken', http: res.status, finalUrl: url.toString(), note: res.status === 410 ? 'Sayfa kaldırılmış (410)' : 'Sayfa bulunamadı (404)' };
+    return { status: 'error', http: res.status, finalUrl: url.toString(), note: `Sunucu ${res.status} döndürdü: bağlantının bozuk olup olmadığı anlaşılamadı` };
+  }
+  return { status: 'error', http: null, finalUrl: null, note: 'Çok fazla yönlendirme' };
+}
+
+module.exports = { fetchText, fetchBinary, probe, request, FetchError, isPrivateIp, checkUrl, UA };

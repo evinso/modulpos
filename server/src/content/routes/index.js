@@ -183,6 +183,7 @@ function buildRouter(getState) {
   // ── notifications, logs, users, system ───────────────────────────────────────────────────────────────────
   require('./research')(r, { wrap, mw, A, uid });
   require('./wordpress')(r, { wrap, mw, A, uid });
+  require('./refresh')(r, { wrap, mw, A, uid });
 
   r.get('/notifications', wrap(async (req, res) => res.json(await notifications.list({ unreadOnly: req.query.unread === '1', severity: req.query.severity || null, limit: parseInt(req.query.limit, 10) || 50, offset: parseInt(req.query.offset, 10) || 0 }))));
   r.post('/notifications/read-all', wrap(async (_req, res) => res.json({ marked: await notifications.markAllRead() })));

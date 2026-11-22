@@ -6,6 +6,7 @@ const { isValidTimezone } = require('../lib/time');
 const { HttpError, bad } = require('../lib/http');
 const settings = require('./settings');
 const queue = require('./queue');
+const limits = require('./limits');
 const runs = require('./runs');
 const notifications = require('./notifications');
 const providers = require('./providers');
@@ -17,6 +18,8 @@ const opportunities = require('./opportunities');
 const writer = require('./writer');
 const publishing = require('./publishing');
 const sites = require('./sites');
+const health = require('./health');
+const refresh = require('./refresh');
 
 /**
  * The scheduler and the background worker (phase 4). No n8n, no external cron: one in-process loop pair that only needs the content database.
@@ -33,6 +36,8 @@ const DEFAULTS = {
   keyword_research:    { enabled: false, intervalMinutes: 240,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: {}, spends: true,  label: 'Anahtar kelime verisi' },
   seo_competition:     { enabled: false, intervalMinutes: 240,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 5 }, spends: true, label: 'SERP rekabet analizi' },
   article_writer:      { enabled: false, intervalMinutes: 180,  windowStart: '09:00', windowEnd: '23:00', weekdaysOnly: false, options: { perRun: 1 }, spends: true, label: 'Makale yazımı' },
+  content_health:      { enabled: true,  intervalMinutes: 720,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 10 }, spends: false, label: 'İçerik sağlığı kontrolü' },
+  content_refresh:     { enabled: false, intervalMinutes: 360,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 1 }, spends: true, label: 'İçerik güncelleme' },
   content_publishing:  { enabled: false, intervalMinutes: 60,   windowStart: '09:00', windowEnd: '21:00', weekdaysOnly: false, options: { perRun: 2 }, spends: false, label: 'WordPress yayını' },
 };
 const SCHEDULABLE = Object.keys(DEFAULTS);
@@ -142,6 +147,37 @@ const HANDLERS = {
     return { status: stats.stopped || stats.failed || stats.partial ? 'partial' : 'ok', stats, message: stats.written ? `${stats.written} makale taslağı yazıldı${stats.stopped ? ` (${stats.stopped})` : ''}` : (stats.stopped || 'Makale yazılamadı') };
   } },
 };
+
+/** the health bot: links and new developments for the articles whose turn it is (free; limited by the day's "old article check" limit) */
+HANDLERS.content_health = { idempotent: true, async run(job, ctx) {
+  const perRun = (await getSchedule('content_health')).options.perRun || 10;
+  const ids = await health.due(job.projectId, { now: ctx.now, limit: perRun });
+  if (!ids.length) return { status: 'skipped', message: 'Kontrol zamanı gelen makale yok' };
+  const g = await limits.reserveUpTo({ workType: 'old_check', projectId: job.projectId, amount: ids.length, manual: job.trigger === 'manual', now: ctx.now });
+  if (!g.ok) return { status: 'skipped', message: g.message };
+  const stats = { checked: 0, flagged: 0, brokenLinks: 0, developments: 0 };
+  for (const id of ids.slice(0, g.granted)) {
+    const r = await health.checkOne(id, { now: ctx.now, probe: ctx.probe });
+    stats.checked++; if (r.flagged) stats.flagged++; stats.brokenLinks += r.assessment.brokenLinks.length; stats.developments += r.assessment.developments.length;
+  }
+  return { status: ids.length > g.granted ? 'partial' : 'ok', stats, message: `${stats.checked} makale kontrol edildi, ${stats.flagged} tanesi güncelleme bekliyor` };
+} };
+
+/** the refresh bot: one update proposal for an article a person picked (payload.articleId), or for the articles the health bot flagged "needs update" */
+HANDLERS.content_refresh = { idempotent: false, async run(job, ctx) {
+  const pl = job.payload || {}; const manual = job.trigger === 'manual';
+  const one = (id, force) => refresh.propose(id, { userId: job.userId, manual, fetchImpl: ctx.fetchImpl, fetcher: ctx.fetcher, now: ctx.now, force, wpRequest: ctx.wpRequest });
+  if (pl.articleId) { const r = await one(pl.articleId, true); return { status: r.status === 'no_evidence' ? 'skipped' : 'ok', stats: { result: r.status, proposalId: r.proposal && r.proposal.id }, message: r.message }; }
+  const perRun = (await getSchedule('content_refresh')).options.perRun || 1;
+  const ids = (await db.query("SELECT a.id FROM articles a WHERE a.project_id = $1 AND a.status = 'needs_update' AND NOT EXISTS (SELECT 1 FROM refresh_proposals r WHERE r.article_id = a.id AND r.status = 'proposed') ORDER BY a.last_checked_at NULLS FIRST LIMIT $2", [job.projectId, perRun])).rows.map((r) => r.id);
+  if (!ids.length) return { status: 'skipped', message: 'Güncelleme bekleyen (kanıtlı) makale yok' };
+  const stats = { proposed: 0, applied: 0, noChange: 0, stopped: null };
+  for (const id of ids) {
+    try { const r = await one(id, false); if (r.status === 'proposed') stats.proposed++; else if (r.status === 'applied') stats.applied++; else stats.noChange++; }
+    catch (err) { stats.stopped = err.message; if (err.status === 409 || err.fatal) break; }              // limit full / no model ready / key rejected: stop, the next pass looks again
+  }
+  return { status: stats.stopped ? 'partial' : 'ok', stats, message: `${stats.proposed} taslak hazırlandı, ${stats.applied} otomatik uygulandı${stats.stopped ? ` (${stats.stopped})` : ''}` };
+} };
 
 /** the WordPress bot: a per-article send job, a bulk plan job, or (no payload) the scheduled pass: read back scheduled posts, then auto-publish approved articles if the owner allowed it */
 HANDLERS.content_publishing = { idempotent: true, async run(job, ctx) {
