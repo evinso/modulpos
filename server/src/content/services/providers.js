@@ -45,6 +45,10 @@ const PROVIDERS = {
     label: 'Serper.dev', secretLabel: 'API anahtarı', secretPattern: /^[A-Za-z0-9_-]{16,128}$/, paid: true, extra: {},
     help: 'serper.dev → ücretsiz hesap açın (2.500 ücretsiz sorgu, kart gerekmez) → API Key. Yalnızca Google ilk-10 sonuçlarını verir (organik rekabet tahmini için); aranma hacmi vermez. Bağlantı testi 1 sorgu (1 kredi) harcar.',
   },
+  pixabay: {
+    label: 'Pixabay (ücretsiz fotoğraflar)', secretLabel: 'API anahtarı', secretPattern: /^[A-Za-z0-9-]{12,80}$/, paid: false, extra: {},
+    help: 'pixabay.com → ücretsiz hesap açın (kart gerekmez) → giriş yapıp pixabay.com/api/docs sayfasına gidin: anahtarınız orada “key” parametresinin yanında yazar. Kapak görseli için ücretsiz fotoğraf aranır ve seçilen fotoğraf sizin sunucunuza indirilir (Pixabay’ın isteği). Pixabay lisansı ticari kullanıma izin verir, kaynak göstermek zorunlu değildir; yine de tanınabilir kişi, logo ya da marka içeren fotoğraflar sizin sorumluluğunuzdadır (sistem bunları elemeye çalışır, garanti vermez). Sınır: dakikada 100 istek.',
+  },
   searchconsole: {
     label: 'Google Search Console', secretLabel: 'Servis hesabı anahtarı (JSON)', secretKind: 'json', paid: false, extra: {},
     help: 'Google Cloud → IAM → Servis Hesapları → bir hesap oluşturun → Anahtarlar → JSON anahtar indirin (Search Console API açık olmalı). Sonra Search Console → Ayarlar → Kullanıcılar ve izinler’de o hesabın e-postasını siteye “Kısıtlı” kullanıcı olarak ekleyin. JSON dosyasının tüm içeriğini buraya yapıştırın; sunucuda şifreli saklanır, bir daha gösterilmez. Ücretsizdir.',
@@ -191,6 +195,15 @@ const TESTS = {
     const client = gsc.createClient({ keyJson: secret, fetchImpl });
     const sites = await client.listSites();
     return { ok: true, message: `Search Console bağlantısı çalışıyor: servis hesabı (${client.email}) ${sites.length} siteye erişebiliyor${sites.length ? ` (${sites.slice(0, 3).map((s) => s.siteUrl).join(', ')})` : '. Search Console’da siteye bu e-postayı kullanıcı olarak ekleyin'}.` };
+  },
+  async pixabay({ secret, fetchImpl }) {
+    const res = await fetchImpl(`https://pixabay.com/api/?key=${encodeURIComponent(secret)}&q=laptop&per_page=3&safesearch=true`, { signal: AbortSignal.timeout(15000) });
+    const text = await res.text().catch(() => '');
+    if (res.status === 429) return { ok: false, message: 'Pixabay hız sınırına takıldı (dakikada 100 istek); biraz sonra tekrar deneyin.' };
+    if (res.status === 400 || res.status === 401 || res.status === 403) return { ok: false, message: /key/i.test(text) || res.status !== 400 ? `Pixabay API anahtarı reddedildi (${res.status}). Anahtarı pixabay.com/api/docs sayfasından kopyalayın (giriş yapmış olmalısınız).` : `Pixabay isteği reddetti (400): ${text.slice(0, 120)}` };
+    if (!res.ok) return { ok: false, message: `Pixabay beklenmedik cevap verdi (${res.status}).` };
+    let j = {}; try { j = JSON.parse(text); } catch { return { ok: false, message: 'Pixabay cevabı okunamadı (JSON değil).' }; }
+    return { ok: true, message: `Pixabay bağlantısı çalışıyor (${Number(j.totalHits) || 0} sonuç görünüyor). Fotoğraflar ücretsizdir; kapak görseli bu anahtarla aranır.` };
   },
   async serper({ secret, fetchImpl }) {
     // Serper has no free "who am I" endpoint that is documented: the test is one real query (1 credit) and says so

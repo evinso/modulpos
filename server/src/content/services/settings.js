@@ -52,8 +52,8 @@ const GROUPS = {
   },
   images: {
     projectOverride: true,
-    defaults: { auto: false, quality: 'medium', style: 'Clean modern editorial illustration, soft natural lighting, balanced composition', requireForAutoApprove: true },
-    validate: (v) => ({ auto: V.bool(v.auto, 'Makaleye kapak görseli ekle', false), quality: V.oneOf(v.quality, 'Görsel kalitesi', ['low', 'medium', 'high'], { fallback: 'medium' }),
+    defaults: { auto: false, source: 'auto', stockType: 'photo', quality: 'medium', style: 'Clean modern editorial illustration, soft natural lighting, balanced composition', requireForAutoApprove: true },
+    validate: (v) => ({ auto: V.bool(v.auto, 'Makaleye kapak görseli ekle', false), source: V.oneOf(v.source, 'Görsel kaynağı', ['auto', 'stock', 'openai'], { fallback: 'auto' }), stockType: V.oneOf(v.stockType, 'Ücretsiz görsel türü', ['photo', 'illustration', 'all'], { fallback: 'photo' }), quality: V.oneOf(v.quality, 'Görsel kalitesi', ['low', 'medium', 'high'], { fallback: 'medium' }),
       style: V.str(v.style, 'Görsel stili', { max: 300 }), requireForAutoApprove: V.bool(v.requireForAutoApprove, 'Görselsiz makale kendiliğinden onaylanmasın', true) }),
   },
   update: {

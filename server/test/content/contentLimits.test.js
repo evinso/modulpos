@@ -66,6 +66,15 @@ test('limits: defaults, global / project / category levels, 0 = stopped, null = 
   assert.equal(tz, 'Europe/Istanbul');
 });
 
+test('the project\'s new-article limit can never be emptied: an empty value is refused (it used to jump back to 3 silently); 0 and other numbers are fine; other kinds of work may still be emptied', opts, async () => {
+  const projectId = (await P.seedDefault()).projectId; const cur = async () => (await H.db().query('SELECT daily_article_limit AS n FROM niche_profiles WHERE project_id = $1', [projectId])).rows[0].n;
+  await L.setProjectLimits(projectId, { new_article: 7 }); assert.equal(await cur(), 7);
+  await assert.rejects(L.setProjectLimits(projectId, { new_article: null }), (e) => e.status === 400 && /boş bırakılamaz.*0 ile 50/.test(e.message)); assert.equal(await cur(), 7, 'nothing changed');
+  await assert.rejects(L.setProjectLimits(projectId, { publish: 4, new_article: null }), /boş bırakılamaz/); assert.equal((await L.status({ projectId })).items.find((i) => i.workType === 'publish').project, null, 'a refused request changes nothing at all (not even the other kinds in it)');
+  await L.setProjectLimits(projectId, { new_article: 0 }); assert.equal(await cur(), 0, '0 = stopped is a real answer'); await L.setProjectLimits(projectId, { new_article: 3 });
+  await L.setProjectLimits(projectId, { publish: 4 }); await L.setProjectLimits(projectId, { publish: null }); assert.equal((await H.db().query("SELECT count(*)::int n FROM daily_work_limits WHERE scope = 'project' AND work_type = 'publish' AND max_per_day IS NOT NULL")).rows[0].n, 0, 'publish: empty = no project limit, as the page says');
+});
+
 test('limits: the narrowest level decides, and a refused request reserves nothing anywhere', opts, async () => {
   const { projectId, cats } = await site();                                    // seeded category limits: 3, 2, 1, none, none
   await L.setGlobalLimits({ new_article: 10 });

@@ -55,6 +55,7 @@ export default function Limits() {
         const paused = d.bots.paused;
         const gDirty = d.global.some((i) => !same(g[i.workType], i.isDefault ? '' : i.limit));
         const pDirty = d.global.some((i) => !same(p[i.workType], i.project ? i.project.limit : ''));
+        const pBlank = p.new_article === '' || p.new_article === undefined;                        // the new-article row can never be empty
         const cDirty = d.categories.some((x) => c[x.id] && (!same(c[x.id].dailyMax, x.daily_max) || !same(c[x.id].publishMax, x.publish_max)));
         return (
           <>
@@ -74,11 +75,11 @@ export default function Limits() {
             </Card>
             {projectId && project ? (
               <Card title={`Proje limitleri · ${project.name}`}>
-                <p className="muted" style={{ marginBottom: 10 }}>Bu projenin kendi günlük sınırı. “Yeni makale” sınırı Strateji sayfasındaki günlük içerik limitiyle aynıdır. Boş = bu proje için ayrı sınır yok (genel sınır geçerli).</p>
+                <p className="muted" style={{ marginBottom: 10 }}>Bu projenin kendi günlük sınırı. Her işte <strong>en dar sınır</strong> geçerlidir (genel → proje → kategori). “Yeni makale” sınırı Strateji sayfasındaki günlük içerik limitiyle aynıdır ve <strong>boş bırakılamaz</strong> (her projenin bir günlük makale sınırı olmalı: yapay zekâ harcamasına karşı korumadır; varsayılan 3, en çok 50). Günde 3’ten fazla makale istiyorsanız yukarıdaki “Genel günlük limitler”deki yeni makale sayısını da yükseltin. Diğer satırlarda boş = bu proje için ayrı sınır yok (genel sınır geçerli).</p>
                 <div className="tbl-wrap"><table className="tbl"><thead><tr><th>İş türü</th><th className="num">Proje limiti</th><th className="num">Bugün (bu proje)</th><th className="num">Kalan</th></tr></thead>
-                  <tbody>{d.global.map((i) => <tr key={i.workType}><td>{i.label}</td><td className="num"><LimitInput value={p[i.workType]} onChange={(v) => setP((x) => ({ ...x, [i.workType]: v }))} max={i.max} disabled={!canEdit} label={`${i.label} proje limiti`} /></td>
+                  <tbody>{d.global.map((i) => <tr key={i.workType}><td>{i.label}</td><td className="num"><LimitInput value={p[i.workType]} onChange={(v) => setP((x) => ({ ...x, [i.workType]: v }))} max={i.max} disabled={!canEdit} label={`${i.label} proje limiti`} placeholder={i.workType === 'new_article' ? 'zorunlu' : undefined} /></td>
                     <td className="num">{i.project ? num(i.project.done) : '—'}</td><td className="num">{i.project ? num(i.project.remaining) : '—'}</td></tr>)}</tbody></table></div>
-                {canEdit && <div className="row end" style={{ marginTop: 12 }}><button className="btn primary" disabled={busy || !pDirty} onClick={saveProject}>Proje limitlerini kaydet</button></div>}
+                {canEdit && <div className="row end" style={{ marginTop: 12 }}>{pBlank && <small style={{ color: 'var(--bad)' }}>“Yeni makale” proje limiti boş bırakılamaz: 0 ile {d.global.find((x) => x.workType === 'new_article').max} arası bir sayı yazın.</small>}<button className="btn primary" disabled={busy || !pDirty || pBlank} onClick={saveProject}>Proje limitlerini kaydet</button></div>}
               </Card>
             ) : <Card><Empty title="Proje limitleri">Proje ve kategori limitlerini düzenlemek için üstteki menüden bir proje seçin.</Empty></Card>}
             {projectId && d.categories.length > 0 && (

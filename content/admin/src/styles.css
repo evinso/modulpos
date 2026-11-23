@@ -103,3 +103,10 @@ table.tbl { width: 100%; border-collapse: collapse; min-width: 640px; } .tbl th 
 .diff ins { background: color-mix(in srgb, var(--ok) 22%, transparent); text-decoration: none; border-radius: 3px; padding: 0 2px; }
 .diff del { background: color-mix(in srgb, var(--bad) 22%, transparent); text-decoration: line-through; border-radius: 3px; padding: 0 2px; }
 .live-run td { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+
+.stock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.stock-pick { display: flex; flex-direction: column; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-2); cursor: pointer; text-align: left; font: inherit; color: inherit; position: relative; }
+.stock-pick:hover:not(:disabled) { border-color: var(--accent); }
+.stock-pick img { width: 100%; height: 80px; object-fit: cover; border-radius: 6px; display: block; }
+.stock-pick span { font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stock-pick .badge { position: absolute; top: 8px; right: 8px; }

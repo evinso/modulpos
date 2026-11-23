@@ -173,7 +173,9 @@ test('live: what works right now and on what, what waits, what is off or stopped
   // finished: the result sentence of the job is the bot's last result and the newest line of the feed
   await Q.complete(a.id, { status: 'done', result: { status: 'ok', message: '12 yeni haber, 5 nişe uygun' } }, { now: new Date(NOWL.getTime() - 5000) });
   await R.finish(run.id, { status: 'ok', stats: { idea: 'ChatGPT Plus price goes up' } });
-  const bad = (await Q.enqueue({ botKey: 'seo_performance', projectId: pid, dedupeKey: 'g1', trigger: 'schedule', maxAttempts: 1 })).job; await Q.claim('w1', { now: new Date(NOWL.getTime() - 3000) }); await Q.fail({ ...bad, attempts: 1, maxAttempts: 1 }, new Error('Search Console anahtarı reddedildi'), { now: new Date(NOWL.getTime() - 2000) });
+  await H.db().query('UPDATE automation_runs SET finished_at = $2 WHERE id = $1', [run.id, new Date(NOWL.getTime() - 6000)]);          // (a run stamps the DATABASE clock, which has moved past this test's fixed clock)
+  // (a job is claimable only from its run_after: the default is the REAL clock, which moves past this test's fixed clock)
+  const bad = (await Q.enqueue({ botKey: 'seo_performance', projectId: pid, dedupeKey: 'g1', trigger: 'schedule', maxAttempts: 1, runAfter: new Date(NOWL.getTime() - 4000) })).job; await Q.claim('w1', { now: new Date(NOWL.getTime() - 3000) }); await Q.fail({ ...bad, attempts: 1, maxAttempts: 1 }, new Error('Search Console anahtarı reddedildi'), { now: new Date(NOWL.getTime() - 2000) });
   l = await LV.live(pid, { now: NOWL });
   assert.deepEqual([botOf(l, 'news_discovery').state, botOf(l, 'news_discovery').last.outcome, botOf(l, 'news_discovery').last.message], ['waiting', 'ok', '12 yeni haber, 5 nişe uygun']);
   const sp = botOf(l, 'seo_performance'); assert.deepEqual([sp.state, sp.last.outcome, sp.last.message], ['off', 'error', 'Search Console anahtarı reddedildi'], 'a bot that is off still shows how its last attempt ended');
