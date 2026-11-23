@@ -1,5 +1,6 @@
 const V = require('../lib/validate');
 const automation = require('../services/automation');
+const live = require('../services/automationLive');
 
 /**
  * "Otomasyon Modu": reading is open to every signed-in role, changing it is admin only (it switches bots, publishing, limits and the budget).
@@ -7,6 +8,8 @@ const automation = require('../services/automation');
  */
 module.exports = function automationRoutes(r, { wrap, mw, A }) {
   r.get('/automation', wrap(async (req, res) => res.json(await automation.overview(V.uuid(req.query.projectId, 'Proje')))));
+  /** the live picture (which bot works on what, the queue, the latest results): read only, open to every signed-in role; the panel asks every few seconds */
+  r.get('/automation/live', wrap(async (req, res) => res.json(await live.live(V.uuid(req.query.projectId, 'Proje')))));
   r.put('/automation', mw.need('bots.control'), wrap(async (req, res) => {
     const before = await automation.overview(V.uuid(req.body.projectId, 'Proje'));
     const out = await automation.apply(req.body, { userId: req.cu.user.id });

@@ -602,6 +602,18 @@ const autoSched = async (bot) => { const r = await q1('SELECT enabled FROM sched
 const boxFor = (label) => $$('label.check').find((l) => l.textContent.includes(label));
 await click(nav('Otomasyon Modu'), 900);
 ok('the page shows the current mode, three mode cards, the 15 options in 4 groups, the values and the checklist', txt().includes('Şu anki mod:') && ['Elle', 'Yarı otomatik', 'Tam otomatik'].every((m) => !!btn(`${m} modunu uygula`) || txt().includes(m)) && $$('label.check').length >= 15 + 1 && ['Araştırma', 'Yazım ve onay', 'Yayın', 'Bakım, izleme ve raporlar'].every((g) => txt().includes(g)) && txt().includes('Günlük yeni makale') && txt().includes('Başlamadan önce kontrol listesi'));
+const liveRows = () => $$('table[aria-label="Botların anlık durumu"] tbody tr');
+ok('the "Anlık durum" card lists all 13 bots with a state each, the day\'s numbers and the honest note that no scheduler runs on this test server', !!$$('section.card h2').find((h) => h.textContent === 'Anlık durum') && liveRows().length === 13 && liveRows().every((r) => /Çalışıyor|Sırada|Yeniden denenecek|Bekliyor|Duraklatıldı|Hatalar nedeniyle durdu|Kapalı/.test(r.textContent)) && txt().includes('Bugün yazılan') && txt().includes('Zamanlayıcı bu sunucuda çalışmıyor') && txt().includes('● canlı'));
+const pid0 = (await q1('SELECT id FROM content_projects ORDER BY created_at LIMIT 1')).id;
+await S.db.query("INSERT INTO jobs (bot_key, project_id, payload, trigger, dedupe_key, status, started_at, locked_by, locked_until, attempts) VALUES ('news_discovery', $1, '{}', 'schedule', 'e2e-live-1', 'running', now() - interval '42 seconds', 'e2e', now() + interval '10 minutes', 1)", [pid0]);
+await S.db.query("INSERT INTO jobs (bot_key, project_id, payload, trigger, dedupe_key, status, started_at, finished_at, last_error, attempts, max_attempts) VALUES ('seo_performance', $1, '{}', 'schedule', 'e2e-live-2', 'failed', now() - interval '20 seconds', now() - interval '10 seconds', 'Search Console anahtarı reddedildi', 1, 1)", [pid0]);
+await click(aria('Anlık durumu yenile'), 700);
+const newsRow = liveRows().find((r) => r.textContent.includes('Haber tarama'));
+ok('a job a worker is running shows as "Çalışıyor" with what it is doing and for how long, and the running bot is listed first', !!newsRow && newsRow.textContent.includes('Çalışıyor') && newsRow.textContent.includes('Haber kaynakları taranıyor') && /4[0-9] sn süredir/.test(newsRow.textContent) && liveRows()[0] === newsRow);
+ok('a failed job shows its reason in the bot\'s last result and in the feed of the last events', liveRows().find((r) => r.textContent.includes('Search Console verisi')).textContent.includes('Search Console anahtarı reddedildi') && $$('table[aria-label="Son olaylar"] tr').some((r) => r.textContent.includes('Hata') && r.textContent.includes('Search Console anahtarı reddedildi')));
+await S.db.query("DELETE FROM jobs WHERE dedupe_key LIKE 'e2e-live-%'");
+await click(aria('Anlık durumu yenile'), 700);
+ok('after the job is gone the bot is no longer "running" (the picture follows the queue, it keeps nothing of its own)', !liveRows().find((r) => r.textContent.includes('Haber tarama')).textContent.includes('Haber kaynakları taranıyor'));
 await click(btn('Elle modunu uygula'), 1000);
 ok('"Elle" switches every bot off through the real bot schedules (Bot Yönetimi shows the same) and the page says so', txt().includes('Şu anki mod: Elle') && (await autoSched('news_discovery')).enabled === false && (await q1("SELECT count(*)::int n FROM schedule_settings WHERE enabled")).n === 0 && txt().includes('Haber taraması: kapatıldı'));
 await click(boxFor('Haber taraması').querySelector('input'), 150);
