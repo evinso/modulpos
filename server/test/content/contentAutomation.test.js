@@ -217,3 +217,16 @@ test('values: the page shows what REALLY applies (the narrowest of platform, pro
   await SC.updateSchedule('content_publishing', { windowStart: '10:00', windowEnd: '18:00' }); await S.set('publishing', { ...(await S.get('publishing', pid)).value, autoPublish: true, siteId: (await SI.create(pid, { name: 'Blog', apiUrl: wp.url, username: 'editor', password: PASS })).id }, { scope: 'project', projectId: pid });
   await SC.updateSchedule('content_publishing', { enabled: true }); const w = (await AU.overview(pid)).warnings.find((x) => /kendi çalışma saatleri/.test(x.text)); assert.ok(w, 'a mismatch between the bot\'s hours and the publishing hours is named'); assert.match(w.text, /10:00–18:00/);
 });
+
+test('hours: the page shows the REAL working hours of the writer (none = "every hour"), says so in a warning, an empty pair is a valid answer, one empty end is refused, and applying a mode writes the hours', opts, async () => {
+  const pid = await setup(); await SC.updateSchedule('article_writer', { enabled: true, windowStart: null, windowEnd: null });
+  let o = await AU.overview(pid); assert.deepEqual([o.values.writerFrom, o.values.writerTo], [null, null], 'it used to show the recommended 09:00-23:00 while the bot ran at any hour');
+  assert.ok(o.warnings.some((w) => /Makale botunun çalışma saati sınırı YOK/.test(w.text)));
+  await AU.apply({ projectId: pid, mode: 'custom', options: {} });                                       // untouched empty hours: nothing to write, nothing refused
+  assert.deepEqual([(await AU.overview(pid)).values.writerFrom, (await SC.getSchedule('article_writer')).windowStart], [null, null]);
+  await assert.rejects(AU.apply({ projectId: pid, mode: 'custom', options: {}, values: { writerFrom: '09:00', writerTo: '' } }), /ikisi de yazılmalı/);
+  const set = await AU.apply({ projectId: pid, mode: 'custom', options: {}, values: { writerFrom: '10:00', writerTo: '20:00' } });
+  assert.deepEqual([set.values.writerFrom, set.values.writerTo, (await SC.getSchedule('article_writer')).windowStart], ['10:00', '20:00', '10:00']); assert.ok(!set.warnings.some((w) => /çalışma saati sınırı YOK/.test(w.text)));
+  const cleared = await AU.apply({ projectId: pid, mode: 'custom', options: {}, values: { writerFrom: '', writerTo: null } }); assert.deepEqual([cleared.values.writerFrom, (await SC.getSchedule('article_writer')).windowEnd], [null, null], 'both empty = no working hours, on purpose');
+  await AU.apply({ projectId: pid, mode: 'semi' }); assert.deepEqual([(await SC.getSchedule('article_writer')).windowStart, (await SC.getSchedule('article_writer')).windowEnd], ['09:00', '23:00'], 'a mode button writes the recommended hours (they were empty = not the person\'s own choice)');
+});

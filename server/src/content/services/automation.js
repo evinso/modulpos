@@ -108,7 +108,7 @@ async function readValues(projectId, st, limPre = null) {
   const item = (t) => lim.items.find((i) => i.workType === t);
   const w = st.sch.get('article_writer'); const budget = (await settings.get('budget')).value;
   return { dailyArticles: item('new_article').project ? item('new_article').project.limit : item('new_article').limit, dailyPublish: item('publish').project ? item('publish').project.limit : item('publish').limit,
-    writerFrom: w.windowStart || RECOMMENDED.writerFrom, writerTo: w.windowEnd || RECOMMENDED.writerTo, publishFrom: st.pub.windowStart, publishTo: st.pub.windowEnd, weekends: !!st.pub.weekends,
+    writerFrom: w.windowStart || null, writerTo: w.windowEnd || null, publishFrom: st.pub.windowStart, publishTo: st.pub.windowEnd, weekends: !!st.pub.weekends,
     minQuality: st.q.minScore, dailyBudgetUsd: budget.dailyTotalUsd };
 }
 
@@ -162,9 +162,11 @@ async function overview(projectId) {
     return { value, caps, limitedBy: caps.filter((c) => c.limit === value).map((c) => c.scope), doneToday: i.project ? i.project.done : i.done };
   };
   const effective = { dailyArticles: effOf('new_article'), dailyPublish: effOf('publish', chosen && Number.isInteger(chosen.dailyLimit) ? [{ scope: 'site', label: `“${chosen.name}” sitesinin günlük sınırı`, limit: chosen.dailyLimit }] : []) };
+  const wb = st.sch.get('article_writer');
+  if (st.on.writer && wb && !wb.windowStart) warnings.push({ kind: 'warn', text: 'Makale botunun çalışma saati sınırı YOK: gece dahil her saat çalışır (bu sayfa eskiden olmayan saatleri gösteriyordu). Yazım saatlerini doldurup “Seçimi uygula” deyin.', to: '/bots' });
   // the publishing bot has its OWN hours (Bot Yönetimi); the hours above are the publishing settings: when they differ the bot follows its own
   const pbs = st.sch.get('content_publishing');
-  if (st.on.publishing && pbs && (pbs.windowStart !== st.pub.windowStart || pbs.windowEnd !== st.pub.windowEnd || !!pbs.weekdaysOnly === !!st.pub.weekends)) warnings.push({ kind: 'warn', text: `WordPress yayın botunun kendi çalışma saatleri (${pbs.windowStart}–${pbs.windowEnd}${pbs.weekdaysOnly ? ', hafta sonu yok' : ', hafta sonu da'}) buradaki yayın saatlerinden (${st.pub.windowStart}–${st.pub.windowEnd}${st.pub.weekends ? ', hafta sonu da' : ', hafta sonu yok'}) farklı: bot kendi saatlerine göre çalışır. “Seçimi uygula” ikisini eşitler.`, to: '/bots' });
+  if (st.on.publishing && pbs && (pbs.windowStart !== st.pub.windowStart || pbs.windowEnd !== st.pub.windowEnd || !!pbs.weekdaysOnly === !!st.pub.weekends)) warnings.push({ kind: 'warn', text: `WordPress yayın botunun kendi çalışma saatleri (${pbs.windowStart ? `${pbs.windowStart}–${pbs.windowEnd}` : 'SINIR YOK: her saat'}${pbs.weekdaysOnly ? ', hafta sonu yok' : ', hafta sonu da'}) buradaki yayın saatlerinden (${st.pub.windowStart}–${st.pub.windowEnd}${st.pub.weekends ? ', hafta sonu da' : ', hafta sonu yok'}) farklı: bot kendi saatlerine göre çalışır. “Seçimi uygula” ikisini eşitler.`, to: '/bots' });
   return { projectId: pid, mode, summary, modeLabel: mode === 'custom' ? 'Özel' : MODES[mode].label, modes, groups: GROUPS, options, values, effective, recommended: RECOMMENDED, max: { dailyArticles: limits.WORK_TYPES.new_article.max, dailyPublish: limits.WORK_TYPES.publish.max }, warnings, checklist, readyBacklog: backlog, paused: !!botState.paused,
     schedulerRunning: !!scheduler.status().running, thresholds: { minScore: st.q.minScore } };
 }
@@ -176,8 +178,9 @@ function cleanValues(v, base) {
   const time = (x, l) => { const s = V.str(x, l, { required: true, max: 5 }); if (!HM.test(s)) throw bad(`${l} SS:DD biçiminde olmalı (ör. 09:00)`); return s; };
   if (v.dailyArticles !== undefined) out.dailyArticles = V.int(v.dailyArticles, 'Günlük yeni makale', { min: 1, max: limits.WORK_TYPES.new_article.max });
   if (v.dailyPublish !== undefined) out.dailyPublish = V.int(v.dailyPublish, 'Günlük yayın', { min: 1, max: limits.WORK_TYPES.publish.max });
-  if (v.writerFrom !== undefined) out.writerFrom = time(v.writerFrom, 'Yazım saatleri başlangıcı');
-  if (v.writerTo !== undefined) out.writerTo = time(v.writerTo, 'Yazım saatleri bitişi');
+  const optTime = (x, l) => (x === null || x === '' ? null : time(x, l));          // the writer may run at any hour: both empty = no working hours
+  if (v.writerFrom !== undefined) out.writerFrom = optTime(v.writerFrom, 'Yazım saatleri başlangıcı');
+  if (v.writerTo !== undefined) out.writerTo = optTime(v.writerTo, 'Yazım saatleri bitişi');
   if (v.publishFrom !== undefined) out.publishFrom = time(v.publishFrom, 'Yayın saatleri başlangıcı');
   if (v.publishTo !== undefined) out.publishTo = time(v.publishTo, 'Yayın saatleri bitişi');
   if (v.weekends !== undefined) out.weekends = V.bool(v.weekends, 'Hafta sonu da çalış');
@@ -186,7 +189,8 @@ function cleanValues(v, base) {
     if (v.dailyBudgetUsd === null || v.dailyBudgetUsd === '') out.dailyBudgetUsd = null;
     else { const n = Number(v.dailyBudgetUsd); if (!Number.isFinite(n) || n <= 0 || n > 10000) throw bad('Günlük bütçe 0’dan büyük bir tutar (USD) olmalı; sınır istemiyorsanız boş bırakın'); out.dailyBudgetUsd = Math.round(n * 100) / 100; }
   }
-  if (out.writerFrom === out.writerTo) throw bad('Yazım saatlerinin başlangıcı ve bitişi aynı olamaz');
+  if (!!out.writerFrom !== !!out.writerTo) throw bad('Yazım saatleri için başlangıç ve bitişin ikisi de yazılmalı (ya da ikisi de boş: bot her saat çalışır)');
+  if (out.writerFrom && out.writerFrom === out.writerTo) throw bad('Yazım saatlerinin başlangıcı ve bitişi aynı olamaz');
   if (out.publishFrom === out.publishTo) throw bad('Yayın saatlerinin başlangıcı ve bitişi aynı olamaz');
   return out;
 }
@@ -287,7 +291,7 @@ async function apply(body, { userId = null } = {}) {
   }
 
   // 5. the bots (last, so a job never starts on half-applied settings)
-  const wRuns = Math.max(1, Math.floor(windowMinutes(values.writerFrom, values.writerTo) / WRITER_INTERVAL));
+  const wRuns = Math.max(1, Math.floor((values.writerFrom && values.writerTo ? windowMinutes(values.writerFrom, values.writerTo) : 1440) / WRITER_INTERVAL));
   const pRuns = Math.max(1, Math.floor(windowMinutes(values.publishFrom, values.publishTo) / PUBLISH_INTERVAL));
   for (const o of OPTIONS) {
     if (!o.bot) continue;
