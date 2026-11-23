@@ -601,7 +601,7 @@ ok('there is no DataForSEO card and no login field any more (the Apify card only
 const autoSched = async (bot) => { const r = await q1('SELECT enabled FROM schedule_settings WHERE bot_key = $1', [bot]); return { enabled: r ? r.enabled : false }; };   // no row = the bot's default, which for the paid ones is off
 const boxFor = (label) => $$('label.check').find((l) => l.textContent.includes(label));
 await click(nav('Otomasyon Modu'), 900);
-ok('the page shows the current mode, three mode cards, the 15 options in 4 groups, the values and the checklist', txt().includes('Şu anki mod:') && ['Elle', 'Yarı otomatik', 'Tam otomatik'].every((m) => !!btn(`${m} modunu uygula`) || txt().includes(m)) && $$('label.check').length >= 15 + 1 && ['Araştırma', 'Yazım ve onay', 'Yayın', 'Bakım, izleme ve raporlar'].every((g) => txt().includes(g)) && txt().includes('Günlük yeni makale') && txt().includes('Başlamadan önce kontrol listesi'));
+ok('the page shows the current mode, three mode cards, the 16 options in 4 groups, the values and the checklist', txt().includes('Şu anki mod:') && ['Elle', 'Yarı otomatik', 'Tam otomatik'].every((m) => !!btn(`${m} modunu uygula`) || txt().includes(m)) && $$('label.check').length >= 16 + 1 && ['Araştırma', 'Yazım ve onay', 'Yayın', 'Bakım, izleme ve raporlar'].every((g) => txt().includes(g)) && txt().includes('Günlük yeni makale') && txt().includes('Başlamadan önce kontrol listesi'));
 const liveRows = () => $$('table[aria-label="Botların anlık durumu"] tbody tr');
 ok('the "Anlık durum" card lists all 13 bots with a state each, the day\'s numbers and the honest note that no scheduler runs on this test server', !!$$('section.card h2').find((h) => h.textContent === 'Anlık durum') && liveRows().length === 13 && liveRows().every((r) => /Çalışıyor|Sırada|Yeniden denenecek|Bekliyor|Duraklatıldı|Hatalar nedeniyle durdu|Kapalı/.test(r.textContent)) && txt().includes('Bugün yazılan') && txt().includes('Zamanlayıcı bu sunucuda çalışmıyor') && txt().includes('● canlı'));
 const pid0 = (await q1('SELECT id FROM content_projects ORDER BY created_at LIMIT 1')).id;
@@ -638,6 +638,29 @@ await click(nav('Bot Yönetimi'), 800);
 ok('Bot Yönetimi shows the very same switches (the page has no state of its own)', txt().includes('Otomatik: 3 saatte bir') || txt().includes('3 saatte bir'));
 await click(nav('Otomasyon Modu'), 800); await click(btn('Elle modunu uygula'), 1000);
 ok('and "Elle" takes everything back: manual approval again, WordPress as draft, no bot scheduled', txt().includes('Şu anki mod: Elle') && (await q1("SELECT value FROM automation_settings WHERE key = 'quality'")).value.manualApprovalNewArticles === true && (await q1("SELECT value FROM automation_settings WHERE key = 'publishing'")).value.mode === 'draft' && (await q1("SELECT count(*)::int n FROM schedule_settings WHERE enabled")).n === 0);
+
+// ── cover pictures: settings, the model picker, the editor card, the alt text, the paid button, removal ────────────────────────────────────────
+if (!URL.createObjectURL) { URL.createObjectURL = () => 'blob:e2e-picture'; URL.revokeObjectURL = () => {}; }
+await click(nav('Sistem Ayarları'), 600);
+ok('the settings page has the "Kapak görselleri" card with its switches (off by default: pictures cost money)', !!$$('section.card h2').find((h) => h.textContent === 'Kapak görselleri') && txt().includes('Yeni makaleye kapak görseli ekle') && txt().includes('Görsel kalitesi') && txt().includes('Görselsiz makale kendiliğinden'));
+await click(nav('API Kullanımı ve Maliyetler'), 700);
+const oaCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'OpenAI');
+ok('the OpenAI card has the image model and the price per picture fields', !!input('Görsel modeli', oaCard) && !!input('Görsel başına fiyat', oaCard));
+await click(btn('Bağlantıyı test et', oaCard), 900);
+ok('the connection test lists the image models the key offers and names the one that is used when none is chosen', txt().includes('Kapak görseli için kullanılabilen modeller') && txt().includes('gpt-image-2.5-sunburst') && txt().includes('sabit sürüm'));
+await click($$('button', oaCard).find((b) => b.textContent.trim() === 'Bunu sabitle'), 900);
+ok('one click pins the image model', (await q1("SELECT extra FROM api_providers WHERE key = 'openai'")).extra.imageModel === 'gpt-image-2.5-sunburst');
+await click(nav('Makale Arşivi'), 700); await click($$('tbody tr').find((r) => r.querySelector('strong.clip')), 900);                      // a row of the archive opens its article
+ok('an article without a picture says so and offers to draw one (admin)', txt().includes('Kapak görseli') && txt().includes('Bu makalenin kapak görseli yok') && !!btn('Görsel çiz'));
+await setVal($('textarea[placeholder^="ör. Karanlık"]'), 'A glowing price tag floating over an open laptop'); await click(btn('Görsel çiz'), 1200);
+const pic = await q1('SELECT alt, model, provider, byte_size, prompt FROM article_images'); const artRow = await q1('SELECT h1 FROM articles WHERE id = (SELECT article_id FROM article_images)');
+ok('drawing stores the picture (the request had the scene, no text/logo rules, the pinned model) and the card shows it with its alt text and where it came from', !!pic && pic.provider === 'openai' && pic.model === 'gpt-image-2.5-sunburst' && pic.byte_size > 100 && pic.prompt.startsWith('A glowing price tag floating over an open laptop') && pic.prompt.includes('Absolutely no text') && pic.alt === artRow.h1 && !!$('img[alt]') && txt().includes('gpt-image-2.5-sunburst') && !!input('Alt metin') && globalThis.__models.calls.some((c) => c.role === 'image' && c.body.size === '1536x1024' && c.body.output_format === 'jpeg'));
+await setVal(input('Alt metin'), 'A glowing price tag above an open laptop'); await click(btn('Alt metni kaydet'), 700);
+ok('the alt text is saved', (await q1('SELECT alt FROM article_images')).alt === 'A glowing price tag above an open laptop');
+await click(btn('Yeni görsel çiz'), 500); ok('a second picture asks first (it replaces the first and costs again)', !!$('.modal') && txt().includes('DEĞİŞTİRİLİR')); await click(btn('Vazgeç', $('.modal')), 400);
+ok('declining draws nothing', (await q1('SELECT count(*)::int n FROM article_images')).n === 1 && globalThis.__models.calls.filter((c) => c.role === 'image').length === 1);
+await click($$('button').find((b) => b.textContent.trim() === 'Sil' && b.className.includes('danger')), 500); await click(btn('Sil', $('.modal')), 800);
+ok('removing the picture deletes it', (await q1('SELECT count(*)::int n FROM article_images')).n === 0 && txt().includes('Bu makalenin kapak görseli yok'));
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);

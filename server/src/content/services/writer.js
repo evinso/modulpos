@@ -9,6 +9,8 @@ const checks = require('./checks');
 const articles = require('./articles');
 const autoApprove = require('./autoApprove');
 const siteLinks = require('./siteLinks');
+const images = require('./images');
+const providers = require('./providers');
 const H = require('../lib/html');
 const SS = require('../lib/seoStructure');
 
@@ -24,7 +26,7 @@ const SS = require('../lib/seoStructure');
  * Real model calls have never been run (no key): the tests answer with the vendors' documented shapes.
  */
 const BOT = 'article_writer';
-const PROMPT_VERSION = 'w2';
+const PROMPT_VERSION = 'w3';
 const pending = new Map();                                                 // runId -> promise (so a test, or a deploy hook, can wait for the work)
 
 const WORDS = { short: '600-850', standard: '900-1,400', long: '1,500-2,200' };
@@ -48,8 +50,9 @@ Article rules (on-page SEO, in this order of importance):
 - "faq": 3 to 5 questions a reader would really ask, answered briefly from the material. "tags": at most 6.
 - "seoTitle" at most 60 characters: the focus keyword near the start, specific and true to the article, a reason to click, no clickbait, no ALL CAPS. "metaDescription" 120-155 characters: what the reader gets, the focus keyword once, no quotation marks, no ellipsis. "excerpt" at most 280 characters, "slug" lower-case words joined by hyphens.
 - "articleType" is one of: ${c.types.join(', ')}.
+- "image": the cover picture. "image.prompt" is ONE or TWO sentences describing a concrete scene or visual metaphor for a landscape illustration that fits THIS article (what is in the picture, the mood, the setting). No text, letters, numbers, logos or brand marks, no screenshots, no real people or recognisable faces. "image.alt" is 8-16 words describing what the picture shows, for a screen reader: it describes the picture and is not a list of keywords.
 Answer with ONE JSON object and nothing else:
-{"seoTitle":"","h1":"","slug":"","metaDescription":"","focusKeyword":"","secondaryKeywords":[""],"excerpt":"","articleType":"latest_update","contentHtml":"","faq":[{"q":"","a":""}],"tags":[""]}`;
+{"seoTitle":"","h1":"","slug":"","metaDescription":"","focusKeyword":"","secondaryKeywords":[""],"excerpt":"","articleType":"latest_update","contentHtml":"","faq":[{"q":"","a":""}],"tags":[""],"image":{"prompt":"","alt":""}}`;
 
 const userPrompt = (o, srcs, secondary, related = []) => `IDEA: ${o.title}
 FOCUS KEYWORD (use exactly this phrase): ${o.keyword}
@@ -78,6 +81,7 @@ function normalizeOutput(d, { types, focus }) {
     excerpt: str(d.excerpt, 600), articleType: types.includes(d.articleType) ? d.articleType : 'latest_update', contentHtml: html,
     faq: (Array.isArray(d.faq) ? d.faq : []).map((x) => ({ q: str(x && x.q, 300), a: str(x && x.a, 2000) })).filter((x) => x.q && x.a).slice(0, 6),
     tags: (Array.isArray(d.tags) ? d.tags : []).map((x) => str(x, 60)).filter(Boolean).slice(0, 8),
+    image: { prompt: str(d.image && d.image.prompt, 700), alt: str(d.image && d.image.alt, 160) },          // not an article field: the writer pipeline hands it to the picture step
   };
 }
 
@@ -143,11 +147,16 @@ async function pipeline(o, run, { who, grant, cfg, fetchImpl, fetcher, now, user
       try { out = await llm.complete({ provider: who.writer, system, user, maxTokens: 9000, json: true, projectId: o.project_id, operation: 'article_write', fetchImpl, now }); add(out); break; }
       catch (err) { if (err.inputTokens !== undefined || err.maybeBilled) add(err); if (err.code === 'bad_json' && attempt === 0) continue; throw err; }          // a cut-off or unreadable JSON answer is tried ONCE more; every other error ends the run
     }
-    const fields = normalizeOutput(out.data, { types: articles.TYPES, focus: o.keyword });
+    const { image: imageHint, ...fields } = normalizeOutput(out.data, { types: articles.TYPES, focus: o.keyword });
     const lk = limitLinks(fields.contentHtml, srcs, related); fields.contentHtml = lk.html; stats.linksRemoved = lk.removed.length; stats.relatedOffered = related.length;      // an address the model made up never reaches the article
     article = await articles.createFromAi({ ...fields, targetCountry: 'US', language: cfg.language }, { projectId: o.project_id, categoryId: o.category_id,
       generation: { provider: out.provider, model: out.model, inputTokens: out.inputTokens, outputTokens: out.outputTokens, costUsd: out.costUsd, promptVersion: PROMPT_VERSION, opportunityId: o.id, topicId: o.topic_id, checker: who.checker, independentChecker: who.independent, runId: run.id }, sources: srcs });
     await db.query("UPDATE content_opportunities SET article_id = $2, updated_at = now() WHERE id = $1", [o.id, article.id]);
+    // the cover picture: before the checks and before any approval, so an article never goes out without it by a race (a failure here never fails the article)
+    await note({ step: 'image' });
+    const pic = await images.autoForArticle(article.id, o.project_id, imageHint, { fetchImpl, now });
+    if (pic.status === 'ok') add({ costUsd: pic.costUsd }); else if (pic.billed) add({ costUsd: pic.costUsd });
+    if (pic.status !== 'off') { stats.image = pic.status; if (pic.error) stats.imageError = pic.error; }
     await note({ step: 'checking', articleId: article.id, words: article.wordCount });
     const res = await checks.runAll(article.id, { mode: 'all', checkerProvider: who.checker, fetchImpl, now });
     for (const u of res.usage) add(u);

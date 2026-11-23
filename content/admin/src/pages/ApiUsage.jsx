@@ -22,10 +22,11 @@ function Provider({ p, canEdit, onChanged }) {
   const hasModelField = p.extraFields.some((x) => x.key === 'model');
   const needsModel = p.configured && hasModelField && ['gemini', 'openai'].includes(p.key) && !(p.extra && p.extra.model);          // Claude has a default model
   const [picked, setPicked] = useState('');
-  const useModel = async (model) => {
+  const [pickedImg, setPickedImg] = useState('');
+  const useModel = async (model, field = 'model') => {
     if (!model) return;
-    if (await run(() => api.put(`/providers/${p.key}`, { extra: { ...f.extra, model } }), `Model seçildi: ${model}`)) {
-      setPicked(''); const again = await run(() => api.post(`/providers/${p.key}/test`));                  // the saved message must describe the state NOW ("a model is still missing" is no longer true)
+    if (await run(() => api.put(`/providers/${p.key}`, { extra: { ...f.extra, [field]: model } }), `${field === 'imageModel' ? 'Görsel modeli' : 'Model'} seçildi: ${model}`)) {
+      setPicked(''); setPickedImg(''); const again = await run(() => api.post(`/providers/${p.key}/test`));                  // the saved message must describe the state NOW ("a model is still missing" is no longer true)
       setTest(again ? { ...again, models: undefined } : null); onChanged();
     }
   };
@@ -45,6 +46,13 @@ function Provider({ p, canEdit, onChanged }) {
               {test.suggested && <div className="row"><span>Öneri: <strong>{test.suggested}</strong> <span className="faint">(kararlı “flash” ailesi; genelde daha hızlı ve daha ucuzdur. Fiyatı Google’ın fiyat sayfasından kontrol edin.)</span></span><button className="btn sm primary" disabled={busy} onClick={() => useModel(test.suggested)}>Bunu kullan</button></div>}
               <div className="row"><select className="input" style={{ width: 'auto', maxWidth: '100%' }} value={picked} onChange={(e) => setPicked(e.target.value)} aria-label={`${p.label} modeli`}><option value="">— başka bir model seç —</option>{test.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
                 <button className="btn sm" disabled={busy || !picked} onClick={() => useModel(picked)}>Seç ve kaydet</button></div>
+            </div></Alert>)}
+        {test && test.imageModels && test.imageModels.length > 0 && canEdit && (
+          <Alert kind="info" title="Kapak görseli için kullanılabilen modeller">
+            <div className="stack">
+              {test.suggestedImage && <div className="row"><span>Seçili değilse kullanılacak: <strong>{(p.extra && p.extra.imageModel) || test.suggestedImage}</strong> <span className="faint">(hesabınızdaki en yeni görsel modeli; adlar sık değişir, fiyatı OpenAI hesabınızdan kontrol edin)</span></span>{test.suggestedImage !== (p.extra && p.extra.imageModel) && <button className="btn sm primary" disabled={busy} onClick={() => useModel(test.suggestedImage, 'imageModel')}>Bunu sabitle</button>}</div>}
+              <div className="row"><select className="input" style={{ width: 'auto', maxWidth: '100%' }} value={pickedImg} onChange={(e) => setPickedImg(e.target.value)} aria-label="OpenAI görsel modeli"><option value="">— başka bir görsel modeli seç —</option>{test.imageModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
+                <button className="btn sm" disabled={busy || !pickedImg} onClick={() => useModel(pickedImg, 'imageModel')}>Seç ve kaydet</button></div>
             </div></Alert>)}
         {res && <Alert kind={res.ok ? 'ok' : 'bad'} title={res.ok ? 'Bağlantı çalışıyor' : 'Bağlantı başarısız'}>{res.message}{p.lastTestedAt && !test && <small className="faint"> · {dt(p.lastTestedAt)}</small>}</Alert>}
         {canEdit && <div className="row"><button className="btn primary" disabled={busy} onClick={save}>Kaydet</button><button className="btn" disabled={busy || !p.configured} onClick={doTest}>Bağlantıyı test et</button>{p.configured && <button className="btn danger" disabled={busy} onClick={clear}>Anahtarı sil</button>}</div>}

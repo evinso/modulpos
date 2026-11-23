@@ -50,6 +50,12 @@ const GROUPS = {
         windowStart: hm(v.windowStart || '09:00', 'Yayın saat aralığı başlangıcı'), windowEnd: hm(v.windowEnd || '21:00', 'Yayın saat aralığı bitişi'), timezone, weekends: V.bool(v.weekends, 'Hafta sonu yayınlama', false), siteId: v.siteId ? V.uuid(v.siteId, 'Site') : null };
     },
   },
+  images: {
+    projectOverride: true,
+    defaults: { auto: false, quality: 'medium', style: 'Clean modern editorial illustration, soft natural lighting, balanced composition', requireForAutoApprove: true },
+    validate: (v) => ({ auto: V.bool(v.auto, 'Makaleye kapak görseli ekle', false), quality: V.oneOf(v.quality, 'Görsel kalitesi', ['low', 'medium', 'high'], { fallback: 'medium' }),
+      style: V.str(v.style, 'Görsel stili', { max: 300 }), requireForAutoApprove: V.bool(v.requireForAutoApprove, 'Görselsiz makale kendiliğinden onaylanmasın', true) }),
+  },
   update: {
     projectOverride: true,
     defaults: { policy: 'low_risk_auto', intervalDays: { breaking: 1, currentTech: 7, aiTools: 10, guides: 21, comparisons: 30, evergreen: 75 } },

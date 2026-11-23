@@ -18,7 +18,8 @@ const PROVIDERS = {
   openai: {
     label: 'OpenAI', secretLabel: 'API anahtarı', secretPattern: /^sk-[A-Za-z0-9_\-.]{16,}$/, paid: true,
     extra: { model: { label: 'Makale modeli (tam adı, ör. hesabınızda görünen)', max: 80, def: '' }, cheapModel: { label: 'Hızlı / ucuz model', max: 80, def: '' },
-      inputPricePerM: { label: 'Giriş fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true }, outputPricePerM: { label: 'Çıkış fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true } },
+      inputPricePerM: { label: 'Giriş fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true }, outputPricePerM: { label: 'Çıkış fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true },
+      imageModel: { label: 'Görsel modeli (kapak görseli için; boş = hesabınızdaki en yeni)', max: 80, def: '' }, imagePriceUsd: { label: 'Görsel başına fiyat (USD, isteğe bağlı; yazmazsanız maliyet “Bilinmiyor” görünür)', max: 10, def: '', numeric: true } },
     help: 'platform.openai.com → API keys. Anahtar yalnızca sunucuda şifreli saklanır. Model adını OpenAI hesabınızdaki güncel adıyla yazın; fiyatları girerseniz maliyet hesaplanır, girmezseniz “Bilinmiyor” yazılır.',
   },
   anthropic: {
@@ -143,8 +144,10 @@ const TESTS = {
     if (res.status === 429) return { ok: false, message: 'OpenAI isteği sınırladı (429): kota/bakiye ya da hız sınırı. Hesabınızı kontrol edin.' };
     if (!res.ok) return { ok: false, message: `OpenAI beklenmedik cevap verdi (${res.status}).` };
     const j = await res.json().catch(() => ({}));
-    const models = (Array.isArray(j.data) ? j.data : []).map((m) => String(m && m.id || '')).filter((id) => /^(gpt-|o\d)/i.test(id) && !/embed|audio|image|tts|whisper|realtime|moderation|transcribe|search|codex|instruct|vision-preview|dall|sora/i.test(id)).sort().map((id) => ({ id, label: id }));
-    return { ok: true, message: `OpenAI bağlantısı çalışıyor (${Array.isArray(j.data) ? j.data.length : '?'} model görünüyor).${models.length ? ' Makale için bir model seçin.' : ''}`, models };
+    const ids = (Array.isArray(j.data) ? j.data : []).map((m) => String(m && m.id || ''));
+    const models = ids.filter((id) => /^(gpt-|o\d)/i.test(id) && !/embed|audio|image|tts|whisper|realtime|moderation|transcribe|search|codex|instruct|vision-preview|dall|sora/i.test(id)).sort().map((id) => ({ id, label: id }));
+    const imgs = require('../lib/imageModels'); const imageModels = imgs.imageModels(ids); const suggestedImage = imgs.pickImageModel(ids);
+    return { ok: true, message: `OpenAI bağlantısı çalışıyor (${Array.isArray(j.data) ? j.data.length : '?'} model görünüyor).${models.length ? ' Makale için bir model seçin.' : ''}${imageModels.length ? ` Kapak görseli için ${imageModels.length} görsel modeli de görünüyor.` : ' Hesabınızda görsel modeli görünmüyor (OpenAI görsel modelleri için kuruluş doğrulaması isteyebilir).'}`, models, imageModels, suggestedImage };
   },
   async apify({ secret, extra, fetchImpl }) {
     const apify = require('./apify');
@@ -215,7 +218,7 @@ async function test(key, { fetchImpl = globalThis.fetch } = {}) {
   }
   const message = String(out.message).split(secret).join('[gizli]').slice(0, 300);        // the secret must never end up in a stored sentence
   await db.query('UPDATE api_providers SET last_tested_at = now(), last_test_ok = $1, last_test_message = $2 WHERE key = $3', [out.ok, message, key]);
-  return { ok: out.ok, message, ...(out.balanceUsd !== undefined ? { balanceUsd: out.balanceUsd } : {}), ...(Array.isArray(out.models) ? { models: out.models.slice(0, 80), suggested: out.suggested || null } : {}) };
+  return { ok: out.ok, message, ...(out.balanceUsd !== undefined ? { balanceUsd: out.balanceUsd } : {}), ...(Array.isArray(out.models) ? { models: out.models.slice(0, 80), suggested: out.suggested || null } : {}), ...(Array.isArray(out.imageModels) ? { imageModels: out.imageModels.slice(0, 40), suggestedImage: out.suggestedImage || null } : {}) };
 }
 
 // ── usage and budgets ──────────────────────────────────────────────────────────────────────────────────────

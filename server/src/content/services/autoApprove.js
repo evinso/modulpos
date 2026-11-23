@@ -10,13 +10,16 @@ const audit = require('./audit');
  * It adds NO rule of its own and relaxes none: the article must pass `articles.readiness()` exactly as a person's "Yayına hazır" would (fact check done and
  * not failed, AdSense risk "low", quality score present and >= the project's minimum, enough words, category, sources, no duplicate, no excluded topic).
  * Anything else stays "İnceleme bekliyor" with the reasons returned here, so the owner sees WHY it was not approved.
+ * One extra gate: while cover pictures are switched on (and the owner did not turn the rule off) an article WITHOUT a picture is not approved automatically.
  * Only AI-written articles in "needs_review" are touched; a person's article or a later status is never moved.
  */
 async function approveIfClean(articleId) {
-  const a = (await db.query('SELECT id, project_id, status, created_by, quality_score, adsense_risk FROM articles WHERE id = $1', [articleId])).rows[0];
+  const a = (await db.query('SELECT id, project_id, status, created_by, quality_score, adsense_risk, featured_image_url FROM articles WHERE id = $1', [articleId])).rows[0];
   if (!a || a.status !== 'needs_review' || a.created_by !== 'ai') return { approved: false, reason: 'not_applicable' };
   const q = (await settings.get('quality', a.project_id)).value;
   if (q.manualApprovalNewArticles !== false) return { approved: false, reason: 'manual' };
+  const im = (await settings.get('images', a.project_id)).value;                      // pictures are on and the owner wants every article to have one: a missing picture stops the automatic approval (a person can still approve)
+  if (im.auto && im.requireForAutoApprove && !a.featured_image_url && !(await db.query('SELECT 1 FROM article_images WHERE article_id = $1', [a.id])).rows.length) return { approved: false, reason: 'blocked', problems: ['Kapak görseli yok (görsel ekleme açık olduğundan görselsiz makale kendiliğinden onaylanmaz; editörden görsel üretebilir ya da elle onaylayabilirsiniz)'] };
   const r = await articles.readiness(a.id);
   const blocking = r.problems.filter((p) => p.blocking).map((p) => p.message);
   if (blocking.length) return { approved: false, reason: 'blocked', problems: blocking };

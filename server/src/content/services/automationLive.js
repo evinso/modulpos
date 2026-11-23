@@ -18,7 +18,7 @@ const DOING = {
   content_publishing: 'WordPress’e gönderim sırası işleniyor', content_health: 'Eski makalelerin bağlantıları ve yeni gelişmeler kontrol ediliyor', content_refresh: 'Güncelleme taslağı hazırlanıyor',
   internal_linking: 'İç bağlantı fırsatları aranıyor', seo_performance: 'Search Console verisi alınıyor', adsense_compliance: 'Sitenin AdSense hazırlığı denetleniyor', reporting: 'Rapor hazırlanıyor',
 };
-const WRITER_STEP = { sources: 'Kaynaklar okunuyor', writing: 'Makale yazılıyor', checking: 'Zorunlu kontroller yapılıyor (doğruluk, AdSense, kalite)' };
+const WRITER_STEP = { sources: 'Kaynaklar okunuyor', writing: 'Makale yazılıyor', image: 'Kapak görseli çiziliyor', checking: 'Zorunlu kontroller yapılıyor (doğruluk, AdSense, kalite)' };
 const STATE_ORDER = ['running', 'queued', 'retry', 'waiting', 'paused', 'stopped', 'off'];
 
 function doingText(bot, job, run) {
