@@ -12,6 +12,9 @@ const SI = require('../../src/content/services/sites');
 const SC = require('../../src/content/services/scheduler');
 const AU = require('../../src/content/services/automation');
 const AA = require('../../src/content/services/autoApprove');
+const LV = require('../../src/content/services/automationLive');
+const Q = require('../../src/content/services/queue');
+const R = require('../../src/content/services/runs');
 
 /**
  * "Otomasyon Modu": three modes and 15 checkboxes that are only a window onto the settings the other pages edit (bot schedules, publishing, quality, budget, limits).
@@ -136,4 +139,61 @@ test('auto approval: OFF by default; when ON it approves exactly what a person c
   const human = await draft(pid, { by: 'manual' }); assert.equal((await AA.approveIfClean(human)).reason, 'not_applicable'); assert.equal(await status(human), 'needs_review');
   const dup = await draft(pid); await H.db().query("UPDATE articles SET focus_keyword = (SELECT focus_keyword FROM articles WHERE id = $1) WHERE id = $2", [id, dup]);
   assert.match((await AA.approveIfClean(dup)).problems.join(' '), /Aynı odak/, 'a duplicate of an approved article is not approved either');
+});
+
+// ── the live picture ─────────────────────────────────────────────────────────────────────────────
+const NOWL = new Date('2026-11-23T12:00:00Z');
+const botOf = (l, k) => l.bots.find((b) => b.key === k);
+
+test('live: what works right now and on what, what waits, what is off or stopped and why, what finished lately - read only, nothing invented', opts, async () => {
+  const pid = await setup(); await SC.updateSchedule('article_writer', { enabled: true, windowStart: '09:00', windowEnd: '23:00' }); void NOWL;
+  let l = await LV.live(pid, { now: NOWL });
+  assert.equal(l.bots.length, 13); assert.deepEqual([l.summary.running, l.summary.queued], [0, 0]); assert.equal(l.paused, false);
+  assert.deepEqual([botOf(l, 'news_discovery').state, botOf(l, 'keyword_research').state, botOf(l, 'news_discovery').last], ['waiting', 'off', null], 'no run yet: no invented "last run"');
+  assert.deepEqual(l.events, []); assert.deepEqual([l.pipeline.needsReview, l.pipeline.ready], [0, 0]); assert.deepEqual(l.today.articles, { done: 0, limit: 3 });
+
+  // a job a worker is running: the bot "works", for how long, and what it says it is doing
+  const a = (await Q.enqueue({ botKey: 'news_discovery', projectId: pid, dedupeKey: 'n1', trigger: 'schedule', runAfter: new Date(NOWL.getTime() - 60000) })).job;
+  const claimed = await Q.claim('w1', { now: new Date(NOWL.getTime() - 42000) }); assert.equal(claimed.id, a.id);
+  await H.db().query('UPDATE jobs SET started_at = $2 WHERE id = $1', [a.id, new Date(NOWL.getTime() - 42000)]);
+  // the writer reports its step through the run log
+  const run = await R.start('article_writer', { projectId: pid, trigger: 'schedule' }); await R.progress(run.id, { step: 'writing', idea: 'ChatGPT Plus price goes up' });
+  await H.db().query('UPDATE automation_runs SET started_at = $2 WHERE id = $1', [run.id, new Date(NOWL.getTime() - 20000)]);           // (the test clock is not the database clock)
+  // another job waits, another one waits for its retry
+  await Q.enqueue({ botKey: 'content_opportunity', projectId: pid, dedupeKey: 'o1', trigger: 'schedule', runAfter: new Date(NOWL.getTime() - 1000) });
+  const r = (await Q.enqueue({ botKey: 'content_health', projectId: pid, dedupeKey: 'h1', trigger: 'schedule' })).job; await H.db().query("UPDATE jobs SET run_after = $2, last_error = 'WordPress meşgul' WHERE id = $1", [r.id, new Date(NOWL.getTime() + 300000)]);
+  l = await LV.live(pid, { now: NOWL });
+  const news = botOf(l, 'news_discovery'); assert.deepEqual([news.state, news.doing, news.runningForSeconds, news.trigger], ['running', 'Haber kaynakları taranıyor', 42, 'schedule']);
+  assert.deepEqual([botOf(l, 'article_writer').state, botOf(l, 'article_writer').doing], ['running', 'Makale yazılıyor: “ChatGPT Plus price goes up”']);
+  assert.equal(botOf(l, 'content_opportunity').state, 'queued'); const hb = botOf(l, 'content_health'); assert.deepEqual([hb.state, !!hb.retryAt], ['retry', true]); assert.match(hb.note, /WordPress meşgul/);
+  assert.deepEqual([l.summary.running, l.summary.queued], [2, 2]); assert.deepEqual(l.bots.slice(0, 2).map((b) => b.state), ['running', 'running'], 'running bots are listed first');
+  await R.progress(run.id, { step: 'checking', idea: 'ChatGPT Plus price goes up' }); assert.match(botOf(await LV.live(pid, { now: NOWL }), 'article_writer').doing, /^Zorunlu kontroller yapılıyor.*ChatGPT Plus/);
+
+  // finished: the result sentence of the job is the bot's last result and the newest line of the feed
+  await Q.complete(a.id, { status: 'done', result: { status: 'ok', message: '12 yeni haber, 5 nişe uygun' } }, { now: new Date(NOWL.getTime() - 5000) });
+  await R.finish(run.id, { status: 'ok', stats: { idea: 'ChatGPT Plus price goes up' } });
+  const bad = (await Q.enqueue({ botKey: 'seo_performance', projectId: pid, dedupeKey: 'g1', trigger: 'schedule', maxAttempts: 1 })).job; await Q.claim('w1', { now: new Date(NOWL.getTime() - 3000) }); await Q.fail({ ...bad, attempts: 1, maxAttempts: 1 }, new Error('Search Console anahtarı reddedildi'), { now: new Date(NOWL.getTime() - 2000) });
+  l = await LV.live(pid, { now: NOWL });
+  assert.deepEqual([botOf(l, 'news_discovery').state, botOf(l, 'news_discovery').last.outcome, botOf(l, 'news_discovery').last.message], ['waiting', 'ok', '12 yeni haber, 5 nişe uygun']);
+  const sp = botOf(l, 'seo_performance'); assert.deepEqual([sp.state, sp.last.outcome, sp.last.message], ['off', 'error', 'Search Console anahtarı reddedildi'], 'a bot that is off still shows how its last attempt ended');
+  assert.equal(l.events[0].bot, 'seo_performance', 'the newest line first'); assert.ok(l.events.some((e) => e.bot === 'news_discovery' && e.message === '12 yeni haber, 5 nişe uygun' && e.outcome === 'ok'));
+  assert.ok(l.events.some((e) => e.outcome === 'error' && /anahtarı reddedildi/.test(e.message)), 'a failure shows its reason in the feed');
+  assert.equal(l.events.filter((e) => e.bot === 'article_writer').length, 1, 'a run nobody queued is shown once');
+  for (let i = 1; i < l.events.length; i++) assert.ok(new Date(l.events[i - 1].at) >= new Date(l.events[i].at), 'newest first');
+});
+
+test('live: stopped by errors vs switched off vs paused vs closed window, the pipeline and the day\'s places', opts, async () => {
+  const pid = await setup();
+  await SC.saveSchedule('news_discovery', { enabled: false, failStreak: 5, disabledReason: 'Art arda 5 başarısız çalışma' });
+  let l = await LV.live(pid, { now: NOWL }); const n = botOf(l, 'news_discovery'); assert.deepEqual([n.state, n.note, n.failStreak], ['stopped', 'Art arda 5 başarısız çalışma', 5]);
+  assert.equal(botOf(l, 'keyword_research').state, 'off');
+  await SC.updateSchedule('content_opportunity', { enabled: true, windowStart: '02:00', windowEnd: '03:00' });
+  const closed = botOf(await LV.live(pid, { now: NOWL }), 'content_opportunity'); assert.equal(closed.state, 'waiting'); assert.match(closed.note, /Çalışma saati dışında \(02:00–03:00\)/);
+  const cats = await P.listCategories(pid);
+  for (const [i, st] of ['needs_review', 'needs_review', 'ready'].entries()) { const a = await A.create({ projectId: pid, h1: `Live ${i}`, contentHtml: '<p>x</p>', categoryId: cats[0].id }); await H.db().query('UPDATE articles SET status = $2 WHERE id = $1', [a.id, st]); }
+  await L.reserve({ workType: 'new_article', projectId: pid, amount: 1, now: NOWL });
+  l = await LV.live(pid, { now: NOWL }); assert.deepEqual([l.pipeline.needsReview, l.pipeline.ready], [2, 1]); assert.deepEqual(l.today.articles, { done: 1, limit: 3 });
+  await S.set('bots', { paused: true, pausedAt: NOWL.toISOString(), pausedBy: 'test' }, { scope: 'global' });
+  l = await LV.live(pid, { now: NOWL }); assert.equal(l.paused, true); assert.deepEqual([botOf(l, 'content_opportunity').state, botOf(l, 'content_opportunity').nextRunAt], ['paused', null], 'a paused platform shows no "next run"');
+  await assert.rejects(LV.live('00000000-0000-0000-0000-000000000001', { now: NOWL }), (e) => e.status === 404);
 });

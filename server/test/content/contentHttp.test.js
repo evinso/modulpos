@@ -267,5 +267,7 @@ test('automation mode through HTTP: everybody signed in can read it, only the ad
   assert.equal((await admin.put('/automation', { projectId: project.id, mode: 'custom', options: { writer: true } })).status, 409, 'no model connected: refused with the reason');
   const bad = await admin.put('/automation', { projectId: project.id, mode: 'custom', options: { news: 'ja' } }); assert.equal(bad.status, 400);
   const on = await admin.put('/automation', { projectId: project.id, mode: 'custom', options: { news: true, opportunities: true } }); assert.equal(on.status, 200); assert.equal(on.json.options.find((x) => x.key === 'news').on, true);
+  const lv = await viewer.get(`/automation/live?projectId=${project.id}`); assert.equal(lv.status, 200); assert.equal(lv.json.bots.length, 13); assert.deepEqual([lv.json.summary.running, lv.json.paused], [0, false]); assert.ok(lv.json.bots.some((b) => b.key === 'news_discovery' && b.state === 'waiting'));
+  assert.equal((await viewer.get('/automation/live')).status, 400); assert.equal((await viewer.get('/automation/live?projectId=00000000-0000-0000-0000-000000000001')).status, 404); assert.equal((await client().get(`/automation/live?projectId=${project.id}`)).status, 401, 'signed-in users only');
   const audit = (await admin.get('/audit?action=automation')).json.items; assert.ok(audit.length >= 2); assert.equal(audit[0].action, 'automation.apply');
 });
