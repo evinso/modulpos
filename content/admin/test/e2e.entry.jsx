@@ -660,6 +660,22 @@ ok('Bot Yönetimi shows the very same switches (the page has no state of its own
 await click(nav('Otomasyon Modu'), 800); await click(btn('Elle modunu uygula'), 1000);
 ok('and "Elle" takes everything back: manual approval again, WordPress as draft, no bot scheduled', txt().includes('Şu anki mod: Elle') && (await q1("SELECT value FROM automation_settings WHERE key = 'quality'")).value.manualApprovalNewArticles === true && (await q1("SELECT value FROM automation_settings WHERE key = 'publishing'")).value.mode === 'draft' && (await q1("SELECT count(*)::int n FROM schedule_settings WHERE enabled")).n === 0);
 
+// ── Bulgu akışı ve zaman dalgası: what was found, the waves, why ideas wait, the fresh-news window, the housekeeping ─────────────────────────────────────
+await click(nav('Otomasyon Modu'), 900);
+const flowCard = () => $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'Bulgu akışı ve zaman dalgası');
+ok('the flow card shows what was found, today\'s places, the waves by age and the housekeeping in plain words', !!flowCard() && flowCard().textContent.includes('Bulunan haber (son 24 saat)') && flowCard().textContent.includes('Nişe uygun olay (son 7 gün)') && flowCard().textContent.includes('Yazılmaya hazır fikir') && flowCard().textContent.includes('Bugün yazılan makale') && flowCard().textContent.includes('Zaman dalgası') && flowCard().textContent.includes('Son 12 saat') && flowCard().textContent.includes('7 günden eski') && flowCard().textContent.includes('hiçbir zaman'));
+ok('the values say what REALLY applies (the narrowest limit), not only the number typed', txt().includes('Fiilen geçerli: günde en çok') && txt().includes('genel sınır') && txt().includes('en dar olan geçerlidir'));
+const seoRow = async () => (await q1("SELECT value FROM automation_settings WHERE key = 'seo' AND project_id IS NOT NULL")); 
+await setVal(aria('Taze haber penceresi'), '12'); await click(btn('Kaydet', flowCard()), 900);
+ok('the fresh-news window is saved through the ordinary settings (project scope)', (await seoRow()).value.freshHours === 12);
+const flowCat = (await q1('SELECT id FROM categories LIMIT 1')).id;
+await S.db.query("INSERT INTO topics (project_id, category_id, title, origin, status, created_at) VALUES ($1,$2,'E2E stale idea','news','new', now() - interval '40 days')", [pid, flowCat]);
+await click(nav('Bot Yönetimi'), 500); await click(nav('Otomasyon Modu'), 900);
+ok('an idea nobody used for 40 days is announced as about to be removed (and the card says what is never removed)', flowCard().textContent.includes('Şu an silinecek: 1 fikir') && !btn('Şimdi temizle', flowCard()).disabled);
+await click(btn('Şimdi temizle', flowCard()), 500); ok('cleaning asks first and lists what stays', !!$('.modal') && txt().includes('geri alınamaz') && txt().includes('silinmez'));
+await click(btn('Temizle', $('.modal')), 1000);
+ok('the stale idea is gone, the run is logged, and nothing else was touched', (await q1("SELECT count(*)::int n FROM topics WHERE title = 'E2E stale idea'")).n === 0 && (await q1("SELECT counts FROM cleanup_log ORDER BY id DESC LIMIT 1")).counts.staleIdeas === 1 && (await q1('SELECT count(*)::int n FROM articles')).n > 0);
+
 // ── cover pictures: settings, the model picker, the editor card, the alt text, the paid button, removal ────────────────────────────────────────
 if (!URL.createObjectURL) { URL.createObjectURL = () => 'blob:e2e-picture'; URL.revokeObjectURL = () => {}; }
 await click(nav('Sistem Ayarları'), 600);

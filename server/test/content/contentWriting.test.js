@@ -191,7 +191,7 @@ test('writer + on-page SEO: the prompt offers the site\'s own related articles a
 });
 
 test('writer: refuses what it must not start (no vendor, idea not eligible, full day, unusable vendor) and changes nothing', opts, async () => {
-  const { projectId: pid } = await P.seedDefault(); const m = fakeModels();
+  const { projectId: pid } = await P.seedDefault(); await H.noFreshLane(); const m = fakeModels();
   await withEvent(pid); await O.refresh(pid, { now: NOW }); const o = (await O.list(pid)).items[0];
   await assert.rejects(W.start(o.id, { fetchImpl: m.fetchImpl }), (e) => e.status === 409 && /üretime uygun değil/.test(e.message));
   await H.db().query("UPDATE content_opportunities SET eligible = true, ineligible_reason = ''");

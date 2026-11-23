@@ -134,7 +134,7 @@ test('import: refuses what it cannot read honestly (empty, no volume column, wro
 
 // ── ideas without a volume: partial score, a person decides ─────────────────────────────────────────────────
 test('partial score: no volume anywhere -> judged on the most specific candidate phrase, labelled partial, eligible ONLY after a person shortlists it; real data later gives a normal score', opts, async () => {
-  const { projectId: pid } = await P.seedDefault(); await withEvent(pid);
+  const { projectId: pid } = await P.seedDefault(); await H.noFreshLane(); await withEvent(pid);
   await O.refresh(pid, { now: NOW });
   let o = (await O.list(pid)).items[0];
   const cand = o.keyword; assert.ok(cand && cand.split(' ').length >= 2, `the most specific candidate phrase, not a bare name: ${cand}`); assert.equal(o.total, null); assert.equal(o.partial, false);
@@ -161,8 +161,8 @@ test('partial score: no volume anywhere -> judged on the most specific candidate
 });
 
 test('partial score: switched off in the settings, an idea without a volume is simply not eligible (the old strict behaviour)', opts, async () => {
-  const { projectId: pid } = await P.seedDefault(); await withEvent(pid);
-  await S.set('seo', { partialWithApproval: false });
+  const { projectId: pid } = await P.seedDefault(); await H.noFreshLane(); await withEvent(pid);
+  await S.set('seo', { partialWithApproval: false, freshHours: 0 });          // (saving a group replaces it: the lane switch must be repeated)
   await O.refresh(pid, { now: NOW }); const o = (await O.list(pid)).items[0];
   assert.deepEqual([o.keyword, o.partial, o.eligible], [null, false, false]); assert.match(o.ineligibleReason, /Anahtar kelime verisi henüz çekilmedi/);
   assert.equal((await O.rescore(o.id, { now: NOW })).explain.partial, false);

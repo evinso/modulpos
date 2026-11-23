@@ -11,7 +11,12 @@ const F = {
     { k: 'maxItemsPerSource', t: 'int', l: 'Kaynak başına en çok haber (tarama başına)', min: 5, max: 100 }] },
   seo: { title: 'SEO araştırması', about: 'Anahtar kelime filtreleri ve API önbellek süresi.', fields: [
     { k: 'enabled', t: 'bool', l: 'SEO botu aktif', hint: 'Fırsat puanlama, niş keşfi, anahtar kelime ve SERP botlarını bu projede tümden kapatır; zamanlama Bot Yönetimi’ndedir.' }, { k: 'minVolume', t: 'int', l: 'Minimum aylık aranma hacmi', min: 0, max: 1000000 }, { k: 'countries', t: 'csv', l: 'Hedef ülkeler (ilki birincil ülke)' },
+      { k: 'freshHours', t: 'int', l: 'Taze haber penceresi (saat; 0 = kapalı)', min: 0, max: 168, hint: 'Son görülmesinden bu kadar saat geçmemiş ve 2+ kaynakta (ya da çok güvenilir tek kaynakta) çıkan olay, aranma hacmi ve rekabet verisi beklenmeden yazılabilir (puanı en az 60). Otomasyon Modu sayfasındaki “Bulgu akışı” kartından da değiştirilir.' },
       { k: 'partialWithApproval', t: 'bool', l: 'Aranma hacmi yokken onayla kısmi puanla üretime izin ver', hint: 'Açıkken: hacim verisi olmayan ama SERP analizi yapılmış fikirler, yalnızca “Kısa liste”ye aldığınızda (sizin onayınızla) ve kısmi puanı eşiği geçtiğinde üretime girer. Kapalıyken hacim verisi olmayan fikir hiç uygun sayılmaz.' }, { k: 'cacheDays', t: 'int', l: 'API önbellek süresi (gün)', min: 1, max: 180, hint: 'Aynı sorgu bu süre içinde tekrar ücretlendirilmez.' }] },
+  retention: { title: 'Birikim temizliği', about: 'Bulunup kullanılmayan fikirler, anahtar kelimeler ve niş önerileri birikmesin diye kendiliğinden silinir (günde bir kez). Kısa listedeki / yazılmakta olan fikirler, elle yazdıklarınız, makaleler ve kabul ettiğiniz öneriler hiçbir zaman silinmez. Ne silineceğini Otomasyon Modu sayfasındaki “Bulgu akışı” kartı gösterir.', fields: [
+    { k: 'auto', t: 'bool', l: 'Kullanılmayan bulgular kendiliğinden silinsin' }, { k: 'ideaDays', t: 'int', l: 'Kullanılmayan fikirler (gün)', min: 8, max: 90, hint: 'En az 8: bir olay 7 güne kadar yeni fikir üretebilir, daha kısa olursa silinen fikir geri gelirdi.' },
+    { k: 'writtenDays', t: 'int', l: 'Makalesi yazılmış fikirler (gün)', min: 0, max: 30 }, { k: 'keywordDays', t: 'int', l: 'Kullanılmayan anahtar kelimeler (gün)', min: 3, max: 365 },
+    { k: 'researchedKeywordDays', t: 'int', l: 'Verisi çekilmiş kullanılmayan anahtar kelimeler (gün)', min: 7, max: 365 }, { k: 'nicheDays', t: 'int', l: 'Karara bağlanmayan niş önerileri (gün)', min: 7, max: 180 }] },
   quality: { title: 'Kalite ve zorunlu kontroller', about: 'Üç zorunlu kontrol kapatılamaz.', fields: [
     { k: 'minScore', t: 'int', l: 'Minimum kalite puanı', min: 50, max: 100 }, { k: 'lengthPref', t: 'select', l: 'Makale uzunluğu', opts: [['short', 'Kısa'], ['standard', 'Standart'], ['long', 'Uzun']] },
     { k: 'tone', t: 'text', l: 'Yazım tonu' }, { k: 'language', t: 'text', l: 'Varsayılan dil' }, { k: 'manualApprovalNewArticles', t: 'bool', l: 'Yeni makaleler için manuel yayın onayı' },
@@ -36,7 +41,7 @@ const F = {
   budget: { title: 'Platform bütçesi', about: 'Tüm ücretli servislerin toplamı için üst sınır (USD). Her servisin kendi bütçesi API sayfasındadır.', fields: [
     { k: 'dailyTotalUsd', t: 'usd', l: 'Günlük toplam bütçe (USD)', hint: 'Boş = sınırsız' }, { k: 'monthlyTotalUsd', t: 'usd', l: 'Aylık toplam bütçe (USD)', hint: 'Boş = sınırsız' }] },
 };
-const ORDER = ['news', 'seo', 'quality', 'images', 'publishing', 'update', 'scoring', 'budget'];
+const ORDER = ['news', 'seo', 'retention', 'quality', 'images', 'publishing', 'update', 'scoring', 'budget'];
 
 const get = (o, path) => path.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
 const put = (o, path, v) => { const c = JSON.parse(JSON.stringify(o)); const ks = path.split('.'); let t = c; ks.slice(0, -1).forEach((k) => { t = t[k]; }); t[ks[ks.length - 1]] = v; return c; };

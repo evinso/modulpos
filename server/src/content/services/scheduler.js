@@ -345,7 +345,9 @@ function start({ tickMs = 60000, workMs = 15000 } = {}) {
     catch (err) { loop.lastError = err.message; console.error(`[Content] scheduler ${name} failed:`, err.message); }
     finally { if (name === 'work') loop.busy = false; }
   };
-  loop.tick = setInterval(guarded('tick', () => tick()), tickMs); loop.work = setInterval(guarded('work', async () => { for (let i = 0; i < 5; i++) { if (!(await workOnce())) break; } }), workMs);
+  // the housekeeping of found-but-unused research rides on the tick loop: about once a day per project, never delays or fails a tick
+  loop.tick = setInterval(guarded('tick', () => { require('./cleanup').runDue().catch((err) => console.error('[Content] cleanup pass failed:', err.message)); return tick(); }), tickMs);
+  loop.work = setInterval(guarded('work', async () => { for (let i = 0; i < 5; i++) { if (!(await workOnce())) break; } }), workMs);
   [loop.tick, loop.work].forEach((t) => t.unref && t.unref());
   return true;
 }

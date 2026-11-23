@@ -200,3 +200,20 @@ test('live: stopped by errors vs switched off vs paused vs closed window, the pi
   l = await LV.live(pid, { now: NOWL }); assert.equal(l.paused, true); assert.deepEqual([botOf(l, 'content_opportunity').state, botOf(l, 'content_opportunity').nextRunAt], ['paused', null], 'a paused platform shows no "next run"');
   await assert.rejects(LV.live('00000000-0000-0000-0000-000000000001', { now: NOWL }), (e) => e.status === 404);
 });
+
+test('values: the page shows what REALLY applies (the narrowest of platform, project and site limit); a project limit above the platform limit is raised on "Seçimi uygula" (and said so); a mode button keeps a number the person set; the publishing bot\'s own hours are compared', opts, async () => {
+  const pid = await setup(); const eff = async () => (await AU.overview(pid)).effective;
+  const gl = async (t) => (await L.status({ projectId: null })).items.find((i) => i.workType === t).limit;
+  await L.setProjectLimits(pid, { new_article: 5 });
+  let e = await eff(); assert.deepEqual([e.dailyArticles.value, e.dailyArticles.limitedBy, e.dailyArticles.caps.map((c) => [c.scope, c.limit])], [3, ['platform'], [['platform', 3], ['project', 5]]], 'the page used to show 5 here while only 3 per day could ever be written');
+  assert.deepEqual([(await AU.overview(pid)).values.dailyArticles, e.dailyPublish.value, e.dailyPublish.limitedBy], [5, 5, ['platform']], 'the typed number is still the project\'s own');
+  // applying with the number as shown makes it real: the platform limit follows (and the change list says so)
+  const r = await AU.apply({ projectId: pid, mode: 'custom', options: {} });
+  assert.equal(await gl('new_article'), 5); assert.ok(r.applied.changes.some((c) => /Platform limiti yükseltildi.*new_article 5/.test(c)), JSON.stringify(r.applied.changes)); assert.deepEqual([r.effective.dailyArticles.value, r.effective.dailyArticles.limitedBy.sort()], [5, ['platform', 'project']]);
+  assert.equal(await gl('publish'), 5, 'nothing else was touched');
+  // a mode button keeps what the person set (5 articles), and only brings a factory-value limit (5 posts) to the recommended 2
+  const semi = await AU.apply({ projectId: pid, mode: 'semi' }); assert.deepEqual([semi.values.dailyArticles, semi.values.dailyPublish], [5, 2]);
+  // the publishing bot follows its OWN hours: a difference is shown
+  await SC.updateSchedule('content_publishing', { windowStart: '10:00', windowEnd: '18:00' }); await S.set('publishing', { ...(await S.get('publishing', pid)).value, autoPublish: true, siteId: (await SI.create(pid, { name: 'Blog', apiUrl: wp.url, username: 'editor', password: PASS })).id }, { scope: 'project', projectId: pid });
+  await SC.updateSchedule('content_publishing', { enabled: true }); const w = (await AU.overview(pid)).warnings.find((x) => /kendi çalışma saatleri/.test(x.text)); assert.ok(w, 'a mismatch between the bot\'s hours and the publishing hours is named'); assert.match(w.text, /10:00–18:00/);
+});

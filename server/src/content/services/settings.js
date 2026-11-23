@@ -22,10 +22,11 @@ const GROUPS = {
   },
   seo: {
     projectOverride: true,
-    defaults: { enabled: true, minVolume: 50, minOpportunityScore: 70, countries: ['US'], cacheDays: 30, serpDevice: 'desktop', serpProvider: 'serper', partialWithApproval: true },
+    defaults: { enabled: true, minVolume: 50, minOpportunityScore: 70, countries: ['US'], cacheDays: 30, serpDevice: 'desktop', serpProvider: 'serper', partialWithApproval: true, freshHours: 36 },
     validate: (v) => ({ enabled: V.bool(v.enabled, 'SEO botu', true), minVolume: V.int(v.minVolume, 'Minimum aranma hacmi', { min: 0, max: 1000000 }), minOpportunityScore: V.int(v.minOpportunityScore, 'Minimum fırsat puanı', { min: 0, max: 100 }),
       countries: countries(v.countries, 'Hedef ülkeler'), cacheDays: V.int(v.cacheDays, 'API önbellek süresi (gün)', { min: 1, max: 180 }), serpDevice: V.oneOf(v.serpDevice, 'SERP cihazı', ['desktop', 'mobile'], { fallback: 'desktop' }),
-      serpProvider: V.oneOf(v.serpProvider, 'SERP veri kaynağı', ['serper'], { fallback: 'serper' }), partialWithApproval: V.bool(v.partialWithApproval, 'Hacim verisi yokken onayla kısmi puan', true) }),
+      serpProvider: V.oneOf(v.serpProvider, 'SERP veri kaynağı', ['serper'], { fallback: 'serper' }), partialWithApproval: V.bool(v.partialWithApproval, 'Hacim verisi yokken onayla kısmi puan', true),
+      freshHours: V.int(v.freshHours === undefined ? 36 : v.freshHours, 'Taze haber penceresi (saat)', { min: 0, max: 168 }) }),
   },
   quality: {
     projectOverride: true,
@@ -55,6 +56,14 @@ const GROUPS = {
     defaults: { auto: false, source: 'auto', stockType: 'photo', quality: 'medium', style: 'Clean modern editorial illustration, soft natural lighting, balanced composition', requireForAutoApprove: true },
     validate: (v) => ({ auto: V.bool(v.auto, 'Makaleye kapak görseli ekle', false), source: V.oneOf(v.source, 'Görsel kaynağı', ['auto', 'stock', 'openai'], { fallback: 'auto' }), stockType: V.oneOf(v.stockType, 'Ücretsiz görsel türü', ['photo', 'illustration', 'all'], { fallback: 'photo' }), quality: V.oneOf(v.quality, 'Görsel kalitesi', ['low', 'medium', 'high'], { fallback: 'medium' }),
       style: V.str(v.style, 'Görsel stili', { max: 300 }), requireForAutoApprove: V.bool(v.requireForAutoApprove, 'Görselsiz makale kendiliğinden onaylanmasın', true) }),
+  },
+  retention: {                                                  // how long found-but-unused research stays: nothing piles up for ever (see services/cleanup.js)
+    projectOverride: true,
+    defaults: { auto: true, ideaDays: 10, writtenDays: 3, keywordDays: 14, researchedKeywordDays: 45, nicheDays: 21 },
+    validate: (v) => ({ auto: V.bool(v.auto, 'Kullanılmayan bulgular kendiliğinden silinsin', true),
+      ideaDays: V.int(v.ideaDays, 'Kullanılmayan fikirler (gün)', { min: 8, max: 90 }), writtenDays: V.int(v.writtenDays, 'Makalesi yazılmış fikirler (gün)', { min: 0, max: 30 }),
+      keywordDays: V.int(v.keywordDays, 'Kullanılmayan anahtar kelimeler (gün)', { min: 3, max: 365 }), researchedKeywordDays: V.int(v.researchedKeywordDays, 'Verisi çekilmiş kullanılmayan anahtar kelimeler (gün)', { min: 7, max: 365 }),
+      nicheDays: V.int(v.nicheDays, 'Karara bağlanmayan niş önerileri (gün)', { min: 7, max: 180 }) }),
   },
   update: {
     projectOverride: true,

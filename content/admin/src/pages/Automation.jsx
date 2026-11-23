@@ -4,6 +4,7 @@ import { Zap, Hand, UserCheck, Bot as BotIcon, CheckCircle2, CircleAlert, Wand2,
 import { api, qs } from '../api.js';
 import { Alert, Async, Badge, Card, Check, Field, NeedsProject, PageHead, useAction, useApp, useLoad } from '../ui.jsx';
 import { num, usd } from '../format.js';
+import FlowPanel from './FlowPanel.jsx';
 
 const MODE_ICON = { manual: Hand, semi: UserCheck, full: BotIcon };
 const FIELDS = ['dailyArticles', 'dailyPublish', 'writerFrom', 'writerTo', 'publishFrom', 'publishTo', 'weekends', 'minQuality', 'dailyBudgetUsd'];
@@ -94,6 +95,21 @@ function LiveStatus({ projectId }) {
 }
 
 /** Otomasyon Modu: three modes, the checkboxes behind them and the values that keep a new site on a sane path. It only edits settings that already exist elsewhere. */
+/** what really applies: the narrowest of the platform limit, the project limit (and the site's own limit); says so when the number typed is not what will happen */
+function Effective({ e, typed, what }) {
+  const t = Number(typed); const cap = (s) => e.caps.find((c) => c.scope === s);
+  const names = e.caps.map((c) => `${c.label} ${c.limit}`).join(' · ');
+  const platform = cap('platform'); const site = cap('site');
+  const lifted = Number.isFinite(t) && platform && t > platform.limit; const siteTight = Number.isFinite(t) && site && t > site.limit;
+  return (
+    <span style={{ display: 'block', marginTop: 2 }}>
+      <strong>Fiilen geçerli: günde en çok {e.value} {what}</strong> <small>({names}; en dar olan geçerlidir)</small>
+      {lifted && <small style={{ display: 'block', color: 'var(--warn)' }}>Yazdığınız {t}, genel sınırdan ({platform.limit}) büyük: “Seçimi uygula” genel sınırı da {t} yapar; yoksa günde {platform.limit}’ten fazlası olmaz.</small>}
+      {siteTight && <small style={{ display: 'block', color: 'var(--warn)' }}>{site.label} {site.limit}: yazdığınız {t} bundan büyük. Bu sınırı Web Sitelerim sayfasından değiştirirsiniz; buradaki düğme ona dokunmaz.</small>}
+    </span>
+  );
+}
+
 export default function Automation() {
   const { projectId, can, confirm } = useApp();
   const canEdit = can('bots.control');
@@ -148,6 +164,7 @@ export default function Automation() {
           {d.warnings.map((w) => <Alert key={w.text} kind={w.kind === 'bad' ? 'bad' : w.kind === 'warn' ? 'warn' : 'info'}>{w.text}{w.to && <> <Link to={w.to}>Aç</Link></>}</Alert>)}
 
           <LiveStatus projectId={projectId} />
+          <FlowPanel projectId={projectId} />
 
           <div className="grid g3">
             {d.modes.map((m) => {
@@ -194,10 +211,10 @@ export default function Automation() {
 
           <Card title="Değerler" actions={canEdit && <button className="btn" disabled={busy} onClick={fillRecommended}><Wand2 size={15} />Önerilen değerleri yaz</button>}>
             <div className="stack">
-              <p className="muted">Yeni bir alan adı için günde birkaç iyi yazı, çok sayıda zayıf yazıdan daha sağlıklıdır. Bir mod düğmesine bastığınızda burada <strong>değiştirmediğiniz</strong> değerler önerilene çekilir; değiştirdikleriniz olduğu gibi kalır. “Seçimi uygula” ise burada ne yazıyorsa onu kaydeder.</p>
+              <p className="muted">Yeni bir alan adı için günde birkaç iyi yazı, çok sayıda zayıf yazıdan daha sağlıklıdır. Bir mod düğmesine bastığınızda, <strong>kendi yazdığınız</strong> sayılar korunur; hâlâ fabrika değerinde duran limitler önerilene çekilir (kalite puanı yalnızca yükseltilir, tanımlı bir bütçe korunur). “Seçimi uygula” ise burada ne yazıyorsa onu kaydeder.</p>
               <div className="grid g3">
-                <Field label="Günlük yeni makale" hint={`Önerilen ${d.recommended.dailyArticles}. Bu sınır aşılamaz.`}><input className="input num" type="number" min={1} max={d.max.dailyArticles} value={f.dailyArticles} onChange={set('dailyArticles')} disabled={!canEdit} aria-label="Günlük yeni makale" /></Field>
-                <Field label="Günlük WordPress yayını" hint={`Önerilen ${d.recommended.dailyPublish}.`}><input className="input num" type="number" min={1} max={d.max.dailyPublish} value={f.dailyPublish} onChange={set('dailyPublish')} disabled={!canEdit} aria-label="Günlük WordPress yayını" /></Field>
+                <Field label="Günlük yeni makale" hint={<>{`Önerilen ${d.recommended.dailyArticles}. Bu sınır aşılamaz. `}<Effective e={d.effective.dailyArticles} typed={f.dailyArticles} what="makale" /></>}><input className="input num" type="number" min={1} max={d.max.dailyArticles} value={f.dailyArticles} onChange={set('dailyArticles')} disabled={!canEdit} aria-label="Günlük yeni makale" /></Field>
+                <Field label="Günlük WordPress yayını" hint={<>{`Önerilen ${d.recommended.dailyPublish}. `}<Effective e={d.effective.dailyPublish} typed={f.dailyPublish} what="yazı" /></>}><input className="input num" type="number" min={1} max={d.max.dailyPublish} value={f.dailyPublish} onChange={set('dailyPublish')} disabled={!canEdit} aria-label="Günlük WordPress yayını" /></Field>
                 <Field label="En düşük kalite puanı" hint={`Önerilen ${d.recommended.minQuality}. Altındaki makale hazır sayılmaz.`}><input className="input num" type="number" min={50} max={100} value={f.minQuality} onChange={set('minQuality')} disabled={!canEdit} aria-label="En düşük kalite puanı" /></Field>
                 <Field label="Yazım saatleri" hint="Makale botunun çalıştığı saat aralığı"><div className="row"><input className="input" type="time" value={f.writerFrom} onChange={set('writerFrom')} disabled={!canEdit} aria-label="Yazım başlangıcı" /><span>–</span><input className="input" type="time" value={f.writerTo} onChange={set('writerTo')} disabled={!canEdit} aria-label="Yazım bitişi" /></div></Field>
                 <Field label="Yayın saatleri" hint="WordPress’e gönderim bu saatler içinde"><div className="row"><input className="input" type="time" value={f.publishFrom} onChange={set('publishFrom')} disabled={!canEdit} aria-label="Yayın başlangıcı" /><span>–</span><input className="input" type="time" value={f.publishTo} onChange={set('publishTo')} disabled={!canEdit} aria-label="Yayın bitişi" /></div></Field>
