@@ -10,6 +10,7 @@ const articles = require('./articles');
 const autoApprove = require('./autoApprove');
 const siteLinks = require('./siteLinks');
 const images = require('./images');
+const projects = require('./projects');
 const providers = require('./providers');
 const H = require('../lib/html');
 const SS = require('../lib/seoStructure');
@@ -152,6 +153,17 @@ async function pipeline(o, run, { who, grant, cfg, fetchImpl, fetcher, now, user
     article = await articles.createFromAi({ ...fields, targetCountry: 'US', language: cfg.language }, { projectId: o.project_id, categoryId: o.category_id,
       generation: { provider: out.provider, model: out.model, inputTokens: out.inputTokens, outputTokens: out.outputTokens, costUsd: out.costUsd, promptVersion: PROMPT_VERSION, opportunityId: o.id, topicId: o.topic_id, checker: who.checker, independentChecker: who.independent, runId: run.id }, sources: srcs });
     await db.query("UPDATE content_opportunities SET article_id = $2, updated_at = now() WHERE id = $1", [o.id, article.id]);
+    // SCOPE GATE: the idea passed the headline filter, but the model's own title / focus keyword may name a subject the site excludes (the sources did). Such an article can never be published
+    // (the same rule blocks "Yayına hazır"), so no picture and no paid checks are bought for it: it is archived at once, the run says why, and a person can still take it back out of the archive.
+    const scope = await projects.checkTopic(o.project_id, `${article.h1} ${article.focusKeyword}`, o.category_id);
+    if (!scope.allowed) {
+      const hit = scope.matched.map((m) => m.topic); stats.outOfScope = hit;
+      await db.query("UPDATE articles SET status = 'archived', archived_at = now(), updated_at = now() WHERE id = $1 AND status = 'fact_checking'", [article.id]);
+      await db.query("UPDATE content_opportunities SET status = 'written', updated_at = now() WHERE id = $1", [o.id]);
+      await db.query("UPDATE topics SET status = 'used' WHERE id = $1", [o.topic_id]);
+      await runs.finish(run.id, { status: 'partial', stats: { ...stats, step: 'done' }, error: `Kapsam dışı konu (${hit.join(', ')}): makale yazıldı ama arşive alındı; görsel ve ücretli kontroller çalıştırılmadı. Konu aslında istediğiniz bir konuysa Strateji sayfasındaki hariç tutulan konulardan çıkarıp makaleyi arşivden “Onay bekliyor”a alın` });
+      return;
+    }
     // the cover picture: before the checks and before any approval, so an article never goes out without it by a race (a failure here never fails the article)
     await note({ step: 'image' });
     const pic = await images.autoForArticle(article.id, o.project_id, imageHint, { fetchImpl, now });

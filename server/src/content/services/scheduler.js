@@ -148,11 +148,11 @@ const HANDLERS = {
       try {
         const out = await writer.start(pick.id, { manual, userId: job.userId, fetchImpl: ctx.fetchImpl, fetcher: ctx.fetcher, now: ctx.now, background: false });
         const run = await runs.get(out.run.id);
-        if (run.status === 'error') { stats.failed++; stats.stopped = run.error; if (/reddedildi|kredi|bakiye|bütçe/i.test(String(run.error))) break; } else { stats.written++; if (run.status === 'partial') stats.partial++; if (run.stats.articleId) stats.articles.push(run.stats.articleId); }
+        if (run.status === 'error') { stats.failed++; stats.stopped = run.error; if (/reddedildi|kredi|bakiye|bütçe/i.test(String(run.error))) break; } else { stats.written++; if (run.stats.outOfScope) stats.outOfScope = (stats.outOfScope || 0) + 1; if (run.status === 'partial') stats.partial++; if (run.stats.articleId) stats.articles.push(run.stats.articleId); }
       } catch (err) { stats.stopped = err.message; break; }                                           // limit full, no vendor ready, bots paused ...: stop, the next tick looks again
     }
     if (!stats.written && stats.failed) { const e = new Error(stats.stopped || 'Makale yazılamadı'); e.fatal = /reddedildi|kredisi|bakiye|bütçe/i.test(String(stats.stopped)); throw e; }          // every attempt failed: the job fails (and counts towards switching the bot off)
-    return { status: stats.stopped || stats.failed || stats.partial ? 'partial' : 'ok', stats, message: stats.written ? `${stats.written} makale taslağı yazıldı${stats.stopped ? ` (${stats.stopped})` : ''}` : (stats.stopped || 'Makale yazılamadı') };
+    return { status: stats.stopped || stats.failed || stats.partial ? 'partial' : 'ok', stats, message: stats.written ? `${stats.written - (stats.outOfScope || 0) ? `${stats.written - (stats.outOfScope || 0)} makale taslağı yazıldı` : 'Taslak çıkmadı'}${stats.outOfScope ? `${stats.written - stats.outOfScope ? ', ' : ': '}${stats.outOfScope} makale kapsam dışı konu içerdiği için arşive alındı` : ''}${stats.stopped ? ` (${stats.stopped})` : ''}` : (stats.stopped || 'Makale yazılamadı') };
   } },
 };
 

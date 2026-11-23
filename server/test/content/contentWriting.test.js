@@ -133,6 +133,20 @@ test('writer: one eligible idea -> a cited, checked draft that waits for a perso
   assert.equal((await A.readiness(a.id)).problems.some((p) => p.code === 'not_fact_checked' || p.code === 'no_adsense'), false);
 });
 
+test('writer: when the MODEL\'s own title names a subject the site excludes (the headline did not), the article is archived at once - no picture, no paid check, no "ready" notice - and the run says why; a clean article is untouched', opts, async () => {
+  const { projectId: pid } = await P.seedDefault(); await vendors(); const o = await idea(pid); await P.addExcluded(pid, { topic: 'vcenter', reason: 'Kurumsal altyapı: tüketici okuyucuya göre değil' });
+  const m = fakeModels(); m.st.override.write = (user) => { const kw = (/FOCUS KEYWORD \(use exactly this phrase\): (.+)/.exec(user) || [])[1];
+    return { seoTitle: `${kw}: what changes`, h1: `VMware vCenter and ${kw}: what you need to know`, slug: kw.replace(/ /g, '-'), metaDescription: `What is changing with ${kw}, what is known and what to do next about the new price.`, focusKeyword: kw, secondaryKeywords: [], excerpt: 'x', articleType: 'latest_update', contentHtml: sectionHtml(kw), faq: [], tags: [] }; };
+  const out = await W.start(o.id, { fetchImpl: m.fetchImpl, fetcher: pageFetcher('x'), now: NOW, background: false });
+  assert.deepEqual(m.calls.map((c) => c.role), ['write'], 'only the writing was paid for: no fact check, no review');
+  const run = await R.get(out.run.id); assert.equal(run.status, 'partial'); assert.deepEqual(run.stats.outOfScope, ['vcenter']); assert.match(run.error, /Kapsam dışı konu \(vcenter\).*arşive alındı.*çalıştırılmadı/);
+  const row = (await H.db().query('SELECT a.id, a.status, a.archived_at, a.quality_score, a.fact_checked_at, o.status AS ostatus FROM articles a JOIN content_opportunities o ON o.article_id = a.id')).rows[0];
+  assert.deepEqual([row.status, row.archived_at !== null, row.quality_score, row.fact_checked_at, row.ostatus], ['archived', true, null, null, 'written']);
+  assert.equal((await H.db().query("SELECT count(*)::int n FROM notifications WHERE type = 'article_ready'")).rows[0].n, 0, 'nobody is told "a new draft is ready" about an article that cannot be published');
+  assert.equal(await done(pid, 'new_article'), 1, 'the writing was real work: the day\'s place stays used'); assert.equal((await A.setStatus(row.id, 'needs_review')).status, 'needs_review', 'a person can still take it out of the archive');
+  assert.equal((await A.readiness(row.id)).problems.find((p) => p.code === 'excluded_topic').blocking, true, 'and the same rule still blocks "Yayına hazır" until the topic is released');
+});
+
 test('writer + Otomasyon Modu: with automatic approval ON a draft that passes every gate becomes "ready" by itself (and the notification says so); a draft below the minimum score stays for a person with the reason; OFF = always waits', opts, async () => {
   const { projectId: pid } = await P.seedDefault(); await vendors(); const q0 = (await S.get('quality', pid)).value;
   const notice = async () => (await H.db().query("SELECT body FROM notifications WHERE type = 'article_ready' ORDER BY id DESC LIMIT 1")).rows[0].body;

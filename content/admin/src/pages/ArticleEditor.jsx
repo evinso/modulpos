@@ -72,7 +72,7 @@ function Versions({ articleId, current, canEdit, onRestored }) {
 /** what to DO about the blockers a person can fix on this very page (only controls that exist here are named) */
 const FIX = {
   adsense_risk: 'Çözüm: yukarıdaki formda “AdSense risk sonucu” kutusunu (nedenini “Kontroller ve kalite” kartında okuyun) “Düşük” yapıp KAYDEDİN; ya da metni düzeltip kartta kontrolleri yeniden çalıştırın. Elle yaptığınız işaret sizin sorumluluğunuzdadır.',
-  excluded_topic: 'Çözüm: konu istediğiniz bir konuysa yukarıdaki “Kategori”yi değiştirip kaydedin ya da konuyu Strateji sayfasında (Kategoriler ya da Hariç tutulan konular sekmesi) listeden çıkarın. Başlığı değiştirmek doğruluk kontrolünü sıfırlar. İstemiyorsanız “Arşivde durumuna al”.',
+  excluded_topic: 'Bu konu sitenizin nişinin dışında sayılıyor. Önerilen: “Arşivde durumuna al” (başlığı değiştirmek doğruluk kontrolünü sıfırlar, kategori değiştirmek kuralı dolanmak olur). Konu gerçekten istediğiniz bir konuysa Strateji sayfasında (Kategoriler ya da Hariç tutulan konular sekmesi) listeden çıkarın.',
   no_category: 'Çözüm: yukarıdaki “Kategori” alanından seçip kaydedin.',
 };
 
