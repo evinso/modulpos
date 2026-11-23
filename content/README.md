@@ -100,6 +100,21 @@ Başlangıç: **İçerik Fırsatları → uygun bir fikir → “Makale yaz”**
 - **Başarısızlık**: yazım başlamadan/anahtar reddedilince günün yeri geri verilir ve fikir eski durumuna döner; faturalanmış olabilecek hata (zaman aşımı, okunamayan cevap) yeri harcanmış sayar. Boot'ta yarım kalan işler kapatılır (`writer.closeStale`).
 - **Doğrulanmayanlar**: hiçbir gerçek model çağrısı yapılmadı (anahtar yok); istemciler satıcıların belgelerindeki yanıt biçimlerine göre yazıldı ve sahte yanıtlarla test edildi (model adları, hata gövdeleri, token alanları ilk gerçek anahtarda küçük farklar gösterebilir). Doğruluk kontrolü yalnızca makalenin kaynaklarına karşıdır (web taranmaz); AdSense sınıfı bir risk tahminidir, onay/gelir garantisi değildir.
 
+**Sayfa içi SEO kontrol listesi** (2026-11-23, yazım talimatı sürümü `w2`): makale yazıcısına ve ücretsiz kurallara şu ölçütler eklendi; her biri raporda kendi satırıyla görünür, eksikse nedenini yazar ve SEO puanını yalnızca birkaç puan düşürür (hiçbiri tek başına makaleyi engellemez).
+
+| Ölçüt | Yazıcıya söylenen | Kural (`services/checks.js`, `lib/seoStructure.js`) |
+|---|---|---|
+| Anahtar kelime ve arama niyeti | okuyucunun aradığı cevabı **ilk paragrafta** doğrudan ver; odak kelimeyi başlıkta, H1'de, girişte, en az bir H2'de, meta açıklamada kullan; ilgili ifadeleri doğal yerleştir | odak kelime SEO başlığında / H1'de / ilk 150 kelimede / metada; yoğunluk (>%2,5 uyarı, >%4 doldurma) |
+| Giriş paragrafı | 2–4 cümle: ne oldu, neden önemli, odak kelime | `intro`: metin paragrafla başlar, 15–120 kelime |
+| Başlık hiyerarşisi (H1–H4) | tek H1 (başlık alanı, içerikte `<h1>` yok); H2 ana bölüm, H3 yalnızca H2 içinde, H4 yalnızca H3 içinde; seviye atlama yok; başlık <70 karakter | `heading_order`: ilk başlık H2, seviye atlanmış mı, boş / çok uzun / tekrarlanan başlık; en az 3 H2 |
+| Okunabilirlik | paragraf 2–4 cümle (≈90 kelime), cümleler çoğunlukla <22 kelime, adım/seçenekler için liste | okunabilirlik puanı, ortalama cümle, `long_paragraphs` (>130 kelime), `section_length` (>350 kelime), `lists` (900+ kelimede hiç liste yoksa ipucu) |
+| Meta başlık ve açıklama | SEO başlığı ≤60 karakter, odak kelime başta, tıklama nedeni, tıklama tuzağı yok; meta 120–155 karakter, kelime bir kez | uzunluk ve odak kelime kuralları (öncekiler) |
+| Dış bağlantı | dayanılan **kaynaklara** 1–4 bağlantı, adres kaynaklardaki ile BİREBİR, anlatan bağlantı metni | `external_links` (kaynak varken 0 bağlantı = uyarı), `anchor_text` (“buraya tıklayın”, çıplak adres), `link_targets` (kaynak listesinde olmayan adres) |
+| İç bağlantı | sitedeki **yayımlanmış** ilgili makaleler istemde listelenir (başlık + adres, odak kelime/başlıkla ortak anlamlı kelimeye göre en çok 5); 1–3 tanesine bağlan | `internal_links` (sitede ≥3 yayımlanmış makale varken 0 iç bağlantı = uyarı), `link_targets` (yayımlanmamış iç adres) |
+| Görsel alt metni | model görsel eklemez (resimler sonra gelir); kapak görseli WordPress'e makale başlığıyla alt metin olarak yüklenir | `img_alt`: alt metni boş görsel |
+
+Model uydurma bir bağlantı yazarsa **yazım anında kaldırılır** (`writer.limitLinks`: yalnızca kaynak adresleri ve verilen ilgili makaleler kalır; kalan bağlantı metni korunur, kaldırılan sayı çalışma kaydında `linksRemoved`). Eski makalelerden yeni makaleye iç bağlantı eklemek hâlâ **önerilir ve sizin onayınızla** uygulanır (`internal_linking` botu; aşağıda). Doğrulanmayan: gerçek bir modelin bu talimata ne kadar uyduğu (yalnızca sahte yanıtlarla denendi); kurallar ölçer, “iyi SEO”nun Google'da sıralama getireceğini garanti etmez.
+
 ## Aşama 4: zamanlayıcı, kalıcı kuyruk, bot yönetimi (nasıl çalışır)
 
 n8n ya da dış cron yok: API sürecinin içinde iki döngü (`services/scheduler.js`; üretimde otomatik açık, `CONTENT_SCHEDULER=0` kapatır, testlerde elle). **tick** (60 sn): her açık botun zamanı geldiyse ve çalışma saatleri açıksa, her etkin proje için BİR görev kuyruğa koyar. **worker** (15 sn): sıradaki görevi alır, bot işleyicisini çalıştırır, bitirir / yeniden dener / başarısız sayar. Aynı anda tek görev (ücretsiz sunucunun belleği için).

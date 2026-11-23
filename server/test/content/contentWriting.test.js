@@ -119,7 +119,7 @@ test('writer: one eligible idea -> a cited, checked draft that waits for a perso
   const a = await A.get((await O.get(o.id)).explain.keyword ? (await H.db().query('SELECT article_id FROM content_opportunities WHERE id = $1', [o.id])).rows[0].article_id : null);
   assert.deepEqual([a.createdBy, a.status, a.manualEdited, a.focusKeyword === o.keyword, a.factCheckedAt !== null, a.adsenseRisk], ['ai', 'needs_review', false, true, true, 'low']);
   assert.ok(a.wordCount >= 300 && a.qualityScore >= 60 && a.qualityScore <= 100, `${a.wordCount} words, quality ${a.qualityScore}`); assert.equal(a.categoryId, o.categoryId);
-  assert.deepEqual([a.generation.provider, a.generation.model, a.generation.costUsd, a.generation.checker, a.generation.independentChecker, a.generation.promptVersion], ['anthropic', 'claude-sonnet-5-5', (1500 * 3 + 900 * 15) / 1e6, 'openai', true, 'w1']);
+  assert.deepEqual([a.generation.provider, a.generation.model, a.generation.costUsd, a.generation.checker, a.generation.independentChecker, a.generation.promptVersion], ['anthropic', 'claude-sonnet-5-5', (1500 * 3 + 900 * 15) / 1e6, 'openai', true, 'w2']);
   const src = (await H.db().query('SELECT * FROM article_sources WHERE article_id = $1 ORDER BY position', [a.id])).rows;
   assert.deepEqual(src.map((s) => [s.position, s.publisher, s.read_ok, s.reliability]), [[1, 'Outlet A', true, 80], [2, 'Outlet B', false, 70]]); assert.ok(src[0].excerpt.includes('ChatGPT Plus will cost 22 dollars') && src[1].excerpt.length < 300);
   const ck = await C.latest(a.id); assert.deepEqual(['rules', 'fact', 'review', 'quality'].map((k) => [k, ck[k] && ck[k].stale]), [['rules', false], ['fact', false], ['review', false], ['quality', false]]);
@@ -148,6 +148,32 @@ test('writer + Otomasyon Modu: with automatic approval ON a draft that passes ev
   const lo = await idea(pid3); const r2 = await go(lo.id, fakeModels()); const a2 = await artOf(lo.id);
   assert.equal(a2.status, 'ready', 'every gate passed: approved by the automation'); assert.equal((await R.get(r2.run.id)).stats.autoApproved, true); assert.match(await notice(), /Otomasyon Modu “Yayına hazır” yaptı/);
   assert.equal((await A.readiness(a2.id)).ready, true); assert.equal((await H.db().query("SELECT count(*)::int n FROM audit_logs WHERE action = 'article.auto_approve'")).rows[0].n, 1);
+});
+
+test('writer + on-page SEO: the prompt offers the site\'s own related articles and the sources as the only link targets; a link the model makes up is removed (words stay); the saved article carries the good links and reads sound to the rules', opts, async () => {
+  const { projectId: pid } = await P.seedDefault(); await vendors();
+  const cats = await P.listCategories(pid);
+  const old = await A.create({ projectId: pid, h1: 'ChatGPT Plus versus the free plan: which one fits you', seoTitle: 'ChatGPT Plus vs Free', metaDescription: 'm'.repeat(100), focusKeyword: 'chatgpt plus vs free', categoryId: cats[0].id, contentHtml: '<p>Old article.</p>', articleType: 'evergreen_guide' });
+  const unrelated = await A.create({ projectId: pid, h1: 'How to clean a keyboard', seoTitle: 'Clean a keyboard', metaDescription: 'm'.repeat(100), focusKeyword: 'clean keyboard', categoryId: cats[0].id, contentHtml: '<p>Other.</p>', articleType: 'evergreen_guide' });
+  const site = (await H.db().query("INSERT INTO wp_sites (project_id, name, api_url, username, encrypted_password, status) VALUES ($1, 'Blog', 'https://blog.example', 'u', 'x', 'active') RETURNING id", [pid])).rows[0].id;
+  for (const [a, url] of [[old, 'https://blog.example/chatgpt-plus-vs-free/'], [unrelated, 'https://blog.example/clean-keyboard/']]) {
+    await H.db().query("UPDATE articles SET status = 'published' WHERE id = $1", [a.id]);
+    await H.db().query("INSERT INTO publications (project_id, article_id, site_id, mode, status, wp_post_id, wp_url) VALUES ($1,$2,$3,'publish','published',$4,$5)", [pid, a.id, site, Math.floor(Math.random() * 1e6), url]);
+  }
+  const o = await idea(pid); const m = fakeModels();
+  m.st.override.write = (user) => { const kw = (/FOCUS KEYWORD \(use exactly this phrase\): (.+)/.exec(user) || [])[1];
+    const base = sectionHtml(kw).replace('<h2>What changes and when</h2>', `<h2>What changes and when</h2><p>OpenAI explained it in <a href="https://a.example/1">its announcement of the new price</a>, and <a href="https://made-up.example/report">a report nobody wrote</a> says more; see also <a href="https://blog.example/chatgpt-plus-vs-free/">our free versus Plus comparison</a>.</p>`);
+    return { seoTitle: `${kw}: what changes`, h1: `${kw}: what you need to know`, slug: kw.replace(/ /g, '-'), metaDescription: `What is changing with ${kw}, what is known and what to do next about the new price.`, focusKeyword: kw, secondaryKeywords: [], excerpt: 'x', articleType: 'latest_update', contentHtml: base, faq: [], tags: [] }; };
+  await go(o.id, m);
+  const prompt = m.byRole('write')[0].user;
+  assert.match(prompt, /RELATED ARTICLES ON THIS SITE[^\n]*\n- ChatGPT Plus versus the free plan: which one fits you \| https:\/\/blog\.example\/chatgpt-plus-vs-free\//); assert.ok(!prompt.includes('clean-keyboard'), 'an unrelated article is not offered');
+  const art = await A.get((await H.db().query('SELECT article_id FROM content_opportunities WHERE id = $1', [o.id])).rows[0].article_id);
+  assert.ok(art.contentHtml.includes('href="https://a.example/1"') && art.contentHtml.includes('href="https://blog.example/chatgpt-plus-vs-free/"'), 'the source link and the related-article link stay');
+  assert.ok(!art.contentHtml.includes('made-up.example') && art.contentHtml.includes('a report nobody wrote'), 'the invented link is gone, its words stay');
+  const run = (await R.list({ botKey: 'article_writer', projectId: pid }))[0]; assert.deepEqual([run.stats.linksRemoved, run.stats.relatedOffered], [1, 1]);
+  const rules = (await C.latest(art.id)).rules.result; const it = (k) => rules.items.find((x) => x.key === k);
+  assert.deepEqual([it('external_links').status, it('link_targets').status, it('heading_order').status, it('intro').status], ['ok', 'ok', 'ok', 'ok']); assert.deepEqual([rules.metrics.externalLinks, rules.metrics.internalLinks], [1, 1]);
+  assert.equal((await R.list({ botKey: 'article_writer', projectId: pid }))[0].stats.step, 'done');
 });
 
 test('writer: refuses what it must not start (no vendor, idea not eligible, full day, unusable vendor) and changes nothing', opts, async () => {

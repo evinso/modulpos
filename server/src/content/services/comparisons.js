@@ -104,7 +104,8 @@ async function pipeline(o, cmp, run, { chosen, cfg, grant, fetchImpl, fetcher, n
     const niche = (await db.query('SELECT n.*, p.site_name FROM niche_profiles n JOIN content_projects p ON p.id = n.project_id WHERE n.project_id = $1', [o.project_id])).rows[0] || {};
     const secondary = (await db.query('SELECT keyword FROM keywords WHERE topic_id = $1 AND keyword <> $2 ORDER BY created_at LIMIT 6', [o.topic_id, o.keyword])).rows.map((r) => r.keyword);
     const system = writer.SYSTEM({ siteName: niche.site_name || 'the site', niche: niche.main_niche || 'technology news', audience: niche.target_audience, tone: cfg.tone, language: cfg.language, length: cfg.lengthPref, types: articles.TYPES });
-    const user = writer.userPrompt({ title: o.topic_title || o.title, keyword: o.keyword }, srcs, secondary);
+    const related = await require('./siteLinks').relatedFor(o.project_id, { focus: o.keyword, title: o.topic_title || o.title });
+    const user = writer.userPrompt({ title: o.topic_title || o.title, keyword: o.keyword }, srcs, secondary, related);
     await db.query('UPDATE writer_comparisons SET sources = $2 WHERE id = $1', [cmp.id, JSON.stringify(srcs)]);
     const order = shuffle(chosen, rng);                                           // the letters go to the vendors in a RANDOM order
     const entries = [];
@@ -120,6 +121,7 @@ async function pipeline(o, cmp, run, { chosen, cfg, grant, fetchImpl, fetcher, n
       if (!error) {
         try {
           const fields = writer.normalizeOutput(out.data, { types: articles.TYPES, focus: o.keyword });
+          fields.contentHtml = writer.limitLinks(fields.contentHtml, srcs, related).html;
           entries.push({ label, provider, model: out.model, status: 'ok', fields, measured: measure(fields, srcs, cfg.lengthPref), input: out.inputTokens, output: out.outputTokens, cost: out.costUsd, ms, error: null }); stats.ok++; continue;
         } catch (err) { add(err); error = err; }
       }

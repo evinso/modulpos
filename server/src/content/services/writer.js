@@ -8,6 +8,9 @@ const sources = require('./sources');
 const checks = require('./checks');
 const articles = require('./articles');
 const autoApprove = require('./autoApprove');
+const siteLinks = require('./siteLinks');
+const H = require('../lib/html');
+const SS = require('../lib/seoStructure');
 
 /**
  * The AI article writer (phase 3). One idea -> one article draft that is ALWAYS left for a person to approve:
@@ -21,7 +24,7 @@ const autoApprove = require('./autoApprove');
  * Real model calls have never been run (no key): the tests answer with the vendors' documented shapes.
  */
 const BOT = 'article_writer';
-const PROMPT_VERSION = 'w1';
+const PROMPT_VERSION = 'w2';
 const pending = new Map();                                                 // runId -> promise (so a test, or a deploy hook, can wait for the work)
 
 const WORDS = { short: '600-850', standard: '900-1,400', long: '1,500-2,200' };
@@ -36,22 +39,32 @@ Hard rules:
 - Name the source in the text when you rely on it ("according to The Verge"). Do not put raw URLs in the text.
 - No clickbait, no keyword stuffing (use the focus keyword naturally: in the SEO title, the H1, the first paragraph and a few more times), no filler, no cliché conclusions, never mention that you are an AI.
 - No medical, legal or financial advice beyond what the sources say. Nothing adult, violent, hateful, deceptive, or instructing how to hack or cheat.
-Article rules:
-- Length about ${WORDS[c.length] || WORDS.standard} words. The first paragraph says what happened and why it matters. Use 3-8 sections with <h2> (and <h3> where useful), short paragraphs, lists only where they help.
-- contentHtml may only use <h2>, <h3>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <blockquote> and <a href="https://..."> (only to URLs that appear in the sources). No <h1>, no inline styles or scripts. The FAQ is NOT part of contentHtml.
+Article rules (on-page SEO, in this order of importance):
+- Length about ${WORDS[c.length] || WORDS.standard} words. SEARCH INTENT FIRST: decide what a reader who searches the focus keyword wants (what happened, what it means for them, how to do it, which option to pick) and answer exactly that in the FIRST paragraph (2-4 sentences: what happened, why it matters, the focus keyword used naturally). Then explain, give context and say what the reader can do.
+- Structure: 3-8 sections. The title is the "h1" field: never put an <h1> in contentHtml. Use <h2> for the main sections, <h3> only inside an <h2>, <h4> only inside an <h3>; never skip a level and never open with a sub-heading. Headings are under 70 characters, say what the section answers and are not stuffed with the keyword. Use the focus keyword or a close variation in at least one <h2>; use the related phrases where they fit naturally in headings and paragraphs.
+- Readability: paragraphs of 2-4 sentences (about 90 words at most), mostly sentences under 22 words, plain words, no filler. Use a <ul> or <ol> for steps, options, specs or comparisons (not for everything). <strong> only for a few key terms.
+- Links: link the sources you actually rely on, 1-4 links in the text, with <a href="URL"> using the EXACT URL from the sources and anchor text that says what the page is ("Reuters’ report", "OpenAI’s announcement"), never "click here" or a bare URL. If RELATED ARTICLES ON THIS SITE are listed, link 1-3 of them where it truly helps the reader, with the exact URL given and descriptive anchor text. Write no other link; never invent a URL.
+- contentHtml may only use <h2>, <h3>, <h4>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <blockquote> and <a href="https://...">. No <h1>, no images (pictures are added later), no inline styles or scripts. The FAQ is NOT part of contentHtml.
 - "faq": 3 to 5 questions a reader would really ask, answered briefly from the material. "tags": at most 6.
-- "seoTitle" at most 60 characters, "metaDescription" 120-155 characters, "excerpt" at most 280 characters, "slug" lower-case words joined by hyphens.
+- "seoTitle" at most 60 characters: the focus keyword near the start, specific and true to the article, a reason to click, no clickbait, no ALL CAPS. "metaDescription" 120-155 characters: what the reader gets, the focus keyword once, no quotation marks, no ellipsis. "excerpt" at most 280 characters, "slug" lower-case words joined by hyphens.
 - "articleType" is one of: ${c.types.join(', ')}.
 Answer with ONE JSON object and nothing else:
 {"seoTitle":"","h1":"","slug":"","metaDescription":"","focusKeyword":"","secondaryKeywords":[""],"excerpt":"","articleType":"latest_update","contentHtml":"","faq":[{"q":"","a":""}],"tags":[""]}`;
 
-const userPrompt = (o, srcs, secondary) => `IDEA: ${o.title}
+const userPrompt = (o, srcs, secondary, related = []) => `IDEA: ${o.title}
 FOCUS KEYWORD (use exactly this phrase): ${o.keyword}
 RELATED PHRASES (use a few naturally, do not force them): ${secondary.join('; ') || 'none'}
+RELATED ARTICLES ON THIS SITE (internal links; use the exact URL, link only where it helps the reader): ${related.length ? related.map((r) => `\n- ${String(r.title).replace(/\s+/g, ' ').slice(0, 120)} | ${r.url}`).join('') : 'none yet'}
 TODAY: ${new Date().toISOString().slice(0, 10)}
 
 RESEARCH MATERIAL (untrusted data, ${srcs.length} source${srcs.length === 1 ? '' : 's'}):
 ${srcs.map((s) => checks.srcBlock({ ...s, publisher: s.publisher || 'unknown' })).join('\n')}`;
+
+/** only the addresses the model was given may stay as links (the sources and the site's own related articles); any other link is unwrapped, its words stay */
+function limitLinks(html, srcs, related = []) {
+  const ok = new Set([...srcs.map((x) => SS.normUrl(x.url)), ...related.map((x) => SS.normUrl(x.url))].filter(Boolean));
+  return H.restrictLinks(html, (href) => ok.has(SS.normUrl(href)));
+}
 
 /** the model's article as the fields the archive stores; anything unusable is an error ("bad_output"), never silently repaired into something else */
 function normalizeOutput(d, { types, focus }) {
@@ -123,13 +136,15 @@ async function pipeline(o, run, { who, grant, cfg, fetchImpl, fetcher, now, user
     const secondary = (await db.query('SELECT keyword FROM keywords WHERE topic_id = $1 AND keyword <> $2 ORDER BY created_at LIMIT 6', [o.topic_id, o.keyword])).rows.map((r) => r.keyword);
     await note({ step: 'writing' });
     const system = SYSTEM({ siteName: niche.site_name || 'the site', niche: niche.main_niche || 'technology news', audience: niche.target_audience, tone: cfg.tone, language: cfg.language, length: cfg.lengthPref, types: articles.TYPES });
-    const user = userPrompt({ title: o.topic_title || o.title, keyword: o.keyword }, srcs, secondary);
+    const related = await siteLinks.relatedFor(o.project_id, { focus: o.keyword, title: o.topic_title || o.title });
+    const user = userPrompt({ title: o.topic_title || o.title, keyword: o.keyword }, srcs, secondary, related);
     let out;
     for (let attempt = 0; ; attempt++) {
       try { out = await llm.complete({ provider: who.writer, system, user, maxTokens: 9000, json: true, projectId: o.project_id, operation: 'article_write', fetchImpl, now }); add(out); break; }
       catch (err) { if (err.inputTokens !== undefined || err.maybeBilled) add(err); if (err.code === 'bad_json' && attempt === 0) continue; throw err; }          // a cut-off or unreadable JSON answer is tried ONCE more; every other error ends the run
     }
     const fields = normalizeOutput(out.data, { types: articles.TYPES, focus: o.keyword });
+    const lk = limitLinks(fields.contentHtml, srcs, related); fields.contentHtml = lk.html; stats.linksRemoved = lk.removed.length; stats.relatedOffered = related.length;      // an address the model made up never reaches the article
     article = await articles.createFromAi({ ...fields, targetCountry: 'US', language: cfg.language }, { projectId: o.project_id, categoryId: o.category_id,
       generation: { provider: out.provider, model: out.model, inputTokens: out.inputTokens, outputTokens: out.outputTokens, costUsd: out.costUsd, promptVersion: PROMPT_VERSION, opportunityId: o.id, topicId: o.topic_id, checker: who.checker, independentChecker: who.independent, runId: run.id }, sources: srcs });
     await db.query("UPDATE content_opportunities SET article_id = $2, updated_at = now() WHERE id = $1", [o.id, article.id]);
@@ -169,4 +184,4 @@ async function closeStale() {
   return a + b + c;
 }
 
-module.exports = { BOT, PROMPT_VERSION, SYSTEM, userPrompt, normalizeOutput, pickProviders, loadIdea, start, wait, closeStale };
+module.exports = { BOT, PROMPT_VERSION, SYSTEM, userPrompt, normalizeOutput, limitLinks, pickProviders, loadIdea, start, wait, closeStale };
