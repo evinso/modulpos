@@ -150,6 +150,8 @@ function buildRouter(getState) {
   // ── bots ────────────────────────────────────────────────────────────────────────────────────────────────
   r.get('/bots', wrap(async (_req, res) => res.json(await bots.list())));
   r.put('/bots/:key/schedule', mw.need('bots.control'), wrap(async (req, res) => { const s = await scheduler.updateSchedule(req.params.key, req.body); await A(req, 'bots.schedule', 'bot', req.params.key, null, { enabled: s.enabled, intervalMinutes: s.intervalMinutes, window: s.windowStart ? `${s.windowStart}-${s.windowEnd}` : null }); res.json({ schedule: s, bots: await bots.list() }); }));
+  // every scheduled bot, once, in the order the work depends on itself (see scheduler.RUN_ORDER): one click, a queued job per step
+  r.post('/bots/run-all', mw.need('bots.control'), wrap(async (req, res) => { const out = await scheduler.runAll(req.body.projectId, { userId: uid(req) }); await A(req, 'bots.run_all', 'project', String(req.body.projectId), null, { queued: out.queued, alreadyActive: out.alreadyActive }); res.status(202).json(out); }));
   r.post('/bots/:key/run', mw.need('bots.control'), wrap(async (req, res) => { const job = await scheduler.runNow(req.params.key, req.body.projectId, { userId: uid(req) }); await A(req, 'bots.run', 'bot', req.params.key, null, { jobId: job.id }); res.status(202).json({ job }); }));
   r.get('/jobs', wrap(async (req, res) => res.json({ jobs: await queue.list({ status: req.query.status || null, botKey: req.query.bot || null, projectId: req.query.projectId || null, limit: parseInt(req.query.limit, 10) || 50 }), counts: await queue.counts() })));
   const jid = (req) => { const n = parseInt(req.params.jid, 10); if (!Number.isInteger(n) || n < 1) throw new HttpError(404, 'Görev bulunamadı'); return n; };

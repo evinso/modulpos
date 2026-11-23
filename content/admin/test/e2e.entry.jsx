@@ -340,6 +340,18 @@ ok('the writer page lists the vendors (who writes, who checks) and the history o
 // ── PHASE 4: bot management, schedule editor, persistent queue ───────────────────────────────────────────────────────────
 await goTab('Botlar', 700);
 ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 14);
+// "Tüm botları tetikle": one click, a question that names the order and the bots that can spend, then one queued job per step in dependency order
+const maxJob = (await q1('SELECT coalesce(max(id), 0)::int n FROM jobs')).n;
+await click(btn('Tüm botları tetikle'), 600);
+ok('the button asks first: it names the order, the bots that can spend money, and says limits and budgets still hold', !!$('.modal') && txt().includes('Tüm botlar sırayla çalıştırılsın mı?') && txt().includes('haber taraması → fikir puanlama') && txt().includes('Para harcayabilenler:') && txt().includes('AI Article Writer') && txt().includes('Article Fixer Bot') && txt().includes('Günlük limitler ve bütçeler yine geçerlidir'));
+await click(btn('Vazgeç', $('.modal')), 400);
+ok('declining queues nothing', (await q1('SELECT count(*)::int n FROM jobs WHERE id > $1', [maxJob])).n === 0);
+await click(btn('Tüm botları tetikle'), 600); await click(btn('Hepsini başlat', $('.modal')), 1300);
+const ranOrder = (await S.db.query('SELECT bot_key, trigger FROM jobs WHERE id > $1 ORDER BY id', [maxJob])).rows;
+ok('confirming queues ONE job per step in the order the work depends on itself, all as a person\'s click, and the page lists the steps in that order', ranOrder.length === 15 && ranOrder.every((r) => r.trigger === 'manual') && ranOrder[0].bot_key === 'news_discovery' && ranOrder[1].bot_key === 'content_opportunity' && ranOrder.findIndex((r) => r.bot_key === 'article_writer') < ranOrder.findIndex((r) => r.bot_key === 'article_fixer') && ranOrder[14].bot_key === 'reporting' && txt().includes('15 adım sıraya alındı') && txt().indexOf('Haber kaynakları taranır') < txt().indexOf('Uygun fikirlerden makale yazılır') && txt().indexOf('Uygun fikirlerden makale yazılır') < txt().indexOf('Günlük/haftalık rapor hazırlanır'));
+await click(btn('Tüm botları tetikle'), 600); await click(btn('Hepsini başlat', $('.modal')), 1300);
+ok('a second click adds nothing that is still waiting and says so', (await q1('SELECT count(*)::int n FROM jobs WHERE id > $1', [maxJob])).n === 15 && txt().includes('Hepsi zaten sırada'));
+await S.db.query('DELETE FROM jobs WHERE id > $1', [maxJob]);                     // the later scenarios start from the queue they know
 const wrow = $$('tbody tr').find((r) => r.textContent.includes('AI Article Writer'));
 await click($$('button', wrow).find((b) => b.textContent.includes('Zamanlama')), 500);
 ok('the schedule dialog warns that this bot spends money and keeps the limits', txt().includes('Bu bot para harcar') && txt().includes('Makaleler yine kendiliğinden yayımlanmaz') && txt().includes('yalnızca BİR kez'));
