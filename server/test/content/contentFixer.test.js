@@ -190,3 +190,29 @@ test('Otomasyon Modu: the fixer is its own option (paid, needs a model, part of 
   assert.equal((await SC.getSchedule('article_fixer')).enabled, true);
   o = await AU.overview(pid); assert.ok(o.warnings.some((w) => /Eksikleri gideren bot açık ama otomatik onay kapalı/.test(w.text)));
 });
+
+const SENSITIVE_REVIEW = () => ({ categories: Object.fromEntries(['originality', 'user_value', 'source_accuracy', 'hallucination', 'copyright', 'keyword_stuffing', 'misleading_title', 'spam', 'low_value_auto', 'sensitive', 'ad_restrictions', 'image_rights', 'integrity']
+  .map((k) => [k, k === 'sensitive' ? { status: 'warn', note: 'A data-breach story involving payment cards needs careful sourcing.' } : { status: 'pass', note: '' }])), risk: 'review', ratings: { originality: 82, usefulness: 80, editorial: 84 }, improvements: [], summary: 'Fine, but sensitive.' });
+
+test('an AdSense class "review" that comes from the SUBJECT (the reviewer\'s sensitive-content category, as on the first real run: a data-breach story) is a person\'s decision: no place, no model call, and the note says what to do', opts, async () => {
+  const m = fakeModels(); m.st.override.review = SENSITIVE_REVIEW;
+  const { id } = await draft(m);
+  assert.ok((await sanity(id)).codes.includes('adsense_risk'), 'the reviewer\'s subject warning makes the class "review"');
+  const calls = m.calls.length;
+  const r = await run(id, m);
+  assert.equal(r.result, 'needs_person'); assert.equal(m.calls.length, calls, 'nothing was asked of a model'); assert.match(r.message, /konunun kendisi/);
+  assert.match(r.remaining.find((p) => p.code === 'adsense_risk').message, /“AdSense risk sonucu”nu siz “Düşük” yapıp kaydedin/);
+  assert.equal((await q1("SELECT count(*)::int n FROM daily_work_usage WHERE work_type = 'article_fix'")).n, 0);
+  assert.equal((await q1("SELECT count(*)::int n FROM notifications WHERE type = 'article_fix_failed'")).n, 1);
+  assert.equal((await FX.history(id)).parked, true, 'and it does not come back on its own');
+});
+
+test('checks that never ran: the bot runs them, finds the subject-level warning, and stops BEFORE the paid rewrite (the repair would not change it)', opts, async () => {
+  const m = fakeModels(); m.st.override.review = SENSITIVE_REVIEW;
+  const { id } = await draft(m);
+  await q('UPDATE articles SET fact_checked_at = NULL, quality_score = NULL, adsense_risk = NULL WHERE id = $1', [id]); await q('DELETE FROM article_checks WHERE article_id = $1', [id]);
+  const r = await run(id, m);
+  assert.equal(r.result, 'needs_person'); assert.deepEqual(r.steps.map((s) => s.step), ['checks', 'person']);
+  assert.equal(m.byRole('fix').length, 0, 'no rewrite was paid for');
+  assert.equal((await q1("SELECT used FROM daily_work_usage WHERE work_type = 'article_fix' AND scope = 'global'")).used, 1, 'the check run did use the day\'s place');
+});
