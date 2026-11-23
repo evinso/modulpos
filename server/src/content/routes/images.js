@@ -14,8 +14,20 @@ module.exports = function imageRoutes(r, { wrap, mw, A }) {
 
   r.get('/articles/:id/image', wrap(async (req, res) => {
     const a = await articles.get(req.params.id);
-    const [m, openai, cfg] = await Promise.all([images.forArticle(a.id), providers.get('openai'), settings.get('images', a.projectId)]);
-    res.json({ image: shape(m), typedUrl: a.featuredImageUrl || '', openaiConfigured: !!openai.configured, auto: !!cfg.value.auto, quality: cfg.value.quality });
+    const [m, openai, pixabay, cfg, src] = await Promise.all([images.forArticle(a.id), providers.get('openai'), providers.get('pixabay'), settings.get('images', a.projectId), images.resolveSource(a.projectId)]);
+    res.json({ image: shape(m), typedUrl: a.featuredImageUrl || '', openaiConfigured: !!openai.configured, pixabayConfigured: !!pixabay.configured, auto: !!cfg.value.auto, quality: cfg.value.quality, source: cfg.value.source, stockType: cfg.value.stockType, usedSource: src.source, focusKeyword: a.focusKeyword || '' });
+  }));
+  // free photos: a search shows candidates (nothing is saved), choosing one downloads it to our own storage and makes it the cover
+  r.get('/articles/:id/image/stock-search', WRITE, wrap(async (req, res) => {
+    const a = await articles.get(req.params.id);
+    const out = await images.searchForArticle(a.id, { query: V.str(req.query.query, 'Aranan kelime', { max: 100, required: true }), type: req.query.type ? V.oneOf(req.query.type, 'Görsel türü', ['photo', 'illustration', 'all']) : undefined });
+    res.json({ candidates: out.candidates.map((c) => ({ id: c.id, thumb: c.thumb, pageUrl: c.pageUrl, tags: c.tags, width: c.width, height: c.height, user: c.user, problem: c.problem })), total: out.total, cached: out.cached });
+  }));
+  r.post('/articles/:id/image/stock', WRITE, wrap(async (req, res) => {
+    const a = await articles.get(req.params.id);
+    const m = await images.stockForArticle(a.id, { photoId: V.str(req.body.photoId, 'Fotoğraf', { max: 20, required: true }), query: V.str(req.body.query, 'Aranan kelime', { max: 100 }) });
+    await A(req, 'article.image_stock', 'article', a.id, null, { photoId: m.sourceId, credit: m.creditName });
+    res.json({ image: shape(m) });
   }));
   r.get('/articles/:id/image/file', wrap(async (req, res) => {
     await articles.get(req.params.id);

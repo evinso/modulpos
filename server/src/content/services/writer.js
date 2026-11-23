@@ -26,7 +26,7 @@ const SS = require('../lib/seoStructure');
  * Real model calls have never been run (no key): the tests answer with the vendors' documented shapes.
  */
 const BOT = 'article_writer';
-const PROMPT_VERSION = 'w3';
+const PROMPT_VERSION = 'w4';
 const pending = new Map();                                                 // runId -> promise (so a test, or a deploy hook, can wait for the work)
 
 const WORDS = { short: '600-850', standard: '900-1,400', long: '1,500-2,200' };
@@ -50,9 +50,9 @@ Article rules (on-page SEO, in this order of importance):
 - "faq": 3 to 5 questions a reader would really ask, answered briefly from the material. "tags": at most 6.
 - "seoTitle" at most 60 characters: the focus keyword near the start, specific and true to the article, a reason to click, no clickbait, no ALL CAPS. "metaDescription" 120-155 characters: what the reader gets, the focus keyword once, no quotation marks, no ellipsis. "excerpt" at most 280 characters, "slug" lower-case words joined by hyphens.
 - "articleType" is one of: ${c.types.join(', ')}.
-- "image": the cover picture. "image.prompt" is ONE or TWO sentences describing a concrete scene or visual metaphor for a landscape illustration that fits THIS article (what is in the picture, the mood, the setting). No text, letters, numbers, logos or brand marks, no screenshots, no real people or recognisable faces. "image.alt" is 8-16 words describing what the picture shows, for a screen reader: it describes the picture and is not a list of keywords.
+- "image": the cover picture. "image.prompt" is ONE or TWO sentences describing a concrete scene or visual metaphor for a landscape illustration that fits THIS article (what is in the picture, the mood, the setting). No text, letters, numbers, logos or brand marks, no screenshots, no real people or recognisable faces. "image.alt" is 8-16 words describing what the picture shows, for a screen reader: it describes the picture and is not a list of keywords. "image.query" is 2-4 plain English words to search a FREE STOCK PHOTO site with: name a concrete thing or place a photographer could really have photographed (for example "laptop keyboard", "server room", "smartphone on desk", "city skyline at night"); never a brand, product, company, person, event or news headline.
 Answer with ONE JSON object and nothing else:
-{"seoTitle":"","h1":"","slug":"","metaDescription":"","focusKeyword":"","secondaryKeywords":[""],"excerpt":"","articleType":"latest_update","contentHtml":"","faq":[{"q":"","a":""}],"tags":[""],"image":{"prompt":"","alt":""}}`;
+{"seoTitle":"","h1":"","slug":"","metaDescription":"","focusKeyword":"","secondaryKeywords":[""],"excerpt":"","articleType":"latest_update","contentHtml":"","faq":[{"q":"","a":""}],"tags":[""],"image":{"prompt":"","alt":"","query":""}}`;
 
 const userPrompt = (o, srcs, secondary, related = []) => `IDEA: ${o.title}
 FOCUS KEYWORD (use exactly this phrase): ${o.keyword}
@@ -81,7 +81,7 @@ function normalizeOutput(d, { types, focus }) {
     excerpt: str(d.excerpt, 600), articleType: types.includes(d.articleType) ? d.articleType : 'latest_update', contentHtml: html,
     faq: (Array.isArray(d.faq) ? d.faq : []).map((x) => ({ q: str(x && x.q, 300), a: str(x && x.a, 2000) })).filter((x) => x.q && x.a).slice(0, 6),
     tags: (Array.isArray(d.tags) ? d.tags : []).map((x) => str(x, 60)).filter(Boolean).slice(0, 8),
-    image: { prompt: str(d.image && d.image.prompt, 700), alt: str(d.image && d.image.alt, 160) },          // not an article field: the writer pipeline hands it to the picture step
+    image: { prompt: str(d.image && d.image.prompt, 700), alt: str(d.image && d.image.alt, 160), query: str(d.image && d.image.query, 100) },          // not an article field: the writer pipeline hands it to the picture step
   };
 }
 

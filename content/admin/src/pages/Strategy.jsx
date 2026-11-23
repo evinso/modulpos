@@ -23,7 +23,7 @@ function NicheTab({ projectId, canEdit }) {
   const save = async () => {
     const proj = { name: f.name, siteName: f.siteName, domain: f.domain, timezone: f.timezone };
     const niche = { mainNiche: f.mainNiche, description: f.description, targetAudience: f.targetAudience, targetCountries: csvList(f.targetCountries), language: f.language, tone: f.tone, contentTypes: f.contentTypes,
-      preferredTopics: lines(f.preferredTopics), minOpportunityScore: Number(f.minOpportunityScore), dailyArticleLimit: Number(f.dailyArticleLimit) };
+      preferredTopics: lines(f.preferredTopics), minOpportunityScore: Number(f.minOpportunityScore), dailyArticleLimit: f.dailyArticleLimit === '' ? undefined : Number(f.dailyArticleLimit) };     // (an empty box must not become 0 = "stop all writing")
     const ok = await run(async () => {
       await api.put(`/projects/${projectId}`, proj);
       try { await api.put(`/projects/${projectId}/niche`, niche); }

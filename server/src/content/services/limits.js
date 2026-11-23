@@ -213,9 +213,11 @@ async function setProjectLimits(projectId, limits, { userId = null } = {}) {
   const p = (await db.query('SELECT id FROM content_projects WHERE id = $1', [projectId])).rows[0];
   if (!p) throw new HttpError(404, 'Proje bulunamadı');
   const clean = Object.entries(limits || {}).map(([t, v]) => [assertType(t), v === null ? null : limitValue(v, t)]);
+  // every project HAS a daily article limit (the protection against runaway AI spending): "empty" is not an answer, and turning it into the default behind the person's back looked like the value "jumping back"
+  if (clean.some(([t, v]) => t === 'new_article' && v === null)) throw new HttpError(400, `Yeni makale günlük sınırı boş bırakılamaz: 0 ile ${WORK_TYPES.new_article.max} arası bir sayı yazın (varsayılan ${WORK_TYPES.new_article.def}). Her projenin bir günlük makale sınırı olmak zorundadır; yapay zekâ harcamasına karşı korumadır`);
   await db.tx(async (c) => {
     for (const [t, v] of clean) {
-      if (t === 'new_article') { await c.query('UPDATE niche_profiles SET daily_article_limit = $1, updated_by = $2, updated_at = now() WHERE project_id = $3', [v === null ? WORK_TYPES.new_article.def : v, userId, projectId]); continue; }
+      if (t === 'new_article') { await c.query('UPDATE niche_profiles SET daily_article_limit = $1, updated_by = $2, updated_at = now() WHERE project_id = $3', [v, userId, projectId]); continue; }
       await upsertLimit(c, { scope: 'project', projectId, categoryId: null, workType: t, value: v, userId });
     }
   });

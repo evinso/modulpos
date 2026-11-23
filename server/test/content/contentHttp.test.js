@@ -272,6 +272,31 @@ test('automation mode through HTTP: everybody signed in can read it, only the ad
   const audit = (await admin.get('/audit?action=automation')).json.items; assert.ok(audit.length >= 2); assert.equal(audit[0].action, 'automation.apply');
 });
 
+test('free cover photos through HTTP: a viewer cannot search or choose, an editor can, the search shows candidates and saves nothing, a choice is audited and gives a real image with its credit; no key = a clear refusal', opts, async () => {
+  const admin = await signedIn(); const editor = await signedIn('editor'); const viewer = await signedIn('viewer');
+  const project = (await admin.get('/projects')).json.projects[0];
+  const art = (await admin.post('/articles', { projectId: project.id, h1: 'Free photo test', contentHtml: '<p>hello</p>' })).json;
+  const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('JFIF http stock picture '.repeat(60)), Buffer.from([0xff, 0xd9])]);
+  const hit = (id, tags) => ({ id, pageURL: `https://pixabay.com/photos/x-${id}/`, type: 'photo', tags, previewURL: `https://cdn.pixabay.com/p${id}.jpg`, webformatURL: `https://pixabay.com/get/w${id}_640.jpg`, largeImageURL: `https://pixabay.com/get/l${id}_1280.jpg`, imageWidth: 4000, imageHeight: 2667, user: 'Jane', user_id: 7 });
+  const real = globalThis.fetch; const stock = require('../../src/content/services/stockPhotos'); const asked = [];
+  globalThis.fetch = async (u, o) => { if (String(u).startsWith('https://pixabay.com/api/')) { const q = new URL(u).searchParams; asked.push(q.get('id') || q.get('q')); const all = [hit(11, 'router, wifi'), hit(12, 'people, man')]; const hits = q.get('id') ? all.filter((h) => String(h.id) === q.get('id')) : all; return new Response(JSON.stringify({ total: hits.length, totalHits: hits.length, hits }), { status: 200 }); } return real(u, o); };
+  stock.useDownload(async (url) => ({ buffer: JPEG, contentType: 'image/jpeg', url })); stock.clearCache();
+  try {
+    assert.equal((await viewer.get(`/articles/${art.id}/image/stock-search?query=router`)).status, 403); assert.equal((await viewer.post(`/articles/${art.id}/image/stock`, { photoId: '11' })).status, 403);
+    assert.equal((await editor.get(`/articles/${art.id}/image/stock-search?query=router`)).status, 409, 'no Pixabay key yet: told, not crashed'); assert.match((await editor.get(`/articles/${art.id}/image/stock-search?query=router`)).json.error, /Pixabay anahtarı kayıtlı değil/);
+    assert.equal((await admin.put('/providers/pixabay', { secret: '12345678-abcdef0123456789abcdef012' })).status, 200);
+    const info = (await viewer.get(`/articles/${art.id}/image`)).json; assert.deepEqual([info.pixabayConfigured, info.source, info.stockType, info.usedSource], [true, 'auto', 'photo', 'stock']);
+    assert.equal((await editor.get(`/articles/${art.id}/image/stock-search?query=`)).status, 400); assert.equal((await editor.get(`/articles/${art.id}/image/stock-search?query=router&type=gif`)).status, 400);
+    const found = await editor.get(`/articles/${art.id}/image/stock-search?query=router`); assert.equal(found.status, 200); assert.deepEqual(found.json.candidates.map((c) => [c.id, c.problem === null]), [['11', true], ['12', false]], 'the one that names a person is flagged'); assert.ok(!JSON.stringify(found.json).includes('largeImageURL') && !found.text.includes('12345678-abcdef'), 'the file address and the key stay on the server');
+    assert.equal((await viewer.get(`/articles/${art.id}/image`)).json.image, null, 'a search saves nothing');
+    assert.equal((await editor.post(`/articles/${art.id}/image/stock`, {})).status, 400);
+    const pick = await editor.post(`/articles/${art.id}/image/stock`, { photoId: '11', query: 'router' }); assert.equal(pick.status, 200, pick.text); assert.deepEqual([pick.json.image.provider, pick.json.image.creditName, pick.json.image.sourceId, pick.json.image.costUsd, pick.json.image.bytes], ['pixabay', 'Jane', '11', 0, undefined]);
+    const file = await viewer.get(`/articles/${art.id}/image/file`); assert.deepEqual([file.status, file.headers.get('content-type')], [200, 'image/jpeg']);
+    assert.equal((await editor.post(`/articles/${art.id}/image/stock`, { photoId: '999' })).status, 404);
+    const log = (await admin.get('/audit?action=article.image_stock')).json.items; assert.equal(log.length, 1);
+  } finally { globalThis.fetch = real; stock.useDownload(null); stock.clearCache(); }
+});
+
 test('cover image through HTTP: everybody signed in can see it, an editor can change the alt text and remove it, only the admin can pay for a new one, the bytes come back as a real image, every change is audited', opts, async () => {
   const admin = await signedIn(); const editor = await signedIn('editor'); const viewer = await signedIn('viewer');
   const project = (await admin.get('/projects')).json.projects[0];

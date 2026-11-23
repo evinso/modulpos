@@ -4,6 +4,7 @@ const { HttpError } = require('../lib/http');
 const imageModels = require('../lib/imageModels');
 const settings = require('./settings');
 const providers = require('./providers');
+const stock = require('./stockPhotos');
 const { LlmError, explain } = require('./llm');
 
 /**
@@ -98,20 +99,21 @@ async function generate({ prompt, quality = 'medium', projectId = null, operatio
 
 // ── storage ─────────────────────────────────────────────────────────────────────────────────────
 const meta = (r) => !r ? null : ({ id: r.id, articleId: r.article_id, mime: r.mime, width: r.width, height: r.height, byteSize: r.byte_size, alt: r.alt, provider: r.provider, model: r.model, prompt: r.prompt, quality: r.quality,
-  costUsd: r.cost_micros === null || r.cost_micros === undefined ? null : Number(r.cost_micros) / 1e6, createdAt: r.created_at });
-const COLS = 'id, article_id, mime, byte_size, width, height, alt, provider, model, prompt, quality, cost_micros, created_at';
+  costUsd: r.cost_micros === null || r.cost_micros === undefined ? null : Number(r.cost_micros) / 1e6, createdAt: r.created_at, sourceId: r.source_id || null, sourceUrl: r.source_url || null, creditName: r.credit_name || null, creditUrl: r.credit_url || null });
+const COLS = 'id, article_id, mime, byte_size, width, height, alt, provider, model, prompt, quality, cost_micros, created_at, source_id, source_url, credit_name, credit_url';
 
 /** the picture's data without its bytes, or null */
 async function forArticle(articleId) { return meta((await db.query(`SELECT ${COLS} FROM article_images WHERE article_id = $1`, [articleId])).rows[0]); }
 /** the picture with its bytes (for the panel and for WordPress), or null */
 async function file(articleId) { const r = (await db.query(`SELECT ${COLS}, bytes FROM article_images WHERE article_id = $1`, [articleId])).rows[0]; return r ? { ...meta(r), buffer: r.bytes } : null; }
 
-async function store(articleId, img, { alt, prompt }) {
+async function store(articleId, img, { alt, prompt, source = null }) {
   const used = (await db.query('SELECT coalesce(sum(byte_size), 0)::bigint AS n FROM article_images WHERE article_id <> $1', [articleId])).rows[0].n;
   if (Number(used) + img.buffer.length > STORAGE_CAP) throw new HttpError(409, 'Görsel alanı doldu (en çok 300 MB): eski makalelerin görsellerini silin');
   await db.query('DELETE FROM article_images WHERE article_id = $1', [articleId]);                       // a new picture REPLACES the old one (the id changes, so WordPress uploads the new file)
-  const r = (await db.query(`INSERT INTO article_images (article_id, mime, bytes, byte_size, width, height, alt, provider, model, prompt, quality, cost_micros)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,'openai',$8,$9,$10,$11) RETURNING ${COLS}`, [articleId, img.mime, img.buffer, img.buffer.length, img.width, img.height, String(alt || '').slice(0, 200), img.model, String(prompt || '').slice(0, 2000), img.quality, img.costUsd === null ? null : Math.round(img.costUsd * 1e6)])).rows[0];
+  const r = (await db.query(`INSERT INTO article_images (article_id, mime, bytes, byte_size, width, height, alt, provider, model, prompt, quality, cost_micros, source_id, source_url, credit_name, credit_url)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING ${COLS}`, [articleId, img.mime, img.buffer, img.buffer.length, img.width, img.height, String(alt || '').slice(0, 200), img.provider || 'openai', img.model, String(prompt || '').slice(0, 2000), img.quality || '',
+    img.costUsd === null || img.costUsd === undefined ? null : Math.round(img.costUsd * 1e6), source && source.id || null, source && source.url || null, source && source.creditName || null, source && source.creditUrl || null])).rows[0];
   return meta(r);
 }
 
@@ -130,15 +132,75 @@ async function generateForArticle(articleId, { visual = '', alt = '', quality, f
 }
 
 /**
- * The step the writer takes right after it saved an article: when `images.auto` is on and OpenAI is connected it draws the cover picture, otherwise nothing happens.
- * It NEVER throws: a failed picture is reported ({ status: 'failed', error, billed, costUsd }) and the article simply stays without one.
- * @returns { status: 'off' | 'ok' | 'failed', error?, billed?, costUsd? }
+ * Where a picture comes from, by the setting `images.source` and the keys that exist: 'auto' (default) = a free Pixabay photo when its key is saved, otherwise an OpenAI picture;
+ * 'stock' = only Pixabay; 'openai' = only OpenAI. null = the chosen service has no key. Nothing falls back to a PAID service on its own when the free one finds nothing.
  */
-async function autoForArticle(articleId, projectId, hint = {}, { fetchImpl, now = new Date() } = {}) {
+async function resolveSource(projectId) {
+  const [cfg, px, oa] = await Promise.all([settings.get('images', projectId), providers.get('pixabay'), providers.get('openai')]);
+  const c = cfg.value; const stockOk = !!px.configured; const aiOk = !!oa.configured;
+  const source = c.source === 'stock' ? (stockOk ? 'stock' : null) : c.source === 'openai' ? (aiOk ? 'openai' : null) : (stockOk ? 'stock' : aiOk ? 'openai' : null);
+  return { source, cfg: c, stockOk, aiOk };
+}
+
+/** the words to search a stock photo with, most specific first: the writer's own suggestion, the focus keyword, the first tags, the niche; at most 3 tries */
+function stockQueries(a, hint = {}) {
+  const raw = [hint.query, a.focus_keyword, (a.tags || []).slice(0, 2).join(' '), a.main_niche];
+  const seen = new Set(); const out = [];
+  for (const r of raw) { const q = stock.trimQuery(r); if (q.length >= 3 && !seen.has(q.toLowerCase())) { seen.add(q.toLowerCase()); out.push(q); } }
+  return out.slice(0, 3);
+}
+
+/**
+ * Finds a FREE photo for an article and stores it (a copy in our own database, as Pixabay asks). With `photoId` a person's own choice is used (looked up again by id, so what is saved is
+ * what the service says it is); otherwise the searches in turn: the first photo that passes the tag filter and is not already some other article's cover of this project.
+ * @param o { photoId, query, type, hint, fetchImpl, download, now }
+ */
+async function stockForArticle(articleId, { photoId = null, query = '', type, hint = {}, fetchImpl, download, now = new Date() } = {}) {
+  const a = (await db.query('SELECT a.id, a.project_id, a.h1, a.focus_keyword, a.tags, n.main_niche FROM articles a LEFT JOIN niche_profiles n ON n.project_id = a.project_id WHERE a.id = $1', [V.uuid(articleId, 'Makale')])).rows[0];
+  if (!a) throw new HttpError(404, 'Makale bulunamadı');
+  const cfg = (await settings.get('images', a.project_id)).value; const kind = type || cfg.stockType;
+  let pick = null; let used = null; const tried = [];
+  if (photoId) {
+    pick = (await stock.search({ id: photoId, projectId: a.project_id, fetchImpl, now })).candidates[0];
+    if (!pick) throw new HttpError(404, 'Bu fotoğraf Pixabay’da bulunamadı (kaldırılmış olabilir); aramayı yenileyin');
+    used = String(query || '').trim() || `fotoğraf ${pick.id}`;
+  } else {
+    const taken = new Set((await db.query("SELECT i.source_id FROM article_images i JOIN articles x ON x.id = i.article_id WHERE x.project_id = $1 AND i.provider = 'pixabay' AND i.article_id <> $2", [a.project_id, a.id])).rows.map((r) => r.source_id));
+    for (const q of (String(query || '').trim() ? [stock.trimQuery(query)] : stockQueries(a, hint))) {
+      tried.push(q);
+      const found = await stock.search({ query: q, type: kind, projectId: a.project_id, fetchImpl, now });
+      pick = found.candidates.find((c) => !c.problem && !taken.has(c.id)); if (pick) { used = q; break; }
+    }
+    if (!pick) throw new HttpError(404, `Uygun ücretsiz fotoğraf bulunamadı (aranan: ${tried.join(' · ') || '—'}). Kişi, logo/marka içeren ya da başka bir makalede kullanılmış fotoğraflar elenir; editördeki “Ücretsiz fotoğraf bul” ile elle arayabilirsiniz`);
+  }
+  const buffer = await stock.download(pick, { download });
+  const mime = sniff(buffer); if (!mime) throw new HttpError(502, 'Pixabay’dan inen dosya bir görsel dosyası değil');
+  const saved = await store(a.id, { buffer, mime, width: pick.savedWidth, height: pick.savedHeight, provider: 'pixabay', model: pick.kind || 'photo', quality: '', costUsd: 0 },
+    { alt: stock.altFor(pick), prompt: used, source: { id: pick.id, url: pick.pageUrl, creditName: pick.user, creditUrl: pick.userId ? `https://pixabay.com/users/${encodeURIComponent(pick.user)}-${pick.userId}/` : null } });
+  await providers.recordUsage({ provider: 'pixabay', endpoint: 'download', operation: 'image_download', requests: 0, costUsd: 0, projectId: a.project_id, meta: { photoId: pick.id, bytes: buffer.length } });
+  return saved;
+}
+
+/** the candidates of a search, for the panel (nothing is saved) */
+async function searchForArticle(articleId, { query, type, fetchImpl, now = new Date() } = {}) {
+  const a = (await db.query('SELECT id, project_id FROM articles WHERE id = $1', [V.uuid(articleId, 'Makale')])).rows[0];
+  if (!a) throw new HttpError(404, 'Makale bulunamadı');
+  const cfg = (await settings.get('images', a.project_id)).value;
+  return stock.search({ query, type: type || cfg.stockType, projectId: a.project_id, fetchImpl, now });
+}
+
+/**
+ * The step the writer takes right after it saved an article: when `images.auto` is on and the chosen service has its key it finds (Pixabay, free) or draws (OpenAI, paid) the cover
+ * picture, otherwise nothing happens. It NEVER throws: a failed picture is reported ({ status: 'failed', error, billed, costUsd }) and the article simply stays without one.
+ * @returns { status: 'off' | 'ok' | 'failed', source?, error?, billed?, costUsd? }
+ */
+async function autoForArticle(articleId, projectId, hint = {}, { fetchImpl, download, now = new Date() } = {}) {
   try {
-    if (!(await settings.get('images', projectId)).value.auto || !(await providers.get('openai')).configured) return { status: 'off' };
+    const { source, cfg } = await resolveSource(projectId);
+    if (!cfg.auto || !source) return { status: 'off' };
+    if (source === 'stock') { await stockForArticle(articleId, { hint, fetchImpl, download, now }); return { status: 'ok', source, billed: false, costUsd: 0 }; }
     const im = await generateForArticle(articleId, { visual: hint.prompt, alt: hint.alt, fetchImpl, now });
-    return { status: 'ok', billed: true, costUsd: im.costUsd };
+    return { status: 'ok', source, billed: true, costUsd: im.costUsd };
   } catch (err) { return { status: 'failed', error: String((err && err.message) || err).slice(0, 300), billed: !!(err && err.maybeBilled), costUsd: err && err.costUsd !== undefined ? err.costUsd : null }; }
 }
 
@@ -150,4 +212,4 @@ async function setAlt(articleId, alt) {
 }
 async function remove(articleId) { return (await db.query('DELETE FROM article_images WHERE article_id = $1', [articleId])).rowCount > 0; }
 
-module.exports = { SIZE, sniff, explainImage, buildPrompt, generate, generateForArticle, autoForArticle, forArticle, file, setAlt, remove, STORAGE_CAP };
+module.exports = { SIZE, sniff, explainImage, buildPrompt, generate, generateForArticle, autoForArticle, resolveSource, stockForArticle, searchForArticle, forArticle, file, setAlt, remove, STORAGE_CAP };

@@ -32,7 +32,7 @@ const feedServer = http.createServer((req, res) => { if (req.url.startsWith('/pa
 await new Promise((r) => feedServer.listen(0, '127.0.0.1', r));
 globalThis.__feedBase = `http://127.0.0.1:${feedServer.address().port}`;
 globalThis.__srv.opportunities = sreq('./src/content/services/opportunities'); globalThis.__srv.news = sreq('./src/content/services/news');
-globalThis.__apify = []; globalThis.__serper = []; const { startFakeWp } = sreq('./test/content/fakeWordPress.js'); globalThis.__wp = await startFakeWp(); globalThis.__srv.scheduler = sreq('./src/content/services/scheduler'); globalThis.__srv.publishing = sreq('./src/content/services/publishing'); globalThis.__srv.settings = sreq('./src/content/services/settings'); const { fakeModels, PAGE } = sreq('./test/content/fakeModels.js'); globalThis.__models = fakeModels();
+globalThis.__apify = []; globalThis.__serper = []; globalThis.__pixabay = []; const { startFakeWp } = sreq('./test/content/fakeWordPress.js'); globalThis.__wp = await startFakeWp(); globalThis.__srv.scheduler = sreq('./src/content/services/scheduler'); globalThis.__srv.publishing = sreq('./src/content/services/publishing'); globalThis.__srv.settings = sreq('./src/content/services/settings'); const { fakeModels, PAGE } = sreq('./test/content/fakeModels.js'); globalThis.__models = fakeModels(); sreq('./src/content/services/stockPhotos').useDownload(async (url) => ({ buffer: sreq('./test/content/fakeModels.js').PICTURE, contentType: 'image/jpeg', url }));
 
 // Google (Search Console): the service-account JWT is really signed by the panel's saved key and VERIFIED by this fake; numbers are relative to the day asked for
 const { makeKey, fakeGoogle } = sreq('./test/content/fakeGoogle.js'); globalThis.__gkey = makeKey();
@@ -76,6 +76,12 @@ globalThis.fetch = async (u, init = {}) => {
     const body = init.body ? JSON.parse(init.body) : {}; globalThis.__serper.push({ q: body.q, key: (init.headers || {})['X-API-KEY'], path: new URL(u).pathname });
     if (/\/autocomplete$/.test(String(u))) return { ok: true, status: 200, json: async () => ({ suggestions: [{ value: `${body.q} price` }, { value: `how to ${body.q}` }] }) };
     return { ok: true, status: 200, json: async () => ({ organic: ['smallblog.dev', 'niche-tech.net', 'mysite.io', 'techie.org'].map((d, i) => ({ title: `${d} result`, link: `https://${d}/`, position: i + 1, snippet: 's', date: '5 days ago' })), peopleAlsoAsk: [{ question: 'Is it real?' }], relatedSearches: [{ query: `${body.q} news` }] }) };
+  }
+  if (String(u).startsWith('https://pixabay.com/api/')) {                                              // Pixabay: the documented search answer (the file download is replaced below)
+    const q = new URL(u).searchParams; globalThis.__pixabay.push({ q: q.get('q'), id: q.get('id'), key: q.get('key'), type: q.get('image_type') });
+    const hit = (id, tags, o = {}) => ({ id, pageURL: `https://pixabay.com/photos/x-${id}/`, type: 'photo', tags, previewURL: `https://cdn.pixabay.com/photo/p${id}_150.jpg`, webformatURL: `https://pixabay.com/get/w${id}_640.jpg`, largeImageURL: `https://pixabay.com/get/l${id}_1280.jpg`, imageWidth: 4000, imageHeight: 2667, user: 'Jane Doe', user_id: 77, ...o });
+    const all = [hit(201, 'laptop, desk, technology'), hit(202, 'office, people, man'), hit(203, 'keyboard, computer')]; const id = q.get('id'); const hits = id ? all.filter((h) => String(h.id) === id) : all;
+    return { ok: true, status: 200, text: async () => JSON.stringify({ total: hits.length, totalHits: hits.length, hits }), json: async () => ({ total: hits.length, totalHits: hits.length, hits }) };
   }
   if (String(u).startsWith('https://api.apify.com')) {                                                  // Apify: the account, the actor, and a synchronous actor run (the default actor's output names)
     const p = new URL(u).pathname; const body = init.body ? JSON.parse(init.body) : null; globalThis.__apify.push({ p, method: init.method || 'GET', auth: (init.headers || {}).Authorization });

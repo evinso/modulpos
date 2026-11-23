@@ -118,6 +118,16 @@ await setVal(aria('Yeni makale günlük limit'), '999');
 ok('a value above the maximum is flagged and not accepted by the server', aria('Yeni makale günlük limit').getAttribute('aria-invalid') === 'true');
 await click(btn('Genel limitleri kaydet'), 500);
 ok('the server refuses it (limit stays 1)', (await q1("SELECT max_per_day FROM daily_work_limits WHERE scope = 'global' AND work_type = 'new_article'")).max_per_day === 1);
+// the project's "Yeni makale" limit can never be empty: the page says so, the save button is off, the server refuses it, and nothing jumps back to a default behind the person's back
+ok('the project card explains that the new-article limit cannot be empty and that the narrowest limit wins', !!aria('Yeni makale proje limiti') && txt().includes('boş bırakılamaz') && txt().includes('en dar sınır') && txt().includes('Genel günlük limitler'));
+await setVal(aria('Yeni makale proje limiti'), '7'); await click(btn('Proje limitlerini kaydet'), 600);
+ok('a typed project limit is saved and shown', (await q1('SELECT daily_article_limit AS n FROM niche_profiles')).n === 7 && aria('Yeni makale proje limiti').value === '7');
+await setVal(aria('Yeni makale proje limiti'), '');
+ok('an emptied box says why it cannot be saved and the save button is off', txt().includes('“Yeni makale” proje limiti boş bırakılamaz') && btn('Proje limitlerini kaydet').disabled === true);
+let refused = null; try { await S.limits.setProjectLimits(p, { new_article: null }); } catch (e) { refused = e; }
+ok('the server refuses an empty value too and keeps the number (it no longer turns into 3 silently)', !!refused && refused.status === 400 && /boş bırakılamaz/.test(refused.message) && (await q1('SELECT daily_article_limit AS n FROM niche_profiles')).n === 7);
+await setVal(aria('Yeni makale proje limiti'), '3'); await click(btn('Proje limitlerini kaydet'), 600);
+ok('back to 3 by typing it (the later scenarios expect the default)', (await q1('SELECT daily_article_limit AS n FROM niche_profiles')).n === 3);
 await click(btn('Botları duraklat'), 300); await click(btn('Duraklat'), 600);
 ok('"Botları duraklat" pauses all automatic work (and the limits obey it)', (await S.limits.reserve({ workType: 'serp_queries' })).reason === 'paused' && txt().includes('Botlar duraklatıldı'));
 await click(btn('Devam ettir'), 600);
@@ -672,6 +682,28 @@ await click(btn('Yeni görsel çiz'), 500); ok('a second picture asks first (it 
 ok('declining draws nothing', (await q1('SELECT count(*)::int n FROM article_images')).n === 1 && globalThis.__models.calls.filter((c) => c.role === 'image').length === 1);
 await click($$('button').find((b) => b.textContent.trim() === 'Sil' && b.className.includes('danger')), 500); await click(btn('Sil', $('.modal')), 800);
 ok('removing the picture deletes it', (await q1('SELECT count(*)::int n FROM article_images')).n === 0 && txt().includes('Bu makalenin kapak görseli yok'));
+
+// ── FREE cover photos (Pixabay): the key card, the settings, the search on the editor card, a person's choice, the filter flag, the credit ────────────────────────
+await click(nav('Sistem Ayarları'), 600);
+ok('the cover settings now choose the source (automatic / only free / only OpenAI) and the free image type', txt().includes('Görsel kaynağı') && txt().includes('Ücretsiz görsel türü') && txt().includes('Yalnızca ücretsiz fotoğraf (Pixabay)'));
+await click(nav('API Kullanımı ve Maliyetler'), 700);
+const pxCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'Pixabay (ücretsiz fotoğraflar)');
+ok('the Pixabay card says it is free and where the key is', !!pxCard && pxCard.textContent.includes('ücretsiz hesap') && pxCard.textContent.includes('pixabay.com/api/docs') && !pxCard.textContent.includes('ücretli'));
+await setVal(input('API anahtarı', pxCard), '12345678-abcdef0123456789abcdef012'); await click(btn('Kaydet', pxCard), 700); await click(btn('Bağlantıyı test et', pxCard), 900);
+ok('the key is saved (encrypted) and the test is one free search', (await q1("SELECT encrypted_secret FROM api_providers WHERE key = 'pixabay'")).encrypted_secret.startsWith('enc:v1:') && txt().includes('Pixabay bağlantısı çalışıyor') && globalThis.__pixabay.length === 1);
+await click(nav('Makale Arşivi'), 700); await click($$('tbody tr').find((r) => r.querySelector('strong.clip')), 900);
+ok('the editor card offers the free photo search with the focus keyword already in the box', txt().includes('Ücretsiz fotoğraf bul (Pixabay)') && !!$$('button').find((b) => b.textContent.trim() === 'Ara') && !!$('input[aria-label="Fotoğraf arama sözcüğü"]') && $('input[aria-label="Fotoğraf arama sözcüğü"]').value.length > 2);
+await setVal($('input[aria-label="Fotoğraf arama sözcüğü"]'), 'laptop on desk'); await click($$('button').find((b) => b.textContent.trim() === 'Ara'), 900);
+ok('the search shows thumbnails, flags the one that names a person, and saves nothing yet', $$('.stock-pick').length === 3 && $$('.stock-pick').filter((b) => b.textContent.includes('dikkat')).length === 1 && globalThis.__pixabay.at(-1).q === 'laptop on desk' && globalThis.__pixabay.at(-1).type === 'photo' && (await q1('SELECT count(*)::int n FROM article_images')).n === 0 && txt().includes('Pixabay’dan gelir ve ücretsizdir'));
+await click($$('.stock-pick')[0], 1300);
+const sp = await q1('SELECT provider, source_id, credit_name, credit_url, alt, prompt, cost_micros, byte_size FROM article_images');
+ok('choosing a photo downloads it to our own storage with its credit, at no cost, and makes it the cover', !!sp && sp.provider === 'pixabay' && sp.source_id === '201' && sp.credit_name === 'Jane Doe' && sp.credit_url.includes('/users/') && sp.alt === 'Photo of laptop, desk, technology' && sp.prompt === 'laptop on desk' && Number(sp.cost_micros) === 0 && sp.byte_size > 100 && globalThis.__pixabay.at(-1).id === '201');
+ok('the card shows the photo with its credit and says it is free (no price, no drawing prompt)', txt().includes('Ücretsiz fotoğraf') && txt().includes('Jane Doe') && txt().includes('kaynak göstermeyi şart koşmaz') && txt().includes('Aranan kelime') && !txt().includes('Çizilen tarif'));
+await click($$('button').find((b) => b.textContent.trim() === 'Sil' && b.className.includes('danger')), 500); await click(btn('Sil', $('.modal')), 800);
+ok('removing it works for a free photo too', (await q1('SELECT count(*)::int n FROM article_images')).n === 0);
+await click(nav('Otomasyon Modu'), 800);
+const imgBox = $$('label.check').find((l) => l.textContent.includes('Makaleye kapak görseli ekle'));
+ok('Otomasyon Modu: with a Pixabay key the cover option is free (no "ücretli" badge) and ready', !!imgBox && !imgBox.textContent.includes('ücretli') && !imgBox.querySelector('input').disabled);
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
 await click(aria('Çıkış'), 600);
