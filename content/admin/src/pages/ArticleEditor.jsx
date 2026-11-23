@@ -69,6 +69,13 @@ function Versions({ articleId, current, canEdit, onRestored }) {
   );
 }
 
+/** what to DO about the blockers a person can fix on this very page (only controls that exist here are named) */
+const FIX = {
+  adsense_risk: 'Çözüm: yukarıdaki formda “AdSense risk sonucu” kutusunu (nedenini “Kontroller ve kalite” kartında okuyun) “Düşük” yapıp KAYDEDİN; ya da metni düzeltip kartta kontrolleri yeniden çalıştırın. Elle yaptığınız işaret sizin sorumluluğunuzdadır.',
+  excluded_topic: 'Çözüm: konu istediğiniz bir konuysa yukarıdaki “Kategori”yi değiştirip kaydedin ya da konuyu Strateji sayfasında (Kategoriler ya da Hariç tutulan konular sekmesi) listeden çıkarın. Başlığı değiştirmek doğruluk kontrolünü sıfırlar. İstemiyorsanız “Arşivde durumuna al”.',
+  no_category: 'Çözüm: yukarıdaki “Kategori” alanından seçip kaydedin.',
+};
+
 export default function ArticleEditor() {
   const { id } = useParams();
   const isNew = !id;
@@ -163,11 +170,11 @@ export default function ArticleEditor() {
               {ready.loading && !ready.data ? <Spinner /> : ready.data && (
                 <div className="stack">
                   {ready.data.ready ? <Alert kind="ok">Tüm zorunlu kontroller tamam.</Alert> : <Alert kind="warn">Eksikler var.</Alert>}
-                  {ready.data.problems.map((p) => <div key={p.code} className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}><Badge kind={p.blocking ? 'bad' : 'warn'}>{p.blocking ? 'Engel' : 'Uyarı'}</Badge><span>{p.message}</span></div>)}
+                  {ready.data.problems.map((p) => <div key={p.code} className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}><Badge kind={p.blocking ? 'bad' : 'warn'}>{p.blocking ? 'Engel' : 'Uyarı'}</Badge><span>{p.message}{FIX[p.code] && <small className="faint" style={{ display: 'block', marginTop: 2 }}>{FIX[p.code]}</small>}</span></div>)}
                 </div>
               )}
               {canEdit && (NEXT[art.status] || []).length > 0 && <div className="row" style={{ marginTop: 12 }}>{NEXT[art.status].map((to) => <button key={to} className={`btn sm ${to === 'ready' ? 'primary' : ''}`} disabled={busy || dirty} onClick={() => status(to)}>{STATUS[to][0]}{to === 'ready' ? ' yap' : ' durumuna al'}</button>)}</div>}
-              {dirty && <small className="faint">Durumu değiştirmeden önce kaydedin.</small>}
+              {dirty && <small className="faint" style={{ color: 'var(--warn)' }}>Kaydedilmemiş değişiklik var: durum düğmeleri kapalıdır, önce sayfanın altındaki “Kaydet”e basın.</small>}
             </Card>
           )}
           {!isNew && art && <ArticleImage art={art} />}
