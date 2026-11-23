@@ -1,8 +1,9 @@
-import { LayoutDashboard, Target, Globe2, TrendingUp, Compass, Search, BarChart3, Lightbulb, Sparkles, Archive, CalendarDays, HeartPulse, RefreshCw, Link2, ShieldCheck, Server, Send, LineChart, Bot, Gauge, Coins, Bell, FileText, History, Settings } from 'lucide-react';
+import { Zap, LayoutDashboard, Target, Globe2, TrendingUp, Compass, Search, BarChart3, Lightbulb, Sparkles, Archive, CalendarDays, HeartPulse, RefreshCw, Link2, ShieldCheck, Server, Send, LineChart, Bot, Gauge, Coins, Bell, FileText, History, Settings } from 'lucide-react';
 
 /** The side menu, grouped by the way the work flows: research -> content -> publishing -> upkeep -> automation. `to` = the page it opens; a group without `title` is shown without a heading. */
 export const GROUPS = [
   { title: null, items: [
+    { label: 'Otomasyon Modu', to: '/automation', icon: Zap },
     { label: 'Dashboard', to: '/', icon: LayoutDashboard, end: true },
   ] },
   { title: 'Strateji ve araştırma', items: [

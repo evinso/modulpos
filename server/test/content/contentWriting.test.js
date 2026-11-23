@@ -133,6 +133,23 @@ test('writer: one eligible idea -> a cited, checked draft that waits for a perso
   assert.equal((await A.readiness(a.id)).problems.some((p) => p.code === 'not_fact_checked' || p.code === 'no_adsense'), false);
 });
 
+test('writer + Otomasyon Modu: with automatic approval ON a draft that passes every gate becomes "ready" by itself (and the notification says so); a draft below the minimum score stays for a person with the reason; OFF = always waits', opts, async () => {
+  const { projectId: pid } = await P.seedDefault(); await vendors(); const q0 = (await S.get('quality', pid)).value;
+  const notice = async () => (await H.db().query("SELECT body FROM notifications WHERE type = 'article_ready' ORDER BY id DESC LIMIT 1")).rows[0].body;
+  const artOf = async (oid) => (await H.db().query('SELECT a.id, a.status FROM articles a JOIN content_opportunities o ON o.article_id = a.id WHERE o.id = $1', [oid])).rows[0];
+  const o1 = await idea(pid); await go(o1.id, fakeModels());
+  assert.equal((await artOf(o1.id)).status, 'needs_review', 'default: every draft waits for a person'); assert.match(await notice(), /elle onaylamadan yayımlanmaz/);
+  await H.clean(); await P.seedDefault(); await vendors();
+  const pid2 = (await P.listProjects())[0].id; await S.set('quality', { ...q0, manualApprovalNewArticles: false, minScore: 100 }, { scope: 'global' });
+  const hi = await idea(pid2); const r1 = await go(hi.id, fakeModels()); const a1 = await artOf(hi.id);
+  assert.equal(a1.status, 'needs_review', 'a minimum score of 100 cannot be met by the fake draft: it waits'); const run1 = await R.get(r1.run.id); assert.match(run1.stats.autoApproveBlockedBy, /Kalite puanı/); assert.equal(run1.stats.autoApproved, false); assert.match(await notice(), /otomatik onay yapılmadı: Kalite puanı/);
+  await H.clean(); await P.seedDefault(); await vendors();
+  const pid3 = (await P.listProjects())[0].id; await S.set('quality', { ...q0, manualApprovalNewArticles: false, minScore: 50 }, { scope: 'global' });
+  const lo = await idea(pid3); const r2 = await go(lo.id, fakeModels()); const a2 = await artOf(lo.id);
+  assert.equal(a2.status, 'ready', 'every gate passed: approved by the automation'); assert.equal((await R.get(r2.run.id)).stats.autoApproved, true); assert.match(await notice(), /Otomasyon Modu “Yayına hazır” yaptı/);
+  assert.equal((await A.readiness(a2.id)).ready, true); assert.equal((await H.db().query("SELECT count(*)::int n FROM audit_logs WHERE action = 'article.auto_approve'")).rows[0].n, 1);
+});
+
 test('writer: refuses what it must not start (no vendor, idea not eligible, full day, unusable vendor) and changes nothing', opts, async () => {
   const { projectId: pid } = await P.seedDefault(); const m = fakeModels();
   await withEvent(pid); await O.refresh(pid, { now: NOW }); const o = (await O.list(pid)).items[0];

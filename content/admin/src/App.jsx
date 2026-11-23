@@ -30,6 +30,7 @@ import Performance from './pages/Performance.jsx';
 import InternalLinks from './pages/InternalLinks.jsx';
 import AdsenseAudit from './pages/AdsenseAudit.jsx';
 import Reports from './pages/Reports.jsx';
+import Automation from './pages/Automation.jsx';
 
 function AuthScreen({ setupNeeded, tokenConfigured, onDone }) {
   const [mode, setMode] = useState(setupNeeded ? 'setup' : 'login');
@@ -131,6 +132,7 @@ function Shell() {
         </header>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/automation" element={<Automation />} />
           <Route path="/strategy" element={<Strategy />} />
           <Route path="/articles" element={<Articles />} />
           <Route path="/articles/new" element={<ArticleEditor />} />
