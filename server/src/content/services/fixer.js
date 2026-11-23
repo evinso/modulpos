@@ -23,7 +23,7 @@ const runs = require('./runs');
  *             article from the problem list and its sources (a new version, `by ai`, the old one stays in the history), then ALL checks run again on the new text
  *   4 gate:   `autoApprove.approveIfClean` (only when the owner switched automatic approval on; otherwise the article waits, fixed, for a person)
  * What it never does: relax a rule or a check (it only changes the article and lets the same checks judge it), decide what only a person can (a topic the site excludes,
- * a duplicate of another article, an article without sources, an AdSense class "blocked"), touch the text of an article a person edited, touch a person's own article, invent a source,
+ * a duplicate of another article, an article without sources, an AdSense class "blocked" or "review" that comes from the SUBJECT itself (the reviewer's "sensitive content" / "ad restrictions" categories: found on the first real run, a data-breach story about stolen card numbers could not be re-worded into a non-sensitive one, and two attempts only cost money)), touch the text of an article a person edited, touch a person's own article, invent a source,
  * or keep trying: two attempts on one version, then it says what is left and waits for a person (an edit by a person gives it a new chance). One daily place of the
  * work type `article_fix` is used per attempt that needs the model; the budget guard of every call applies.
  */
@@ -34,6 +34,7 @@ const PERSON = new Set(['excluded_topic', 'duplicate', 'no_sources']);          
 const FREE = new Set(['no_category', 'no_image']);
 const CHECKS = new Set(['not_fact_checked', 'fact_check_error', 'no_adsense', 'no_quality']);
 const TEXT = new Set(['fact_check_failed', 'adsense_risk', 'low_quality', 'too_short', 'no_h1', 'no_seo_title']);
+const INHERENT = ['sensitive', 'ad_restrictions'];                                                      // about the SUBJECT of the article, not its wording
 const FIELDS = ['seoTitle', 'h1', 'metaDescription', 'excerpt', 'contentHtml', 'faq', 'tags'];
 
 const FIX_SYSTEM = (c) => `You are the senior editor of "${c.siteName}", an English-language website about ${c.niche}. You REPAIR an existing article that failed the site's publishing checks. Voice: ${c.tone}. American English.
@@ -53,6 +54,15 @@ Answer with ONE JSON object and nothing else:
 const loadRow = async (id) => { const a = (await db.query('SELECT * FROM articles WHERE id = $1', [V.uuid(id, 'Makale')])).rows[0]; if (!a) throw new HttpError(404, 'Makale bulunamadı'); return a; };
 const blocking = (r) => r.problems.filter((p) => p.blocking).map((p) => ({ code: p.code, message: p.message }));
 const costOf = (list) => (list.some((c) => c === null || c === undefined) ? null : Math.round(list.reduce((x, y) => x + y, 0) * 1e6) / 1e6);
+
+/** the labels of the reviewer's subject-level categories that are not "pass" in the review of the article's CURRENT text ([] = none, or no review yet) */
+async function inherentOf(a) {
+  const rv = await checks.latestOf(a.id, 'review', a.current_version);
+  if (!rv || rv.status === 'error' || !rv.result || !rv.result.categories) return [];
+  return INHERENT.filter((k) => rv.result.categories[k] && rv.result.categories[k].status !== 'pass').map((k) => rv.result.categories[k].label || k);
+}
+const handNote = (labels) => `AdSense sınıfı “inceleme gerekli” ve nedeni konunun kendisi (${labels.join(', ')}): metni düzeltmek bunu değiştirmez, bu bir kişi kararıdır. Yayına uygun bulursanız editörde “AdSense risk sonucu”nu siz “Düşük” yapıp kaydedin`;
+const notifyPerson = (a, lines) => notifications.create({ type: 'article_fix_failed', severity: 'warning', title: `Düzeltme botu çözemedi (karar sizde): ${String(a.h1).slice(0, 80)}`, body: lines.join('\n').slice(0, 900), data: { articleId: a.id } });
 
 /** what the checks found, in words for the model: the readiness messages, the claims the sources do not carry, the reviewer's notes, the measured rules that are not fine */
 async function brief(a, left) {
@@ -125,11 +135,13 @@ async function fixOne(articleId, { userId = null, trigger = 'schedule', force = 
     const ap = await autoApprove.approveIfClean(a0.id);
     return ap.approved ? done('approved', [], 'Eksik yoktu; onaylandı') : { result: 'clean', steps, problems: [], remaining: [], costUsd: 0, message: 'Engelleyen eksik yok; onay sizde' };
   }
-  const person = first.filter((p) => PERSON.has(p.code) || (p.code === 'adsense_risk' && a0.adsense_risk === 'blocked'));
+  const inherent = first.some((p) => p.code === 'adsense_risk') && a0.adsense_risk !== 'blocked' ? await inherentOf(a0) : [];
+  const say = (p) => (p.code === 'adsense_risk' && inherent.length && a0.adsense_risk !== 'blocked' ? handNote(inherent) : p.message);
+  const person = first.filter((p) => PERSON.has(p.code) || (p.code === 'adsense_risk' && (a0.adsense_risk === 'blocked' || inherent.length)));
   if (person.length) {
     steps.push({ step: 'person', ok: false, note: 'Bir kişinin kararı gerekiyor' });
-    const r = await done('needs_person', first, `Bir kişinin kararı gerekiyor: ${person.map((p) => p.message).join('; ')}`);
-    await notifications.create({ type: 'article_fix_failed', severity: 'warning', title: `Düzeltme botu çözemedi (karar sizde): ${String(a0.h1).slice(0, 80)}`, body: person.map((p) => p.message).join('\n'), data: { articleId: a0.id } });
+    const r = await done('needs_person', first.map((p) => ({ code: p.code, message: say(p) })), `Bir kişinin kararı gerekiyor: ${person.map(say).join('; ')}`);
+    await notifyPerson(a0, person.map(say));
     return r;
   }
   const has = (set) => first.some((p) => set.has(p.code));
@@ -162,8 +174,10 @@ async function fixOne(articleId, { userId = null, trigger = 'schedule', force = 
     };
     if (has(CHECKS)) await runChecks('Çalışmamış kontroller yeniden çalıştırıldı');
     let left = blocking(await articles.readiness(a0.id));
+    const handOff = async () => (left.some((p) => p.code === 'adsense_risk') ? inherentOf(await loadRow(a0.id)) : []);      // a review that was missing is there now: is the AdSense class about the subject?
+    let hand = await handOff();
     // 3 the text
-    if (left.some((p) => TEXT.has(p.code))) {
+    if (!hand.length && left.some((p) => TEXT.has(p.code))) {
       const a = await loadRow(a0.id);
       if (a.manual_edited) steps.push({ step: 'rewrite', ok: false, note: 'Makale elle düzenlenmiş: metne dokunulmaz' });
       else {
@@ -185,11 +199,16 @@ async function fixOne(articleId, { userId = null, trigger = 'schedule', force = 
         steps.push({ step: 'rewrite', ok: true, note: (Array.isArray(out.data.fixed) ? out.data.fixed.map((x) => str(x, 200)).filter(Boolean).slice(0, 4).join(' ') : 'Metin düzeltildi') + (Array.isArray(out.data.unfixed) && out.data.unfixed.length ? ` Çözülemeyenler: ${out.data.unfixed.map((x) => str(x, 160)).join(' ')}` : '') });
         await runChecks('Yeni metin için tüm kontroller yeniden çalıştırıldı');
         left = blocking(await articles.readiness(a0.id));
+        hand = await handOff();
       }
     }
     remaining = left;
     // 4 the gate
-    if (!left.length) {
+    if (hand.length) {
+      remaining = left.map((p) => (p.code === 'adsense_risk' ? { code: p.code, message: handNote(hand) } : p));
+      steps.push({ step: 'person', ok: false, note: handNote(hand) });
+      result = 'needs_person';
+    } else if (!left.length) {
       const ap = await autoApprove.approveIfClean(a0.id);
       result = ap.approved ? 'approved' : 'fixed';
       if (!ap.approved && ap.problems && ap.problems.length) { remaining = ap.problems.map((m) => ({ code: 'gate', message: m })); result = 'unresolved'; }
@@ -203,8 +222,9 @@ async function fixOne(articleId, { userId = null, trigger = 'schedule', force = 
   }
   if (grant && !calls) await limits.release({ workType: WORK, projectId: a0.project_id, amount: 1, day: grant.day });     // the model was never asked: no place used
   const title = String(a0.h1).slice(0, 80);
-  const row = await done(result, remaining, result === 'approved' ? 'Eksikler giderildi ve makale “Yayına hazır” yapıldı' : result === 'fixed' ? 'Eksikler giderildi; onay sizde' : `Çözülemeyen eksik kaldı: ${remaining.map((p) => p.message).join('; ')}`);
-  if (result === 'approved' || result === 'fixed') await notifications.create({ type: 'article_fixed', severity: 'info', title: `${result === 'approved' ? 'Eksikler giderildi, makale hazır' : 'Eksikler giderildi, onayınızı bekliyor'}: ${title}`, body: steps.map((s) => `${s.ok ? '✓' : '✗'} ${s.note}`).join('\n').slice(0, 900), data: { articleId: a0.id, result } });
+  const row = await done(result, remaining, result === 'approved' ? 'Eksikler giderildi ve makale “Yayına hazır” yapıldı' : result === 'fixed' ? 'Eksikler giderildi; onay sizde' : result === 'needs_person' ? `Bir kişinin kararı gerekiyor: ${remaining.map((p) => p.message).join('; ')}` : `Çözülemeyen eksik kaldı: ${remaining.map((p) => p.message).join('; ')}`);
+  if (result === 'needs_person') await notifyPerson(a0, remaining.map((p) => p.message));
+  else if (result === 'approved' || result === 'fixed') await notifications.create({ type: 'article_fixed', severity: 'info', title: `${result === 'approved' ? 'Eksikler giderildi, makale hazır' : 'Eksikler giderildi, onayınızı bekliyor'}: ${title}`, body: steps.map((s) => `${s.ok ? '✓' : '✗'} ${s.note}`).join('\n').slice(0, 900), data: { articleId: a0.id, result } });
   else {
     const attempts = stateOf(await loadRow(a0.id), (await rowsFor([a0.id])).get(a0.id)).attempts;
     if (attempts >= MAX_ATTEMPTS) await notifications.create({ type: 'article_fix_failed', severity: 'warning', title: `Düzeltme botu ${MAX_ATTEMPTS} denemede çözemedi: ${title}`, body: remaining.map((p) => p.message).join('\n').slice(0, 900), data: { articleId: a0.id } });
