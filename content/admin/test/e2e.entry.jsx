@@ -21,6 +21,8 @@ const click = async (el, ms = 120) => { if (!el) throw new Error('element not fo
 const btn = (label, root = document) => $$('button, a.btn, a.nav', root).find((b) => b.textContent.replace(/\s+/g, ' ').trim().includes(label));
 const tab = (label) => $$('button.tab').find((b) => b.textContent.trim() === label);
 const nav = (label) => $$('a.nav').find((a) => a.textContent.includes(label));
+// the bots, limits and settings are tabs of the single page "Otomasyon ve Ayarlar"
+const goTab = async (label, ms = 500) => { await click(nav('Otomasyon ve Ayarlar'), ms); await click(tab(label), ms); };
 const setVal = async (el, v) => {
   if (!el) throw new Error('input not found');
   const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : el.tagName === 'SELECT' ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype;
@@ -51,7 +53,7 @@ ok('the default project is selected: Global Tech Content Site, not connected', $
 ok('every dashboard figure is a real count now (a 0 is a real 0); organic traffic says WHY it has no data (no site yet) and no card talks about a later phase', $$('.metric.later').length === 0 && txt().includes('Organik trafik') && txt().includes('Henüz bağlı bir web sitesi yok') && !/Aşama \d/.test(txt()) && txt().includes('Bugün bulunan haber'));
 ok('no articles yet: an honest empty state, not fake charts', txt().includes('Henüz makale yok'));
 ok('menu: every page is a link now, nothing is dimmed any more (SEO Performansı, İç Bağlantılar and AdSense Denetimi included)', $$('.side .nav').every((n) => n.tagName === 'A') && !/Aşama \d/.test($('.side').textContent) && !!nav('AdSense Denetimi') && !!nav('SEO Performansı') && !!nav('İç Bağlantılar') && !!nav('Dünya Gündemi') && !!nav('İçerik Fırsatları'));
-ok('menu is grouped by the way the work flows: five headings in order, every page exactly once, "Otomasyon Modu" at the very top (then Dashboard) without a heading', JSON.stringify($$('.side .nav-sep').map((n) => n.textContent)) === JSON.stringify(['Strateji ve araştırma', 'İçerik', 'Yayın', 'Bakım ve performans', 'Otomasyon ve sistem']) && $$('.side a.nav').length === 26 && new Set($$('.side a.nav').map((a) => a.getAttribute('href'))).size === 26 && $$('.side a.nav')[0].textContent.includes('Otomasyon Modu') && $$('.side a.nav')[1].textContent.includes('Dashboard') && $$('.side .nav-group')[0].querySelector('.nav-sep') === null && $$('.side .nav-group').every((g) => g.querySelectorAll('a.nav').length > 0) && !!$('.side .nav-group[aria-label="Yayın"] a[href="/sites"]') && !!$('.side .nav-group[aria-label="Otomasyon ve sistem"] a[href="/bots"]'));
+ok('menu is grouped by the way the work flows: five headings in order, every page exactly once, "Otomasyon ve Ayarlar" at the very top (then Dashboard) without a heading, and no separate page for bots, limits or settings', JSON.stringify($$('.side .nav-sep').map((n) => n.textContent)) === JSON.stringify(['Strateji ve araştırma', 'İçerik', 'Yayın', 'Bakım ve performans', 'Bağlantılar ve kayıtlar']) && $$('.side a.nav').length === 23 && new Set($$('.side a.nav').map((a) => a.getAttribute('href'))).size === 23 && !nav('Bot Yönetimi') && !nav('Günlük Çalışma Ayarları') && !nav('Sistem Ayarları') && $$('.side a.nav')[0].textContent.includes('Otomasyon ve Ayarlar') && $$('.side a.nav')[1].textContent.includes('Dashboard') && $$('.side .nav-group')[0].querySelector('.nav-sep') === null && $$('.side .nav-group').every((g) => g.querySelectorAll('a.nav').length > 0) && !!$('.side .nav-group[aria-label="Yayın"] a[href="/sites"]') && !!$('.side .nav-group[aria-label="Bağlantılar ve kayıtlar"] a[href="/api-usage"]'));
 
 // ── strategy ───────────────────────────────────────────────────────────────────────────────────────
 await click(nav('Site Nişi ve İçerik Stratejisi'), 400);
@@ -105,7 +107,7 @@ await click(btn('Arşivle'), 600);
 ok('bulk archive archives it in the database', (await q1('SELECT status FROM articles')).status === 'archived');
 
 // ── daily work settings ───────────────────────────────────────────────────────────────────────────
-await click(nav('Günlük Çalışma Ayarları'), 500);
+await goTab('Günlük limitler', 500);
 ok('limits page shows today\'s numbers from the database and the three levels', txt().includes('Genel günlük limitler') && txt().includes('Proje limitleri') && txt().includes('Kategori limitleri') && !!aria('Yeni makale günlük limit'));
 await setVal(aria('Yeni makale günlük limit'), '1');
 await click(btn('Genel limitleri kaydet'), 500);
@@ -128,8 +130,8 @@ let refused = null; try { await S.limits.setProjectLimits(p, { new_article: null
 ok('the server refuses an empty value too and keeps the number (it no longer turns into 3 silently)', !!refused && refused.status === 400 && /boş bırakılamaz/.test(refused.message) && (await q1('SELECT daily_article_limit AS n FROM niche_profiles')).n === 7);
 await setVal(aria('Yeni makale proje limiti'), '3'); await click(btn('Proje limitlerini kaydet'), 600);
 ok('back to 3 by typing it (the later scenarios expect the default)', (await q1('SELECT daily_article_limit AS n FROM niche_profiles')).n === 3);
-await click(btn('Botları duraklat'), 300); await click(btn('Duraklat'), 600);
-ok('"Botları duraklat" pauses all automatic work (and the limits obey it)', (await S.limits.reserve({ workType: 'serp_queries' })).reason === 'paused' && txt().includes('Botlar duraklatıldı'));
+await goTab('Botlar', 500); await click(btn('Botları duraklat'), 300); await click(btn('Duraklat'), 600);
+ok('"Botları duraklat" (Botlar tab, with a question first) pauses all automatic work (and the limits obey it)', (await S.limits.reserve({ workType: 'serp_queries' })).reason === 'paused' && txt().includes('Botlar duraklatıldı'));
 await click(btn('Devam ettir'), 600);
 
 // ── api keys ───────────────────────────────────────────────────────────────────────────────────────
@@ -143,9 +145,10 @@ ok('the key is encrypted in the database', (await q1("SELECT encrypted_secret FR
 ok('cost tiles say "Bilinmiyor" never an invented number when empty (no calls yet)', txt().includes('Henüz harici API çağrısı yapılmadı'));
 
 // ── bots, settings, logs, notifications ───────────────────────────────────────────────────────────
-await click(nav('Bot Yönetimi'), 500);
+await goTab('Botlar', 500);
 ok('15 bots: every bot of the specification is ready now and shows its real last runs; none is "coming in a later phase"', $$('tbody tr').length === 15 && txt().includes('15 / 15 bot hazır') && !/Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
-await click(nav('Sistem Ayarları'), 500);
+await goTab('Ayarlar', 500);
+ok('the Ayarlar tab keeps no second copy of what the flow card edits (no "Birikim temizliği" card, no fresh-news field) and still has the other groups', !$$('section.card h2').find((h) => h.textContent === 'Birikim temizliği') && !txt().includes('Taze haber penceresi') && !!$$('section.card h2').find((h) => h.textContent === 'SEO araştırması') && !!$$('section.card h2').find((h) => h.textContent === 'Platform bütçesi'));
 ok('automation settings load; the three mandatory checks are locked', txt().includes('Kalite ve zorunlu kontroller') && $$('.badge').filter((b) => b.textContent === 'kilitli').length === 3);
 const scoring = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('Fırsat puanlama'));
 await setVal(input('Trend yükselişi', scoring), '50');
@@ -215,7 +218,7 @@ const serperCard0 = $$('section.card').find((c) => c.querySelector('h2') && c.qu
 await setVal(input('API anahtarı', serperCard0), 'serper-key-0123456789abcdef'); await click(btn('Kaydet', serperCard0), 700);
 await click(nav('Anahtar Kelime Araştırması'), 500);
 ok('Apify and Serper are connected: the SERP banner and the Apify banner are gone', !txt().includes('SERP kaynağı bağlı değil') && !txt().includes('Apify bağlı değil') && !!btn('Dosyadan hacim aktar') && !!btn('Kelime ekle'));
-await click(nav('Sistem Ayarları'), 500);
+await goTab('Ayarlar', 500);
 const seoCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('SEO araştırması'));
 ok('SEO settings: there is no SERP-source choice any more (Serper.dev is the only one) and the partial-score switch is on', !input('SERP veri kaynağı', seoCard) && !input('SERP cihazı', seoCard) && txt().includes('Aranma hacmi yokken onayla kısmi puanla üretime izin ver') && $$('input[type=checkbox]', seoCard).filter((c) => c.checked).length >= 2);
 await click(nav('Anahtar Kelime Araştırması'), 600);
@@ -246,7 +249,7 @@ await click(btn('Kapat', $('.modal')) || aria('Kapat'), 300);
 
 // ── FREE MODE: Serper.dev for the SERP, a pasted volume file, a partial score that only the shortlist turns into production ─────────────────────
 await S.db.query('UPDATE niche_profiles SET min_opportunity_score = 10');
-await click(nav('Sistem Ayarları'), 500);
+await goTab('Ayarlar', 500);
 const seoCard2 = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent.startsWith('SEO araştırması'));
 await click(nav('API Kullanımı ve Maliyetler'), 500);
 const serperCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'Serper.dev');
@@ -323,7 +326,7 @@ await click(nav('AI Makale Üretimi'), 700);
 ok('the writer page lists the vendors (who writes, who checks) and the history of the run with its cost and a link to the article', txt().includes('Yapay zekâ sağlayıcıları') && txt().includes('Anthropic (Claude)') && txt().includes('yazar') && txt().includes('kontrol') && txt().includes('yazan modelin kendisi yapar') && txt().includes('Yazım geçmişi') && txt().includes('3 kaynak') === false && /\$0\.\d+/.test(txt()) && !!btn('Makale'));
 
 // ── PHASE 4: bot management, schedule editor, persistent queue ───────────────────────────────────────────────────────────
-await click(nav('Bot Yönetimi'), 700);
+await goTab('Botlar', 700);
 ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 13);
 const wrow = $$('tbody tr').find((r) => r.textContent.includes('AI Article Writer'));
 await click($$('button', wrow).find((b) => b.textContent.includes('Zamanlama')), 500);
@@ -393,7 +396,7 @@ ok('the places of the days were taken by the scheduled posts (the limit of each 
 
 await click(nav('İçerik Takvimi'), 800);
 ok('the calendar shows the scheduled posts on their days with their state', txt().includes('E2E router guide 0') && txt().includes('Zamanlandı') && txt().includes('3 yayın') || (txt().includes('E2E router guide 0') && txt().includes('Zamanlandı')));
-await click(nav('Bot Yönetimi'), 700);
+await goTab('Botlar', 700);
 ok('the WordPress bot is listed (auto-publish is off by default)', txt().includes('Content Publishing Bot') && txt().includes('Otomatik kapalı; elle çalıştırılır') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 13);
 void made;
 
@@ -508,7 +511,7 @@ await setVal(input('AdSense yayıncı numarası', $('.modal')), 'abc'); await cl
 ok('a wrong form is refused and nothing is saved', !!$('.modal') && (await q1('SELECT adsense_pub_id FROM wp_sites')).adsense_pub_id === null);
 await setVal(input('AdSense yayıncı numarası', $('.modal')), 'ca-pub-1234567890123456'); await click(btn('Kaydet', $('.modal')), 900);
 ok('the number is saved as pub-… (ca- dropped)', (await q1('SELECT adsense_pub_id FROM wp_sites')).adsense_pub_id === 'pub-1234567890123456');
-await click(nav('Bot Yönetimi'), 700);
+await goTab('Botlar', 700);
 ok('the AdSense bot is scheduled weekly and says what it does', txt().includes('AdSense Compliance Bot') && txt().includes('haftada bir WordPress sitelerinin AdSense hazırlığını') && txt().includes('Otomatik: 7 günde bir'));
 
 // ── PHASE 7a: Telegram ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -621,8 +624,9 @@ ok('there is no DataForSEO card and no login field any more (the Apify card only
 // ── Otomasyon Modu: three modes + checkboxes over the settings that already exist ─────────────────────────────────────────────
 const autoSched = async (bot) => { const r = await q1('SELECT enabled FROM schedule_settings WHERE bot_key = $1', [bot]); return { enabled: r ? r.enabled : false }; };   // no row = the bot's default, which for the paid ones is off
 const boxFor = (label) => $$('label.check').find((l) => l.textContent.includes(label));
-await click(nav('Otomasyon Modu'), 900);
+await click(nav('Otomasyon ve Ayarlar'), 900);
 ok('the page shows the current mode, three mode cards, the 16 options in 4 groups, the values and the checklist', txt().includes('Şu anki mod:') && ['Elle', 'Yarı otomatik', 'Tam otomatik'].every((m) => !!btn(`${m} modunu uygula`) || txt().includes(m)) && $$('label.check').length >= 16 + 1 && ['Araştırma', 'Yazım ve onay', 'Yayın', 'Bakım, izleme ve raporlar'].every((g) => txt().includes(g)) && txt().includes('Günlük yeni makale') && txt().includes('Başlamadan önce kontrol listesi'));
+ok('Otomasyon ve Ayarlar is ONE page: tabs Genel, Botlar, Görev kuyruğu, Günlük limitler, Ayarlar and (admin) Kullanıcılar, Sistem; Genel is the one open', JSON.stringify($$('button.tab').map((b) => b.textContent)) === JSON.stringify(['Genel', 'Botlar', 'Görev kuyruğu', 'Günlük limitler', 'Ayarlar', 'Kullanıcılar', 'Sistem']) && tab('Genel').getAttribute('aria-selected') === 'true');
 const liveRows = () => $$('table[aria-label="Botların anlık durumu"] tbody tr');
 ok('the "Anlık durum" card lists all 13 bots with a state each, the day\'s numbers and the honest note that no scheduler runs on this test server', !!$$('section.card h2').find((h) => h.textContent === 'Anlık durum') && liveRows().length === 13 && liveRows().every((r) => /Çalışıyor|Sırada|Yeniden denenecek|Bekliyor|Duraklatıldı|Hatalar nedeniyle durdu|Kapalı/.test(r.textContent)) && txt().includes('Bugün yazılan') && txt().includes('Zamanlayıcı bu sunucuda çalışmıyor') && txt().includes('● canlı'));
 const pid0 = (await q1('SELECT id FROM content_projects ORDER BY created_at LIMIT 1')).id;
@@ -646,7 +650,7 @@ ok('ticking "publish live" also ticks "send to WordPress" (it cannot exist witho
 await click(boxFor('Hazır makaleleri WordPress’e gönder').querySelector('input'), 150);
 ok('un-ticking "send to WordPress" un-ticks "publish live" with it', boxFor('Taslak yerine doğrudan yayımla').querySelector('input').checked === false);
 ok('"Tam otomatik" is not offered while no WordPress site has passed its connection test, and the card says which one is missing', !!$$('.card').find((c) => c.textContent.includes('Tam otomatik') && c.textContent.includes('Bu mod için eksikler var') && c.textContent.includes('Bağlantı testi geçmiş')) && btn('Tam otomatik modunu uygula').disabled === true);
-await click(nav('Web Sitelerim'), 700); await click(btn('Bağlantıyı test et'), 1200); await click(nav('Otomasyon Modu'), 900);
+await click(nav('Web Sitelerim'), 700); await click(btn('Bağlantıyı test et'), 1200); await click(nav('Otomasyon ve Ayarlar'), 900);
 ok('after the real connection test the mode becomes available', (await q1('SELECT last_test_ok FROM wp_sites')).last_test_ok === true && btn('Tam otomatik modunu uygula').disabled === false);
 await click(btn('Tam otomatik modunu uygula'), 700);
 ok('"Tam otomatik" first asks, in words, because articles would go public without a person (and applies nothing yet)', !!$('.modal') && txt().includes('SİZ BAKMADAN') && (await autoSched('article_writer')).enabled !== true);
@@ -662,13 +666,13 @@ ok('typing a value wakes "Değerleri kaydet" and "Seçimi uygula" (before: both 
 await click(btn('Değerleri kaydet'), 1500);
 const wsch = await q1("SELECT enabled, window_start, window_end FROM schedule_settings WHERE bot_key = 'article_writer'");
 ok('"Değerleri kaydet" saves the writer hours on the real bot schedule and the day\'s article number, keeps the mode (Tam otomatik) and the switches, and goes off again', wsch.enabled === true && wsch.window_start === '08:15' && wsch.window_end === '22:45' && txt().includes('Şu anki mod: Tam otomatik') && (await q1("SELECT daily_article_limit FROM niche_profiles LIMIT 1")).daily_article_limit === 5 && btn('Değerleri kaydet').disabled === true && aria('Yazım başlangıcı').value === '08:15');
-await click(nav('Bot Yönetimi'), 800);
+await goTab('Botlar', 800);
 ok('Bot Yönetimi shows the very same switches (the page has no state of its own)', txt().includes('Otomatik: 3 saatte bir') || txt().includes('3 saatte bir'));
-await click(nav('Otomasyon Modu'), 800); await click(btn('Elle modunu uygula'), 1000);
+await click(nav('Otomasyon ve Ayarlar'), 800); await click(btn('Elle modunu uygula'), 1000);
 ok('and "Elle" takes everything back: manual approval again, WordPress as draft, no bot scheduled', txt().includes('Şu anki mod: Elle') && (await q1("SELECT value FROM automation_settings WHERE key = 'quality'")).value.manualApprovalNewArticles === true && (await q1("SELECT value FROM automation_settings WHERE key = 'publishing'")).value.mode === 'draft' && (await q1("SELECT count(*)::int n FROM schedule_settings WHERE enabled")).n === 0);
 
 // ── Bulgu akışı ve zaman dalgası: what was found, the waves, why ideas wait, the fresh-news window, the housekeeping ─────────────────────────────────────
-await click(nav('Otomasyon Modu'), 900);
+await click(nav('Otomasyon ve Ayarlar'), 900);
 const flowCard = () => $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'Bulgu akışı ve zaman dalgası');
 ok('the flow card shows what was found, today\'s places, the waves by age and the housekeeping in plain words', !!flowCard() && flowCard().textContent.includes('Bulunan haber (son 24 saat)') && flowCard().textContent.includes('Nişe uygun olay (son 7 gün)') && flowCard().textContent.includes('Yazılmaya hazır fikir') && flowCard().textContent.includes('Bugün yazılan makale') && flowCard().textContent.includes('Zaman dalgası') && flowCard().textContent.includes('Son 12 saat') && flowCard().textContent.includes('7 günden eski') && flowCard().textContent.includes('hiçbir zaman'));
 ok('the values say what REALLY applies (the narrowest limit), not only the number typed', txt().includes('Fiilen geçerli: günde en çok') && txt().includes('genel sınır') && txt().includes('en dar olan geçerlidir'));
@@ -677,7 +681,7 @@ await setVal(aria('Taze haber penceresi'), '12'); await click(btn('Kaydet', flow
 ok('the fresh-news window is saved through the ordinary settings (project scope)', (await seoRow()).value.freshHours === 12);
 const flowCat = (await q1('SELECT id FROM categories LIMIT 1')).id;
 await S.db.query("INSERT INTO topics (project_id, category_id, title, origin, status, created_at) VALUES ($1,$2,'E2E stale idea','news','new', now() - interval '40 days')", [pid, flowCat]);
-await click(nav('Bot Yönetimi'), 500); await click(nav('Otomasyon Modu'), 900);
+await goTab('Botlar', 500); await click(nav('Otomasyon ve Ayarlar'), 900);
 ok('an idea nobody used for 40 days is announced as about to be removed (and the card says what is never removed)', flowCard().textContent.includes('Şu an silinecek: 1 fikir') && !btn('Şimdi temizle', flowCard()).disabled);
 await click(btn('Şimdi temizle', flowCard()), 500); ok('cleaning asks first and lists what stays', !!$('.modal') && txt().includes('geri alınamaz') && txt().includes('silinmez'));
 await click(btn('Temizle', $('.modal')), 1000);
@@ -685,7 +689,7 @@ ok('the stale idea is gone, the run is logged, and nothing else was touched', (a
 
 // ── cover pictures: settings, the model picker, the editor card, the alt text, the paid button, removal ────────────────────────────────────────
 if (!URL.createObjectURL) { URL.createObjectURL = () => 'blob:e2e-picture'; URL.revokeObjectURL = () => {}; }
-await click(nav('Sistem Ayarları'), 600);
+await goTab('Ayarlar', 600);
 ok('the settings page has the "Kapak görselleri" card with its switches (off by default: pictures cost money)', !!$$('section.card h2').find((h) => h.textContent === 'Kapak görselleri') && txt().includes('Yeni makaleye kapak görseli ekle') && txt().includes('Görsel kalitesi') && txt().includes('Görselsiz makale kendiliğinden'));
 await click(nav('API Kullanımı ve Maliyetler'), 700);
 const oaCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'OpenAI');
@@ -707,7 +711,7 @@ await click($$('button').find((b) => b.textContent.trim() === 'Sil' && b.classNa
 ok('removing the picture deletes it', (await q1('SELECT count(*)::int n FROM article_images')).n === 0 && txt().includes('Bu makalenin kapak görseli yok'));
 
 // ── FREE cover photos (Pixabay): the key card, the settings, the search on the editor card, a person's choice, the filter flag, the credit ────────────────────────
-await click(nav('Sistem Ayarları'), 600);
+await goTab('Ayarlar', 600);
 ok('the cover settings now choose the source (automatic / only free / only OpenAI) and the free image type', txt().includes('Görsel kaynağı') && txt().includes('Ücretsiz görsel türü') && txt().includes('Yalnızca ücretsiz fotoğraf (Pixabay)'));
 await click(nav('API Kullanımı ve Maliyetler'), 700);
 const pxCard = $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'Pixabay (ücretsiz fotoğraflar)');
@@ -724,11 +728,19 @@ ok('choosing a photo downloads it to our own storage with its credit, at no cost
 ok('the card shows the photo with its credit and says it is free (no price, no drawing prompt)', txt().includes('Ücretsiz fotoğraf') && txt().includes('Jane Doe') && txt().includes('kaynak göstermeyi şart koşmaz') && txt().includes('Aranan kelime') && !txt().includes('Çizilen tarif'));
 await click($$('button').find((b) => b.textContent.trim() === 'Sil' && b.className.includes('danger')), 500); await click(btn('Sil', $('.modal')), 800);
 ok('removing it works for a free photo too', (await q1('SELECT count(*)::int n FROM article_images')).n === 0);
-await click(nav('Otomasyon Modu'), 800);
+await click(nav('Otomasyon ve Ayarlar'), 800);
 const imgBox = $$('label.check').find((l) => l.textContent.includes('Makaleye kapak görseli ekle'));
 ok('Otomasyon Modu: with a Pixabay key the cover option is free (no "ücretli" badge) and ready', !!imgBox && !imgBox.textContent.includes('ücretli') && !imgBox.querySelector('input').disabled);
 
 // ── logout ─────────────────────────────────────────────────────────────────────────────────────────
+// the old addresses of the three pages that became tabs still work (bookmarks, notification links)
+for (const [from, label] of [['/bots', 'Botlar'], ['/limits', 'Günlük limitler'], ['/settings', 'Ayarlar']]) {
+  await act(async () => { root.render(<MemoryRouter key={from} initialEntries={[from]}><App /></MemoryRouter>); }); await wait(700);
+  if (btn('Giriş yap')) { await setVal(input('E-posta'), 'smoke@example.com'); await setVal(input('Şifre'), 'Correct-Horse-9-Battery'); await click(btn('Giriş yap'), 1500); }
+  ok(`the old address ${from} opens the single page on its tab "${label}"`, !!tab(label) && tab(label).getAttribute('aria-selected') === 'true' && txt().includes('Otomasyon ve Ayarlar'), txt().slice(0, 400) + ' | tabs: ' + $$('button.tab').map((b) => b.textContent + ':' + b.getAttribute('aria-selected')).join(','));
+}
+await act(async () => { root.render(<MemoryRouter key="back" initialEntries={['/']}><App /></MemoryRouter>); }); await wait(700);
+if (btn('Giriş yap')) { await setVal(input('E-posta'), 'smoke@example.com'); await setVal(input('Şifre'), 'Correct-Horse-9-Battery'); await click(btn('Giriş yap'), 1500); }
 await click(aria('Çıkış'), 600);
 ok('logout returns to the login form and ends the session', txt().includes('Giriş yap') && !nav('Makale Arşivi'));
 

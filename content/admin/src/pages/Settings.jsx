@@ -1,22 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { api, qs } from '../api.js';
-import { Alert, Async, Badge, Card, Check, Field, Modal, PageHead, Tabs, useAction, useApp, useLoad } from '../ui.jsx';
+import { Alert, Async, Badge, Card, Check, Field, Modal, useAction, useApp, useLoad } from '../ui.jsx';
 import { csvList, dt, lines } from '../format.js';
 
 const F = {
   news: { title: 'Haber tarama', about: 'Dünya gündemini ne sıklıkla ve hangi ülkeler için taranacağı.', fields: [
-    { k: 'enabled', t: 'bool', l: 'Haber botu aktif', hint: 'Taramanın sıklığı ve çalışma saatleri Bot Yönetimi sayfasındadır; bu anahtar yalnızca bu projede haber taramasını tümden kapatır.' }, { k: 'countries', t: 'csv', l: 'Hedef ülkeler (virgülle, 2 harfli)' },
+    { k: 'enabled', t: 'bool', l: 'Haber botu aktif', hint: 'Taramanın sıklığı ve çalışma saatleri Botlar sekmesindedir; bu anahtar yalnızca bu projede haber taramasını tümden kapatır.' }, { k: 'countries', t: 'csv', l: 'Hedef ülkeler (virgülle, 2 harfli)' },
     { k: 'maxAgeHours', t: 'int', l: 'En eski haber (saat)', min: 1, max: 720, hint: 'Bundan eski haberler alınmaz.' }, { k: 'minRelevance', t: 'int', l: 'Minimum nişe uygunluk puanı', min: 0, max: 100, hint: 'Varsayılan 35: tek bir güçlü terim yeter, genel kelimeler tek başına yetmez.' },
     { k: 'maxItemsPerSource', t: 'int', l: 'Kaynak başına en çok haber (tarama başına)', min: 5, max: 100 }] },
   seo: { title: 'SEO araştırması', about: 'Anahtar kelime filtreleri ve API önbellek süresi.', fields: [
-    { k: 'enabled', t: 'bool', l: 'SEO botu aktif', hint: 'Fırsat puanlama, niş keşfi, anahtar kelime ve SERP botlarını bu projede tümden kapatır; zamanlama Bot Yönetimi’ndedir.' }, { k: 'minVolume', t: 'int', l: 'Minimum aylık aranma hacmi', min: 0, max: 1000000 }, { k: 'countries', t: 'csv', l: 'Hedef ülkeler (ilki birincil ülke)' },
-      { k: 'freshHours', t: 'int', l: 'Taze haber penceresi (saat; 0 = kapalı)', min: 0, max: 168, hint: 'Son görülmesinden bu kadar saat geçmemiş ve 2+ kaynakta (ya da çok güvenilir tek kaynakta) çıkan olay, aranma hacmi ve rekabet verisi beklenmeden yazılabilir (puanı en az 60). Otomasyon Modu sayfasındaki “Bulgu akışı” kartından da değiştirilir.' },
+    { k: 'enabled', t: 'bool', l: 'SEO botu aktif', hint: 'Fırsat puanlama, niş keşfi, anahtar kelime ve SERP botlarını bu projede tümden kapatır; zamanlama Botlar sekmesindedir.' }, { k: 'minVolume', t: 'int', l: 'Minimum aylık aranma hacmi', min: 0, max: 1000000 }, { k: 'countries', t: 'csv', l: 'Hedef ülkeler (ilki birincil ülke)' },
       { k: 'partialWithApproval', t: 'bool', l: 'Aranma hacmi yokken onayla kısmi puanla üretime izin ver', hint: 'Açıkken: hacim verisi olmayan ama SERP analizi yapılmış fikirler, yalnızca “Kısa liste”ye aldığınızda (sizin onayınızla) ve kısmi puanı eşiği geçtiğinde üretime girer. Kapalıyken hacim verisi olmayan fikir hiç uygun sayılmaz.' }, { k: 'cacheDays', t: 'int', l: 'API önbellek süresi (gün)', min: 1, max: 180, hint: 'Aynı sorgu bu süre içinde tekrar ücretlendirilmez.' }] },
-  retention: { title: 'Birikim temizliği', about: 'Bulunup kullanılmayan fikirler, anahtar kelimeler ve niş önerileri birikmesin diye kendiliğinden silinir (günde bir kez). Kısa listedeki / yazılmakta olan fikirler, elle yazdıklarınız, makaleler ve kabul ettiğiniz öneriler hiçbir zaman silinmez. Ne silineceğini Otomasyon Modu sayfasındaki “Bulgu akışı” kartı gösterir.', fields: [
-    { k: 'auto', t: 'bool', l: 'Kullanılmayan bulgular kendiliğinden silinsin' }, { k: 'ideaDays', t: 'int', l: 'Kullanılmayan fikirler (gün)', min: 8, max: 90, hint: 'En az 8: bir olay 7 güne kadar yeni fikir üretebilir, daha kısa olursa silinen fikir geri gelirdi.' },
-    { k: 'writtenDays', t: 'int', l: 'Makalesi yazılmış fikirler (gün)', min: 0, max: 30 }, { k: 'keywordDays', t: 'int', l: 'Kullanılmayan anahtar kelimeler (gün)', min: 3, max: 365 },
-    { k: 'researchedKeywordDays', t: 'int', l: 'Verisi çekilmiş kullanılmayan anahtar kelimeler (gün)', min: 7, max: 365 }, { k: 'nicheDays', t: 'int', l: 'Karara bağlanmayan niş önerileri (gün)', min: 7, max: 180 }] },
   quality: { title: 'Kalite ve zorunlu kontroller', about: 'Üç zorunlu kontrol kapatılamaz.', fields: [
     { k: 'minScore', t: 'int', l: 'Minimum kalite puanı', min: 50, max: 100 }, { k: 'lengthPref', t: 'select', l: 'Makale uzunluğu', opts: [['short', 'Kısa'], ['standard', 'Standart'], ['long', 'Uzun']] },
     { k: 'tone', t: 'text', l: 'Yazım tonu' }, { k: 'language', t: 'text', l: 'Varsayılan dil' }, { k: 'manualApprovalNewArticles', t: 'bool', l: 'Yeni makaleler için manuel yayın onayı' },
@@ -26,7 +21,7 @@ const F = {
   publishing: { title: 'Yayın', about: 'WordPress’e yayın bu ayarlara göre yapılır (Web Sitelerim ve Toplu Yayınlama sayfaları).', fields: [
     { k: 'autoPublish', t: 'bool', l: 'Otomatik yayın' }, { k: 'mode', t: 'select', l: 'Yayın şekli', opts: [['draft', 'Taslak olarak gönder'], ['publish', 'Doğrudan yayımla']] }, { k: 'windowStart', t: 'time', l: 'Yayın saat aralığı — başlangıç' }, { k: 'windowEnd', t: 'time', l: 'Yayın saat aralığı — bitiş' },
     { k: 'timezone', t: 'text', l: 'Saat dilimi (ör. Europe/Istanbul)' }, { k: 'weekends', t: 'bool', l: 'Hafta sonu da yayınla' }] },
-  images: { title: 'Kapak görselleri', about: 'Her yeni yapay zekâ makalesine bir kapak görseli eklenir: Pixabay anahtarı varsa ÜCRETSİZ bir fotoğraf bulunur (yazıcının önerdiği arama sözcüğüyle; etiketinde kişi, logo ya da marka geçen fotoğraflar elenir), yoksa OpenAI görsel modeli çizer (görsel başına ücret). Anahtarlar API Kullanımı sayfasındadır; açıp kapatmayı Otomasyon Modu sayfasından da yapabilirsiniz.', fields: [
+  images: { title: 'Kapak görselleri', about: 'Her yeni yapay zekâ makalesine bir kapak görseli eklenir: Pixabay anahtarı varsa ÜCRETSİZ bir fotoğraf bulunur (yazıcının önerdiği arama sözcüğüyle; etiketinde kişi, logo ya da marka geçen fotoğraflar elenir), yoksa OpenAI görsel modeli çizer (görsel başına ücret). Anahtarlar API Kullanımı sayfasındadır; açıp kapatmayı Genel sekmesinden de yapabilirsiniz.', fields: [
     { k: 'auto', t: 'bool', l: 'Yeni makaleye kapak görseli ekle' },
     { k: 'source', t: 'select', l: 'Görsel kaynağı', opts: [['auto', 'Otomatik: Pixabay anahtarı varsa ücretsiz fotoğraf, yoksa OpenAI'], ['stock', 'Yalnızca ücretsiz fotoğraf (Pixabay)'], ['openai', 'Yalnızca OpenAI ile çiz (ücretli)']], hint: 'Seçilen kaynağın anahtarı yoksa görsel eklenmez; ücretsiz kaynak bir şey bulamazsa ücretli kaynağa kendiliğinden geçilmez.' },
     { k: 'stockType', t: 'select', l: 'Ücretsiz görsel türü', opts: [['photo', 'Fotoğraf'], ['illustration', 'Çizim / illüstrasyon'], ['all', 'Hepsi']], hint: 'Teknoloji gibi soyut konularda çizimler bazen daha uygun olur; fotoğraf varsayılandır.' },
@@ -41,7 +36,7 @@ const F = {
   budget: { title: 'Platform bütçesi', about: 'Tüm ücretli servislerin toplamı için üst sınır (USD). Her servisin kendi bütçesi API sayfasındadır.', fields: [
     { k: 'dailyTotalUsd', t: 'usd', l: 'Günlük toplam bütçe (USD)', hint: 'Boş = sınırsız' }, { k: 'monthlyTotalUsd', t: 'usd', l: 'Aylık toplam bütçe (USD)', hint: 'Boş = sınırsız' }] },
 };
-const ORDER = ['news', 'seo', 'retention', 'quality', 'images', 'publishing', 'update', 'scoring', 'budget'];
+const ORDER = ['news', 'seo', 'quality', 'images', 'publishing', 'update', 'scoring', 'budget'];
 
 const get = (o, path) => path.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
 const put = (o, path, v) => { const c = JSON.parse(JSON.stringify(o)); const ks = path.split('.'); let t = c; ks.slice(0, -1).forEach((k) => { t = t[k]; }); t[ks[ks.length - 1]] = v; return c; };
@@ -76,7 +71,8 @@ function GroupForm({ group, data, projectId, canEdit, onChanged }) {
   );
 }
 
-function Automation() {
+/** The settings groups (news, SEO, quality, covers, publishing, update, scoring, budget): a tab of "Otomasyon ve Ayarlar". */
+export function SettingsGroups() {
   const { projectId, project, can } = useApp();
   const [scope, setScope] = useState('global');
   const pid = scope === 'project' ? projectId : null;
@@ -90,7 +86,8 @@ function Automation() {
   );
 }
 
-function Users() {
+/** admin only */
+export function Users() {
   const { me } = useApp();
   const st = useLoad(() => api.get('/users'), []);
   const [modal, setModal] = useState(false); const [f, setF] = useState({ email: '', name: '', password: '', role: 'editor' });
@@ -116,7 +113,8 @@ function Users() {
   );
 }
 
-function System() {
+/** admin only */
+export function System() {
   const st = useLoad(() => api.get('/system'), []);
   return (
     <Async state={st}>{(d) => (
@@ -133,18 +131,5 @@ function System() {
         <Card title={`Veritabanı göçleri (${d.migrations.length}/${d.migrationFilesTotal})`}><div className="stack">{d.migrations.map((m) => <div key={m.id} className="row between"><span className="mono">{m.id}</span><span className="faint">{dt(m.appliedAt)}</span></div>)}</div></Card>
       </div>
     )}</Async>
-  );
-}
-
-export default function Settings() {
-  const { can } = useApp();
-  const [tab, setTab] = useState('auto');
-  const tabs = [['auto', 'Otomasyon ayarları'], ...(can('users.manage') ? [['users', 'Kullanıcılar'], ['system', 'Sistem']] : [])];
-  return (
-    <div className="page">
-      <PageHead title="Sistem Ayarları">Haber, SEO, kalite, yayın, güncelleme ve bütçe ayarları ile kullanıcılar. Günlük iş limitleri ayrı bir sayfadadır: Günlük Çalışma Ayarları.</PageHead>
-      <Tabs tabs={tabs} value={tab} onChange={setTab} />
-      {tab === 'auto' && <Automation />}{tab === 'users' && <Users />}{tab === 'system' && <System />}
-    </div>
   );
 }

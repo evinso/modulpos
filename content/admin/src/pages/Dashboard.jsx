@@ -81,7 +81,7 @@ export default function Dashboard() {
       <Async state={st}>{(d) => (
         <>
           {(!project || project.mode === 'archive') && <Alert kind="info" title="Araştırma ve Arşiv Modu">Alan adı bağlı değil. Makaleler yalnızca bu panelin veritabanında saklanır; hiçbir sitede yayımlanmaz. Bir WordPress sitesi bağlamak için <Link to="/sites">Web Sitelerim</Link> sayfasını kullanın.</Alert>}
-          {d.botsPaused && <Alert kind="warn" title="Botlar duraklatıldı">Otomatik işler çalışmaz. <Link to="/limits">Günlük Çalışma Ayarları</Link> sayfasından devam ettirebilirsiniz.</Alert>}
+          {d.botsPaused && <Alert kind="warn" title="Botlar duraklatıldı">Otomatik işler çalışmaz. <Link to="/automation?tab=botlar">Otomasyon ve Ayarlar → Botlar</Link> sekmesinden devam ettirebilirsiniz.</Alert>}
           <div className="grid cols-metrics">{d.metrics.map((m) => <Metric key={m.key} m={m} />)}</div>
           {d.empty ? (
             <Card><Empty title="Henüz makale yok" action={<Link className="btn primary" to="/articles/new">İlk makaleyi ekle</Link>}>Makaleleri Makale Arşivi’nden elle ekleyebilirsiniz. Yapay zekâ ile üretim için <Link to="/opportunities">İçerik Fırsatları</Link> sayfasından bir fikir seçip “Makale yaz”a basabilirsiniz; haber ve SEO araştırması Dünya Gündemi ve Anahtar Kelime Araştırması sayfalarındadır.</Empty></Card>
@@ -99,7 +99,7 @@ export default function Dashboard() {
             <Card flat title="Organik trafik"><Organic o={d.charts.organicTraffic} /></Card>
           </div>
           <div className="grid g2">
-            <Card title="Bugünün çalışma limitleri" actions={<Link className="btn sm" to="/limits">Düzenle</Link>}>
+            <Card title="Bugünün çalışma limitleri" actions={<Link className="btn sm" to="/automation?tab=limitler">Düzenle</Link>}>
               <div className="tbl-wrap"><table className="tbl"><thead><tr><th>İş türü</th><th className="num">Limit</th><th className="num">Yapılan</th><th className="num">Kalan</th></tr></thead>
                 <tbody>{d.limitsToday.map((l) => <tr key={l.workType}><td>{l.label}</td><td className="num">{l.limit === 0 ? <Badge kind="bad">Durduruldu</Badge> : num(l.limit)}</td><td className="num">{num(l.done)}</td><td className="num">{num(l.remaining)}</td></tr>)}</tbody></table></div>
               <small className="faint">Gün: {d.day} ({d.timezone})</small>

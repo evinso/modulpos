@@ -77,7 +77,7 @@ export default function AdsenseAudit() {
                 {busyNow && <Alert kind="info">Bir denetim çalışıyor ({[...d.pending.map((p) => p.url), ...d.running].filter((v, i, a) => a.indexOf(v) === i).join(', ')}). Sayfa kendiliğinden yenilenir.</Alert>}
               </div>
             </Card>)}
-          {d.latest.length === 0 ? <Card><Empty title="Henüz denetim yapılmadı">Yukarıya sitenizin adresini yazıp “Denetle”ye basın. Bağlı siteler her hafta kendiliğinden denetlenir (Bot Yönetimi → AdSense Compliance Bot).</Empty></Card> : (
+          {d.latest.length === 0 ? <Card><Empty title="Henüz denetim yapılmadı">Yukarıya sitenizin adresini yazıp “Denetle”ye basın. Bağlı siteler her hafta kendiliğinden denetlenir (Otomasyon ve Ayarlar → Botlar → AdSense Compliance Bot).</Empty></Card> : (
             <div className="stack">{d.latest.map((a) => (
               <Card key={a.id} flat title={a.url} actions={<>{a.verdict ? <Badge kind={VERDICT[a.verdict][1]}>{a.verdictLabel}</Badge> : <Badge kind="bad">Başarısız</Badge>}{a.trigger === 'schedule' && <Badge>haftalık</Badge>}</>}>
                 <div className="stack">

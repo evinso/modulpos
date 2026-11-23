@@ -63,7 +63,7 @@ function NicheTab({ projectId, canEdit }) {
         <div className="grid g3" style={{ marginTop: 12 }}>
           <Field label="Öncelikli konular (her satıra bir tane)"><textarea className="input" rows={5} value={f.preferredTopics} onChange={set('preferredTopics')} disabled={dis} /></Field>
           <Field label="Minimum SEO fırsat puanı (0–100)"><input className="input num" type="number" min={0} max={100} value={f.minOpportunityScore} onChange={set('minOpportunityScore')} disabled={dis} /></Field>
-          <Field label="Günlük yeni makale limiti" hint="Burada değişirse Günlük Çalışma Ayarları’ndaki proje limiti de aynı değerdir."><input className="input num" type="number" min={0} max={50} value={f.dailyArticleLimit} onChange={set('dailyArticleLimit')} disabled={dis} /></Field>
+          <Field label="Günlük yeni makale limiti" hint="Burada değişirse Otomasyon ve Ayarlar → Günlük limitler’deki proje limiti de aynı değerdir."><input className="input num" type="number" min={0} max={50} value={f.dailyArticleLimit} onChange={set('dailyArticleLimit')} disabled={dis} /></Field>
         </div>
       </Card>
       {canEdit && <div className="row end sticky-save"><button className="btn primary" disabled={busy} onClick={save}>{busy ? 'Kaydediliyor…' : 'Stratejiyi kaydet'}</button></div>}

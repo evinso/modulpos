@@ -309,7 +309,7 @@ async function afterFinalFailure(job, err) {
   const s = await getSchedule(job.botKey); const streak = s.failStreak + 1;
   if (streak >= FAIL_LIMIT) {
     await saveSchedule(job.botKey, { failStreak: streak, enabled: false, disabledReason: `Art arda ${streak} zamanlanmış görev başarısız oldu: ${String((err && err.message) || err).slice(0, 200)}` });
-    await notifications.create({ type: 'bot_disabled', severity: 'critical', title: `${label} otomatik olarak kapatıldı`, body: `Art arda ${streak} görev başarısız oldu. Nedeni çözüp Bot Yönetimi’nden yeniden açın.`, data: { bot: job.botKey } });
+    await notifications.create({ type: 'bot_disabled', severity: 'critical', title: `${label} otomatik olarak kapatıldı`, body: `Art arda ${streak} görev başarısız oldu. Nedeni çözüp Otomasyon ve Ayarlar → Botlar’dan yeniden açın.`, data: { bot: job.botKey } });
   } else await saveSchedule(job.botKey, { failStreak: streak });
 }
 

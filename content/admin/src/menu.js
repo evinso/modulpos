@@ -1,9 +1,9 @@
-import { Zap, LayoutDashboard, Target, Globe2, TrendingUp, Compass, Search, BarChart3, Lightbulb, Sparkles, Archive, CalendarDays, HeartPulse, RefreshCw, Link2, ShieldCheck, Server, Send, LineChart, Bot, Gauge, Coins, Bell, FileText, History, Settings } from 'lucide-react';
+import { Zap, LayoutDashboard, Target, Globe2, TrendingUp, Compass, Search, BarChart3, Lightbulb, Sparkles, Archive, CalendarDays, HeartPulse, RefreshCw, Link2, ShieldCheck, Server, Send, LineChart, Coins, Bell, FileText, History } from 'lucide-react';
 
 /** The side menu, grouped by the way the work flows: research -> content -> publishing -> upkeep -> automation. `to` = the page it opens; a group without `title` is shown without a heading. */
 export const GROUPS = [
   { title: null, items: [
-    { label: 'Otomasyon Modu', to: '/automation', icon: Zap },
+    { label: 'Otomasyon ve Ayarlar', to: '/automation', icon: Zap },
     { label: 'Dashboard', to: '/', icon: LayoutDashboard, end: true },
   ] },
   { title: 'Strateji ve araştırma', items: [
@@ -32,13 +32,10 @@ export const GROUPS = [
     { label: 'SEO Performansı', to: '/performance', icon: LineChart },
     { label: 'Raporlar', to: '/reports', icon: FileText },
   ] },
-  { title: 'Otomasyon ve sistem', items: [
-    { label: 'Bot Yönetimi', to: '/bots', icon: Bot },
-    { label: 'Günlük Çalışma Ayarları', to: '/limits', icon: Gauge },
+  { title: 'Bağlantılar ve kayıtlar', items: [
     { label: 'API Kullanımı ve Maliyetler', to: '/api-usage', icon: Coins },
     { label: 'Bildirimler', to: '/notifications', icon: Bell, badge: 'unread' },
     { label: 'İşlem Geçmişi', to: '/logs', icon: History },
-    { label: 'Sistem Ayarları', to: '/settings', icon: Settings },
   ] },
 ];
 /** the same pages as one flat list */
