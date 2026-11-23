@@ -47,7 +47,7 @@ export default function Reports() {
   return (
     <div className="page">
       <PageHead title="Raporlar" actions={can('research.write') && <button className="btn primary" disabled={busy} onClick={make}><FilePlus2 size={15} />{kind === 'weekly' ? 'Haftalık raporu şimdi hazırla' : 'Günlük raporu şimdi hazırla'}</button>}>
-        Her sabah önceki günün, pazartesileri önceki haftanın raporu kendiliğinden hazırlanır (Bot Yönetimi → Reporting Bot) ve bildirim gelir; Telegram’a da gider. Her sayı hazırlandığı anda <strong>ölçülür ve saklanır</strong>: ölçülemeyen şey “veri yok” yazar, fiyatı bilinmeyen API çağrısı sayılır ama toplama katılmaz. “Şimdi hazırla” en son tamamlanmış günün (haftanın) raporunu yeniden ölçer.
+        Her sabah önceki günün, pazartesileri önceki haftanın raporu kendiliğinden hazırlanır (Otomasyon ve Ayarlar → Botlar → Reporting Bot) ve bildirim gelir; Telegram’a da gider. Her sayı hazırlandığı anda <strong>ölçülür ve saklanır</strong>: ölçülemeyen şey “veri yok” yazar, fiyatı bilinmeyen API çağrısı sayılır ama toplama katılmaz. “Şimdi hazırla” en son tamamlanmış günün (haftanın) raporunu yeniden ölçer.
       </PageHead>
       <Tabs tabs={[['daily', 'Günlük'], ['weekly', 'Haftalık']]} value={kind} onChange={(k) => { setKind(k); setSel(null); }} />
       <Async state={st}>{(d) => d && (d.reports.length === 0 ? <Card><Empty title={`Henüz ${kind === 'weekly' ? 'haftalık' : 'günlük'} rapor yok`}>Raporlar sabah 06:00–12:00 arasında kendiliğinden hazırlanır; beklemeden yukarıdaki düğmeyle ilkini üretebilirsiniz.</Empty></Card> : (

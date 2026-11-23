@@ -8,12 +8,9 @@ import Dashboard from './pages/Dashboard.jsx';
 import Strategy from './pages/Strategy.jsx';
 import Articles from './pages/Articles.jsx';
 import ArticleEditor from './pages/ArticleEditor.jsx';
-import Limits from './pages/Limits.jsx';
 import ApiUsage from './pages/ApiUsage.jsx';
-import Bots from './pages/Bots.jsx';
 import Notifications from './pages/Notifications.jsx';
 import Logs from './pages/Logs.jsx';
-import Settings from './pages/Settings.jsx';
 import News from './pages/News.jsx';
 import Trends from './pages/Trends.jsx';
 import Niche from './pages/Niche.jsx';
@@ -153,12 +150,12 @@ function Shell() {
           <Route path="/internal-links" element={<InternalLinks />} />
           <Route path="/adsense" element={<AdsenseAudit />} />
           <Route path="/reports" element={<Reports />} />
-          <Route path="/limits" element={<Limits />} />
+          <Route path="/limits" element={<Navigate to="/automation?tab=limitler" replace />} />
           <Route path="/api-usage" element={<ApiUsage />} />
-          <Route path="/bots" element={<Bots />} />
+          <Route path="/bots" element={<Navigate to="/automation?tab=botlar" replace />} />
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/logs" element={<Logs />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/settings" element={<Navigate to="/automation?tab=ayarlar" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

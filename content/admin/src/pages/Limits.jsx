@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { PauseCircle, PlayCircle, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { api, qs } from '../api.js';
-import { Alert, Async, Badge, Card, Empty, PageHead, useAction, useApp, useLoad } from '../ui.jsx';
+import { Alert, Async, Badge, Card, Empty, useAction, useApp, useLoad } from '../ui.jsx';
 import { num } from '../format.js';
 
 const toNum = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
@@ -13,7 +13,8 @@ function LimitInput({ value, onChange, max, disabled, label, placeholder }) {
   return <input className="input num" type="number" min={0} max={max} value={value ?? ''} placeholder={placeholder} disabled={disabled} aria-label={label} aria-invalid={invalid} style={invalid ? { borderColor: 'var(--bad)' } : undefined} onChange={(e) => onChange(e.target.value)} />;
 }
 
-export default function Limits() {
+/** Daily work limits: general -> project -> category (a tab of "Otomasyon ve Ayarlar"). */
+export function LimitsPanel() {
   const { projectId, project, can, confirm } = useApp();
   const canEdit = can('settings.write');
   const st = useLoad(() => api.get(`/limits${qs({ projectId })}`), [projectId]);
@@ -26,10 +27,6 @@ export default function Limits() {
     setC(Object.fromEntries(d.categories.map((x) => [x.id, { dailyMax: x.daily_max ?? '', publishMax: x.publish_max ?? '' }])));
   }, [st.data]);
 
-  const pause = async (paused) => {
-    if (paused && !(await confirm({ title: 'Botlar duraklatılsın mı?', body: 'Otomatik işler yeni iş başlatmaz. Sizin elle başlattığınız işler limitlere tabi olarak çalışmaya devam eder.', confirmText: 'Duraklat' }))) return;
-    if (await run(() => api.post(paused ? '/bots/pause' : '/bots/resume'), paused ? 'Botlar duraklatıldı' : 'Botlar devam ediyor')) st.reload();
-  };
   const saveGlobal = async () => {
     const d = st.data; const out = {};
     for (const i of d.global) { const was = i.isDefault ? '' : i.limit; if (!same(g[i.workType], was)) out[i.workType] = toNum(g[i.workType]); }
@@ -49,20 +46,15 @@ export default function Limits() {
   const reset = async () => { if (await confirm({ title: 'Genel limitler varsayılana dönsün mü?', body: 'Tüm genel limitler fabrika değerlerine döner (yeni makale 3, eski makale kontrolü 10, kapsamlı güncelleme 2 …). Proje ve kategori limitleri değişmez.', confirmText: 'Varsayılana dön' }) && await run(() => api.post('/limits/reset', { projectId }), 'Varsayılan limitler geri yüklendi')) st.reload(); };
 
   return (
-    <div className="page">
-      <PageHead title="Günlük Çalışma Ayarları">Her işin günde en fazla kaç kez yapılacağını kod değiştirmeden buradan yönetin. Değişiklik kaydedildiği anda geçerli olur; bir iş başlamadan önce üç seviye birden kontrol edilir: <strong>genel → proje → kategori</strong>. En dar sınır kazanır; 0 yazarsanız o iş durur.</PageHead>
+    <div className="stack">
+      <p className="muted">Her işin günde en fazla kaç kez yapılacağını kod değiştirmeden buradan yönetin. Değişiklik kaydedildiği anda geçerli olur; bir iş başlamadan önce üç seviye birden kontrol edilir: <strong>genel → proje → kategori</strong>. En dar sınır kazanır; 0 yazarsanız o iş durur.</p>
       <Async state={st}>{(d) => {
-        const paused = d.bots.paused;
         const gDirty = d.global.some((i) => !same(g[i.workType], i.isDefault ? '' : i.limit));
         const pDirty = d.global.some((i) => !same(p[i.workType], i.project ? i.project.limit : ''));
         const pBlank = p.new_article === '' || p.new_article === undefined;                        // the new-article row can never be empty
         const cDirty = d.categories.some((x) => c[x.id] && (!same(c[x.id].dailyMax, x.daily_max) || !same(c[x.id].publishMax, x.publish_max)));
         return (
           <>
-            <Alert kind={paused ? 'warn' : 'ok'} title={paused ? 'Botlar duraklatıldı' : 'Botlar çalışabilir durumda'}>
-              <div className="row between"><span>{paused ? `Duraklatan: ${d.bots.pausedBy || '—'}. Otomatik işler çalışmaz.` : 'Botlar çalışmaya hazır. Bu anahtar kapatılırsa otomatik işler ve limit gerektiren yeni işler durur.'}</span>
-                {can('bots.control') && (paused ? <button className="btn sm primary" disabled={busy} onClick={() => pause(false)}><PlayCircle size={15} />Devam ettir</button> : <button className="btn sm" disabled={busy} onClick={() => pause(true)}><PauseCircle size={15} />Botları duraklat</button>)}</div>
-            </Alert>
             <Card title={`Genel günlük limitler · ${d.day}`} actions={canEdit && <button className="btn sm" disabled={busy} onClick={reset}><RotateCcw size={14} />Varsayılana dön</button>}>
               <div className="tbl-wrap"><table className="tbl"><thead><tr><th>İş türü</th><th className="num">Günlük limit</th><th className="num">Bugün yapılan</th><th className="num">Kalan</th><th>Durum</th></tr></thead>
                 <tbody>{d.global.map((i) => (

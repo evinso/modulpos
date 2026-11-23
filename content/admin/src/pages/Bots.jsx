@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { CalendarClock, PauseCircle, PlayCircle, Play } from 'lucide-react';
 import { api, qs } from '../api.js';
-import { Alert, Async, Badge, Card, Check, Empty, Field, Modal, PageHead, Tabs, useAction, useApp, useLoad } from '../ui.jsx';
+import { Alert, Async, Badge, Card, Check, Empty, Field, Modal, useAction, useApp, useLoad } from '../ui.jsx';
 import { dt, usd } from '../format.js';
 
 const JOB = { queued: ['Sırada', 'info'], running: ['Çalışıyor', 'info'], done: ['Bitti', 'ok'], failed: ['Başarısız', 'bad'], cancelled: ['İptal', ''], skipped: ['Atlandı', 'warn'] };
@@ -64,27 +64,29 @@ function Queue({ canControl }) {
   );
 }
 
-export default function Bots() {
-  const { can, projectId } = useApp();
+/** Bot schedules, the pause switch and the manual run (a tab of "Otomasyon ve Ayarlar"). */
+export function BotList() {
+  const { can, projectId, confirm } = useApp();
   const st = useLoad(() => api.get('/bots'), []);
   const [run, busy] = useAction();
-  const [tab, setTab] = useState('bots'); const [edit, setEdit] = useState(null);
-  const pause = async (p) => { if (await run(() => api.post(p ? '/bots/pause' : '/bots/resume'), p ? 'Botlar duraklatıldı' : 'Botlar devam ediyor')) st.reload(); };
+  const [edit, setEdit] = useState(null);
+  const pause = async (p) => {
+    if (p && !(await confirm({ title: 'Botlar duraklatılsın mı?', body: 'Otomatik işler yeni iş başlatmaz. Sizin elle başlattığınız işler limitlere tabi olarak çalışmaya devam eder.', confirmText: 'Duraklat' }))) return;
+    if (await run(() => api.post(p ? '/bots/pause' : '/bots/resume'), p ? 'Botlar duraklatıldı' : 'Botlar devam ediyor')) st.reload();
+  };
   const now = async (b) => { if (await run(() => api.post(`/bots/${b.key}/run`, { projectId }), `${b.label} kuyruğa alındı`)) st.reload(); };
   const toggle = async (b, enabled) => { if (await run(() => api.put(`/bots/${b.key}/schedule`, { enabled }), enabled ? `${b.label} otomatik çalışacak` : `${b.label} otomatik çalışmayacak`)) st.reload(); };
   const canControl = can('bots.control');
   return (
-    <div className="page">
-      <PageHead title="Bot Yönetimi">Platformun 15 botu. Bir bot yalnızca kodu gerçekten çalışıyorsa “Hazır” görünür. Zamanlanan botlar sunucudaki zamanlayıcı tarafından <strong>kalıcı görev kuyruğu</strong> üzerinden çalıştırılır (n8n yok): sunucu yeniden başlasa görevler kaybolmaz, aynı iş iki kez başlamaz, hatalı iş 1–5–20 dakika arayla yeniden denenir, art arda 5 başarısızlıkta bot kapanır ve size bildirim gelir. Para harcayan botlar (makale, SERP, anahtar kelime verisi) <strong>kapalı</strong> başlar; sizin açmanız gerekir.</PageHead>
+    <div className="stack">
+      <p className="muted">Platformun 15 botu. Bir bot yalnızca kodu gerçekten çalışıyorsa “Hazır” görünür. Zamanlanan botlar sunucudaki zamanlayıcı tarafından <strong>kalıcı görev kuyruğu</strong> üzerinden çalıştırılır (n8n yok): sunucu yeniden başlasa görevler kaybolmaz, aynı iş iki kez başlamaz, hatalı iş 1–5–20 dakika arayla yeniden denenir, art arda 5 başarısızlıkta bot kapanır ve size bildirim gelir. Para harcayan botlar (makale, SERP, anahtar kelime verisi) <strong>kapalı</strong> başlar; sizin açmanız gerekir.</p>
       <Async state={st}>{(d) => (
         <>
           <Alert kind={d.paused ? 'warn' : 'info'} title={d.paused ? 'Botlar duraklatıldı' : `${d.items.filter((b) => b.implemented).length} / ${d.items.length} bot hazır`}>
             <div className="row between"><span>Duraklatma, zamanlı bütün otomatik işleri durdurur (sizin elle başlattığınız işler sürer). Zamanlayıcı: {d.scheduler.running ? <>çalışıyor{d.scheduler.lastTickAt ? ` (son kontrol ${dt(d.scheduler.lastTickAt)})` : ''}</> : <strong>bu sunucuda kapalı</strong>}.</span>
               {canControl && (d.paused ? <button className="btn sm primary" disabled={busy} onClick={() => pause(false)}><PlayCircle size={15} />Devam ettir</button> : <button className="btn sm" disabled={busy} onClick={() => pause(true)}><PauseCircle size={15} />Botları duraklat</button>)}</div>
           </Alert>
-          <Tabs tabs={[['bots', 'Botlar'], ['queue', 'Görev kuyruğu']]} value={tab} onChange={setTab} />
-          {tab === 'queue' ? <Queue canControl={canControl} /> : (
-            <Card flat>
+          <Card flat>
               <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Bot</th><th>Ne yapar</th><th>Zamanlama</th><th>Son çalışma</th><th>Sonraki çalışma</th><th className="num">Kuyrukta</th><th className="num">İşlem / hata</th><th className="num">Bugün maliyet</th><th /></tr></thead>
                 <tbody>{d.items.map((b) => (
                   <tr key={b.key}><td><strong>{b.label}</strong></td><td className="muted">{b.about}</td>
@@ -98,10 +100,13 @@ export default function Bots() {
                       <button className="btn sm" disabled={busy} onClick={() => toggle(b, !b.enabled)}>{b.enabled ? 'Kapat' : 'Aç'}</button>
                       <button className="btn sm" onClick={() => setEdit(b)} aria-label={`${b.label} zamanlaması`}><CalendarClock size={14} />Zamanlama</button>
                       <button className="btn sm" disabled={busy || !projectId} onClick={() => now(b)} title={projectId ? 'Sıraya hemen alır' : 'Önce bir proje seçin'}><Play size={14} />Şimdi çalıştır</button></div>}</td></tr>))}</tbody></table></div>
-            </Card>)}
+          </Card>
           {edit && <ScheduleModal bot={edit} onClose={() => setEdit(null)} onSaved={st.reload} />}
         </>
       )}</Async>
     </div>
   );
 }
+
+/** The persistent job queue (a tab of "Otomasyon ve Ayarlar"). */
+export function JobQueue() { const { can } = useApp(); return <Queue canControl={can('bots.control')} />; }

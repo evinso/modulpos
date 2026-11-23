@@ -18,7 +18,7 @@ export default function Health() {
   const propose = async (a) => { if (await run(() => api.post(`/articles/${a.id}/propose-update`), 'Güncelleme taslağı hazırlanıyor (birkaç dakika sürebilir); Güncelleme Merkezi’nde görünür')) st.reload(); };
   return (
     <div className="page">
-      <PageHead title="İçerik Sağlığı">Yayında, zamanlanmış ya da yayına hazır makalelerin hâlâ doğru ve erişilebilir olup olmadığı. Bir makale <strong>yalnızca eskidiği için</strong> güncelleme bekleyene çevrilmez; kanıt gerekir: bozuk bir bağlantı ya da konuyla ilgili güvenilir yeni haberler. Kontrol sıklığı Ayarlar → Güncelleme aralıklarındadır, günlük kontrol sayısı Günlük Çalışma Ayarları’ndadır.</PageHead>
+      <PageHead title="İçerik Sağlığı">Yayında, zamanlanmış ya da yayına hazır makalelerin hâlâ doğru ve erişilebilir olup olmadığı. Bir makale <strong>yalnızca eskidiği için</strong> güncelleme bekleyene çevrilmez; kanıt gerekir: bozuk bir bağlantı ya da konuyla ilgili güvenilir yeni haberler. Kontrol sıklığı Ayarlar → Güncelleme aralıklarındadır, günlük kontrol sayısı Günlük limitler’dedir.</PageHead>
       <Async state={st}>{(d) => d && (
         <>
           <div className="grid g4">

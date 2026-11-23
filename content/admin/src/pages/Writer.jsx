@@ -22,7 +22,7 @@ function WriterOverview() {
             <tbody>{d.vendors.map((v) => <tr key={v.key}><td>{v.label}</td><td>{v.model || '—'}</td><td>{v.ready ? <Badge kind="ok">Hazır</Badge> : <Badge>{v.reason}</Badge>}{v.ready && !v.pricesKnown && <div className="faint">fiyat girilmedi: maliyet “Bilinmiyor” görünür</div>}</td>
               <td>{d.picks && d.picks.writer === v.key ? <Badge kind="info">yazar</Badge> : null} {d.picks && d.picks.checker === v.key ? <Badge kind="info">kontrol</Badge> : null}</td></tr>)}</tbody></table></div>
           {!d.ready ? <Alert kind="warn" title="Henüz makale yazılamaz">En az bir sağlayıcının anahtarını (OpenAI ve Gemini için model adıyla birlikte) API Kullanımı sayfasına girip bağlantıyı test edin.</Alert>
-            : <small className="faint">{d.picks.independent ? 'Kontrolleri yazandan FARKLI bir model yapar (bir model kendi yazdığını değerlendirirken yanlı olabilir).' : 'Tek sağlayıcı hazır olduğu için kontrolü yazan modelin kendisi yapar; ikinci bir sağlayıcı bağlarsanız kontrol otomatik olarak ona geçer.'} Seçimi Sistem Ayarları → Kalite bölümünden değiştirebilirsiniz.</small>}
+            : <small className="faint">{d.picks.independent ? 'Kontrolleri yazandan FARKLI bir model yapar (bir model kendi yazdığını değerlendirirken yanlı olabilir).' : 'Tek sağlayıcı hazır olduğu için kontrolü yazan modelin kendisi yapar; ikinci bir sağlayıcı bağlarsanız kontrol otomatik olarak ona geçer.'} Seçimi Otomasyon ve Ayarlar → Ayarlar → Kalite bölümünden değiştirebilirsiniz.</small>}
         </Card>)}</Async>
       <Card title="Yazım geçmişi">
         <Async state={runs}>{(d) => d && (d.runs.length === 0 ? <Empty title="Henüz makale yazılmadı" /> : (

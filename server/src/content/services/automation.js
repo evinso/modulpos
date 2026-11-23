@@ -15,7 +15,7 @@ const telegram = require('./telegram');
  * "Otomasyon Modu": ONE page that turns the platform's own switches into three understandable modes and a list of checkboxes.
  *
  * It has NO state of its own. Every checkbox is read from, and written to, the settings that already exist and that the other pages edit too
- * (bot schedules, publishing.*, quality.*, budget, daily limits), so this page can never disagree with Bot Yönetimi or Ayarlar:
+ * (bot schedules, publishing.*, quality.*, budget, daily limits), so this page can never disagree with the other tabs (Botlar, Günlük limitler, Ayarlar):
  *   mode      = derived by comparing the checkboxes with what each mode would switch on (anything else is "Özel")
  *   checkbox  = a bot's schedule is enabled / publishing.autoPublish / publishing.mode / quality.manualApprovalNewArticles
  *
@@ -137,7 +137,7 @@ async function overview(projectId) {
   const unpriced = g.readyVendors.filter((v) => !v.pricesKnown);
   const tgc = await telegram.credentials(); const tgReady = tgc.configured && tgc.chatIds.length > 0;
   const warnings = [];
-  if (botState.paused) warnings.push({ kind: 'bad', text: 'Botlar duraklatılmış durumda; hiçbir otomatik iş çalışmaz.', to: '/limits' });
+  if (botState.paused) warnings.push({ kind: 'bad', text: 'Botlar duraklatılmış durumda; hiçbir otomatik iş çalışmaz.', to: '/automation?tab=botlar' });
   if (!scheduler.status().running) warnings.push({ kind: 'warn', text: 'Zamanlayıcı bu sunucuda çalışmıyor (yalnızca canlı ortamda otomatik başlar). Ayarlar kaydedilir ama iş çalışması için zamanlayıcı gerekir.' });
   if (unpriced.length) warnings.push({ kind: 'warn', text: `${unpriced.map((v) => v.label).join(', ')} için fiyat girilmemiş: harcama “bilinmiyor” görünür ve günlük bütçe sınırı bunu sayamaz. Sizi asıl koruyan günlük makale limitidir (fiyatı API Kullanımı sayfasından girebilirsiniz).`, to: '/api-usage' });
   if (g.readyVendors.length === 1) warnings.push({ kind: 'info', text: 'Tek bir yapay zekâ sağlayıcısı bağlı: yazar ve denetçi aynı model olur. İkinci bir sağlayıcı daha bağımsız bir kontrol sağlar.', to: '/api-usage' });
@@ -163,10 +163,10 @@ async function overview(projectId) {
   };
   const effective = { dailyArticles: effOf('new_article'), dailyPublish: effOf('publish', chosen && Number.isInteger(chosen.dailyLimit) ? [{ scope: 'site', label: `“${chosen.name}” sitesinin günlük sınırı`, limit: chosen.dailyLimit }] : []) };
   const wb = st.sch.get('article_writer');
-  if (st.on.writer && wb && !wb.windowStart) warnings.push({ kind: 'warn', text: 'Makale botunun çalışma saati sınırı YOK: gece dahil her saat çalışır (bu sayfa eskiden olmayan saatleri gösteriyordu). Yazım saatlerini doldurup “Değerleri kaydet”e basın.', to: '/bots' });
-  // the publishing bot has its OWN hours (Bot Yönetimi); the hours above are the publishing settings: when they differ the bot follows its own
+  if (st.on.writer && wb && !wb.windowStart) warnings.push({ kind: 'warn', text: 'Makale botunun çalışma saati sınırı YOK: gece dahil her saat çalışır (bu sayfa eskiden olmayan saatleri gösteriyordu). Yazım saatlerini doldurup “Değerleri kaydet”e basın.', to: '/automation?tab=botlar' });
+  // the publishing bot has its OWN hours (the Botlar tab); the hours above are the publishing settings: when they differ the bot follows its own
   const pbs = st.sch.get('content_publishing');
-  if (st.on.publishing && pbs && (pbs.windowStart !== st.pub.windowStart || pbs.windowEnd !== st.pub.windowEnd || !!pbs.weekdaysOnly === !!st.pub.weekends)) warnings.push({ kind: 'warn', text: `WordPress yayın botunun kendi çalışma saatleri (${pbs.windowStart ? `${pbs.windowStart}–${pbs.windowEnd}` : 'SINIR YOK: her saat'}${pbs.weekdaysOnly ? ', hafta sonu yok' : ', hafta sonu da'}) buradaki yayın saatlerinden (${st.pub.windowStart}–${st.pub.windowEnd}${st.pub.weekends ? ', hafta sonu da' : ', hafta sonu yok'}) farklı: bot kendi saatlerine göre çalışır. “Değerleri kaydet” ikisini eşitler.`, to: '/bots' });
+  if (st.on.publishing && pbs && (pbs.windowStart !== st.pub.windowStart || pbs.windowEnd !== st.pub.windowEnd || !!pbs.weekdaysOnly === !!st.pub.weekends)) warnings.push({ kind: 'warn', text: `WordPress yayın botunun kendi çalışma saatleri (${pbs.windowStart ? `${pbs.windowStart}–${pbs.windowEnd}` : 'SINIR YOK: her saat'}${pbs.weekdaysOnly ? ', hafta sonu yok' : ', hafta sonu da'}) buradaki yayın saatlerinden (${st.pub.windowStart}–${st.pub.windowEnd}${st.pub.weekends ? ', hafta sonu da' : ', hafta sonu yok'}) farklı: bot kendi saatlerine göre çalışır. “Değerleri kaydet” ikisini eşitler.`, to: '/automation?tab=botlar' });
   return { projectId: pid, mode, summary, modeLabel: mode === 'custom' ? 'Özel' : MODES[mode].label, modes, groups: GROUPS, options, values, effective, recommended: RECOMMENDED, max: { dailyArticles: limits.WORK_TYPES.new_article.max, dailyPublish: limits.WORK_TYPES.publish.max }, warnings, checklist, readyBacklog: backlog, paused: !!botState.paused,
     schedulerRunning: !!scheduler.status().running, thresholds: { minScore: st.q.minScore } };
 }

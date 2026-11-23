@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Zap, Hand, UserCheck, Bot as BotIcon, CheckCircle2, CircleAlert, Wand2, Loader2, RefreshCw } from 'lucide-react';
 import { api, qs } from '../api.js';
-import { Alert, Async, Badge, Card, Check, Field, NeedsProject, PageHead, useAction, useApp, useLoad } from '../ui.jsx';
+import { Alert, Async, Badge, Card, Check, Field, NeedsProject, PageHead, Tabs, useAction, useApp, useLoad } from '../ui.jsx';
 import { num, usd } from '../format.js';
 import FlowPanel from './FlowPanel.jsx';
+import { BotList, JobQueue } from './Bots.jsx';
+import { LimitsPanel } from './Limits.jsx';
+import { SettingsGroups, Users, System } from './Settings.jsx';
 
 const MODE_ICON = { manual: Hand, semi: UserCheck, full: BotIcon };
 const FIELDS = ['dailyArticles', 'dailyPublish', 'writerFrom', 'writerTo', 'publishFrom', 'publishTo', 'weekends', 'minQuality', 'dailyBudgetUsd'];
@@ -56,7 +59,7 @@ function LiveStatus({ projectId }) {
       {!d ? <p className="muted">Yükleniyor…</p> : (
         <div className="stack">
           {err && <Alert kind="warn">Sunucuya ulaşılamıyor; aşağıdaki görüntü {clock(at)} anındaki son bilinen durumdur. {err}</Alert>}
-          {d.paused && <Alert kind="warn" title="Botlar duraklatıldı">Otomatik işler yeni iş başlatmaz. <Link to="/limits">Günlük Çalışma Ayarları</Link> sayfasından devam ettirebilirsiniz.</Alert>}
+          {d.paused && <Alert kind="warn" title="Botlar duraklatıldı">Otomatik işler yeni iş başlatmaz. <Link to="/automation?tab=botlar">Botlar</Link> sekmesinden devam ettirebilirsiniz.</Alert>}
           {!d.scheduler.running && <Alert kind="warn" title="Zamanlayıcı bu sunucuda çalışmıyor">Botlar kendiliğinden başlamaz (yalnızca canlı ortamda otomatik açılır). Elle başlattığınız işler çalışır.</Alert>}
           <div className="grid cols-metrics">
             <div className="metric"><span className="l">Şu an çalışan bot</span><span className="v">{num(d.summary.running)}</span><span className="n">{d.summary.enabled} / {d.summary.total} bot açık</span></div>
@@ -87,7 +90,7 @@ function LiveStatus({ projectId }) {
                 <tr key={`${e.bot}-${e.at}-${i}`}><td style={{ whiteSpace: 'nowrap' }}>{clock(e.at)}</td><td><strong>{e.label}</strong> <small className="faint">{TRG[e.trigger] || e.trigger}{e.seconds !== null ? ` · ${span(e.seconds)}` : ''}</small></td><td><Badge kind={OUT[e.outcome][1]}>{OUT[e.outcome][0]}</Badge></td><td>{e.message || '—'}</td></tr>))}</tbody></table></div>
             )}
           </div>
-          <small className="faint">Bu görüntü kendiliğinden yenilenir (6 sn); yalnızca okur, hiçbir şeyi başlatmaz ya da durdurmaz. Bir botu elle çalıştırmak ya da zamanlamasını ayrıntılı düzenlemek için <Link to="/bots">Bot Yönetimi</Link>.</small>
+          <small className="faint">Bu görüntü kendiliğinden yenilenir (6 sn); yalnızca okur, hiçbir şeyi başlatmaz ya da durdurmaz. Bir botu elle çalıştırmak ya da zamanlamasını ayrıntılı düzenlemek için <Link to="/automation?tab=botlar">Botlar sekmesi</Link>.</small>
         </div>
       )}
     </Card>
@@ -110,7 +113,7 @@ function Effective({ e, typed, what }) {
   );
 }
 
-export default function Automation() {
+function General() {
   const { projectId, can, confirm } = useApp();
   const canEdit = can('bots.control');
   const st = useLoad(() => (projectId ? api.get(`/automation${qs({ projectId })}`) : Promise.resolve(null)), [projectId]);
@@ -157,10 +160,8 @@ export default function Automation() {
   const fillRecommended = () => { const r = st.data.recommended; setF({ ...r, dailyBudgetUsd: r.dailyBudgetUsd === null ? '' : r.dailyBudgetUsd }); setTouched(new Set(FIELDS)); };
 
   return (
-    <div className="page">
-      <PageHead title="Otomasyon Modu">
-        Sistemin ne kadarının kendi kendine çalışacağını buradan seçersiniz. Bu sayfanın kendine ait bir ayarı yoktur: aşağıdaki seçenekler Bot Yönetimi, Günlük Çalışma Ayarları ve Ayarlar’daki gerçek anahtarları açıp kapatır; bu sayfadan yaptığınız değişiklik oralarda da görünür. Zorunlu kontroller (doğruluk, AdSense riski, tekrar, kalite) hiçbir modda kapanmaz.
-      </PageHead>
+    <div className="stack">
+      <p className="muted">Sistemin ne kadarının kendi kendine çalışacağını buradan seçersiniz. Aşağıdaki seçenekler ve değerler, diğer sekmelerdeki (Botlar, Günlük limitler, Ayarlar) gerçek anahtarları açıp kapatır; bir yerde yaptığınız değişiklik her yerde görünür. Zorunlu kontroller (doğruluk, AdSense riski, tekrar, kalite) hiçbir modda kapanmaz.</p>
       <Async state={st}>{(d) => d && f && (
         <div className="stack">
           {!canEdit && <Alert kind="info">Bu sayfayı yalnızca yönetici (admin) değiştirebilir; siz görüntüleyebilirsiniz.</Alert>}
@@ -241,6 +242,33 @@ export default function Automation() {
           </Card>
         </div>
       )}</Async>
+    </div>
+  );
+}
+
+/** every tab of the single page; the last two are admin only */
+const TABS = [['genel', 'Genel'], ['botlar', 'Botlar'], ['kuyruk', 'Görev kuyruğu'], ['limitler', 'Günlük limitler'], ['ayarlar', 'Ayarlar'], ['kullanicilar', 'Kullanıcılar'], ['sistem', 'Sistem']];
+
+/**
+ * ONE page for everything that runs or limits the automation: the modes and quick values (Genel), the bots' schedules, the job queue, the daily limits,
+ * the settings groups and (admin) users and server facts. The tab lives in the address (?tab=) so the old addresses /bots, /limits and /settings can lead here.
+ */
+export default function Automation() {
+  const { can } = useApp();
+  const [sp, setSp] = useSearchParams();
+  const tabs = TABS.filter(([k]) => can('users.manage') || !['kullanicilar', 'sistem'].includes(k));
+  const asked = sp.get('tab'); const tab = tabs.some(([k]) => k === asked) ? asked : 'genel';
+  return (
+    <div className="page">
+      <PageHead title="Otomasyon ve Ayarlar">Otomasyonu çalıştıran ve sınırlayan her şey bu sayfadadır: modlar ve hızlı değerler, botların zamanlaması, görev kuyruğu, günlük limitler ve tüm ayarlar. Sekmeler aynı gerçek anahtarları gösterir; hiçbirinin kendine ait bir kopyası yoktur.</PageHead>
+      <Tabs tabs={tabs} value={tab} onChange={(k) => setSp(k === 'genel' ? {} : { tab: k })} />
+      {tab === 'genel' && <General />}
+      {tab === 'botlar' && <BotList />}
+      {tab === 'kuyruk' && <JobQueue />}
+      {tab === 'limitler' && <LimitsPanel />}
+      {tab === 'ayarlar' && <SettingsGroups />}
+      {tab === 'kullanicilar' && <Users />}
+      {tab === 'sistem' && <System />}
     </div>
   );
 }
