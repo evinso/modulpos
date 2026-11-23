@@ -247,7 +247,8 @@ HANDLERS.content_publishing = { idempotent: true, async run(job, ctx) {
   }
   const sync = await publishing.syncDue({ projectId: job.projectId, now: ctx.now, request: ctx.wpRequest });
   const cfg = (await settings.get('publishing', job.projectId)).value;
-  if (!cfg.autoPublish || !cfg.siteId) return { status: sync.checked ? 'ok' : 'skipped', stats: { sync }, message: sync.checked ? `${sync.published} zamanlanmış yazı yayımlandı olarak güncellendi (otomatik yayın kapalı)` : 'Otomatik yayın kapalı; bekleyen zamanlanmış yazı yok' };
+  const seen = `WordPress okundu: ${sync.checked} yazıya bakıldı, ${sync.published} tanesi yayında${sync.scheduled ? `, ${sync.scheduled} tanesi zamanlanmış` : ''}${sync.errors ? `, ${sync.errors} okuma hatası` : ''}`;
+  if (!cfg.autoPublish || !cfg.siteId) return { status: sync.checked ? 'ok' : 'skipped', stats: { sync }, message: sync.checked ? `${seen} (otomatik yayın kapalı)` : 'Otomatik yayın kapalı; WordPress’te beklenen taslak ya da zamanlanmış yazı yok' };
   const site = await sites.load(cfg.siteId).catch(() => null);
   if (!site || site.status !== 'active' || site.project_id !== job.projectId) return { status: 'skipped', stats: { sync }, message: 'Otomatik yayın için seçili site yok ya da duraklatılmış' };
   const perRun = (await getSchedule('content_publishing')).options.perRun || 2;

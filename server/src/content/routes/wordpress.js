@@ -38,7 +38,7 @@ module.exports = function wordpress(r, { wrap, mw, A, uid }) {
     await A(req, 'publication.retry', 'publication', p.id, null, { articleId: p.articleId }); res.status(202).json(out);
   }));
   r.post('/publications/:pubid/reset', PUB, wrap(async (req, res) => { const out = await publishing.reset(req.params.pubid); await A(req, 'publication.reset', 'publication', req.params.pubid); res.json(out); }));
-  r.post('/publications/sync', PUB, wrap(async (req, res) => { const id = await pid(req); const out = await publishing.syncDue({ projectId: id }); await A(req, 'publication.sync', 'project', id, null, out); res.json(out); }));
+  r.post('/publications/sync', PUB, wrap(async (req, res) => { const id = await pid(req); const articleId = req.body.articleId ? V.uuid(req.body.articleId, 'Makale') : null; const out = await publishing.syncDue({ projectId: id, articleId }); await A(req, 'publication.sync', articleId ? 'article' : 'project', articleId || id, null, out); res.json(out); }));
 
   // many articles: a dry run, then the real thing as a background job
   r.post('/publishing/plan', PUB, wrap(async (req, res) => res.json(await publishing.plan({ siteId: V.uuid(req.body.siteId, 'Site'), articleIds: req.body.articleIds, mode: req.body.mode, startAt: req.body.startAt || null }))));

@@ -358,6 +358,17 @@ const dpub = await q1('SELECT status, wp_post_id, mode FROM publications');
 ok('the send went through the queue: a draft post exists on the site and the card says so with a link', dpub.status === 'draft' && WP.posts.size === 1 && [...WP.posts.values()][0].status === 'draft' && txt().includes('Taslak (sitede)') && txt().includes('yazıyı aç'), JSON.stringify(dpub));
 ok('the article itself stays in the archive state a person gave it (a draft on the site is not publishing)', (await q1('SELECT status FROM articles WHERE id = $1', [aiId])).status === 'ready');
 
+// the person publishes the draft IN WORDPRESS: the card has a read-only "read it back" button (the bot's hourly pass does the same when it is on)
+ok('while the post is a draft on the site the card offers to read its state back', !!btn('Durumu WordPress’ten oku') && txt().includes('Hiçbir şey gönderilmez, yalnızca okunur'));
+const wpWrites = () => WP.requests.filter((r) => r.method !== 'GET').length; const w0 = wpWrites();
+await click(btn('Durumu WordPress’ten oku'), 900);
+ok('read while still a draft there: nothing changes', (await q1('SELECT status FROM publications')).status === 'draft' && (await q1('SELECT status FROM articles WHERE id = $1', [aiId])).status === 'ready');
+const wpPostId = (await q1('SELECT wp_post_id FROM publications')).wp_post_id; WP.goLive(Number(wpPostId));
+await click(btn('Durumu WordPress’ten oku'), 1200);
+ok('after the person published it in WordPress the read-back makes publication and article "published", sends nothing, and the card says "Yayında"', (await q1('SELECT status FROM publications')).status === 'published' && (await q1('SELECT status FROM articles WHERE id = $1', [aiId])).status === 'published' && wpWrites() === w0 && txt().includes('Yayında') && !btn('Durumu WordPress’ten oku'));
+// (put it back the way the following steps expect it)
+WP.posts.get(Number(wpPostId)).status = 'draft'; await S.db.query("UPDATE publications SET status = 'draft', published_at = NULL, synced_at = NULL WHERE article_id = $1", [aiId]); await S.db.query("UPDATE articles SET status = 'ready' WHERE id = $1", [aiId]);
+
 // many articles: plan, then send as a spread over days
 const mk = async (n) => { const out = []; for (let i = 0; i < n; i += 1) { const a = await S.articles.create({ projectId: pid, h1: `E2E router guide ${i}`, seoTitle: `E2E router guide ${i}`, metaDescription: 'm'.repeat(100), focusKeyword: `e2e router ${i}`, categoryId: (await q1('SELECT id FROM categories LIMIT 1')).id, contentHtml: `<h2>Hi</h2><p>${'Plain words for the reader. '.repeat(80)}</p>`, articleType: 'evergreen_guide' }); await S.db.query("UPDATE articles SET status = 'ready', fact_checked_at = now(), adsense_risk = 'low', quality_score = $2 WHERE id = $1", [a.id, 90 - i]); out.push(a); } return out; };
 const made = await mk(3);
