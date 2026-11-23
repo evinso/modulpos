@@ -127,13 +127,51 @@ test('scheduled posts count for THEIR day; limits (the site\'s and the project\'
   await assert.rejects(PB.submit(c.id, s.id, { mode: 'schedule', scheduledAt: new Date(when.getTime() + 7200000) }), (e) => e.extra && e.extra.limit === true && /limit/i.test(e.message)); await L.setProjectLimits(pid, { publish: 5 });
   // WordPress made the post public at its time: the read-back updates the panel
   wp.goLive(p.wpPostId); await H.db().query("UPDATE publications SET scheduled_at = now() - interval '1 minute' WHERE id = $1", [pub.id]);
-  assert.deepEqual(await PB.syncDue({ projectId: pid }), { checked: 1, published: 1, errors: 0 }); assert.deepEqual([(await PB.get(pub.id)).status, (await A.get(a.id)).status], ['published', 'published']);
+  assert.deepEqual(await PB.syncDue({ projectId: pid }), { checked: 1, published: 1, scheduled: 0, errors: 0 }); assert.deepEqual([(await PB.get(pub.id)).status, (await A.get(a.id)).status], ['published', 'published']);
   // a send that fails for good (the user may not publish) gives the place back and tells the owner
   const day3 = new Date(when.getTime() + 2 * 86400000); const d = await readyArticle(pid); wp.canPublish = false;
   const bad = await PB.submit(d.id, s.id, { mode: 'schedule', scheduledAt: day3 }); assert.equal(await done(pid, day3), 1); await drain();
   const f = await PB.get(bad.id); assert.deepEqual([f.status, /yayımlayamıyor/.test(f.lastError), await done(pid, day3)], ['failed', true, 0]);
   assert.equal((await Q.list({ status: 'failed' })).length, 1, 'the job failed for good (no retry can help)'); assert.ok((await NT.list({ limit: 20 })).items.some((n) => n.type === 'publish_failed'));
   wp.canPublish = true; await PB.submit(d.id, s.id, { mode: 'schedule', scheduledAt: day3 }); await drain(); assert.equal((await PB.get(bad.id)).status, 'scheduled', 'after the fix a retry reuses the same row');
+});
+
+test('a DRAFT that a person published in WordPress by hand is read back (Yarı otomatik works this way): article and publication become published, nothing is sent, no place of the day is taken; the next update goes out as a public update', opts, async () => {
+  const pid = await setup(); const s = await newSite(pid); const a = await readyArticle(pid, { status: 'needs_review' });
+  const pub = await PB.submit(a.id, s.id, { mode: 'draft' }); await drain(); const sent = await PB.get(pub.id);
+  assert.deepEqual([sent.status, post(sent.wpPostId).status, (await A.get(a.id)).status], ['draft', 'draft', 'needs_review']);
+  // still a draft on the site: asked once, nothing changes, and it is NOT asked again within the recheck time
+  const T0 = new Date(); const writes = () => wp.requests.filter((r) => r.method !== 'GET').length; const w0 = writes();
+  assert.deepEqual(await PB.syncDue({ projectId: pid, now: T0 }), { checked: 1, published: 0, scheduled: 0, errors: 0 }); assert.equal((await PB.get(pub.id)).status, 'draft');
+  assert.deepEqual(await PB.syncDue({ projectId: pid, now: new Date(T0.getTime() + 10 * 60000) }), { checked: 0, published: 0, scheduled: 0, errors: 0 }, 'a draft is not asked about again within 30 minutes');
+  assert.equal((await PB.syncDue({ projectId: pid, articleId: a.id, now: new Date(T0.getTime() + 11 * 60000) })).checked, 1, 'a person asking about this article is never held back');
+  // the person publishes it in WordPress
+  const postsBefore = wp.posts.size; wp.goLive(sent.wpPostId); post(sent.wpPostId).date_gmt = '2026-11-23T09:30:00';
+  const out = await PB.syncDue({ projectId: pid, now: new Date(T0.getTime() + 45 * 60000) }); assert.deepEqual(out, { checked: 1, published: 1, scheduled: 0, errors: 0 });
+  const p = await PB.get(pub.id); assert.deepEqual([p.status, p.mode, p.wpUrl === sent.wpUrl || !!p.wpUrl, new Date(p.publishedAt).toISOString()], ['published', 'draft', true, '2026-11-23T09:30:00.000Z']);
+  assert.equal((await A.get(a.id)).status, 'published', 'the article follows the truth on the site'); assert.equal(wp.posts.size, postsBefore, 'no second post'); assert.equal(writes(), w0, 'the read-back only READS: not a single write reached WordPress'); assert.equal(await done(pid, new Date()), 0, 'the system did not do the publishing: no place of the day is used');
+  assert.ok((await PB.history(pub.id)).some((h) => h.action === 'sync' && /elle yayımlanmış/.test(h.message)), 'the history says it was published by hand');
+  assert.equal((await PB.syncDue({ projectId: pid, now: new Date(T0.getTime() + 200 * 60000) })).checked, 0, 'a published post is not asked about again');
+  // the calendar shows it, and an edit now goes to the SAME post as a public update (what the site has is what we send)
+  assert.ok((await PB.calendar(pid, { from: new Date('2026-11-01'), to: new Date('2026-12-31') })).publications.some((i) => i.articleId === a.id), 'the calendar shows it on the day it went live');
+  await A.update(a.id, { contentHtml: `<h2>Start here</h2>${words(340)}<p>After the manual publish.</p>`, reason: 'edit' }); await H.db().query("UPDATE articles SET fact_checked_at = now(), adsense_risk = 'low' WHERE id = $1", [a.id]);
+  await PB.submit(a.id, s.id, { mode: 'publish' }); await drain(); assert.deepEqual([post(sent.wpPostId).status, wp.posts.size, post(sent.wpPostId).content.includes('After the manual publish')], ['publish', postsBefore, true]);
+});
+
+test('a draft that a person SCHEDULED in WordPress shows as scheduled, then as published when its time has come; a post that cannot be read is counted as an error and not asked again at once; drafts of other projects are left alone', opts, async () => {
+  const pid = await setup(); const s = await newSite(pid); const a = await readyArticle(pid); const T0 = new Date();
+  const pub = await PB.submit(a.id, s.id, { mode: 'draft' }); await drain(); const sent = await PB.get(pub.id);
+  const later = new Date(T0.getTime() + 2 * 86400000); post(sent.wpPostId).status = 'future'; post(sent.wpPostId).date_gmt = later.toISOString().replace(/\.\d+Z$/, '');
+  assert.deepEqual(await PB.syncDue({ projectId: pid, now: T0 }), { checked: 1, published: 0, scheduled: 1, errors: 0 });
+  const p = await PB.get(pub.id); assert.deepEqual([p.status, new Date(p.scheduledAt).toISOString(), (await A.get(a.id)).status], ['scheduled', later.toISOString().replace(/\.\d+Z$/, '.000Z'), 'scheduled']);
+  assert.equal((await PB.syncDue({ projectId: pid, now: new Date(T0.getTime() + 3600000) })).checked, 0, 'a scheduled post is looked at only when its time has come');
+  wp.goLive(sent.wpPostId); assert.deepEqual(await PB.syncDue({ projectId: pid, now: new Date(later.getTime() + 60000) }), { checked: 1, published: 1, scheduled: 0, errors: 0 }); assert.equal((await A.get(a.id)).status, 'published');
+  // an unreadable post (deleted on the site): an error is counted and logged, the status is NOT changed and the next pass leaves it for a while
+  const b = await readyArticle(pid); const pb = await PB.submit(b.id, s.id, { mode: 'draft' }); await drain(); const sb = await PB.get(pb.id); wp.posts.delete(Number(sb.wpPostId));
+  assert.deepEqual(await PB.syncDue({ projectId: pid, now: new Date(later.getTime() + 120000) }), { checked: 1, published: 0, scheduled: 0, errors: 1 }); assert.equal((await PB.get(pb.id)).status, 'draft');
+  assert.equal((await PB.syncDue({ projectId: pid, now: new Date(later.getTime() + 300000) })).checked, 0);
+  // another project's draft is not touched by this project's read-back
+  const other = (await P.createProject({ name: 'Other', niche: { mainNiche: 'Cars' } })).id; assert.equal((await PB.syncDue({ projectId: other, now: new Date(later.getTime() + 9e6) })).checked, 0);
 });
 
 test('no second copy: a lost answer leaves the post "unknown", the retry finds it by slug and uses it; a post that already uses the slug is never taken over', opts, async () => {

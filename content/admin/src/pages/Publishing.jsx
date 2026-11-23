@@ -26,10 +26,10 @@ export default function Publishing() {
   const preview = async () => { const r = await run(() => api.post('/publishing/plan', body())); if (r) setPlan(r); };
   const go = async () => { const r = await run(() => api.post('/publishing/bulk', body())); if (r) { toast(`${r.planned} makale kuyruğa alınıyor${r.unplanned.length ? `, ${r.unplanned.length} planlanamadı` : ''}`); setSel(new Set()); setPlan(null); setTimeout(() => setRev((x) => x + 1), 2500); } };
   const act = async (p, what) => { if (await run(() => api.post(`/publications/${p.id}/${what}`, {}), what === 'retry' ? 'Yeniden kuyruğa alındı' : 'Kayıt sıfırlandı')) setRev((x) => x + 1); };
-  const sync = async () => { const r = await run(() => api.post('/publications/sync', { projectId })); if (r) { toast(`${r.checked} zamanlanmış yazı kontrol edildi, ${r.published} tanesi yayında`); setRev((x) => x + 1); } };
+  const sync = async () => { const r = await run(() => api.post('/publications/sync', { projectId })); if (r) { toast(r.checked ? `WordPress’ten ${r.checked} yazı okundu: ${r.published} tanesi yayında${r.scheduled ? `, ${r.scheduled} tanesi zamanlanmış` : ''}${r.errors ? `, ${r.errors} okunamadı` : ''}` : 'WordPress’te beklenen taslak ya da zamanlanmış yazı yok'); setRev((x) => x + 1); } };
   return (
     <div className="page">
-      <PageHead title="Toplu Yayınlama" actions={<><button className="btn" disabled={busy} onClick={sync}><RefreshCw size={15} />Zamanlanmışları kontrol et</button><button className="btn" onClick={() => setRev((x) => x + 1)}>Yenile</button></>}>
+      <PageHead title="Toplu Yayınlama" actions={<><button className="btn" disabled={busy} onClick={sync}><RefreshCw size={15} />WordPress’ten durumları oku</button><button className="btn" onClick={() => setRev((x) => x + 1)}>Yenile</button></>}>
         Arşivdeki onaylı makaleleri bir WordPress sitesine gönderin. <strong>Herkese açık yayın için makalenin “Yayına hazır” olması şarttır</strong> (siz onayladınız ve tüm zorunlu kontroller geçti); taslak olarak “inceleme bekleyen” makaleler de gidebilir. Aynı makale aynı siteye bir kez gider; sonra düzenlerseniz aynı yazı güncellenir.
       </PageHead>
       <Async state={sites}>{(d) => d && (d.sites.length === 0 ? <Alert kind="warn" title="Bağlı site yok"><Link to="/sites">Web Sitelerim</Link> sayfasından bir WordPress sitesi bağlayın.</Alert> : (

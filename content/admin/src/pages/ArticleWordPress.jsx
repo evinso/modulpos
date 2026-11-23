@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Send } from 'lucide-react';
+import { RefreshCw, Send } from 'lucide-react';
 import { api } from '../api.js';
 import { Alert, Async, Badge, Card, Field, useAction, useApp, useLoad } from '../ui.jsx';
 import { dt } from '../format.js';
 import { PUB } from './Publishing.jsx';
 
 /** The article's WordPress side: where it was sent, with what result, and the send form (admin). */
-export default function ArticleWordPress({ art }) {
-  const { can } = useApp();
+export default function ArticleWordPress({ art, onChanged }) {
+  const { can, toast } = useApp();
   const pubs = useLoad(() => api.get(`/articles/${art.id}/publications`), [art.id, art.currentVersion, art.status]);
   const sites = useLoad(() => api.get(`/sites?projectId=${art.projectId}`), [art.projectId]);
   const [f, setF] = useState({ siteId: '', mode: 'draft', at: '' }); const [run, busy] = useAction(); const [again, setAgain] = useState(0);
@@ -21,6 +21,13 @@ export default function ArticleWordPress({ art }) {
     const body = { siteId, mode: f.mode, scheduledAt: f.mode === 'schedule' && f.at ? new Date(f.at).toISOString() : undefined };
     if (await run(() => api.post(`/articles/${art.id}/publish`, body), 'Gönderim kuyruğa alındı')) setTimeout(pubs.reload, 1500);
   };
+  const waiting = pubs.data ? pubs.data.publications.filter((p) => ['draft', 'scheduled'].includes(p.status)) : [];
+  const readBack = async () => {
+    const r = await run(() => api.post('/publications/sync', { projectId: art.projectId, articleId: art.id }));
+    if (!r) return;
+    toast(r.published ? 'WordPress’te yayımlanmış: durum güncellendi' : r.scheduled ? 'WordPress’te zamanlanmış: durum güncellendi' : r.errors ? 'WordPress’e ulaşılamadı ya da yazı okunamadı: site bağlantısını Web Sitelerim’den sınayın' : 'WordPress’te hâlâ taslak ya da zamanlanmış: değişiklik yok');
+    pubs.reload(); if (onChanged) onChanged();
+  };
   return (
     <Card title="WordPress">
       <Async state={sites}>{(s) => (
@@ -32,6 +39,9 @@ export default function ArticleWordPress({ art }) {
                 <small className="faint">{p.status === 'scheduled' ? `yayın: ${dt(p.scheduledAt)}` : p.publishedAt ? `yayın: ${dt(p.publishedAt)}` : dt(p.createdAt)}{p.wpUrl && <> · <a href={p.wpUrl} target="_blank" rel="noopener noreferrer nofollow">yazıyı aç</a></>}</small>
                 {p.hasUpdate && <div><Badge kind="warn">sitedeki sürüm eski (v{p.articleVersion}, güncel v{p.articleCurrentVersion})</Badge></div>}
                 {p.lastError && <div className="faint" style={{ color: 'var(--bad)' }}>{p.lastError}</div>}{p.warnings && p.warnings.length > 0 && <small className="faint">{p.warnings.join(' · ')}</small>}</div>))}</div>)}</Async>
+          {admin && waiting.length > 0 && (
+            <div className="stack"><button className="btn" disabled={busy} onClick={readBack}><RefreshCw size={15} />Durumu WordPress’ten oku</button>
+              <small className="faint">Yazıyı WordPress’te elle yayımladıysanız ya da zamanladıysanız buraya yansıması için basın (WordPress yayını botu açıksa saatte bir kendiliğinden okunur). Hiçbir şey gönderilmez, yalnızca okunur.</small></div>)}
           {admin && active.length > 0 && (
             <div className="stack">
               <Field label="Site"><select className="input" value={siteId} onChange={(e) => setF({ ...f, siteId: e.target.value })}>{active.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>

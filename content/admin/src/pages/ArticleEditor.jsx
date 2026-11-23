@@ -171,7 +171,7 @@ export default function ArticleEditor() {
             </Card>
           )}
           {!isNew && art && <ArticleImage art={art} />}
-          {!isNew && art && <ArticleWordPress art={art} />}
+          {!isNew && art && <ArticleWordPress art={art} onChanged={st.reload} />}
           {!isNew && canEdit && <Card flat><button className="btn danger sm" onClick={remove}><Trash2 size={14} />Makaleyi sil</button></Card>}
         </div>
       </div>

@@ -222,16 +222,41 @@ async function reset(publicationId) {
   await log(publicationId, 'reset', 'failed', 'kişi tarafından'); return get(publicationId);
 }
 
-/** a scheduled post that WordPress has published by now: read it back so the panel tells the truth */
-async function syncDue({ projectId = null, now = new Date(), limit = 10, request } = {}) {
-  const rows = (await db.query(`SELECT * FROM publications WHERE status = 'scheduled' AND scheduled_at <= $1 ${projectId ? 'AND project_id = $2' : ''} ORDER BY scheduled_at LIMIT ${Math.min(50, limit | 0 || 10)}`, projectId ? [now, projectId] : [now])).rows;
-  const out = { checked: 0, published: 0, errors: 0 };
+const DRAFT_RECHECK_MIN = 30;                                    // a draft is asked about again only after this long (a person asking by hand is never held back)
+/** the date WordPress gives, when it is a real one (a draft that was never public can carry "0000-00-00") */
+const wpDate = (iso, fallback) => { const d = iso ? new Date(iso) : null; return d && !Number.isNaN(d.getTime()) && d.getUTCFullYear() > 2000 ? d : fallback; };
+
+/**
+ * What became of our posts on the WordPress side, read back so the panel tells the truth. Two cases:
+ *  - a SCHEDULED post whose time has come (WordPress publishes it by itself);
+ *  - a DRAFT that a person published, or scheduled, in WordPress by hand. That is the normal way in "Yarı otomatik": the system only ever sends drafts, the last word is in WordPress.
+ * READ ONLY towards WordPress (one GET per post, nothing is sent, changed or published there). The article becomes "Yayımlandı" / "Zamanlandı" only from an approval-stage status
+ * (a person's own click in WordPress is the truth); the publication keeps its `mode` (how WE sent it) and takes no place from the day's limits: the system did not do the publishing.
+ * @param o { articleId (a person asked about this article: all its draft and scheduled posts are read now), projectId, limit }
+ * @returns { checked, published, scheduled, errors }
+ */
+async function syncDue({ projectId = null, articleId = null, now = new Date(), limit = 30, request } = {}) {
+  const p = []; let where;
+  if (articleId) { p.push(V.uuid(articleId, 'Makale')); where = `p.article_id = $1 AND p.status IN ('scheduled', 'draft')`; }
+  else { p.push(now); where = `((p.status = 'scheduled' AND p.scheduled_at <= $1) OR (p.status = 'draft' AND (p.synced_at IS NULL OR p.synced_at <= $1::timestamptz - interval '${DRAFT_RECHECK_MIN} minutes')))`; }
+  if (projectId) { p.push(V.uuid(projectId, 'Proje')); where += ` AND p.project_id = $${p.length}`; }
+  const rows = (await db.query(`SELECT p.* FROM publications p WHERE p.wp_post_id IS NOT NULL AND ${where} ORDER BY (p.status = 'scheduled') DESC, p.synced_at NULLS FIRST, p.scheduled_at LIMIT ${Math.min(50, limit | 0 || 30)}`, p)).rows;
+  const out = { checked: 0, published: 0, scheduled: 0, errors: 0 };
   for (const r of rows) {
     out.checked++;
     try {
       const site = await sites.load(r.site_id); const post = await (await sites.clientFor(site, { request })).getPost(r.wp_post_id);
-      if (post.status === 'publish') { await db.query("UPDATE publications SET status = 'published', published_at = COALESCE($2::timestamptz, now()), wp_url = $3, updated_at = now() WHERE id = $1", [r.id, post.date, post.link]); await db.query("UPDATE articles SET status = 'published', updated_at = now() WHERE id = $1 AND status = 'scheduled'", [r.article_id]); await log(r.id, 'sync', 'published', post.link); out.published++; }
-    } catch (err) { out.errors++; await log(r.id, 'sync', 'scheduled', err.message); }
+      const ours = wpToOurs[post.status] || 'draft'; const byHand = r.status === 'draft';
+      if (ours === 'published') {
+        await db.query("UPDATE publications SET status = 'published', published_at = $2, wp_url = $3, synced_at = $4, updated_at = now() WHERE id = $1", [r.id, wpDate(post.date, now), post.link, now]);
+        await db.query("UPDATE articles SET status = 'published', updated_at = now() WHERE id = $1 AND status IN ('needs_review', 'ready', 'scheduled', 'needs_update')", [r.article_id]);
+        await log(r.id, 'sync', 'published', byHand ? `WordPress’te elle yayımlanmış: ${post.link}` : post.link); out.published++;
+      } else if (ours === 'scheduled' && byHand && wpDate(post.date, null)) {
+        await db.query("UPDATE publications SET status = 'scheduled', scheduled_at = $2, wp_url = $3, synced_at = $4, updated_at = now() WHERE id = $1", [r.id, wpDate(post.date, now), post.link, now]);
+        await db.query("UPDATE articles SET status = 'scheduled', updated_at = now() WHERE id = $1 AND status IN ('needs_review', 'ready', 'needs_update')", [r.article_id]);
+        await log(r.id, 'sync', 'scheduled', `WordPress’te elle zamanlanmış: ${post.link}`); out.scheduled++;
+      } else await db.query('UPDATE publications SET synced_at = $2 WHERE id = $1', [r.id, now]);
+    } catch (err) { out.errors++; await db.query('UPDATE publications SET synced_at = $2 WHERE id = $1', [r.id, now]); await log(r.id, 'sync', r.status, err.message); }
   }
   return out;
 }
