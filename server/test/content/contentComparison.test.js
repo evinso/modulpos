@@ -65,7 +65,7 @@ test('blind: nothing that could give a vendor away leaves before the decision (n
   const pid = (await P.seedDefault()).projectId; await vendors(3); const i = await idea(pid); const m = fakeModels(); distinct(m); m.st.fail['gemini:write'] = { status: 401, type: 'invalid_api_key', message: 'Gemini says your key is bad' };
   const r = await go(i.id, m, { rng: () => 0 });
   const c = await CMP.load(r.id);
-  const allowed = ['seoTitle', 'h1', 'slug', 'metaDescription', 'focusKeyword', 'secondaryKeywords', 'excerpt', 'articleType', 'contentHtml', 'faq', 'tags'];
+  const allowed = ['seoTitle', 'h1', 'slug', 'metaDescription', 'focusKeyword', 'secondaryKeywords', 'excerpt', 'articleType', 'contentHtml', 'faq', 'tags', 'image'];     // `image` = the scene the writer proposes for the cover picture (no vendor in it)
   for (const e of c.entries.filter((x) => x.ok)) assert.deepEqual(Object.keys(e.fields).filter((k) => !allowed.includes(k)), [], 'only article fields, nothing about the writer');
   const wire = JSON.stringify({ ...c, idea: undefined, entries: c.entries.map((e) => ({ ...e, fields: e.fields ? Object.keys(e.fields) : null })) });          // everything EXCEPT the article text (a text may legitimately talk about OpenAI: the news is about it)
   assert.deepEqual([c.status, c.blind, c.comparable, c.entries.map((e) => e.label), c.entries.map((e) => e.ok)].slice(0, 4), ['ready', true, true, ['A', 'B', 'C']], 'two usable drafts and one that failed'); assert.equal(c.entries.filter((e) => e.ok).length, 2);

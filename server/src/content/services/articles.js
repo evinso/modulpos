@@ -343,6 +343,7 @@ async function readiness(id) {
   const dup = (await db.query(`SELECT id, h1 FROM articles WHERE project_id = $1 AND id <> $2 AND status NOT IN ('archived', 'failed')
     AND ((focus_keyword <> '' AND focus_keyword = $3) OR lower(h1) = lower($4)) LIMIT 3`, [a.project_id, a.id, a.focus_keyword, a.h1])).rows;
   if (dup.length) add('duplicate', `Aynı odak anahtar kelime/başlıkla başka makale var: “${dup[0].h1.slice(0, 80)}” (kanibalizasyon riski)`);
+  if ((await settings.get('images', a.project_id)).value.auto && !a.featured_image_url && !(await db.query('SELECT 1 FROM article_images WHERE article_id = $1', [a.id])).rows.length) add('no_image', 'Kapak görseli yok (editörde “Kapak görseli” kartından üretilebilir)', false);
   const topic = await projects.checkTopic(a.project_id, `${a.h1} ${a.focus_keyword}`, a.category_id);
   if (!topic.allowed) add('excluded_topic', `Kapsam dışı konu: ${topic.matched.map((m) => m.topic).join(', ')}`);
   return { ready: !problems.some((p) => p.blocking), problems };

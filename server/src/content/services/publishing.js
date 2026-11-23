@@ -12,6 +12,7 @@ const queue = require('./queue');
 const articles = require('./articles');
 const sites = require('./sites');
 const wp = require('./wordpress');
+const images = require('./images');
 const notifications = require('./notifications');
 
 /**
@@ -168,9 +169,13 @@ async function send(publicationId, { request, fetchBinary = safeFetch.fetchBinar
     if (!categoryIds.length) warnings.push('Kategori eşleştirilmedi: yazı sitenin varsayılan kategorisine düşer');
     const tagIds = [];
     for (const t of (a.tags || []).slice(0, 8)) { try { tagIds.push(await client.tagId(t)); } catch (err) { warnings.push(`Etiket “${t}” aktarılamadı: ${err.message}`); break; } }
-    // featured image: only an address the owner typed, fetched through the guarded fetcher
+    // featured image: an address the owner typed (fetched through the guarded fetcher) wins; otherwise the cover picture stored with the article is uploaded (its alt text goes along)
     let mediaId = claimed.wp_media_id ? Number(claimed.wp_media_id) : null; let mediaSource = claimed.media_source;
-    if (a.featured_image_url && a.featured_image_url !== claimed.media_source) {
+    const cover = a.featured_image_url ? null : await images.file(a.id);
+    if (cover && `stored:${cover.id}` !== claimed.media_source) {
+      try { mediaId = (await client.uploadMedia({ buffer: cover.buffer, filename: `${a.slug}.${cover.mime.split('/')[1].replace('jpeg', 'jpg')}`, mime: cover.mime, alt: cover.alt || a.h1 })).id; mediaSource = `stored:${cover.id}`; }
+      catch (err) { warnings.push(`Kapak görseli aktarılamadı: ${err.message}`); }
+    } else if (a.featured_image_url && a.featured_image_url !== claimed.media_source) {
       try {
         const img = await fetchBinary(a.featured_image_url, { maxBytes: 4 * 1024 * 1024 });
         if (!/^image\/(jpeg|png|webp|gif)$/.test(img.contentType)) throw new Error(`desteklenmeyen dosya türü (${img.contentType || 'bilinmiyor'})`);

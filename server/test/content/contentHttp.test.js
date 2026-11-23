@@ -259,7 +259,7 @@ test('the module is closed when not configured, and says so while the database i
 test('automation mode through HTTP: everybody signed in can read it, only the admin can change it, a refused mode changes nothing, the confirmation round trip works, every change is audited', opts, async () => {
   const admin = await signedIn(); const viewer = await signedIn('viewer'); const editor = await signedIn('editor');
   const project = (await admin.get('/projects')).json.projects[0];
-  const r = await viewer.get(`/automation?projectId=${project.id}`); assert.equal(r.status, 200); assert.equal(r.json.options.length, 15); assert.equal(r.json.modes.length, 3);
+  const r = await viewer.get(`/automation?projectId=${project.id}`); assert.equal(r.status, 200); assert.equal(r.json.options.length, 16); assert.equal(r.json.modes.length, 3);
   assert.equal((await viewer.get('/automation')).status, 400, 'a project is required');
   for (const c of [viewer, editor]) assert.equal((await c.put('/automation', { projectId: project.id, mode: 'manual' })).status, 403);
   const refused = await admin.put('/automation', { projectId: project.id, mode: 'full' }); assert.equal(refused.status, 409); assert.match(refused.json.error, /Tam otomatik mod için eksikler/); assert.ok(refused.json.problems.length >= 2);
@@ -270,4 +270,30 @@ test('automation mode through HTTP: everybody signed in can read it, only the ad
   const lv = await viewer.get(`/automation/live?projectId=${project.id}`); assert.equal(lv.status, 200); assert.equal(lv.json.bots.length, 13); assert.deepEqual([lv.json.summary.running, lv.json.paused], [0, false]); assert.ok(lv.json.bots.some((b) => b.key === 'news_discovery' && b.state === 'waiting'));
   assert.equal((await viewer.get('/automation/live')).status, 400); assert.equal((await viewer.get('/automation/live?projectId=00000000-0000-0000-0000-000000000001')).status, 404); assert.equal((await client().get(`/automation/live?projectId=${project.id}`)).status, 401, 'signed-in users only');
   const audit = (await admin.get('/audit?action=automation')).json.items; assert.ok(audit.length >= 2); assert.equal(audit[0].action, 'automation.apply');
+});
+
+test('cover image through HTTP: everybody signed in can see it, an editor can change the alt text and remove it, only the admin can pay for a new one, the bytes come back as a real image, every change is audited', opts, async () => {
+  const admin = await signedIn(); const editor = await signedIn('editor'); const viewer = await signedIn('viewer');
+  const project = (await admin.get('/projects')).json.projects[0];
+  const art = (await admin.post('/articles', { projectId: project.id, h1: 'Cover test', contentHtml: '<p>hello</p>' })).json;
+  const empty = (await viewer.get(`/articles/${art.id}/image`)).json; assert.deepEqual([empty.image, empty.openaiConfigured, empty.auto], [null, false, false]);
+  assert.equal((await viewer.get(`/articles/${art.id}/image/file`)).status, 404);
+  assert.equal((await editor.post(`/articles/${art.id}/image/generate`, {})).status, 403, 'drawing costs money: admin only');
+  assert.equal((await admin.post(`/articles/${art.id}/image/generate`, {})).status, 409, 'OpenAI is not set up yet');
+  assert.equal((await admin.put('/providers/openai', { secret: 'sk-test-abcdefghijklmnop1234', extra: { model: 'gpt-test', imageModel: 'gpt-image-2' } })).status, 200);
+  const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('JFIF http test picture '.repeat(60)), Buffer.from([0xff, 0xd9])]); const real = globalThis.fetch; const seen = [];
+  globalThis.fetch = async (u, o) => { if (String(u).startsWith('https://api.openai.com/')) { seen.push(JSON.parse(o.body)); return new Response(JSON.stringify({ created: 1, size: '1536x1024', data: [{ b64_json: JPEG.toString('base64') }], usage: { input_tokens: 50, output_tokens: 900, total_tokens: 950 } }), { status: 200, headers: { 'content-type': 'application/json' } }); } return real(u, o); };
+  try {
+    assert.equal((await admin.post(`/articles/${art.id}/image/generate`, { prompt: 'x'.repeat(701) })).status, 400, 'a scene longer than 700 characters is refused');
+    assert.equal((await admin.post(`/articles/${art.id}/image/generate`, { quality: 'ultra' })).status, 400);
+    const gen = await admin.post(`/articles/${art.id}/image/generate`, { prompt: 'A router on a wooden desk', alt: 'A white router on a desk', quality: 'low' });
+    assert.equal(gen.status, 200, gen.text); assert.deepEqual([gen.json.image.alt, gen.json.image.quality, gen.json.image.model, gen.json.image.bytes], ['A white router on a desk', 'low', 'gpt-image-2', undefined]); assert.equal(seen.length, 1); assert.equal(seen[0].quality, 'low');
+  } finally { globalThis.fetch = real; }
+  const meta = (await viewer.get(`/articles/${art.id}/image`)).json; assert.equal(meta.openaiConfigured, true); assert.equal(meta.image.byteSize, JPEG.length);
+  const file = await viewer.get(`/articles/${art.id}/image/file`); assert.equal(file.status, 200); assert.equal(file.headers.get('content-type'), 'image/jpeg'); assert.equal(file.headers.get('x-content-type-options'), 'nosniff'); assert.equal(file.text.length > 0, true);
+  assert.equal((await viewer.put(`/articles/${art.id}/image`, { alt: 'x' })).status, 403); assert.equal((await editor.put(`/articles/${art.id}/image`, { alt: '' })).status, 400);
+  assert.equal((await editor.put(`/articles/${art.id}/image`, { alt: 'A router on a desk' })).json.image.alt, 'A router on a desk');
+  assert.equal((await viewer.del(`/articles/${art.id}/image`)).status, 403); assert.equal((await editor.del(`/articles/${art.id}/image`)).status, 200); assert.equal((await editor.del(`/articles/${art.id}/image`)).status, 404);
+  assert.equal((await viewer.get(`/articles/${art.id}/image`)).json.image, null);
+  const log = (await admin.get('/audit?action=article.image')).json.items.map((x) => x.action); assert.deepEqual(['article.image_remove', 'article.image_alt', 'article.image_generate'], log.slice(0, 3));
 });

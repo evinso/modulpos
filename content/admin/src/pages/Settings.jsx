@@ -21,6 +21,9 @@ const F = {
   publishing: { title: 'Yayın', about: 'WordPress’e yayın bu ayarlara göre yapılır (Web Sitelerim ve Toplu Yayınlama sayfaları).', fields: [
     { k: 'autoPublish', t: 'bool', l: 'Otomatik yayın' }, { k: 'mode', t: 'select', l: 'Yayın şekli', opts: [['draft', 'Taslak olarak gönder'], ['publish', 'Doğrudan yayımla']] }, { k: 'windowStart', t: 'time', l: 'Yayın saat aralığı — başlangıç' }, { k: 'windowEnd', t: 'time', l: 'Yayın saat aralığı — bitiş' },
     { k: 'timezone', t: 'text', l: 'Saat dilimi (ör. Europe/Istanbul)' }, { k: 'weekends', t: 'bool', l: 'Hafta sonu da yayınla' }] },
+  images: { title: 'Kapak görselleri', about: 'Her yeni yapay zekâ makalesi için yazıcının önerdiği sahneden bir kapak görseli çizilir (OpenAI görsel modeli, görsel başına ücret). Görselde yazı, logo ya da gerçek kişi olmaması istenir. OpenAI anahtarı ve görsel modeli API Kullanımı sayfasındadır; açıp kapatmayı Otomasyon Modu sayfasından da yapabilirsiniz.', fields: [
+    { k: 'auto', t: 'bool', l: 'Yeni makaleye kapak görseli ekle' }, { k: 'quality', t: 'select', l: 'Görsel kalitesi', opts: [['low', 'Düşük (en ucuz)'], ['medium', 'Orta'], ['high', 'Yüksek (en pahalı)']], hint: 'Kalite arttıkça görsel başına ücret artar; güncel fiyat için OpenAI hesabınıza bakın.' },
+    { k: 'style', t: 'text', l: 'Görsel stili (İngilizce yazın)', hint: 'Her görselin tarifine eklenir; ör. “Clean modern editorial illustration, soft natural lighting”.' }, { k: 'requireForAutoApprove', t: 'bool', l: 'Görselsiz makale kendiliğinden “Yayına hazır” olmasın', hint: 'Otomatik onay açıkken, görseli çizilememiş bir makale sizi bekler (OpenAI hatası, doğrulama vb.).' }] },
   update: { title: 'Güncelleme politikası', about: 'Eski makalelerin ne sıklıkla kontrol edileceği (İçerik Sağlığı ve Güncelleme Merkezi bu ayarları kullanır).', fields: [
     { k: 'policy', t: 'select', l: 'Onay politikası', opts: [['manual', 'Her güncelleme elle onaylanır'], ['minor_auto', 'Küçük güncellemeler otomatik'], ['low_risk_auto', 'Düşük riskli güncellemeler otomatik']] },
     { k: 'intervalDays.breaking', t: 'int', l: 'Son dakika haberleri (gün)', min: 1, max: 7 }, { k: 'intervalDays.currentTech', t: 'int', l: 'Güncel teknoloji haberleri (gün)', min: 1, max: 60 }, { k: 'intervalDays.aiTools', t: 'int', l: 'AI araçları (gün)', min: 1, max: 90 },
@@ -30,7 +33,7 @@ const F = {
   budget: { title: 'Platform bütçesi', about: 'Tüm ücretli servislerin toplamı için üst sınır (USD). Her servisin kendi bütçesi API sayfasındadır.', fields: [
     { k: 'dailyTotalUsd', t: 'usd', l: 'Günlük toplam bütçe (USD)', hint: 'Boş = sınırsız' }, { k: 'monthlyTotalUsd', t: 'usd', l: 'Aylık toplam bütçe (USD)', hint: 'Boş = sınırsız' }] },
 };
-const ORDER = ['news', 'seo', 'quality', 'publishing', 'update', 'scoring', 'budget'];
+const ORDER = ['news', 'seo', 'quality', 'images', 'publishing', 'update', 'scoring', 'budget'];
 
 const get = (o, path) => path.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
 const put = (o, path, v) => { const c = JSON.parse(JSON.stringify(o)); const ks = path.split('.'); let t = c; ks.slice(0, -1).forEach((k) => { t = t[k]; }); t[ks[ks.length - 1]] = v; return c; };

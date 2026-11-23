@@ -6,6 +6,7 @@ import { api } from '../api.js';
 import { Alert, Async, Badge, Card, Check, Field, Modal, PageHead, Spinner, useAction, useApp, useLoad } from '../ui.jsx';
 import { NEXT, RISK, STATUS, TYPE_LABELS, csvList, dt, num } from '../format.js';
 import ArticleChecks from './ArticleChecks.jsx';
+import ArticleImage from './ArticleImage.jsx';
 import ArticleWordPress from './ArticleWordPress.jsx';
 import DiffView from './DiffView.jsx';
 
@@ -169,6 +170,7 @@ export default function ArticleEditor() {
               {dirty && <small className="faint">Durumu değiştirmeden önce kaydedin.</small>}
             </Card>
           )}
+          {!isNew && art && <ArticleImage art={art} />}
           {!isNew && art && <ArticleWordPress art={art} />}
           {!isNew && canEdit && <Card flat><button className="btn danger sm" onClick={remove}><Trash2 size={14} />Makaleyi sil</button></Card>}
         </div>

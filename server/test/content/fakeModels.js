@@ -20,12 +20,14 @@ const sectionHtml = (kw) => {
 <h2>What this means for teams and budgets</h2>${p(2)}${p(3)}${p(4)}<h2>Practical steps this week</h2><ul><li>Write down how often you use the plan.</li><li>Compare it with the free option.</li><li>Set a reminder before the billing date.</li></ul>${p(0)}${p(1)}${p(2)}`;
 };
 
+/** a tiny valid-looking JPEG (recognised by its first bytes) for the picture tests */
+const PICTURE = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('JFIF fake cover picture '.repeat(60)), Buffer.from([0xff, 0xd9])]);
 const header = (h, n) => { if (!h) return undefined; if (typeof h.get === 'function') return h.get(n); const k = Object.keys(h).find((x) => x.toLowerCase() === n.toLowerCase()); return k ? h[k] : undefined; };
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const roleOf = (system) => (/senior staff writer/.test(system) ? 'write' : /UPDATE an existing article/.test(system) ? 'update' : /meticulous fact checker/.test(system) ? 'fact' : /ad-policy reviewer/.test(system) ? 'review' : 'other');
 
 function fakeModels() {
-  const calls = []; const st = { fail: {}, override: {}, finish: {}, tokens: { in: 1500, out: 900 } };
+  const calls = []; const st = { fail: {}, override: {}, finish: {}, tokens: { in: 1500, out: 900 }, openaiModels: ['gpt-4o', 'gpt-image-1', 'gpt-image-2', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-sunburst-2026-09-08', 'dall-e-3'] };
   const focusOf = (user) => (/FOCUS KEYWORD \(use exactly this phrase\): (.+)/.exec(user) || [])[1] || 'the topic';
   const defaults = {
     write: (user) => { const kw = focusOf(user); return { seoTitle: `${kw[0].toUpperCase()}${kw.slice(1)}: What Changes`, h1: `${kw[0].toUpperCase()}${kw.slice(1)}: what you need to know`, slug: kw.replace(/ /g, '-'), metaDescription: `What is changing with ${kw}, why it is happening and what readers can do about it before the new price takes effect this winter.`,
@@ -41,6 +43,12 @@ function fakeModels() {
   };
   const fetchImpl = async (url, o) => {
     const u = String(url); let vendor; let system; let user; let body;
+    if (u === 'https://api.openai.com/v1/models') { calls.push({ vendor: 'openai', role: 'models', url: u }); return json(200, { object: 'list', data: st.openaiModels.map((id) => ({ id, object: 'model' })) }); }
+    if (u === 'https://api.openai.com/v1/images/generations') {                                          // the cover picture, in OpenAI's documented shape (b64_json + usage)
+      body = JSON.parse(o.body); calls.push({ vendor: 'openai', role: 'image', url: u, body, key: header(o.headers, 'authorization') });
+      const f = st.fail.image; if (f) return json(f.status, { error: { message: f.message || 'failed', code: f.type } });
+      return json(200, { created: 1, size: body.size, quality: body.quality, output_format: 'jpeg', data: [{ b64_json: PICTURE.toString('base64') }], usage: { input_tokens: 100, output_tokens: 1400, total_tokens: 1500 } });
+    }
     if (u.startsWith('https://api.anthropic.com/v1/messages')) { vendor = 'anthropic'; body = JSON.parse(o.body); system = body.system; user = body.messages[0].content; }
     else if (u.startsWith('https://api.openai.com/v1/chat/completions')) { vendor = 'openai'; body = JSON.parse(o.body); system = body.messages[0].content; user = body.messages[1].content; }
     else if (u.includes('generativelanguage.googleapis.com') && u.includes(':generateContent')) { vendor = 'gemini'; body = JSON.parse(o.body); system = body.systemInstruction.parts[0].text; user = body.contents[0].parts[0].text; }
@@ -60,4 +68,4 @@ function fakeModels() {
   return { fetchImpl, calls, st, byRole: (r) => calls.filter((c) => c.role === r) };
 }
 
-module.exports = { SRC, PAGE, ORIGINAL, sectionHtml, fakeModels, json };
+module.exports = { SRC, PAGE, ORIGINAL, sectionHtml, fakeModels, json, PICTURE };

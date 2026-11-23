@@ -167,16 +167,19 @@ async function pick(id, label, { userId = null, fetchImpl, now = new Date(), bac
   await db.query("UPDATE writer_comparisons SET status = 'picked', picked_label = $2, picked_article_id = $3, decided_by = $4, decided_at = $5 WHERE id = $1", [claimed.id, lab, article.id, userId, now]);
   await db.query('UPDATE content_opportunities SET article_id = $2, updated_at = now() WHERE id = $1', [o.id, article.id]);
   const run = await runs.start(writer.BOT, { projectId: claimed.project_id, trigger: 'manual', userId });
-  const job = finishPicked(o, article, run, { who, fetchImpl, now }).finally(() => pending.delete(`pick:${claimed.id}`));
+  const job = finishPicked(o, article, run, { who, fetchImpl, now, hint: entry.fields && entry.fields.image }).finally(() => pending.delete(`pick:${claimed.id}`));
   pending.set(`pick:${claimed.id}`, job);
   if (!background) await job;
   return { comparison: await load(claimed.id), articleId: article.id, runId: run.id };
 }
 
-async function finishPicked(o, article, run, { who, fetchImpl, now }) {
+async function finishPicked(o, article, run, { who, fetchImpl, now, hint }) {
   const stats = { compare: 'pick', articleId: article.id, checker: who.checker, costUsd: 0, unknownCost: 0, calls: 0 };
   const add = (u) => { if (!u) return; stats.calls++; if (u.costUsd === null || u.costUsd === undefined) stats.unknownCost++; else stats.costUsd = Math.round((stats.costUsd + u.costUsd) * 1e6) / 1e6; };
   try {
+    await runs.progress(run.id, { ...stats, step: 'image' });
+    const pic = await require('./images').autoForArticle(article.id, article.projectId || o.project_id, hint || {}, { fetchImpl, now });
+    if (pic.status === 'ok' || pic.billed) add({ costUsd: pic.costUsd }); if (pic.status !== 'off') stats.image = pic.status; if (pic.error) stats.imageError = pic.error;
     await runs.progress(run.id, { ...stats, step: 'checking' });
     const res = await checks.runAll(article.id, { mode: 'all', checkerProvider: who.checker, fetchImpl, now });
     for (const u of res.usage) add(u);

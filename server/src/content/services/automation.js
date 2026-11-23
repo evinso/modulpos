@@ -33,6 +33,7 @@ const OPTIONS = [
   { key: 'keywords', group: 'research', bot: 'keyword_research', spends: true, label: 'Anahtar kelime verisi (Apify)', help: 'Fikirlerin gerçek aranma hacmini sorar. Apify kredisi harcar; aylık kelime kotası ve günlük limit geçilmez.' },
   { key: 'serp', group: 'research', bot: 'seo_competition', spends: true, label: 'SERP rekabet analizi (Serper)', help: 'Fikirlerin Google rekabetini inceler. Serper kredisi harcar; günlük sorgu limiti geçilmez.' },
   { key: 'writer', group: 'writing', bot: 'article_writer', spends: true, label: 'Makale yazımı (yapay zekâ)', help: 'Uygun fikirden kaynaklı bir taslak yazar ve zorunlu kontrolleri (doğruluk, AdSense riski, tekrar, kalite) yapar. Model ücreti harcar; günlük makale limiti geçilmez.' },
+  { key: 'images', group: 'writing', spends: true, label: 'Makaleye kapak görseli ekle (OpenAI görsel modeli)', help: 'Makale yazılınca, makaleye uygun bir kapak görseli çizilir ve WordPress’e öne çıkan görsel (açıklayıcı alt metinle) olarak gönderilir. Görsel başına OpenAI ücreti alınır; görselde yazı, logo ya da gerçek kişi olmaması istenir.' },
   { key: 'autoApprove', group: 'writing', risk: true, label: 'Temiz geçen makaleyi kendiliğinden “Yayına hazır” yap', help: 'Kapalıyken her taslağı siz onaylarsınız. Açıkken yalnızca tüm zorunlu kontrollerden ve en az kalite puanından geçen taslak onaylanır; geçemeyen “İnceleme bekliyor”da kalır.' },
   { key: 'publishing', group: 'publishing', bot: 'content_publishing', label: 'Hazır makaleleri WordPress’e gönder', help: 'Yalnızca “Yayına hazır” makaleleri, günlük yayın limitini aşmadan gönderir. Aşağıdaki seçenek kapalıysa taslak olarak gider.' },
   { key: 'publishLive', group: 'publishing', risk: true, label: 'Taslak yerine doğrudan yayımla', help: 'Açıkken gönderilen yazılar sitede herkese açık yayımlanır. Kapalıyken WordPress’te taslak olarak durur ve son kararı orada siz verirsiniz.' },
@@ -44,7 +45,7 @@ const OPTIONS = [
   { key: 'reports', group: 'upkeep', bot: 'reporting', label: 'Günlük ve haftalık rapor', help: 'Her sabah önceki günün, pazartesileri önceki haftanın raporunu üretir. Ücretsiz.' },
 ];
 const KEYS = OPTIONS.map((o) => o.key);
-const SEMI = ['news', 'opportunities', 'niche', 'keywords', 'serp', 'writer', 'publishing', 'health', 'links', 'gsc', 'adsense', 'reports'];
+const SEMI = ['news', 'opportunities', 'niche', 'keywords', 'serp', 'writer', 'images', 'publishing', 'health', 'links', 'gsc', 'adsense', 'reports'];
 const FULL = [...SEMI, 'autoApprove', 'publishLive', 'refresh'];
 
 const MODES = {
@@ -65,13 +66,13 @@ const windowMinutes = (from, to) => { const d = minutes(to) - minutes(from); ret
 
 // ── what is connected (prerequisites) ───────────────────────────────────────────────────────────
 async function gather(projectId) {
-  const [vendors, apify, serper, gscProv, siteList, niche] = await Promise.all([
-    llm.available(), providers.get('apify'), providers.get('serper'), providers.get('searchconsole'), sites.list(projectId),
+  const [vendors, openai, apify, serper, gscProv, siteList, niche] = await Promise.all([
+    llm.available(), providers.get('openai'), providers.get('apify'), providers.get('serper'), providers.get('searchconsole'), sites.list(projectId),
     db.query('SELECT main_niche FROM niche_profiles WHERE project_id = $1', [projectId]),
   ]);
   const readyVendors = vendors.filter((v) => v.ready);
   const okSites = siteList.filter((s) => s.status === 'active' && s.lastTestOk === true);
-  return { vendors, readyVendors, apify, serper, gscProv, siteList, okSites, gscSites: siteList.filter((s) => s.status === 'active' && s.gscProperty), nicheSet: !!(niche.rows[0] && niche.rows[0].main_niche) };
+  return { vendors, readyVendors, openai, apify, serper, gscProv, siteList, okSites, gscSites: siteList.filter((s) => s.status === 'active' && s.gscProperty), nicheSet: !!(niche.rows[0] && niche.rows[0].main_niche) };
 }
 
 /** what stops an option from being switched on: [{ text, to }] (empty = ready) */
@@ -80,6 +81,7 @@ function missingFor(key, g) {
   const model = { text: 'Bağlı bir yapay zekâ sağlayıcısı (anahtar + model adı)', to: '/api-usage' };
   const site = { text: 'Bağlantı testi geçmiş, etkin bir WordPress sitesi', to: '/sites' };
   if (key === 'writer' || key === 'refresh') { if (!g.readyVendors.length) need.push(model); }
+  if (key === 'images' && !g.openai.configured) need.push({ text: 'OpenAI anahtarı (görsel çizimi için)', to: '/api-usage' });
   if (key === 'keywords' && !g.apify.configured) need.push({ text: 'Apify anahtarı (anahtar kelime hacmi için)', to: '/api-usage' });
   if (key === 'serp' && !g.serper.configured) need.push({ text: 'Serper anahtarı (SERP rekabeti için)', to: '/api-usage' });
   if ((key === 'publishing' || key === 'publishLive') && !g.okSites.length) need.push(site);
@@ -96,7 +98,8 @@ async function readOn(projectId) {
   on.publishing = on.publishing && !!pub.autoPublish && !!pub.siteId;
   on.publishLive = pub.mode === 'publish';
   on.autoApprove = q.manualApprovalNewArticles === false;
-  return { on, sch, pub, q };
+  const im = (await settings.get('images', projectId)).value; on.images = !!im.auto;
+  return { on, sch, pub, q, im };
 }
 
 async function readValues(projectId, st) {
@@ -240,6 +243,11 @@ async function apply(body, { userId = null } = {}) {
   if (mode !== 'manual' && values.minQuality !== curValues.minQuality) { qPatch.minScore = values.minQuality; note(`En düşük kalite puanı: ${curValues.minQuality} → ${values.minQuality}`); }
   if (target.autoApprove !== st.on.autoApprove) { qPatch.manualApprovalNewArticles = !target.autoApprove; note(target.autoApprove ? 'Otomatik onay AÇILDI (temiz geçen makale kendiliğinden “Yayına hazır” olur)' : 'Otomatik onay kapatıldı (her makaleyi siz onaylarsınız)'); }
   if (Object.keys(qPatch).length) { const r = await settings.get('quality', pid); await settings.set('quality', { ...r.value, ...qPatch }, r.overriddenForProject ? { scope: 'project', projectId: pid, userId } : { scope: 'global', userId }); }
+  if (target.images !== st.on.images) {
+    const r = await settings.get('images', pid);
+    await settings.set('images', { ...r.value, auto: target.images }, r.overriddenForProject ? { scope: 'project', projectId: pid, userId } : { scope: 'global', userId });
+    note(target.images ? 'Makale kapak görseli AÇILDI (her yeni makale için bir görsel çizilir, görsel başına OpenAI ücreti alınır)' : 'Makale kapak görseli kapatıldı');
+  }
   if (mode !== 'manual' && values.dailyBudgetUsd !== curValues.dailyBudgetUsd) { const b = (await settings.get('budget')).value; await settings.set('budget', { ...b, dailyTotalUsd: values.dailyBudgetUsd }, { userId }); note(`Günlük toplam bütçe: ${curValues.dailyBudgetUsd === null ? 'sınırsız' : `$${curValues.dailyBudgetUsd}`} → ${values.dailyBudgetUsd === null ? 'sınırsız' : `$${values.dailyBudgetUsd}`}`); }
 
   // 3. the per-project "bot is active" switches (a closed switch would silently stop the bot even when its schedule is on)

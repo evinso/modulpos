@@ -30,6 +30,7 @@ test.after(async () => { if (!H.skip) { await wp.close(); await H.close(); } });
 const setup = async () => (await P.seedDefault()).projectId;
 const connectAll = async (pid) => {
   await PR.save('gemini', { secret: 'AIzaSyTestKey0123456789abcdef', extra: { model: 'gemini-test' } });
+  await PR.save('openai', { secret: 'sk-test-key-0123456789abcdef', extra: { model: 'gpt-test' } });
   await PR.save('apify', { secret: 'apify_api_test_token_0123456789' }); await PR.save('serper', { secret: 'serper-key-0123456789abcdef' });
   const s = await SI.create(pid, { name: 'Test Blog', apiUrl: wp.url, username: 'editor', password: PASS }); const t = await SI.test(s.id); assert.equal(t.ok, true, t.message);
   return s;
@@ -39,9 +40,9 @@ const opt = (o, k) => o.options.find((x) => x.key === k);
 
 test('a new project: free bots run, paid ones do not; every option says what it is missing; "tam otomatik" is not offered without a model and a tested WordPress site', opts, async () => {
   const pid = await setup(); const o = await AU.overview(pid);
-  assert.equal(o.options.length, 15); assert.equal(o.mode, 'custom', 'the default is research only: not called "yarı otomatik" while the writer is off');
+  assert.equal(o.options.length, 16); assert.equal(o.mode, 'custom', 'the default is research only: not called "yarı otomatik" while the writer is off');
   assert.deepEqual(['news', 'opportunities', 'niche', 'health', 'links', 'adsense', 'reports'].every((k) => opt(o, k).on), true);
-  assert.deepEqual(['keywords', 'serp', 'writer', 'autoApprove', 'publishing', 'publishLive', 'refresh', 'gsc'].map((k) => opt(o, k).on), Array(8).fill(false));
+  assert.deepEqual(['keywords', 'serp', 'writer', 'images', 'autoApprove', 'publishing', 'publishLive', 'refresh', 'gsc'].map((k) => opt(o, k).on), Array(9).fill(false)); assert.match(opt(o, 'images').missing[0].text, /OpenAI anahtarı/);
   assert.match(opt(o, 'writer').missing[0].text, /yapay zekâ sağlayıcısı/); assert.match(opt(o, 'publishing').missing[0].text, /WordPress sitesi/); assert.equal(opt(o, 'news').ready, true);
   const full = o.modes.find((m) => m.key === 'full'); assert.equal(full.applicable, false); assert.ok(full.blockedBy.length >= 2);
   assert.match(o.summary, /Makale yazımı KAPALI.*WordPress’e gönderim KAPALI.*siz onaylarsınız/); assert.equal(o.checklist.find((c) => c.key === 'model').ok, false);
@@ -52,7 +53,7 @@ test('a new project: free bots run, paid ones do not; every option says what it 
 
 test('"yarı otomatik" with nothing connected skips what cannot run (and says so) instead of switching it on', opts, async () => {
   const pid = await setup(); const r = await AU.apply({ projectId: pid, mode: 'semi' });
-  assert.deepEqual(r.applied.skipped.map((s) => s.key).sort(), ['gsc', 'keywords', 'publishing', 'serp', 'writer']); assert.ok(r.applied.skipped.every((s) => s.missing.length));
+  assert.deepEqual(r.applied.skipped.map((s) => s.key).sort(), ['gsc', 'images', 'keywords', 'publishing', 'serp', 'writer']); assert.ok(r.applied.skipped.every((s) => s.missing.length));
   assert.equal(opt(r, 'writer').on, false); assert.equal((await SC.getSchedule('article_writer')).enabled, false); assert.equal(r.mode, 'custom');
   assert.equal((await S.get('publishing', pid)).value.autoPublish, false);
 });
@@ -61,7 +62,7 @@ test('"yarı otomatik" with everything connected: research + writing + checks ru
   const pid = await setup(); const site = await connectAll(pid);
   const r = await AU.apply({ projectId: pid, mode: 'semi' });
   assert.equal(r.mode, 'semi'); assert.deepEqual(r.applied.skipped.map((x) => x.key), ['gsc'], 'only Search Console is missing (no service-account key): it is skipped and named, nothing else');
-  assert.deepEqual(['keywords', 'serp', 'writer', 'publishing'].map((k) => opt(r, k).on), [true, true, true, true]); assert.deepEqual([opt(r, 'autoApprove').on, opt(r, 'publishLive').on, opt(r, 'refresh').on], [false, false, false]);
+  assert.deepEqual(['keywords', 'serp', 'writer', 'images', 'publishing'].map((k) => opt(r, k).on), [true, true, true, true, true]); assert.equal((await S.get('images', pid)).value.auto, true, 'covers are drawn for every new article'); assert.deepEqual([opt(r, 'autoApprove').on, opt(r, 'publishLive').on, opt(r, 'refresh').on], [false, false, false]);
   const pub = (await S.get('publishing', pid)).value; assert.deepEqual([pub.autoPublish, pub.mode, pub.siteId, pub.windowStart, pub.windowEnd, pub.weekends], [true, 'draft', site.id, '09:00', '21:00', false]);
   assert.equal((await S.get('quality', pid)).value.manualApprovalNewArticles, true, 'every article still waits for the person');
   const w = await SC.getSchedule('article_writer'); assert.deepEqual([w.enabled, w.windowStart, w.windowEnd, w.intervalMinutes, w.options.perRun], [true, '09:00', '23:00', 180, 1]);

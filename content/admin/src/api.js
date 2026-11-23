@@ -39,6 +39,8 @@ export const api = {
   post: (p, b) => request('POST', p, b === undefined ? {} : b),
   put: (p, b) => request('PUT', p, b),
   del: (p) => request('DELETE', p),
+  /** The bytes of a file the API serves behind the session (an <img> cannot send the CSRF header); the caller makes an object address from it. */
+  async blob(path) { return (await request('GET', path, undefined, { raw: true })).blob(); },
   /** Downloads a file the API builds (export). The cookie and header are needed, so a plain link would not work. */
   async download(path) {
     const res = await request('GET', path, undefined, { raw: true });
