@@ -655,6 +655,13 @@ ok('declining changes nothing', (await autoSched('article_writer')).enabled !== 
 await click(btn('Tam otomatik modunu uygula'), 700); await click(btn('Evet, devam et', $('.modal')), 1500);
 const qs2 = await q1("SELECT value FROM automation_settings WHERE key = 'quality'"); const ps2 = await q1("SELECT value FROM automation_settings WHERE key = 'publishing'");
 ok('after the yes: automatic approval and live publishing are on, the writer and the WordPress bot run on schedule, and the page reads "Tam otomatik"', txt().includes('Şu anki mod: Tam otomatik') && qs2.value.manualApprovalNewArticles === false && ps2.value.mode === 'publish' && ps2.value.autoPublish === true && (await autoSched('article_writer')).enabled === true && (await autoSched('content_publishing')).enabled === true);
+// the owner's own case: already in "Tam otomatik" (its button reads "Uygulandı" and is off), the hours typed in the Değerler card had NO button that could save them
+ok('in the current mode the mode button is off and "Değerleri kaydet" is off while nothing was typed', btn('Tam otomatik modunu uygula') === undefined && btn('Uygulandı') && btn('Uygulandı').disabled === true && btn('Değerleri kaydet').disabled === true);
+await setVal(aria('Yazım başlangıcı'), '08:15'); await setVal(aria('Yazım bitişi'), '22:45'); await setVal(aria('Günlük yeni makale'), '5');
+ok('typing a value wakes "Değerleri kaydet" and "Seçimi uygula" (before: both stayed off) and nothing is saved yet', btn('Değerleri kaydet').disabled === false && btn('Seçimi uygula').disabled === false && (await q1("SELECT window_start FROM schedule_settings WHERE bot_key = 'article_writer'")).window_start !== '08:15');
+await click(btn('Değerleri kaydet'), 1500);
+const wsch = await q1("SELECT enabled, window_start, window_end FROM schedule_settings WHERE bot_key = 'article_writer'");
+ok('"Değerleri kaydet" saves the writer hours on the real bot schedule and the day\'s article number, keeps the mode (Tam otomatik) and the switches, and goes off again', wsch.enabled === true && wsch.window_start === '08:15' && wsch.window_end === '22:45' && txt().includes('Şu anki mod: Tam otomatik') && (await q1("SELECT daily_article_limit FROM niche_profiles LIMIT 1")).daily_article_limit === 5 && btn('Değerleri kaydet').disabled === true && aria('Yazım başlangıcı').value === '08:15');
 await click(nav('Bot Yönetimi'), 800);
 ok('Bot Yönetimi shows the very same switches (the page has no state of its own)', txt().includes('Otomatik: 3 saatte bir') || txt().includes('3 saatte bir'));
 await click(nav('Otomasyon Modu'), 800); await click(btn('Elle modunu uygula'), 1000);
