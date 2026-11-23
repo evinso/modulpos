@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { CalendarClock, PauseCircle, PlayCircle, Play } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { CalendarClock, PauseCircle, PlayCircle, Play, Rocket } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { Alert, Async, Badge, Card, Check, Empty, Field, Modal, useAction, useApp, useLoad } from '../ui.jsx';
 import { dt, usd } from '../format.js';
@@ -70,6 +70,14 @@ export function BotList() {
   const st = useLoad(() => api.get('/bots'), []);
   const [run, busy] = useAction();
   const [edit, setEdit] = useState(null);
+  const [all, setAll] = useState(null);                                  // the answer of the last "Tüm botları tetikle": the steps in order
+  const [watch, setWatch] = useState(false); const since = useRef(0);       // while the sequence runs the table refreshes itself
+  useEffect(() => {
+    if (!watch) return undefined;
+    const iv = setInterval(() => { if (Date.now() - since.current > 1800000) setWatch(false); else st.reload(); }, 5000);
+    return () => clearInterval(iv);
+  }, [watch]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (watch && st.data && Date.now() - since.current > 8000 && st.data.items.every((b) => !b.queued && !b.running)) setWatch(false); }, [st.data, watch]);
   const pause = async (p) => {
     if (p && !(await confirm({ title: 'Botlar duraklatılsın mı?', body: 'Otomatik işler yeni iş başlatmaz. Sizin elle başlattığınız işler limitlere tabi olarak çalışmaya devam eder.', confirmText: 'Duraklat' }))) return;
     if (await run(() => api.post(p ? '/bots/pause' : '/bots/resume'), p ? 'Botlar duraklatıldı' : 'Botlar devam ediyor')) st.reload();
@@ -77,6 +85,13 @@ export function BotList() {
   const now = async (b) => { if (await run(() => api.post(`/bots/${b.key}/run`, { projectId }), `${b.label} kuyruğa alındı`)) st.reload(); };
   const toggle = async (b, enabled) => { if (await run(() => api.put(`/bots/${b.key}/schedule`, { enabled }), enabled ? `${b.label} otomatik çalışacak` : `${b.label} otomatik çalışmayacak`)) st.reload(); };
   const canControl = can('bots.control');
+  const runAll = async (d) => {
+    const paid = d.items.filter((b) => b.schedule && b.schedule.spends).map((b) => b.label);
+    const ok = await confirm({ title: 'Tüm botlar sırayla çalıştırılsın mı?', confirmText: 'Hepsini başlat', body: `${d.items.filter((b) => b.scheduled).length} zamanlanabilir bot, işin bağımlılık sırasına göre BİR kez çalışır: haber taraması → fikir puanlama → niş önerileri → anahtar kelime verisi ve SERP → fikirleri yeniden puanlama → makale yazımı → eksik giderme → WordPress gönderimi → bakım, güncelleme ve raporlar. Her adım öncekiler bitince başlar. Kapalı botlar da bir kez çalışır; çalışamayanlar (anahtar, site ya da yapılacak iş yok) nedenini söyleyerek atlanır.\n\nPara harcayabilenler: ${paid.join(', ')}. Günlük limitler ve bütçeler yine geçerlidir; yayın ayarlarınız (taslak ya da doğrudan yayın) değişmez.` });
+    if (!ok) return;
+    const r = await run(() => api.post('/bots/run-all', { projectId }));
+    if (r) { setAll(r); since.current = Date.now(); setWatch(true); st.reload(); }
+  };
   return (
     <div className="stack">
       <p className="muted">Platformun 15 botu. Bir bot yalnızca kodu gerçekten çalışıyorsa “Hazır” görünür. Zamanlanan botlar sunucudaki zamanlayıcı tarafından <strong>kalıcı görev kuyruğu</strong> üzerinden çalıştırılır (n8n yok): sunucu yeniden başlasa görevler kaybolmaz, aynı iş iki kez başlamaz, hatalı iş 1–5–20 dakika arayla yeniden denenir, art arda 5 başarısızlıkta bot kapanır ve size bildirim gelir. Para harcayan botlar (makale, SERP, anahtar kelime verisi) <strong>kapalı</strong> başlar; sizin açmanız gerekir.</p>
@@ -84,8 +99,15 @@ export function BotList() {
         <>
           <Alert kind={d.paused ? 'warn' : 'info'} title={d.paused ? 'Botlar duraklatıldı' : `${d.items.filter((b) => b.implemented).length} / ${d.items.length} bot hazır`}>
             <div className="row between"><span>Duraklatma, zamanlı bütün otomatik işleri durdurur (sizin elle başlattığınız işler sürer). Zamanlayıcı: {d.scheduler.running ? <>çalışıyor{d.scheduler.lastTickAt ? ` (son kontrol ${dt(d.scheduler.lastTickAt)})` : ''}</> : <strong>bu sunucuda kapalı</strong>}.</span>
+              {canControl && <button className="btn sm primary" disabled={busy || !projectId} onClick={() => runAll(d)} title={projectId ? 'Tüm botları mantık sırasına göre bir kez çalıştırır' : 'Önce bir proje seçin'}><Rocket size={15} />Tüm botları tetikle</button>}
               {canControl && (d.paused ? <button className="btn sm primary" disabled={busy} onClick={() => pause(false)}><PlayCircle size={15} />Devam ettir</button> : <button className="btn sm" disabled={busy} onClick={() => pause(true)}><PauseCircle size={15} />Botları duraklat</button>)}</div>
           </Alert>
+          {all && (
+            <Alert kind="info" title={all.queued ? `${all.queued} adım sıraya alındı${all.alreadyActive ? `, ${all.alreadyActive} adım zaten sırada/çalışıyordu` : ''}` : 'Hepsi zaten sırada ya da çalışıyor; yeni bir şey eklenmedi'}>
+              {(() => { const now = d.items.filter((b) => b.running > 0).map((b) => b.label); const wait = d.items.reduce((n, b) => n + b.queued, 0); return <small className="faint" style={{ display: 'block', marginBottom: 6 }}>{watch ? <>Şu an: {now.length ? <strong>{now.join(', ')}</strong> : 'sıradaki adım alınıyor'} · sırada {wait} iş · bu görünüm 5 saniyede bir yenilenir.</> : 'Sıradaki işlerin hepsi bitti; sonuçlar aşağıdaki tabloda ve Görev kuyruğu sekmesinde.'}</small>; })()}
+              <ol style={{ margin: '0 0 0 18px', padding: 0 }}>{all.steps.map((x, i) => <li key={i}>{x.what} <small className="faint">({x.label}{x.spends ? ', para harcar' : ''}{x.queued ? '' : ' · zaten sırada'})</small></li>)}</ol>
+            </Alert>
+          )}
           <Card flat>
               <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Bot</th><th>Ne yapar</th><th>Zamanlama</th><th>Son çalışma</th><th>Sonraki çalışma</th><th className="num">Kuyrukta</th><th className="num">İşlem / hata</th><th className="num">Bugün maliyet</th><th /></tr></thead>
                 <tbody>{d.items.map((b) => (

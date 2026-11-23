@@ -340,3 +340,17 @@ test('article fixer through HTTP: only the admin (paid work) can ask for a fix, 
   assert.equal((await H.db().query("SELECT count(*)::int n FROM audit_logs WHERE action = 'article.fix'")).rows[0].n, 1, 'asking is audited');
   void P;
 });
+
+test('"run all bots" through HTTP: only the admin (bots.control) can click it, it queues one job per step in order and says which were already active, and the click is audited', opts, async () => {
+  const admin = await signedIn('admin'); const viewer = await signedIn('viewer');
+  const pid = (await H.db().query('SELECT id FROM content_projects')).rows[0].id;
+  assert.equal((await viewer.post('/bots/run-all', { projectId: pid })).status, 403);
+  assert.equal((await admin.post('/bots/run-all', {})).status, 400, 'the project is needed');
+  const r = await admin.post('/bots/run-all', { projectId: pid }); assert.equal(r.status, 202, r.text);
+  assert.deepEqual([r.json.steps.length, r.json.queued, r.json.alreadyActive], [15, 15, 0]);
+  assert.deepEqual(r.json.steps.slice(0, 2).map((x) => x.bot), ['news_discovery', 'content_opportunity']); assert.equal(r.json.steps[r.json.steps.length - 1].bot, 'reporting');
+  assert.ok(r.json.steps.every((x) => x.label && x.what && typeof x.spends === 'boolean' && x.jobId));
+  const again = await admin.post('/bots/run-all', { projectId: pid }); assert.deepEqual([again.json.queued, again.json.alreadyActive], [0, 15]);
+  assert.equal((await H.db().query("SELECT count(*)::int n FROM audit_logs WHERE action = 'bots.run_all'")).rows[0].n, 2);
+  const list = await viewer.get('/jobs?status=queued'); assert.equal(list.json.jobs.length, 15, 'everybody can see what is waiting');
+});

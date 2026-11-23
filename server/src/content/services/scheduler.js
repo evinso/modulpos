@@ -303,6 +303,38 @@ async function runNow(bot, projectId, { userId = null, now = new Date() } = {}) 
   return q.job;
 }
 
+/**
+ * The order the platform's own work depends on itself. "Run all" queues ONE job per step in this order with the same `run_after`, and the queue hands jobs out by
+ * (manual first, then `run_after`, then id), one at a time per worker: each step starts after the one before it has finished.
+ *   find (news) -> score (opportunities) -> suggest niches -> get the numbers ideas need (keyword volumes, SERP) -> score again WITH those numbers -> write -> repair what the checks stopped
+ *   -> publish what is ready -> look after what is live (health, refresh, internal links, Search Console, AdSense site audit) -> report
+ * An entry is [bot, tag, what]; a tag makes a second pass of the same bot a different piece of work (its own dedupe key).
+ */
+const RUN_ORDER = [
+  ['news_discovery', null, 'Haber kaynakları taranır'], ['content_opportunity', null, 'Haberlerden fikirler çıkarılır ve puanlanır'], ['niche_discovery', null, 'Niş önerileri hesaplanır'],
+  ['keyword_research', null, 'Fikirlerin aranma hacmi alınır'], ['seo_competition', null, 'Fikirlerin Google rekabeti incelenir'], ['content_opportunity', 'again', 'Yeni verilerle fikirler yeniden puanlanır'],
+  ['article_writer', null, 'Uygun fikirlerden makale yazılır'], ['article_fixer', null, 'Yayına hazır olmayan taslakların eksikleri giderilir'], ['content_publishing', null, 'Hazır makaleler WordPress’e gönderilir, durumlar okunur'],
+  ['content_health', null, 'Yayındaki makalelerin bağlantıları ve yeni gelişmeler kontrol edilir'], ['content_refresh', null, 'Güncelleme bekleyen makaleler için taslak hazırlanır'], ['internal_linking', null, 'İç bağlantı önerileri çıkarılır'],
+  ['seo_performance', null, 'Search Console verisi alınır'], ['adsense_compliance', null, 'Sitenin AdSense hazırlığı denetlenir'], ['reporting', null, 'Günlük/haftalık rapor hazırlanır'],
+];
+
+/**
+ * Queues every scheduled bot ONCE for the project, in RUN_ORDER (see above). Bots that are switched off are included on purpose (this is a person's click): the ones that cannot work yet
+ * (no key, no site, nothing to do) end as "skipped" with their reason; every paid one still reserves the day's limit and obeys the budgets; nothing is published here that the publishing settings do not already allow.
+ * A step whose bot already has an active job is NOT queued a second time (and is reported). @returns { steps: [{ bot, label, what, spends, queued, jobId }], queued, alreadyActive }
+ */
+async function runAll(projectId, { userId = null, now = new Date() } = {}) {
+  const p = (await db.query('SELECT id, status FROM content_projects WHERE id = $1', [V.uuid(projectId, 'Proje')])).rows[0];
+  if (!p) throw new HttpError(404, 'Proje bulunamadı');
+  if (p.status !== 'active') throw new HttpError(409, 'Proje etkin değil');
+  const steps = [];
+  for (const [bot, tag, what] of RUN_ORDER) {
+    const q = await queue.enqueue({ botKey: bot, projectId: p.id, trigger: 'manual', dedupeKey: tag ? `${bot}:${p.id}:${tag}` : `${bot}:${p.id}`, runAfter: now, maxAttempts: DEFAULTS[bot].spends ? 1 : 2, userId });
+    steps.push({ bot, label: DEFAULTS[bot].label, what, spends: !!DEFAULTS[bot].spends, queued: !q.duplicate, jobId: q.job ? q.job.id : null });
+  }
+  return { steps, queued: steps.filter((x) => x.queued).length, alreadyActive: steps.filter((x) => !x.queued).length };
+}
+
 // ── the worker ────────────────────────────────────────────────────────────────────────────────────────────────────────
 const WORKER_ID = `${os.hostname()}:${process.pid}:${Math.random().toString(36).slice(2, 8)}`;
 const idempotent = (bot) => !!(HANDLERS[bot] && HANDLERS[bot].idempotent);
@@ -364,4 +396,4 @@ function start({ tickMs = 60000, workMs = 15000 } = {}) {
 function stop() { clearInterval(loop.tick); clearInterval(loop.work); loop.started = false; loop.busy = false; }
 const status = () => ({ running: loop.started, lastTickAt: loop.lastTickAt, lastWorkAt: loop.lastWorkAt, lastError: loop.lastError, workerId: WORKER_ID });
 
-module.exports = { DEFAULTS, SCHEDULABLE, FAIL_LIMIT, HANDLERS, loadSchedules, getSchedule, saveSchedule, updateSchedule, tick, runNow, workOnce, start, stop, status, idempotent };
+module.exports = { DEFAULTS, SCHEDULABLE, FAIL_LIMIT, HANDLERS, loadSchedules, getSchedule, saveSchedule, updateSchedule, tick, runNow, runAll, RUN_ORDER, workOnce, start, stop, status, idempotent };
