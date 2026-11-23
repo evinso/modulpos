@@ -1,10 +1,12 @@
 const db = require('../db');
 const H = require('../lib/html');
 const T = require('../lib/textStats');
+const SS = require('../lib/seoStructure');
 const { HttpError } = require('../lib/http');
 const settings = require('./settings');
 const llm = require('./llm');
 const sources = require('./sources');
+const siteLinks = require('./siteLinks');
 const runs = require('./runs');
 
 /**
@@ -32,10 +34,10 @@ const clamp = (n) => Math.max(0, Math.min(100, Math.round(n)));
 
 // ── the free rules ────────────────────────────────────────────────────────────────────────────────────────────
 /**
- * @param a { seoTitle, h1, metaDescription, focusKeyword, contentHtml }   @param ctx { sources: [{ text, readOk, publisher }], others: [{ id, h1, text }], lengthPref }
+ * @param a { seoTitle, h1, metaDescription, focusKeyword, contentHtml }   @param ctx { sources: [{ text, readOk, publisher, url }], others: [{ id, h1, text }], lengthPref, site: { hosts, urls } (the project's own site: without it internal links are only counted) }
  * @returns { status, items: [{ key, label, status, detail }], metrics, scores: { seo, readability, copy, duplicate } }
  */
-function ruleReport(a, { sources: srcs = [], others = [], lengthPref = 'standard' } = {}) {
+function ruleReport(a, { sources: srcs = [], others = [], lengthPref = 'standard', site = null } = {}) {
   const text = H.htmlToText(a.contentHtml); const items = []; const add = (key, label, status, detail) => items.push({ key, label, status, detail });
   const wc = text ? text.split(/\s+/).length : 0; const [lo] = LENGTHS[lengthPref] || LENGTHS.standard;
   const h2 = (String(a.contentHtml).match(/<h2\b/gi) || []).length; const links = (String(a.contentHtml).match(/<a\b/gi) || []).length;
@@ -58,6 +60,28 @@ function ruleReport(a, { sources: srcs = [], others = [], lengthPref = 'standard
   }
   add('readability', 'Okunabilirlik', rd.ease === null ? 'warn' : (rd.ease < 30 || rd.avgSentenceWords > 28) ? 'warn' : 'ok', rd.ease === null ? 'Ölçülemedi' : `Okunabilirlik ${rd.ease}/100 (yüksek = kolay), ortalama cümle ${rd.avgSentenceWords} kelime`);
   add('paragraphs', 'Paragraf uzunluğu', avgPara > 110 ? 'warn' : 'ok', `Ortalama ${avgPara} kelime`);
+  // heading outline, introduction, scanning, links and pictures (the on-page checklist: one H1, a sound H2-H4 outline, a clear first paragraph, short paragraphs and lists, internal and external links, alt texts)
+  const st = SS.structure(a.contentHtml); const outline = SS.outlineProblems(st.headings);
+  add('heading_order', 'Başlık hiyerarşisi (H1–H4)', outline.length ? 'warn' : 'ok', outline.length ? outline.slice(0, 3).join('; ') : `${st.headings.length} alt başlık, seviyeler düzenli (tek H1 = makale başlığı)`);
+  const introWords = st.paragraphs[0] || 0; const introOk = st.firstTag === 'p' && introWords >= 15 && introWords <= 120;
+  add('intro', 'Giriş paragrafı', introOk ? 'ok' : 'warn', st.firstTag !== 'p' ? 'Metin bir paragrafla başlamıyor: ilk paragraf konuyu ve okuyucunun aradığı cevabı hemen vermeli' : introWords < 15 ? `İlk paragraf çok kısa (${introWords} kelime)` : introWords > 120 ? `İlk paragraf çok uzun (${introWords} kelime; 2–4 cümle ideal)` : `${introWords} kelime`);
+  const longParas = st.paragraphs.filter((n) => n > 130).length;
+  add('long_paragraphs', 'Uzun paragraflar', longParas ? 'warn' : 'ok', longParas ? `${longParas} paragraf 130 kelimeyi aşıyor; kısa paragraflar daha kolay taranır` : 'Yok');
+  const longSec = st.sections.filter((x) => x.words > 350);
+  if (longSec.length) add('section_length', 'Uzun bölümler', 'warn', `“${longSec[0].title}” bölümü ${longSec[0].words} kelime; alt başlıkla bölmeyi düşünün`);
+  if (wc >= 900) add('lists', 'Liste / madde işareti', st.lists ? 'ok' : 'warn', st.lists ? `${st.lists} liste` : 'Hiç liste yok; adımlar, seçenekler ve özellikler maddelerle daha kolay taranır');
+  const missingAlt = st.images.filter((i) => !i.alt).length;
+  if (st.images.length) add('img_alt', 'Görsel alt metni', missingAlt ? 'warn' : 'ok', missingAlt ? `${missingAlt} görselin açıklayıcı alt metni yok` : `${st.images.length} görselin hepsinde alt metin var`);
+  const hosts = new Set(site ? site.hosts : []); const own = site ? new Set(site.urls) : null; const srcUrls = new Set(srcs.map((x) => SS.normUrl(x.url)).filter(Boolean));
+  const http = st.links.filter((l) => SS.hostOf(l.href));
+  const internal = http.filter((l) => hosts.has(SS.hostOf(l.href))); const external = http.filter((l) => !hosts.has(SS.hostOf(l.href)));
+  const generic = http.filter((l) => /^(here|click here|link|read more|more|this)$/i.test(l.text) || /^https?:\/\//i.test(l.text)).length;
+  if (srcUrls.size) add('external_links', 'Kaynaklara dış bağlantı', external.length === 0 ? 'warn' : external.length > 12 ? 'warn' : 'ok', external.length === 0 ? 'Dayanılan kaynaklara bağlantı yok; güvenilir kaynaklara 1–4 bağlantı önerilir' : external.length > 12 ? `${external.length} dış bağlantı: çok fazla` : `${external.length} dış bağlantı`);
+  const isRoot = (l) => SS.normUrl(l.href) === SS.hostOf(l.href);                                 // the home page of the site is always fine
+  const unknown = site ? [...external.filter((l) => !srcUrls.has(SS.normUrl(l.href))), ...internal.filter((l) => !isRoot(l) && !own.has(SS.normUrl(l.href)))] : [];
+  if (site && http.length) add('link_targets', 'Bağlantı adresleri', unknown.length ? 'warn' : 'ok', unknown.length ? `${unknown.length} bağlantı kaynak listesinde ya da sitenizin yayımlanmış makalelerinde yok (ör. ${unknown[0].href.slice(0, 70)}); adresin doğru olduğunu kontrol edin` : 'Hepsi kaynaklarda ya da sitenizde var');
+  if (generic) add('anchor_text', 'Bağlantı metni', 'warn', `${generic} bağlantının metni açıklayıcı değil (“buraya tıklayın”, çıplak adres); konuyu anlatan kelimeler kullanın`);
+  if (site && own && own.size >= 3) add('internal_links', 'Sitenizdeki ilgili sayfalara bağlantı', internal.length ? 'ok' : 'warn', internal.length ? `${internal.length} iç bağlantı` : 'İç bağlantı yok; sitenizde yayımlanmış ilgili makalelere 1–3 bağlantı önerilir');
   const bad = ARTIFACTS.filter((re) => re.test(String(a.contentHtml) + ' ' + a.h1 + ' ' + a.seoTitle)).length;
   add('artifacts', 'Yapay zekâ kalıntısı / yer tutucu', bad ? 'fail' : 'ok', bad ? `${bad} kalıntı bulundu (“as an AI”, [insert …], <h1> vb.)` : 'Yok');
   if (/https?:\/\/\S+/i.test(text)) add('raw_urls', 'Metinde çıplak adres', 'warn', 'Gövde metninde ham bağlantı adresi var; kaynakları kaynak listesine koyun');
@@ -76,9 +100,10 @@ function ruleReport(a, { sources: srcs = [], others = [], lengthPref = 'standard
   if (!kw) seo -= 40; else { if (!inTitle) seo -= 15; if (!inH1) seo -= 10; if (!ks.inFirst150) seo -= 10; if (!inMeta) seo -= 5; if (ks.densityPct > 4) seo -= 25; else if (ks.densityPct > 2.5) seo -= 10; }
   if (!a.seoTitle) seo -= 20; else if (a.seoTitle.length > 65) seo -= 5; if (!a.metaDescription) seo -= 15; else if (a.metaDescription.length < 70 || a.metaDescription.length > 160) seo -= 5;
   if (h2 < 3) seo -= 10; if (wc < 300) seo -= 25; else if (wc < lo * 0.7) seo -= 10; if (failBy('artifacts')) seo -= 30;
-  const read = clamp(rd.ease === null ? 50 : (rd.ease >= 55 && rd.ease <= 85 ? 100 : rd.ease >= 40 ? 85 : rd.ease >= 30 ? 70 : 50) - (rd.avgSentenceWords > 28 ? 15 : 0) - (avgPara > 110 ? 10 : 0));
+  if (outline.length) seo -= 5; if (!introOk) seo -= 3; if (srcUrls.size && external.length === 0) seo -= 5; if (missingAlt) seo -= 5; if (unknown.length) seo -= 5;
+  const read = clamp(rd.ease === null ? 50 : (rd.ease >= 55 && rd.ease <= 85 ? 100 : rd.ease >= 40 ? 85 : rd.ease >= 30 ? 70 : 50) - (rd.avgSentenceWords > 28 ? 15 : 0) - (avgPara > 110 ? 10 : 0) - (longParas ? 5 : 0));
   return { status: worst(items.map((i) => i.status)), items,
-    metrics: { words: wc, h2, links, densityPct: ks.densityPct, readingEase: rd.ease, avgSentenceWords: rd.avgSentenceWords, avgParagraphWords: avgPara, copyOverlapPct: copy.overlapPct, longestCopiedRun: copy.longestRun, copyChecked: base.length > 0, copyFullPages: real.length,
+    metrics: { words: wc, h2, links, internalLinks: internal.length, externalLinks: external.length, outlineProblems: outline.length, longParagraphs: longParas, imagesWithoutAlt: missingAlt, densityPct: ks.densityPct, readingEase: rd.ease, avgSentenceWords: rd.avgSentenceWords, avgParagraphWords: avgPara, copyOverlapPct: copy.overlapPct, longestCopiedRun: copy.longestRun, copyChecked: base.length > 0, copyFullPages: real.length,
       duplicatePct: dup.pct, duplicateOf: dup.id ? { id: dup.id, h1: dup.h1 } : null },
     scores: { seo: clamp(seo), readability: read, copy: clamp(100 - copy.overlapPct * 5 - (copy.longestRun >= 25 ? 15 : 0)), duplicate: clamp(100 - Math.max(0, dup.pct - 10) * 2) } };
 }
@@ -157,7 +182,7 @@ async function runRules(articleId) {
   const a = asArticle(await loadArticle(articleId)); const q = (await settings.get('quality', a.projectId)).value;
   const srcs = await sources.forArticle(articleId);
   const others = (await db.query("SELECT id, h1, content_html FROM articles WHERE project_id = $1 AND id <> $2 AND status NOT IN ('archived', 'failed') ORDER BY created_at DESC LIMIT 200", [a.projectId, a.id])).rows.map((r) => ({ id: r.id, h1: r.h1, text: H.htmlToText(r.content_html) }));
-  const rep = ruleReport(a, { sources: srcs, others, lengthPref: q.lengthPref });
+  const rep = ruleReport(a, { sources: srcs, others, lengthPref: q.lengthPref, site: await siteLinks.siteInfo(a.projectId) });
   await store(a.id, a.version, 'rules', rep.status, rep);
   return rep;
 }
@@ -269,7 +294,7 @@ async function runQuality(articleId) {
  * @param o { a: { projectId, seoTitle, h1, metaDescription, focusKeyword, contentHtml, articleType }, srcs, others, lengthPref, provider, fetchImpl, now }
  */
 async function evaluate({ a, srcs, others = [], lengthPref = 'standard', provider, fetchImpl, now }) {
-  const rules = ruleReport(a, { sources: srcs, others, lengthPref });
+  const rules = ruleReport(a, { sources: srcs, others, lengthPref, site: a.projectId ? await siteLinks.siteInfo(a.projectId) : null });
   const out = { rules: { status: rules.status, result: rules }, errors: [], usage: [] };
   for (const [name, fn] of [['fact', () => factOf(a, srcs, { provider, fetchImpl, now })], ['review', () => reviewOf(a, srcs, rules, { provider, fetchImpl, now })]]) {
     try { const r = await fn(); out[name] = { status: r.status, result: r.res, provider: r.out && r.out.provider, model: r.out && r.out.model, costUsd: r.out ? r.out.costUsd : null }; if (r.out) out.usage.push(usageOf(r.out)); }

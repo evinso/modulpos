@@ -104,3 +104,55 @@ test('sources: the page text is the article block, without menus, scripts or foo
   assert.ok(sources.mainText(`<body><article><p>teaser</p></article><div>${'Body words go here. '.repeat(60)}</div></body>`).length > 500);
   assert.equal(sources.mainText('').length, 0); assert.ok(sources.mainText(`<main>${'x '.repeat(5000)}</main>`).length <= sources.MAX_TEXT);
 });
+
+// ── the on-page SEO checklist: heading outline, first paragraph, scanning, links, alt texts ───────────────────────
+const SS = require('../../src/content/lib/seoStructure');
+const H = require('../../src/content/lib/html');
+const item = (rep, key) => rep.items.find((i) => i.key === key);
+const SITE = { hosts: ['techupdatebrief.com'], urls: ['techupdatebrief.com/chatgpt-plus-vs-free', 'techupdatebrief.com/ai-tools-guide', 'techupdatebrief.com/privacy'] };
+const SRCS = [{ text: SRC, readOk: true, publisher: 'OpenAI', url: 'https://openai.com/news/plus-price?utm_source=x' }];
+
+test('structure: heading outline, links with their text, pictures with alt, paragraphs, lists and the length of each section', () => {
+  const s = SS.structure('<p>Intro words go here for the reader.</p><h2>One</h2><p>a b c d</p><h3>Sub</h3><ul><li>x y</li></ul><h2>Two</h2><p>See <a href="https://www.Example.com/a/?utm_source=z#top">the Example report</a>.</p><img src="https://x.test/p.jpg" alt="">');
+  assert.deepEqual([s.headings.map((h) => `${h.level}:${h.text}`), s.firstTag, s.lists, s.paragraphs], [['2:One', '3:Sub', '2:Two'], 'p', 1, [7, 4, 4]]);
+  assert.deepEqual([s.links[0].text, s.images[0].alt, s.sections.map((x) => x.title)], ['the Example report', '', ['Giriş', 'One', 'Sub', 'Two']]);
+  assert.equal(SS.normUrl('https://www.Example.com/a/?utm_source=z#top'), 'example.com/a'); assert.equal(SS.normUrl('http://example.com/a/'), 'example.com/a'); assert.equal(SS.normUrl('mailto:a@b.c'), null); assert.equal(SS.normUrl('/relative'), null);
+  assert.deepEqual(SS.outlineProblems(s.headings), [], 'H2 > H3 > H2 is a sound outline');
+  const bad = SS.outlineProblems(SS.structure('<h3>Starts deep</h3><h2>Same</h2><h4>Skips</h4><h2>Same</h2><h2></h2>').headings);
+  assert.ok(bad.some((x) => /İlk alt başlık H3/.test(x)) && bad.some((x) => /seviye atlanmış \(H2 → H4\)/.test(x)) && bad.some((x) => /2 kez/.test(x)) && bad.some((x) => /Boş bir başlık/.test(x)));
+});
+
+test('rules: a sound article passes every on-page rule; each broken one is named in words and costs the SEO score a little, never more', () => {
+  const html = `<p>ChatGPT Plus is getting more expensive in January, and OpenAI explained why in its <a href="https://openai.com/news/plus-price">announcement of the new price</a>.</p><h2>What changes</h2><p>The new price starts in January.</p><ul><li>One</li></ul><h3>For current members</h3><p>Nothing changes before then, see <a href="https://techupdatebrief.com/chatgpt-plus-vs-free">our free versus Plus comparison</a>.</p><h2>Why</h2><p>Compute costs.</p><h2>What to do</h2><p>Decide.</p>`;
+  const ok = checks.ruleReport(article({ contentHtml: html }), { sources: SRCS, site: SITE });
+  assert.deepEqual(['heading_order', 'intro', 'long_paragraphs', 'external_links', 'link_targets', 'internal_links', 'anchor_text'].map((k) => [k, (item(ok, k) || { status: 'absent' }).status]),
+    [['heading_order', 'ok'], ['intro', 'ok'], ['long_paragraphs', 'ok'], ['external_links', 'ok'], ['link_targets', 'ok'], ['internal_links', 'ok'], ['anchor_text', 'absent']]);
+  assert.deepEqual([ok.metrics.externalLinks, ok.metrics.internalLinks, ok.metrics.outlineProblems], [1, 1, 0]);
+  // each defect on its own
+  const base = ok.scores.seo; const only = (h, extra = {}) => checks.ruleReport(article({ contentHtml: h, ...extra }), { sources: SRCS, site: SITE });
+  const skip = only(html.replace('<h3>For current members</h3>', '<h4>For current members</h4>')); assert.equal(item(skip, 'heading_order').status, 'warn'); assert.match(item(skip, 'heading_order').detail, /seviye atlanmış/); assert.ok(skip.scores.seo < base && skip.scores.seo >= base - 10);
+  const noIntro = only(`<h2>Start</h2>${html}`); assert.equal(item(noIntro, 'intro').status, 'warn'); assert.match(item(noIntro, 'intro').detail, /paragrafla başlamıyor/);
+  const longP = only(html.replace('<p>Decide.</p>', `<p>${'This sentence keeps going for a while without end. '.repeat(20)}</p>`)); assert.equal(item(longP, 'long_paragraphs').status, 'warn');
+  const noExt = only(html.replace(/<a href="https:\/\/openai[^>]*>([^<]*)<\/a>/, '$1')); assert.equal(item(noExt, 'external_links').status, 'warn'); assert.match(item(noExt, 'external_links').detail, /bağlantı yok/);
+  const noInt = only(html.replace(/<a href="https:\/\/techupdatebrief[^>]*>([^<]*)<\/a>/, '$1')); assert.equal(item(noInt, 'internal_links').status, 'warn'); assert.match(item(noInt, 'internal_links').detail, /İç bağlantı yok/);
+  const invented = only(html.replace('https://openai.com/news/plus-price', 'https://invented.example/post')); assert.equal(item(invented, 'link_targets').status, 'warn'); assert.match(item(invented, 'link_targets').detail, /invented\.example/);
+  const inventedInt = only(html.replace('techupdatebrief.com/chatgpt-plus-vs-free', 'techupdatebrief.com/never-published')); assert.equal(item(inventedInt, 'link_targets').status, 'warn');
+  const home = only(html.replace('techupdatebrief.com/chatgpt-plus-vs-free', 'techupdatebrief.com/')); assert.equal(item(home, 'link_targets').status, 'ok', 'the home page of the own site is always fine');
+  const generic = only(html.replace('announcement of the new price', 'click here')); assert.equal(item(generic, 'anchor_text').status, 'warn');
+  const img = only(`${html}<img src="https://x.test/a.jpg" alt=""><img src="https://x.test/b.jpg" alt="A router on a desk">`); assert.match(item(img, 'img_alt').detail, /1 görselin/); assert.ok(img.scores.seo < base);
+  assert.ok(checks.ruleReport(article({ contentHtml: html }), { sources: SRCS }).items.every((i) => !['link_targets', 'internal_links'].includes(i.key)), 'without the project\'s site the rules do not guess about internal links');
+  assert.equal(checks.ruleReport(article({ contentHtml: html }), { sources: [] }).items.some((i) => i.key === 'external_links'), false, 'no sources, no demand for source links');
+  assert.equal(checks.ruleReport(article({ contentHtml: html }), { sources: SRCS, site: { hosts: ['techupdatebrief.com'], urls: ['techupdatebrief.com/a'] } }).items.some((i) => i.key === 'internal_links'), false, 'a young site with fewer than 3 published articles is not asked for internal links');
+});
+
+test('writer: a link the model made up never reaches the article (unwrapped, its words stay); links to the given sources and related articles stay; the prompt carries the checklist', () => {
+  const srcs = [{ url: 'https://openai.com/news/plus-price' }]; const related = [{ title: 'Free vs Plus', url: 'https://techupdatebrief.com/chatgpt-plus-vs-free/' }];
+  const html = '<p>See <a href="https://openai.com/news/plus-price?utm_source=a">OpenAI</a>, <a href="https://made-up.example/x">a made up source</a> and <a href="https://techupdatebrief.com/chatgpt-plus-vs-free">our guide</a>; also <a href="mailto:a@b.c">mail</a>.</p>';
+  const r = H.restrictLinks(html, (href) => new Set(['openai.com/news/plus-price', 'techupdatebrief.com/chatgpt-plus-vs-free']).has(SS.normUrl(href)));
+  assert.deepEqual(r.removed, ['https://made-up.example/x', 'mailto:a@b.c']); assert.ok(r.html.includes('a made up source') && !r.html.includes('made-up.example') && r.html.includes('rel="noopener"') && r.html.includes('OpenAI</a>'));
+  const l = writer.limitLinks(html, srcs, related); assert.deepEqual(l.removed.length, 2); assert.ok(l.html.includes('https://techupdatebrief.com/chatgpt-plus-vs-free'));
+  const sys = writer.SYSTEM({ siteName: 'Tech', niche: 'AI news', tone: 'Clear', language: 'en-US', length: 'standard', types: ['latest_update'] });
+  for (const re of [/SEARCH INTENT FIRST/, /FIRST paragraph/, /never skip a level/, /<h4> only inside an <h3>/, /2-4 sentences/, /EXACT URL from the sources/, /RELATED ARTICLES ON THIS SITE/, /focus keyword near the start/, /no ALL CAPS/, /No <h1>/]) assert.match(sys, re);
+  const user = writer.userPrompt({ title: 'T', keyword: 'chatgpt plus' }, [{ n: 1, url: 'https://openai.com/x', publisher: 'OpenAI', text: 'x', readOk: true }], ['a'], related);
+  assert.match(user, /RELATED ARTICLES ON THIS SITE[^\n]*\n- Free vs Plus \| https:\/\/techupdatebrief\.com\/chatgpt-plus-vs-free\//); assert.match(writer.userPrompt({ title: 'T', keyword: 'k' }, [], []), /none yet/);
+});

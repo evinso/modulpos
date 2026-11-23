@@ -8,19 +8,32 @@ const { Parser } = require('htmlparser2');
 const ALLOWED_TAGS = ['h2', 'h3', 'h4', 'p', 'br', 'hr', 'ul', 'ol', 'li', 'strong', 'em', 'b', 'i', 'u', 's', 'blockquote', 'code', 'pre', 'a', 'img',
   'figure', 'figcaption', 'table', 'thead', 'tbody', 'tr', 'th', 'td'];
 
+const OPTIONS = {
+  allowedTags: ALLOWED_TAGS,
+  allowedAttributes: { a: ['href', 'title', 'rel'], img: ['src', 'alt', 'title', 'width', 'height'], th: ['colspan', 'rowspan'], td: ['colspan', 'rowspan'] },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  allowedSchemesByTag: { img: ['https'] },
+  allowProtocolRelative: false,
+  disallowedTagsMode: 'discard',
+};
+const HEADINGS = { h1: 'h2', h5: 'h4', h6: 'h4' };
+const noopener = (tag, attribs) => ({ tagName: 'a', attribs: { ...attribs, rel: 'noopener' } });
+
 function sanitizeArticleHtml(html) {
-  return sanitizeHtml(String(html || ''), {
-    allowedTags: ALLOWED_TAGS,
-    allowedAttributes: { a: ['href', 'title', 'rel'], img: ['src', 'alt', 'title', 'width', 'height'], th: ['colspan', 'rowspan'], td: ['colspan', 'rowspan'] },
-    allowedSchemes: ['http', 'https', 'mailto'],
-    allowedSchemesByTag: { img: ['https'] },
-    allowProtocolRelative: false,
-    disallowedTagsMode: 'discard',
-    transformTags: {
-      h1: 'h2', h5: 'h4', h6: 'h4',
-      a: (tag, attribs) => ({ tagName: 'a', attribs: { ...attribs, rel: 'noopener' } }),
-    },
-  }).trim();
+  return sanitizeHtml(String(html || ''), { ...OPTIONS, transformTags: { ...HEADINGS, a: noopener } }).trim();
+}
+
+/**
+ * Keeps a link only when `isAllowed(href)` says yes; every other link is UNWRAPPED (its words stay, the address goes). Used on model output, so an article can never carry an
+ * address the model made up. @returns { html, removed: [href] }
+ */
+function restrictLinks(html, isAllowed) {
+  const removed = [];
+  const out = sanitizeHtml(String(html || ''), { ...OPTIONS, transformTags: { ...HEADINGS, a: (tag, attribs) => {
+    if (isAllowed(attribs.href || '')) return noopener(tag, attribs);
+    removed.push(attribs.href || ''); return { tagName: 'span', attribs: {} };
+  } } }).trim();
+  return { html: out, removed };
 }
 
 /** Plain text of some HTML: tags removed, entities decoded, white space folded. */
@@ -103,4 +116,4 @@ function htmlToMarkdown(html) {
   return out.join('').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-module.exports = { sanitizeArticleHtml, htmlToText, wordCount, slugify, htmlToMarkdown, ALLOWED_TAGS };
+module.exports = { sanitizeArticleHtml, restrictLinks, htmlToText, wordCount, slugify, htmlToMarkdown, ALLOWED_TAGS };
