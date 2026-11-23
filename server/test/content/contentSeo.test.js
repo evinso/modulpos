@@ -158,7 +158,7 @@ async function withEvent(pid) {
 }
 
 test('opportunities: nothing is scored from guesses - each missing piece of real data is named; once data exists the total follows the weights; eligibility has reasons', opts, async () => {
-  const pid = await site(); await withEvent(pid);
+  const pid = await site(); await H.noFreshLane(); await withEvent(pid);
   const made = await O.refresh(pid, { now: NOW });
   assert.equal(made.topicsCreated, 1, 'one relevant event (the gossip one is excluded)'); assert.ok(made.keywordsAdded >= 2);
   let o = (await O.list(pid)).items[0];

@@ -35,8 +35,8 @@ const OPTIONS = [
   { key: 'serp', group: 'research', bot: 'seo_competition', spends: true, label: 'SERP rekabet analizi (Serper)', help: 'Fikirlerin Google rekabetini inceler. Serper kredisi harcar; günlük sorgu limiti geçilmez.' },
   { key: 'writer', group: 'writing', bot: 'article_writer', spends: true, label: 'Makale yazımı (yapay zekâ)', help: 'Uygun fikirden kaynaklı bir taslak yazar ve zorunlu kontrolleri (doğruluk, AdSense riski, tekrar, kalite) yapar. Model ücreti harcar; günlük makale limiti geçilmez.' },
   { key: 'images', group: 'writing', spends: false, label: 'Makaleye kapak görseli ekle', help: 'Makale yazılınca makaleye uygun bir kapak görseli eklenir ve WordPress’e öne çıkan görsel (açıklayıcı alt metinle) olarak gönderilir. Pixabay anahtarı varsa ÜCRETSİZ bir fotoğraf bulunur (etiketinde kişi, logo ya da marka geçenler elenir); yoksa OpenAI görsel modeli çizer (görsel başına ücret alınır). Ayarlar → Kapak görselleri’nden kaynak seçilebilir.' },
-  { key: 'autoApprove', group: 'writing', risk: true, label: 'Temiz geçen makaleyi kendiliğinden “Yayına hazır” yap', help: 'Kapalıyken her taslağı siz onaylarsınız. Açıkken yalnızca tüm zorunlu kontrollerden ve en az kalite puanından geçen taslak onaylanır; geçemeyen “İnceleme bekliyor”da kalır.' },
-  { key: 'publishing', group: 'publishing', bot: 'content_publishing', label: 'Hazır makaleleri WordPress’e gönder', help: 'Yalnızca “Yayına hazır” makaleleri, günlük yayın limitini aşmadan gönderir. Aşağıdaki seçenek kapalıysa taslak olarak gider.' },
+  { key: 'autoApprove', group: 'writing', risk: true, label: 'Temiz geçen makaleyi kendiliğinden “Yayına hazır” yap', help: 'Kapalıyken her taslağı siz onaylarsınız. Açıkken yalnızca tüm zorunlu kontrollerden ve en az kalite puanından geçen taslak onaylanır; geçemeyen “Onay bekliyor”da kalır.' },
+  { key: 'publishing', group: 'publishing', bot: 'content_publishing', label: 'Hazır makaleleri WordPress’e gönder', help: 'Yalnızca “Yayına hazır” makaleleri gönderir. Aşağıdaki seçenek kapalıysa taslak olarak gider (taslak, günlük yayın limitinden yer almaz); doğrudan yayımlanan her yazı günlük yayın limitinden bir yer harcar.' },
   { key: 'publishLive', group: 'publishing', risk: true, label: 'Taslak yerine doğrudan yayımla', help: 'Açıkken gönderilen yazılar sitede herkese açık yayımlanır. Kapalıyken WordPress’te taslak olarak durur ve son kararı orada siz verirsiniz.' },
   { key: 'health', group: 'upkeep', bot: 'content_health', label: 'Eski makale kontrolü', help: 'Bozuk bağlantıları ve yeni gelişmeleri arar; kanıt varsa “güncelleme bekliyor” yapar. Ücretsiz.' },
   { key: 'refresh', group: 'upkeep', bot: 'content_refresh', spends: true, label: 'Kanıtlı güncellemeleri yapay zekâ ile hazırla', help: 'Güncelleme bekleyen makaleler için taslak hazırlar. Uygulama, Ayarlar’daki güncelleme onay politikasına bağlıdır. Model ücreti harcar.' },
@@ -103,8 +103,8 @@ async function readOn(projectId) {
   return { on, sch, pub, q, im };
 }
 
-async function readValues(projectId, st) {
-  const lim = await limits.status({ projectId });
+async function readValues(projectId, st, limPre = null) {
+  const lim = limPre || await limits.status({ projectId });
   const item = (t) => lim.items.find((i) => i.workType === t);
   const w = st.sch.get('article_writer'); const budget = (await settings.get('budget')).value;
   return { dailyArticles: item('new_article').project ? item('new_article').project.limit : item('new_article').limit, dailyPublish: item('publish').project ? item('publish').project.limit : item('publish').limit,
@@ -125,7 +125,7 @@ function detectMode(on, g) {
 
 async function overview(projectId) {
   const pid = V.uuid(projectId, 'Proje'); await projects.getProject(pid);
-  const g = await gather(pid); const st = await readOn(pid); const values = await readValues(pid, st);
+  const g = await gather(pid); const st = await readOn(pid); const lim = await limits.status({ projectId: pid }); const values = await readValues(pid, st, lim);
   const botState = (await settings.get('bots')).value;
   const options = OPTIONS.map((o) => ({ key: o.key, group: o.group, label: o.label, help: o.help, spends: o.key === 'images' ? g.imgSrc.source === 'openai' : !!o.spends, risk: !!o.risk, on: !!st.on[o.key], missing: missingFor(o.key, g), ready: missingFor(o.key, g).length === 0 }));
   const mode = detectMode(st.on, g);
@@ -153,7 +153,19 @@ async function overview(projectId) {
     { key: 'gsc', label: 'Search Console', ok: !!g.gscProv.configured && g.gscSites.length > 0, detail: g.gscProv.configured ? (g.gscSites.length ? 'Bağlı' : 'Sitede Search Console adresi yok') : 'Bağlı değil', to: '/api-usage' },
     { key: 'telegram', label: 'Telegram bildirimleri', ok: tgReady, detail: tgReady ? 'Bağlı' : 'Bağlı değil (bildirimler yalnızca panelde görünür)', to: '/notifications' },
   ];
-  return { projectId: pid, mode, summary, modeLabel: mode === 'custom' ? 'Özel' : MODES[mode].label, modes, groups: GROUPS, options, values, recommended: RECOMMENDED, max: { dailyArticles: limits.WORK_TYPES.new_article.max, dailyPublish: limits.WORK_TYPES.publish.max }, warnings, checklist, readyBacklog: backlog, paused: !!botState.paused,
+  // what REALLY applies: every kind of work obeys the NARROWEST of the platform limit, the project limit (and, for publishing, the site's own limit). The numbers typed above are only the project's part.
+  const chosen = g.siteList.find((x) => x.id === st.pub.siteId && x.status === 'active') || g.okSites[0] || null;
+  const effOf = (type, extra = []) => {
+    const i = lim.items.find((x) => x.workType === type);
+    const caps = [{ scope: 'platform', label: 'genel sınır', limit: i.limit }]; if (i.project) caps.push({ scope: 'project', label: 'proje sınırı', limit: i.project.limit }); caps.push(...extra);
+    const value = Math.min(...caps.map((c) => c.limit));
+    return { value, caps, limitedBy: caps.filter((c) => c.limit === value).map((c) => c.scope), doneToday: i.project ? i.project.done : i.done };
+  };
+  const effective = { dailyArticles: effOf('new_article'), dailyPublish: effOf('publish', chosen && Number.isInteger(chosen.dailyLimit) ? [{ scope: 'site', label: `“${chosen.name}” sitesinin günlük sınırı`, limit: chosen.dailyLimit }] : []) };
+  // the publishing bot has its OWN hours (Bot Yönetimi); the hours above are the publishing settings: when they differ the bot follows its own
+  const pbs = st.sch.get('content_publishing');
+  if (st.on.publishing && pbs && (pbs.windowStart !== st.pub.windowStart || pbs.windowEnd !== st.pub.windowEnd || !!pbs.weekdaysOnly === !!st.pub.weekends)) warnings.push({ kind: 'warn', text: `WordPress yayın botunun kendi çalışma saatleri (${pbs.windowStart}–${pbs.windowEnd}${pbs.weekdaysOnly ? ', hafta sonu yok' : ', hafta sonu da'}) buradaki yayın saatlerinden (${st.pub.windowStart}–${st.pub.windowEnd}${st.pub.weekends ? ', hafta sonu da' : ', hafta sonu yok'}) farklı: bot kendi saatlerine göre çalışır. “Seçimi uygula” ikisini eşitler.`, to: '/bots' });
+  return { projectId: pid, mode, summary, modeLabel: mode === 'custom' ? 'Özel' : MODES[mode].label, modes, groups: GROUPS, options, values, effective, recommended: RECOMMENDED, max: { dailyArticles: limits.WORK_TYPES.new_article.max, dailyPublish: limits.WORK_TYPES.publish.max }, warnings, checklist, readyBacklog: backlog, paused: !!botState.paused,
     schedulerRunning: !!scheduler.status().running, thresholds: { minScore: st.q.minScore } };
 }
 
@@ -219,7 +231,9 @@ async function apply(body, { userId = null } = {}) {
   }
 
   // values: a preset brings the recommended ones unless the person typed their own; "Elle" leaves every value alone
-  const base = mode === 'semi' || mode === 'full' ? { ...curValues, ...RECOMMENDED, dailyBudgetUsd: curValues.dailyBudgetUsd !== null ? curValues.dailyBudgetUsd : RECOMMENDED.dailyBudgetUsd, minQuality: Math.max(curValues.minQuality, RECOMMENDED.minQuality) } : curValues;
+  // a number the person has set themselves is kept; a limit still at the factory value (3 articles, 5 posts) comes up to the recommended one; the quality bar is only ever raised; a budget that exists is kept
+  const base = mode === 'semi' || mode === 'full' ? { ...curValues, ...RECOMMENDED, dailyArticles: curValues.dailyArticles === limits.WORK_TYPES.new_article.def ? RECOMMENDED.dailyArticles : curValues.dailyArticles,
+    dailyPublish: curValues.dailyPublish === limits.WORK_TYPES.publish.def ? RECOMMENDED.dailyPublish : curValues.dailyPublish, dailyBudgetUsd: curValues.dailyBudgetUsd !== null ? curValues.dailyBudgetUsd : RECOMMENDED.dailyBudgetUsd, minQuality: Math.max(curValues.minQuality, RECOMMENDED.minQuality) } : curValues;
   const values = mode === 'manual' ? curValues : cleanValues(body.values, base);
   const changes = [];
   const note = (t) => changes.push(t);
@@ -230,12 +244,12 @@ async function apply(body, { userId = null } = {}) {
     const raise = {};
     if (values.dailyArticles !== curValues.dailyArticles) {
       await limits.setProjectLimits(pid, { new_article: values.dailyArticles }, { userId }); note(`Günlük yeni makale: ${curValues.dailyArticles} → ${values.dailyArticles}`);
-      if (gl.find((i) => i.workType === 'new_article').limit < values.dailyArticles) raise.new_article = values.dailyArticles;       // only for a number THIS call sets: an older mismatch is the owner's, not touched here
     }
+    if (gl.find((i) => i.workType === 'new_article').limit < values.dailyArticles) raise.new_article = values.dailyArticles;       // the page shows this number and tells that the platform limit follows: a project limit above the platform limit would silently never be reached
     if (values.dailyPublish !== curValues.dailyPublish) {
       await limits.setProjectLimits(pid, { publish: values.dailyPublish }, { userId }); note(`Günlük yayın: ${curValues.dailyPublish} → ${values.dailyPublish}`);
-      if (gl.find((i) => i.workType === 'publish').limit < values.dailyPublish) raise.publish = values.dailyPublish;
     }
+    if (gl.find((i) => i.workType === 'publish').limit < values.dailyPublish) raise.publish = values.dailyPublish;
     if (Object.keys(raise).length) { await limits.setGlobalLimits(raise, { userId }); note(`Platform limiti yükseltildi (proje limitini engellemesin diye): ${Object.entries(raise).map(([k, v]) => `${k} ${v}`).join(', ')}`); }
   }
 

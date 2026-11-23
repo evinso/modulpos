@@ -36,4 +36,7 @@ async function clean() {
 
 const close = () => db().end();
 
-module.exports = { skip, freshDatabase, clean, close, db };
+/** the tests of the ORIGINAL strict scoring (volume, SERP, a person's short list) switch the fresh-news lane off first: the lane is a newer, separate path (contentFlow.test.js) */
+async function noFreshLane() { const S = require('../../src/content/services/settings'); await S.set('seo', { ...(await S.get('seo')).value, freshHours: 0 }, { scope: 'global' }); }
+
+module.exports = { skip, freshDatabase, clean, close, db, noFreshLane };
