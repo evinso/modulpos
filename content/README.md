@@ -216,7 +216,7 @@ bcrypt (maliyet 12) + şifre politikası · oturum belirteci yalnızca SHA-256 o
 
 ```bash
 cd server && npm test                       # ModulPOS + içerik birim testleri (veritabanı gerekmez)
-cd server && CONTENT_TEST_DATABASE_URL=postgresql://…/content_test npm run test:content   # 178 entegrasyon testi, veritabanını SİLER (adı _test ile bitmeli)
+cd server && CONTENT_TEST_DATABASE_URL=postgresql://…/content_test npm run test:content   # 191 entegrasyon testi, veritabanını SİLER (adı _test ile bitmeli)
 cd server && CONTENT_TEST_DATABASE_URL=postgresql://…/content_test node scripts/content-live-news.js   # GERÇEK ağdan varsayılan kaynakları okur (CI'da yok)
 cd content/admin && npm run build
 cd content/admin && CONTENT_TEST_DATABASE_URL=… npm run test:smoke   # panel jsdom'da GERÇEK API + PostgreSQL'e karşı (kaynak ekleme, tarama, anahtar kelime, SERP, fırsat dahil)
