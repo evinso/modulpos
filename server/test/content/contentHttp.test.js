@@ -206,13 +206,13 @@ test('dashboard: real numbers, organic traffic says why it has no data instead o
   const m = Object.fromEntries(d.metrics.map((x) => [x.key, x]));
   assert.equal(m.awaiting.value, 1); assert.deepEqual([m.news_found.available, m.news_found.value, m.keywords.value, m.seo_analyzed.value], [true, 0, 0, 0], 'phase 2 numbers are real counts now (nothing researched yet = a real 0)');
   assert.deepEqual(d.metrics.filter((x) => !x.available).length, 0); assert.equal(d.charts.organicTraffic.available, false); assert.match(d.charts.organicTraffic.note, /Henüz bağlı bir web sitesi yok/); assert.equal('phase' in d.charts.organicTraffic, false, 'no phase wording: the reason is stated instead');
-  assert.equal(m.cost_today.value, 0); assert.equal(m.active_bots.value, 15); assert.match(m.active_bots.note, /15’i hazır; 7’i otomatik çalışıyor/);
+  assert.equal(m.cost_today.value, 0); assert.equal(m.active_bots.value, 16); assert.match(m.active_bots.note, /16’i hazır; 7’i otomatik çalışıyor/);
   assert.equal(d.charts.dailyProduction.length, 14); assert.equal(d.charts.dailyProduction.at(-1).value, 1); assert.equal(d.charts.categoryShare.length, 5);
   assert.equal(d.empty, false); assert.equal(d.charts.seoOpportunities.available, true); assert.equal(d.charts.searchVolume.buckets.length, 4);
   assert.equal(d.limitsToday.find((x) => x.workType === 'new_article').limit, 3);
   assert.equal((await c.get('/dashboard?projectId=00000000-0000-0000-0000-000000000001')).status, 404);
   const bots = (await c.get('/bots')).json;
-  assert.equal(bots.items.length, 15); assert.equal(bots.items.filter((b) => b.implemented).length, 15, 'the six phase-2 bots, the three phase-3 bots, the WordPress bot, the four phase-6 bots (health, refresh, Search Console, internal links) and the reporting bot exist: all 15'); assert.ok(bots.items.every((b) => b.lastRunAt === null), 'none has run yet: no invented last-run data');
+  assert.equal(bots.items.length, 16); assert.equal(bots.items.filter((b) => b.implemented).length, 16, 'the six phase-2 bots, the three phase-3 bots, the WordPress bot, the four phase-6 bots (health, refresh, Search Console, internal links), the reporting bot and the article fixer exist: all 16'); assert.ok(bots.items.every((b) => b.lastRunAt === null), 'none has run yet: no invented last-run data');
   assert.match(bots.items[0].statusText, /Otomatik: 2 saatte bir/); assert.match(bots.items.find((b) => b.key === 'article_writer').statusText, /Otomatik kapalı; elle çalıştırılır/, 'bots that spend money start switched off'); assert.equal(bots.items.filter((b) => !b.implemented).length, 0, 'no bot is "coming in a later phase" any more');
 });
 
@@ -259,7 +259,7 @@ test('the module is closed when not configured, and says so while the database i
 test('automation mode through HTTP: everybody signed in can read it, only the admin can change it, a refused mode changes nothing, the confirmation round trip works, every change is audited', opts, async () => {
   const admin = await signedIn(); const viewer = await signedIn('viewer'); const editor = await signedIn('editor');
   const project = (await admin.get('/projects')).json.projects[0];
-  const r = await viewer.get(`/automation?projectId=${project.id}`); assert.equal(r.status, 200); assert.equal(r.json.options.length, 16); assert.equal(r.json.modes.length, 3);
+  const r = await viewer.get(`/automation?projectId=${project.id}`); assert.equal(r.status, 200); assert.equal(r.json.options.length, 17); assert.equal(r.json.modes.length, 3);
   assert.equal((await viewer.get('/automation')).status, 400, 'a project is required');
   for (const c of [viewer, editor]) assert.equal((await c.put('/automation', { projectId: project.id, mode: 'manual' })).status, 403);
   const refused = await admin.put('/automation', { projectId: project.id, mode: 'full' }); assert.equal(refused.status, 409); assert.match(refused.json.error, /Tam otomatik mod için eksikler/); assert.ok(refused.json.problems.length >= 2);
@@ -267,7 +267,7 @@ test('automation mode through HTTP: everybody signed in can read it, only the ad
   assert.equal((await admin.put('/automation', { projectId: project.id, mode: 'custom', options: { writer: true } })).status, 409, 'no model connected: refused with the reason');
   const bad = await admin.put('/automation', { projectId: project.id, mode: 'custom', options: { news: 'ja' } }); assert.equal(bad.status, 400);
   const on = await admin.put('/automation', { projectId: project.id, mode: 'custom', options: { news: true, opportunities: true } }); assert.equal(on.status, 200); assert.equal(on.json.options.find((x) => x.key === 'news').on, true);
-  const lv = await viewer.get(`/automation/live?projectId=${project.id}`); assert.equal(lv.status, 200); assert.equal(lv.json.bots.length, 13); assert.deepEqual([lv.json.summary.running, lv.json.paused], [0, false]); assert.ok(lv.json.bots.some((b) => b.key === 'news_discovery' && b.state === 'waiting'));
+  const lv = await viewer.get(`/automation/live?projectId=${project.id}`); assert.equal(lv.status, 200); assert.equal(lv.json.bots.length, 14); assert.deepEqual([lv.json.summary.running, lv.json.paused], [0, false]); assert.ok(lv.json.bots.some((b) => b.key === 'news_discovery' && b.state === 'waiting'));
   assert.equal((await viewer.get('/automation/live')).status, 400); assert.equal((await viewer.get('/automation/live?projectId=00000000-0000-0000-0000-000000000001')).status, 404); assert.equal((await client().get(`/automation/live?projectId=${project.id}`)).status, 401, 'signed-in users only');
   const audit = (await admin.get('/audit?action=automation')).json.items; assert.ok(audit.length >= 2); assert.equal(audit[0].action, 'automation.apply');
 });
@@ -321,4 +321,22 @@ test('cover image through HTTP: everybody signed in can see it, an editor can ch
   assert.equal((await viewer.del(`/articles/${art.id}/image`)).status, 403); assert.equal((await editor.del(`/articles/${art.id}/image`)).status, 200); assert.equal((await editor.del(`/articles/${art.id}/image`)).status, 404);
   assert.equal((await viewer.get(`/articles/${art.id}/image`)).json.image, null);
   const log = (await admin.get('/audit?action=article.image')).json.items.map((x) => x.action); assert.deepEqual(['article.image_remove', 'article.image_alt', 'article.image_generate'], log.slice(0, 3));
+});
+
+test('article fixer through HTTP: only the admin (paid work) can ask for a fix, it is a queued job per article, everybody can read the attempts, and a person\'s own article is refused by the job (not silently rewritten)', opts, async () => {
+  const admin = await signedIn('admin'); const viewer = await signedIn('viewer');
+  const P = require('../../src/content/services/projects'); const A = require('../../src/content/services/articles'); const SC = require('../../src/content/services/scheduler');
+  const project = (await admin.get('/projects')).json.projects[0] || { id: (await H.db().query('SELECT id FROM content_projects')).rows[0].id };
+  const cat = (await H.db().query('SELECT id FROM categories WHERE project_id = $1 LIMIT 1', [project.id])).rows[0].id;
+  const a = await A.create({ projectId: project.id, categoryId: cat, h1: 'Written by a person', contentHtml: '<p>hello</p>' });
+  assert.equal((await viewer.post(`/articles/${a.id}/fix`)).status, 403, 'a viewer cannot spend money');
+  const first = await admin.post(`/articles/${a.id}/fix`); assert.equal(first.status, 202);
+  assert.deepEqual([first.json.job.botKey, first.json.job.payload.articleId, first.json.job.trigger], ['article_fixer', a.id, 'manual']);
+  assert.equal((await admin.post(`/articles/${a.id}/fix`)).status, 409, 'one fix at a time for one article');
+  const h = await viewer.get(`/articles/${a.id}/fixes`); assert.deepEqual([h.status, h.json.attempts, h.json.max, h.json.parked, h.json.items], [200, 0, 2, false, []]);
+  const done = await SC.workOnce({ now: new Date() });
+  assert.equal(done.outcome, 'failed'); assert.match(done.error, /yapay zekânın yazdığı/);
+  assert.equal((await H.db().query('SELECT count(*)::int n FROM article_fixes')).rows[0].n, 0, 'nothing was changed or recorded');
+  assert.equal((await H.db().query("SELECT count(*)::int n FROM audit_logs WHERE action = 'article.fix'")).rows[0].n, 1, 'asking is audited');
+  void P;
 });

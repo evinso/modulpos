@@ -35,6 +35,7 @@ const OPTIONS = [
   { key: 'serp', group: 'research', bot: 'seo_competition', spends: true, label: 'SERP rekabet analizi (Serper)', help: 'Fikirlerin Google rekabetini inceler. Serper kredisi harcar; günlük sorgu limiti geçilmez.' },
   { key: 'writer', group: 'writing', bot: 'article_writer', spends: true, label: 'Makale yazımı (yapay zekâ)', help: 'Uygun fikirden kaynaklı bir taslak yazar ve zorunlu kontrolleri (doğruluk, AdSense riski, tekrar, kalite) yapar. Model ücreti harcar; günlük makale limiti geçilmez.' },
   { key: 'images', group: 'writing', spends: false, label: 'Makaleye kapak görseli ekle', help: 'Makale yazılınca makaleye uygun bir kapak görseli eklenir ve WordPress’e öne çıkan görsel (açıklayıcı alt metinle) olarak gönderilir. Pixabay anahtarı varsa ÜCRETSİZ bir fotoğraf bulunur (etiketinde kişi, logo ya da marka geçenler elenir); yoksa OpenAI görsel modeli çizer (görsel başına ücret alınır). Ayarlar → Kapak görselleri’nden kaynak seçilebilir.' },
+  { key: 'fixer', group: 'writing', bot: 'article_fixer', spends: true, label: 'Eksikleri gideren bot (yapay zekâ)', help: '“Yayına hazır mı?” kartında eksik görünen yapay zekâ taslaklarını ele alır: çalışmamış kontrolleri yeniden çalıştırır, eksik görsel/kategoriyi ekler, kaynakların desteklemediği iddia ya da düşük kalite gibi metin sorunlarını modelle düzeltir; sonra aynı kontroller yeniden yargılar. Hiçbir kuralı gevşetmez; konu dışı, tekrar ya da kaynaksız makale gibi kişi kararı gerektirenlere dokunmaz; bir sürümde en çok 2 deneme yapar. Onay yalnızca aşağıdaki otomatik onay açıksa verilir, değilse düzeltilmiş makale onayınızı bekler. Model ücreti harcar; günlük “otomatik düzeltme” limiti geçilmez.' },
   { key: 'autoApprove', group: 'writing', risk: true, label: 'Temiz geçen makaleyi kendiliğinden “Yayına hazır” yap', help: 'Kapalıyken her taslağı siz onaylarsınız. Açıkken yalnızca tüm zorunlu kontrollerden ve en az kalite puanından geçen taslak onaylanır; geçemeyen “Onay bekliyor”da kalır.' },
   { key: 'publishing', group: 'publishing', bot: 'content_publishing', label: 'Hazır makaleleri WordPress’e gönder', help: 'Yalnızca “Yayına hazır” makaleleri gönderir. Aşağıdaki seçenek kapalıysa taslak olarak gider (taslak, günlük yayın limitinden yer almaz); doğrudan yayımlanan her yazı günlük yayın limitinden bir yer harcar.' },
   { key: 'publishLive', group: 'publishing', risk: true, label: 'Taslak yerine doğrudan yayımla', help: 'Açıkken gönderilen yazılar sitede herkese açık yayımlanır. Kapalıyken WordPress’te taslak olarak durur ve son kararı orada siz verirsiniz.' },
@@ -46,7 +47,7 @@ const OPTIONS = [
   { key: 'reports', group: 'upkeep', bot: 'reporting', label: 'Günlük ve haftalık rapor', help: 'Her sabah önceki günün, pazartesileri önceki haftanın raporunu üretir. Ücretsiz.' },
 ];
 const KEYS = OPTIONS.map((o) => o.key);
-const SEMI = ['news', 'opportunities', 'niche', 'keywords', 'serp', 'writer', 'images', 'publishing', 'health', 'links', 'gsc', 'adsense', 'reports'];
+const SEMI = ['news', 'opportunities', 'niche', 'keywords', 'serp', 'writer', 'fixer', 'images', 'publishing', 'health', 'links', 'gsc', 'adsense', 'reports'];
 const FULL = [...SEMI, 'autoApprove', 'publishLive', 'refresh'];
 
 const MODES = {
@@ -81,7 +82,7 @@ function missingFor(key, g) {
   const need = [];
   const model = { text: 'Bağlı bir yapay zekâ sağlayıcısı (anahtar + model adı)', to: '/api-usage' };
   const site = { text: 'Bağlantı testi geçmiş, etkin bir WordPress sitesi', to: '/sites' };
-  if (key === 'writer' || key === 'refresh') { if (!g.readyVendors.length) need.push(model); }
+  if (key === 'writer' || key === 'refresh' || key === 'fixer') { if (!g.readyVendors.length) need.push(model); }
   if (key === 'images' && !g.imgSrc.source) need.push({ text: g.imgSrc.cfg.source === 'openai' ? 'OpenAI anahtarı (görsel çizimi için)' : g.imgSrc.cfg.source === 'stock' ? 'Pixabay anahtarı (ücretsiz fotoğraf için)' : 'Pixabay anahtarı (ücretsiz fotoğraf, önerilen) ya da OpenAI anahtarı (görsel çizimi, ücretli)', to: '/api-usage' });
   if (key === 'keywords' && !g.apify.configured) need.push({ text: 'Apify anahtarı (anahtar kelime hacmi için)', to: '/api-usage' });
   if (key === 'serp' && !g.serper.configured) need.push({ text: 'Serper anahtarı (SERP rekabeti için)', to: '/api-usage' });
@@ -141,7 +142,8 @@ async function overview(projectId) {
   if (!scheduler.status().running) warnings.push({ kind: 'warn', text: 'Zamanlayıcı bu sunucuda çalışmıyor (yalnızca canlı ortamda otomatik başlar). Ayarlar kaydedilir ama iş çalışması için zamanlayıcı gerekir.' });
   if (unpriced.length) warnings.push({ kind: 'warn', text: `${unpriced.map((v) => v.label).join(', ')} için fiyat girilmemiş: harcama “bilinmiyor” görünür ve günlük bütçe sınırı bunu sayamaz. Sizi asıl koruyan günlük makale limitidir (fiyatı API Kullanımı sayfasından girebilirsiniz).`, to: '/api-usage' });
   if (g.readyVendors.length === 1) warnings.push({ kind: 'info', text: 'Tek bir yapay zekâ sağlayıcısı bağlı: yazar ve denetçi aynı model olur. İkinci bir sağlayıcı daha bağımsız bir kontrol sağlar.', to: '/api-usage' });
-  if (values.dailyBudgetUsd === null && (st.on.writer || st.on.refresh)) warnings.push({ kind: 'info', text: 'Günlük bütçe tanımlı değil.' });
+  if (values.dailyBudgetUsd === null && (st.on.writer || st.on.refresh || st.on.fixer)) warnings.push({ kind: 'info', text: 'Günlük bütçe tanımlı değil.' });
+  if (st.on.fixer && !st.on.autoApprove) warnings.push({ kind: 'info', text: 'Eksikleri gideren bot açık ama otomatik onay kapalı: bot eksikleri giderir, makaleyi “Yayına hazır” yapmak yine sizde kalır.' });
   if (st.on.autoApprove && !st.on.writer) warnings.push({ kind: 'info', text: 'Otomatik onay açık ama makale yazımı kapalı: onaylanacak yeni makale gelmez.' });
   const backlog = (await db.query("SELECT count(*)::int n FROM articles a WHERE a.project_id = $1 AND a.status = 'ready' AND NOT EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id)", [pid])).rows[0].n;
   const checklist = [

@@ -24,7 +24,7 @@ const sectionHtml = (kw) => {
 const PICTURE = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('JFIF fake cover picture '.repeat(60)), Buffer.from([0xff, 0xd9])]);
 const header = (h, n) => { if (!h) return undefined; if (typeof h.get === 'function') return h.get(n); const k = Object.keys(h).find((x) => x.toLowerCase() === n.toLowerCase()); return k ? h[k] : undefined; };
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-const roleOf = (system) => (/senior staff writer/.test(system) ? 'write' : /UPDATE an existing article/.test(system) ? 'update' : /meticulous fact checker/.test(system) ? 'fact' : /ad-policy reviewer/.test(system) ? 'review' : 'other');
+const roleOf = (system) => (/senior staff writer/.test(system) ? 'write' : /UPDATE an existing article/.test(system) ? 'update' : /REPAIR an existing article/.test(system) ? 'fix' : /meticulous fact checker/.test(system) ? 'fact' : /ad-policy reviewer/.test(system) ? 'review' : 'other');
 
 function fakeModels() {
   const calls = []; const st = { fail: {}, override: {}, finish: {}, tokens: { in: 1500, out: 900 }, openaiModels: ['gpt-4o', 'gpt-image-1', 'gpt-image-2', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-sunburst-2026-09-08', 'dall-e-3'] };
@@ -34,6 +34,8 @@ function fakeModels() {
       focusKeyword: kw, secondaryKeywords: ['subscription price'], excerpt: `A plain-language look at ${kw}.`, articleType: 'latest_update', contentHtml: sectionHtml(kw), faq: [{ q: 'Will current subscribers pay more?', a: 'Existing subscribers keep the current price until the change takes effect.' }, { q: 'Is there a free option?', a: 'A free tier exists, with lower limits.' }], tags: ['ai', 'pricing'] }; },
     update: (user) => { const html = (/CURRENT HTML:\n([\s\S]*?)\n\nNEW MATERIAL/.exec(user) || [])[1] || '<p>x</p>'; return { noChange: false, changeType: 'minor', reasons: [{ code: 'other', text: 'A small correction.' }], summary: 'Added one clarifying sentence.',
       fields: { contentHtml: `${html.replace(/<a [^>]*>([^<]*)<\/a>/g, '$1')}<p>Update: the plan details were rechecked against the latest reports and nothing else changed for subscribers.</p>` } }; },
+    fix: (user) => { const html = (/CURRENT HTML:\n([\s\S]*?)\n\nFAQ \(JSON\)/.exec(user) || [])[1] || '<p>x</p>'; return { fixed: ['Removed the claim the sources do not carry.'], unfixed: [],
+      fields: { contentHtml: `${html}<p>Note: the figures in this article were rechecked against the cited reports before this version was saved.</p>` } }; },
     fact: () => ({ claims: [
       { claim: 'ChatGPT Plus will cost 22 dollars a month starting in January 2027', importance: 'major', verdict: 'supported', sourceIds: [1], evidence: 'ChatGPT Plus will cost 22 dollars a month starting in January 2027', note: '' },
       { claim: 'The company blamed higher compute costs', importance: 'major', verdict: 'supported', sourceIds: [1], evidence: 'higher compute costs were behind the increase', note: '' },

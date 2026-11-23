@@ -4,6 +4,7 @@ const projects = require('../services/projects');
 const articles = require('../services/articles');
 const health = require('../services/health');
 const refresh = require('../services/refresh');
+const fixer = require('../services/fixer');
 const queue = require('../services/queue');
 const sites = require('../services/sites');
 const searchconsole = require('../services/searchconsole');
@@ -96,6 +97,14 @@ module.exports = function refreshRoutes(r, { wrap, mw, A, uid }) {
     const q = await queue.enqueue({ botKey: refresh.BOT, projectId: a.projectId, payload: { articleId: a.id }, trigger: 'manual', dedupeKey: `${refresh.BOT}:${a.projectId}`, maxAttempts: 1, userId: uid(req) });
     if (q.duplicate) throw new HttpError(409, 'Bir güncelleme taslağı zaten hazırlanıyor; bitmesini bekleyin', { jobId: q.job && q.job.id });
     await A(req, 'article.propose_update', 'article', a.id, null, { jobId: q.job.id }); res.status(202).json({ job: q.job });
+  }));
+  // the fixer bot works on ONE article a person points at (background job: up to five model calls; it never publishes); the attempts are readable by everybody
+  r.get('/articles/:id/fixes', wrap(async (req, res) => res.json(await fixer.history(req.params.id))));
+  r.post('/articles/:id/fix', PAID, wrap(async (req, res) => {
+    const a = await articles.get(req.params.id);
+    const q = await queue.enqueue({ botKey: fixer.BOT, projectId: a.projectId, payload: { articleId: a.id }, trigger: 'manual', dedupeKey: `${fixer.BOT}:article:${a.id}`, maxAttempts: 1, userId: uid(req) });
+    if (q.duplicate) throw new HttpError(409, 'Bu makale için bir düzeltme zaten kuyrukta ya da çalışıyor; bitmesini bekleyin', { jobId: q.job && q.job.id });
+    await A(req, 'article.fix', 'article', a.id, null, { jobId: q.job.id }); res.status(202).json({ job: q.job });
   }));
   r.post('/updates/:uid/apply', PUB, wrap(async (req, res) => { const p = await refresh.apply(req.params.uid, { userId: uid(req) }); await A(req, 'update.apply', 'refresh_proposal', req.params.uid, null, { articleId: p.articleId, kind: p.kind }); res.json(p); }));
   r.post('/updates/:uid/reject', PUB, wrap(async (req, res) => { const p = await refresh.reject(req.params.uid, { userId: uid(req), note: req.body.note }); await A(req, 'update.reject', 'refresh_proposal', req.params.uid, null, { articleId: p.articleId }); res.json(p); }));
