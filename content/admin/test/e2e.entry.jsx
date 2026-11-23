@@ -146,7 +146,7 @@ ok('cost tiles say "Bilinmiyor" never an invented number when empty (no calls ye
 
 // ── bots, settings, logs, notifications ───────────────────────────────────────────────────────────
 await goTab('Botlar', 500);
-ok('15 bots: every bot of the specification is ready now and shows its real last runs; none is "coming in a later phase"', $$('tbody tr').length === 15 && txt().includes('15 / 15 bot hazır') && !/Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
+ok('16 bots: every bot of the specification is ready now and shows its real last runs; none is "coming in a later phase"', $$('tbody tr').length === 16 && txt().includes('16 / 16 bot hazır') && !/Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
 await goTab('Ayarlar', 500);
 ok('the Ayarlar tab keeps no second copy of what the flow card edits (no "Birikim temizliği" card, no fresh-news field) and still has the other groups', !$$('section.card h2').find((h) => h.textContent === 'Birikim temizliği') && !txt().includes('Taze haber penceresi') && !!$$('section.card h2').find((h) => h.textContent === 'SEO araştırması') && !!$$('section.card h2').find((h) => h.textContent === 'Platform bütçesi'));
 ok('automation settings load; the three mandatory checks are locked', txt().includes('Kalite ve zorunlu kontroller') && $$('.badge').filter((b) => b.textContent === 'kilitli').length === 3);
@@ -322,12 +322,24 @@ ok('running the model checks asks first and says it spends the service\'s credit
 await click(btn('Çalıştır', $('.modal')), 1500);
 ok('the checks ran again on the new text: stamp, AdSense class and score are back, nothing stale is left', globalThis.__models.calls.length === callsBefore + 2 && (await q1('SELECT fact_checked_at, adsense_risk, quality_score FROM articles WHERE id = $1', [aiArt.id])).quality_score > 0 && !txt().includes('eski metne ait'));
 
+// the fixer bot on the readiness card: the checks are taken away again, the article is handed to the bot, the SAME checks judge it again
+await S.db.query('UPDATE articles SET fact_checked_at = NULL, quality_score = NULL, adsense_risk = NULL WHERE id = $1', [aiArt.id]); await S.db.query('DELETE FROM article_checks WHERE article_id = $1', [aiArt.id]);
+const openAi = async () => { await click(nav('Makale Arşivi'), 600); await click($$('tbody tr').find((r) => r.textContent.includes(aiArt.h1.slice(0, 25))), 1000); };
+await openAi();
+ok('the readiness card says what is missing and offers the fixer bot (an AI draft with blocking problems): what it does and does not do is written there', txt().includes('Eksikler var.') && txt().includes('Düzeltme botu') && !!btn('Eksikleri bota düzelttir') && txt().includes('Hiçbir kuralı gevşetmez') && txt().includes('0 yapıldı'));
+const fixBefore = globalThis.__models.calls.length;
+await click(btn('Eksikleri bota düzelttir'), 800);
+ok('asking queues ONE job for this article and runs nothing inside the request (no model call yet)', (await q1("SELECT count(*)::int n FROM jobs WHERE bot_key = 'article_fixer' AND status = 'queued'")).n === 1 && globalThis.__models.calls.length === fixBefore && txt().includes('Düzeltiliyor…'));
+for (let i = 0; i < 10; i += 1) { if (!(await S.scheduler.workOnce({ ctx: {} }))) break; }
+await openAi();
+ok('after the job: the missing checks ran again (fact check + review, the checker vendor), the card shows what the bot did and that approval stays with the person, and every mandatory check is back', globalThis.__models.calls.length === fixBefore + 2 && txt().includes('Tüm zorunlu kontroller tamam.') && txt().includes('Düzeltildi, onay sizde') && txt().includes('Çalışmamış kontroller yeniden çalıştırıldı') && (await q1("SELECT status FROM articles WHERE id = $1", [aiArt.id])).status === 'needs_review' && !btn('Eksikleri bota düzelttir'));
+
 await click(nav('AI Makale Üretimi'), 700);
 ok('the writer page lists the vendors (who writes, who checks) and the history of the run with its cost and a link to the article', txt().includes('Yapay zekâ sağlayıcıları') && txt().includes('Anthropic (Claude)') && txt().includes('yazar') && txt().includes('kontrol') && txt().includes('yazan modelin kendisi yapar') && txt().includes('Yazım geçmişi') && txt().includes('3 kaynak') === false && /\$0\.\d+/.test(txt()) && !!btn('Makale'));
 
 // ── PHASE 4: bot management, schedule editor, persistent queue ───────────────────────────────────────────────────────────
 await goTab('Botlar', 700);
-ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 13);
+ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 14);
 const wrow = $$('tbody tr').find((r) => r.textContent.includes('AI Article Writer'));
 await click($$('button', wrow).find((b) => b.textContent.includes('Zamanlama')), 500);
 ok('the schedule dialog warns that this bot spends money and keeps the limits', txt().includes('Bu bot para harcar') && txt().includes('Makaleler yine kendiliğinden yayımlanmaz') && txt().includes('yalnızca BİR kez'));
@@ -397,7 +409,7 @@ ok('the places of the days were taken by the scheduled posts (the limit of each 
 await click(nav('İçerik Takvimi'), 800);
 ok('the calendar shows the scheduled posts on their days with their state', txt().includes('E2E router guide 0') && txt().includes('Zamanlandı') && txt().includes('3 yayın') || (txt().includes('E2E router guide 0') && txt().includes('Zamanlandı')));
 await goTab('Botlar', 700);
-ok('the WordPress bot is listed (auto-publish is off by default)', txt().includes('Content Publishing Bot') && txt().includes('Otomatik kapalı; elle çalıştırılır') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 13);
+ok('the WordPress bot is listed (auto-publish is off by default)', txt().includes('Content Publishing Bot') && txt().includes('Otomatik kapalı; elle çalıştırılır') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 14);
 void made;
 
 // ── PHASE 6a: content health, update drafts (refresh engine), version comparison ────────────────────────────────────────────────────
@@ -625,10 +637,10 @@ ok('there is no DataForSEO card and no login field any more (the Apify card only
 const autoSched = async (bot) => { const r = await q1('SELECT enabled FROM schedule_settings WHERE bot_key = $1', [bot]); return { enabled: r ? r.enabled : false }; };   // no row = the bot's default, which for the paid ones is off
 const boxFor = (label) => $$('label.check').find((l) => l.textContent.includes(label));
 await click(nav('Otomasyon ve Ayarlar'), 900);
-ok('the page shows the current mode, three mode cards, the 16 options in 4 groups, the values and the checklist', txt().includes('Şu anki mod:') && ['Elle', 'Yarı otomatik', 'Tam otomatik'].every((m) => !!btn(`${m} modunu uygula`) || txt().includes(m)) && $$('label.check').length >= 16 + 1 && ['Araştırma', 'Yazım ve onay', 'Yayın', 'Bakım, izleme ve raporlar'].every((g) => txt().includes(g)) && txt().includes('Günlük yeni makale') && txt().includes('Başlamadan önce kontrol listesi'));
+ok('the page shows the current mode, three mode cards, the 17 options in 4 groups, the values and the checklist', txt().includes('Şu anki mod:') && ['Elle', 'Yarı otomatik', 'Tam otomatik'].every((m) => !!btn(`${m} modunu uygula`) || txt().includes(m)) && $$('label.check').length >= 17 + 1 && ['Araştırma', 'Yazım ve onay', 'Yayın', 'Bakım, izleme ve raporlar'].every((g) => txt().includes(g)) && txt().includes('Günlük yeni makale') && txt().includes('Başlamadan önce kontrol listesi'));
 ok('Otomasyon ve Ayarlar is ONE page: tabs Genel, Botlar, Görev kuyruğu, Günlük limitler, Ayarlar and (admin) Kullanıcılar, Sistem; Genel is the one open', JSON.stringify($$('button.tab').map((b) => b.textContent)) === JSON.stringify(['Genel', 'Botlar', 'Görev kuyruğu', 'Günlük limitler', 'Ayarlar', 'Kullanıcılar', 'Sistem']) && tab('Genel').getAttribute('aria-selected') === 'true');
 const liveRows = () => $$('table[aria-label="Botların anlık durumu"] tbody tr');
-ok('the "Anlık durum" card lists all 13 bots with a state each, the day\'s numbers and the honest note that no scheduler runs on this test server', !!$$('section.card h2').find((h) => h.textContent === 'Anlık durum') && liveRows().length === 13 && liveRows().every((r) => /Çalışıyor|Sırada|Yeniden denenecek|Bekliyor|Duraklatıldı|Hatalar nedeniyle durdu|Kapalı/.test(r.textContent)) && txt().includes('Bugün yazılan') && txt().includes('Zamanlayıcı bu sunucuda çalışmıyor') && txt().includes('● canlı'));
+ok('the "Anlık durum" card lists all 14 bots with a state each, the day\'s numbers and the honest note that no scheduler runs on this test server', !!$$('section.card h2').find((h) => h.textContent === 'Anlık durum') && liveRows().length === 14 && liveRows().every((r) => /Çalışıyor|Sırada|Yeniden denenecek|Bekliyor|Duraklatıldı|Hatalar nedeniyle durdu|Kapalı/.test(r.textContent)) && txt().includes('Bugün yazılan') && txt().includes('Zamanlayıcı bu sunucuda çalışmıyor') && txt().includes('● canlı'));
 const pid0 = (await q1('SELECT id FROM content_projects ORDER BY created_at LIMIT 1')).id;
 await S.db.query("INSERT INTO jobs (bot_key, project_id, payload, trigger, dedupe_key, status, started_at, locked_by, locked_until, attempts) VALUES ('news_discovery', $1, '{}', 'schedule', 'e2e-live-1', 'running', now() - interval '42 seconds', 'e2e', now() + interval '10 minutes', 1)", [pid0]);
 await S.db.query("INSERT INTO jobs (bot_key, project_id, payload, trigger, dedupe_key, status, started_at, finished_at, last_error, attempts, max_attempts) VALUES ('seo_performance', $1, '{}', 'schedule', 'e2e-live-2', 'failed', now() - interval '20 seconds', now() - interval '10 seconds', 'Search Console anahtarı reddedildi', 1, 1)", [pid0]);

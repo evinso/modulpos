@@ -8,6 +8,7 @@ import { NEXT, RISK, STATUS, TYPE_LABELS, csvList, dt, num } from '../format.js'
 import ArticleChecks from './ArticleChecks.jsx';
 import ArticleImage from './ArticleImage.jsx';
 import ArticleWordPress from './ArticleWordPress.jsx';
+import ArticleFix from './ArticleFix.jsx';
 import DiffView from './DiffView.jsx';
 
 const EMPTY = { categoryId: '', articleType: 'evergreen_guide', h1: '', seoTitle: '', slug: '', metaDescription: '', focusKeyword: '', secondaryKeywords: '', excerpt: '', contentHtml: '', tags: '', featuredImageUrl: '', adsenseRisk: '', targetCountry: 'US', language: 'en-US', faq: [] };
@@ -173,6 +174,7 @@ export default function ArticleEditor() {
                   {ready.data.problems.map((p) => <div key={p.code} className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}><Badge kind={p.blocking ? 'bad' : 'warn'}>{p.blocking ? 'Engel' : 'Uyarı'}</Badge><span>{p.message}{FIX[p.code] && <small className="faint" style={{ display: 'block', marginTop: 2 }}>{FIX[p.code]}</small>}</span></div>)}
                 </div>
               )}
+              <ArticleFix art={art} ready={ready.data} dirty={dirty} onChanged={st.reload} />
               {canEdit && (NEXT[art.status] || []).length > 0 && <div className="row" style={{ marginTop: 12 }}>{NEXT[art.status].map((to) => <button key={to} className={`btn sm ${to === 'ready' ? 'primary' : ''}`} disabled={busy || dirty} onClick={() => status(to)}>{STATUS[to][0]}{to === 'ready' ? ' yap' : ' durumuna al'}</button>)}</div>}
               {dirty && <small className="faint" style={{ color: 'var(--warn)' }}>Kaydedilmemiş değişiklik var: durum düğmeleri kapalıdır, önce sayfanın altındaki “Kaydet”e basın.</small>}
             </Card>

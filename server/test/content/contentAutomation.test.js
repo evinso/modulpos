@@ -40,7 +40,7 @@ const opt = (o, k) => o.options.find((x) => x.key === k);
 
 test('a new project: free bots run, paid ones do not; every option says what it is missing; "tam otomatik" is not offered without a model and a tested WordPress site', opts, async () => {
   const pid = await setup(); const o = await AU.overview(pid);
-  assert.equal(o.options.length, 16); assert.equal(o.mode, 'custom', 'the default is research only: not called "yarı otomatik" while the writer is off');
+  assert.equal(o.options.length, 17); assert.equal(o.mode, 'custom', 'the default is research only: not called "yarı otomatik" while the writer is off');
   assert.deepEqual(['news', 'opportunities', 'niche', 'health', 'links', 'adsense', 'reports'].every((k) => opt(o, k).on), true);
   assert.deepEqual(['keywords', 'serp', 'writer', 'images', 'autoApprove', 'publishing', 'publishLive', 'refresh', 'gsc'].map((k) => opt(o, k).on), Array(9).fill(false)); assert.match(opt(o, 'images').missing[0].text, /OpenAI anahtarı/);
   assert.match(opt(o, 'writer').missing[0].text, /yapay zekâ sağlayıcısı/); assert.match(opt(o, 'publishing').missing[0].text, /WordPress sitesi/); assert.equal(opt(o, 'news').ready, true);
@@ -53,7 +53,7 @@ test('a new project: free bots run, paid ones do not; every option says what it 
 
 test('"yarı otomatik" with nothing connected skips what cannot run (and says so) instead of switching it on', opts, async () => {
   const pid = await setup(); const r = await AU.apply({ projectId: pid, mode: 'semi' });
-  assert.deepEqual(r.applied.skipped.map((s) => s.key).sort(), ['gsc', 'images', 'keywords', 'publishing', 'serp', 'writer']); assert.ok(r.applied.skipped.every((s) => s.missing.length));
+  assert.deepEqual(r.applied.skipped.map((s) => s.key).sort(), ['fixer', 'gsc', 'images', 'keywords', 'publishing', 'serp', 'writer']); assert.ok(r.applied.skipped.every((s) => s.missing.length));
   assert.equal(opt(r, 'writer').on, false); assert.equal((await SC.getSchedule('article_writer')).enabled, false); assert.equal(r.mode, 'custom');
   assert.equal((await S.get('publishing', pid)).value.autoPublish, false);
 });
@@ -149,7 +149,7 @@ const botOf = (l, k) => l.bots.find((b) => b.key === k);
 test('live: what works right now and on what, what waits, what is off or stopped and why, what finished lately - read only, nothing invented', opts, async () => {
   const pid = await setup(); await SC.updateSchedule('article_writer', { enabled: true, windowStart: '09:00', windowEnd: '23:00' }); void NOWL;
   let l = await LV.live(pid, { now: NOWL });
-  assert.equal(l.bots.length, 13); assert.deepEqual([l.summary.running, l.summary.queued], [0, 0]); assert.equal(l.paused, false);
+  assert.equal(l.bots.length, 14); assert.deepEqual([l.summary.running, l.summary.queued], [0, 0]); assert.equal(l.paused, false);
   assert.deepEqual([botOf(l, 'news_discovery').state, botOf(l, 'keyword_research').state, botOf(l, 'news_discovery').last], ['waiting', 'off', null], 'no run yet: no invented "last run"');
   assert.deepEqual(l.events, []); assert.deepEqual([l.pipeline.needsReview, l.pipeline.ready], [0, 0]); assert.deepEqual(l.today.articles, { done: 0, limit: 3 });
 

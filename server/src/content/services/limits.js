@@ -19,6 +19,7 @@ const WORK_TYPES = {
   new_article: { label: 'Yeni makale', def: 3, max: 50 },
   old_check: { label: 'Eski makale kontrolü', def: 10, max: 500 },
   refresh: { label: 'Kapsamlı içerik güncellemesi', def: 2, max: 50 },
+  article_fix: { label: 'Otomatik makale düzeltme', def: 4, max: 100 },
   publish: { label: 'WordPress yayını', def: 5, max: 200 },
   seo_keywords: { label: 'SEO anahtar kelime araştırması', def: 100, max: 5000 },
   serp_queries: { label: 'SERP sorgusu', def: 30, max: 2000 },

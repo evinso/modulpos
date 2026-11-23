@@ -15,7 +15,7 @@ const sched = require('../lib/schedule');
 const DOING = {
   news_discovery: 'Haber kaynakları taranıyor', content_opportunity: 'Fırsatlar puanlanıyor', niche_discovery: 'Niş önerileri hesaplanıyor',
   keyword_research: 'Anahtar kelime verileri alınıyor (Apify)', seo_competition: 'Rakip sayfalar inceleniyor (Serper)', article_writer: 'Makale yazılıyor',
-  content_publishing: 'WordPress’e gönderim sırası işleniyor', content_health: 'Eski makalelerin bağlantıları ve yeni gelişmeler kontrol ediliyor', content_refresh: 'Güncelleme taslağı hazırlanıyor',
+  content_publishing: 'WordPress’e gönderim sırası işleniyor', content_health: 'Eski makalelerin bağlantıları ve yeni gelişmeler kontrol ediliyor', content_refresh: 'Güncelleme taslağı hazırlanıyor', article_fixer: 'Yayına hazır olmayan taslakların eksikleri gideriliyor',
   internal_linking: 'İç bağlantı fırsatları aranıyor', seo_performance: 'Search Console verisi alınıyor', adsense_compliance: 'Sitenin AdSense hazırlığı denetleniyor', reporting: 'Rapor hazırlanıyor',
 };
 const WRITER_STEP = { sources: 'Kaynaklar okunuyor', writing: 'Makale yazılıyor', image: 'Kapak görseli çiziliyor', checking: 'Zorunlu kontroller yapılıyor (doğruluk, AdSense, kalite)' };

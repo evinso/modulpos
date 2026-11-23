@@ -24,6 +24,7 @@ const searchconsole = require('./searchconsole');
 const internalLinks = require('./internalLinks');
 const adsenseAudit = require('./adsenseAudit');
 const reports = require('./reports');
+const fixer = require('./fixer');
 
 /**
  * The scheduler and the background worker (phase 4). No n8n, no external cron: one in-process loop pair that only needs the content database.
@@ -40,6 +41,7 @@ const DEFAULTS = {
   keyword_research:    { enabled: false, intervalMinutes: 240,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: {}, spends: true,  label: 'Anahtar kelime verisi' },
   seo_competition:     { enabled: false, intervalMinutes: 240,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 5 }, spends: true, label: 'SERP rekabet analizi' },
   article_writer:      { enabled: false, intervalMinutes: 180,  windowStart: '09:00', windowEnd: '23:00', weekdaysOnly: false, options: { perRun: 1 }, spends: true, label: 'Makale yazımı' },
+  article_fixer:       { enabled: false, intervalMinutes: 30,   windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 2 }, spends: true, label: 'Makale düzeltme' },
   content_health:      { enabled: true,  intervalMinutes: 720,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 10 }, spends: false, label: 'İçerik sağlığı kontrolü' },
   content_refresh:     { enabled: false, intervalMinutes: 360,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 1 }, spends: true, label: 'İçerik güncelleme' },
   seo_performance:     { enabled: false, intervalMinutes: 1440, windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: {}, spends: false, label: 'Search Console verisi' },
@@ -155,6 +157,14 @@ const HANDLERS = {
     return { status: stats.stopped || stats.failed || stats.partial ? 'partial' : 'ok', stats, message: stats.written ? `${stats.written - (stats.outOfScope || 0) ? `${stats.written - (stats.outOfScope || 0)} makale taslağı yazıldı` : 'Taslak çıkmadı'}${stats.outOfScope ? `${stats.written - stats.outOfScope ? ', ' : ': '}${stats.outOfScope} makale kapsam dışı konu içerdiği için arşive alındı` : ''}${stats.stopped ? ` (${stats.stopped})` : ''}` : (stats.stopped || 'Makale yazılamadı') };
   } },
 };
+
+/** the fixer bot: AI drafts that "Yayına hazır mı?" cannot clear (payload.articleId = a person asked for one article); it never publishes, approval only through the automatic-approval gate */
+HANDLERS.article_fixer = { idempotent: false, async run(job, ctx) {
+  const pl = job.payload || {}; const manual = job.trigger === 'manual';
+  if (pl.articleId) { const r = await fixer.fixOne(pl.articleId, { userId: job.userId, trigger: 'manual', force: true, fetchImpl: ctx.fetchImpl, now: ctx.now }); return { status: r.result === 'error' || r.result === 'unresolved' || r.result === 'needs_person' ? 'partial' : 'ok', stats: { result: r.result }, message: r.message }; }
+  const perRun = (await getSchedule('article_fixer')).options.perRun || 2;
+  return fixer.runPass(job.projectId, { perRun, trigger: manual ? 'manual' : 'schedule', userId: job.userId, fetchImpl: ctx.fetchImpl, now: ctx.now });
+} };
 
 /** the health bot: links and new developments for the articles whose turn it is (free; limited by the day's "old article check" limit) */
 HANDLERS.content_health = { idempotent: true, async run(job, ctx) {
