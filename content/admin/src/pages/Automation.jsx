@@ -104,7 +104,7 @@ function Effective({ e, typed, what }) {
   return (
     <span style={{ display: 'block', marginTop: 2 }}>
       <strong>Fiilen geçerli: günde en çok {e.value} {what}</strong> <small>({names}; en dar olan geçerlidir)</small>
-      {lifted && <small style={{ display: 'block', color: 'var(--warn)' }}>Yazdığınız {t}, genel sınırdan ({platform.limit}) büyük: “Seçimi uygula” genel sınırı da {t} yapar; yoksa günde {platform.limit}’ten fazlası olmaz.</small>}
+      {lifted && <small style={{ display: 'block', color: 'var(--warn)' }}>Yazdığınız {t}, genel sınırdan ({platform.limit}) büyük: “Değerleri kaydet” genel sınırı da {t} yapar; yoksa günde {platform.limit}’ten fazlası olmaz.</small>}
       {siteTight && <small style={{ display: 'block', color: 'var(--warn)' }}>{site.label} {site.limit}: yazdığınız {t} bundan büyük. Bu sınırı Web Sitelerim sayfasından değiştirirsiniz; buradaki düğme ona dokunmaz.</small>}
     </span>
   );
@@ -122,6 +122,8 @@ export default function Automation() {
     setF({ ...d.values, writerFrom: d.values.writerFrom || '', writerTo: d.values.writerTo || '', dailyBudgetUsd: d.values.dailyBudgetUsd === null ? '' : d.values.dailyBudgetUsd }); setTouched(new Set());
   }, [st.data]);
   const dirty = useMemo(() => !!(st.data && st.data.options.some((o) => !!sel[o.key] !== o.on)), [st.data, sel]);
+  // numbers / hours typed in the "Değerler" card that are not saved yet (so its own button, and "Seçimi uygula", wake up)
+  const valuesDirty = useMemo(() => !!(st.data && f && FIELDS.some((k) => String(f[k] ?? '') !== String(st.data.values[k] ?? ''))), [st.data, f]);
   if (!projectId) return <NeedsProject />;
   const set = (k) => (e) => { const v = e && e.target ? (e.target.type === 'checkbox' ? e.target.checked : e.target.value) : e; setF((x) => ({ ...x, [k]: v })); setTouched((t) => new Set([...t, k])); };
 
@@ -150,6 +152,8 @@ export default function Automation() {
   const differs = (keys) => keys.filter((k) => String(f[k] ?? '') !== String(st.data.values[k] ?? ''));        // only what the person really changed is sent: the rest is left exactly as it is
   const applyMode = (mode) => send({ mode, values: mode === 'manual' ? undefined : bodyValues(f, [...touched]) }, 'Otomasyon modu uygulandı');
   const saveOptions = () => send({ mode: 'custom', options: sel, values: bodyValues(f, differs(FIELDS)) }, 'Seçimler uygulandı');
+  // only the numbers and hours: the switches stay exactly as they are saved (an unsaved tick in "Seçenekler" does not ride along)
+  const saveValues = () => send({ mode: 'custom', options: Object.fromEntries(st.data.options.map((o) => [o.key, o.on])), values: bodyValues(f, differs(FIELDS)) }, 'Değerler kaydedildi');
   const fillRecommended = () => { const r = st.data.recommended; setF({ ...r, dailyBudgetUsd: r.dailyBudgetUsd === null ? '' : r.dailyBudgetUsd }); setTouched(new Set(FIELDS)); };
 
   return (
@@ -189,7 +193,7 @@ export default function Automation() {
             </Alert>
           )}
 
-          <Card title="Seçenekler" actions={canEdit && <button className="btn primary" disabled={busy || !dirty} onClick={saveOptions}>Seçimi uygula</button>}>
+          <Card title="Seçenekler" actions={canEdit && <button className="btn primary" disabled={busy || !(dirty || valuesDirty)} onClick={saveOptions}>Seçimi uygula</button>}>
             <div className="stack">
               {d.groups.map((g) => (
                 <div key={g.key} className="stack">
@@ -205,18 +209,18 @@ export default function Automation() {
                   ))}
                 </div>
               ))}
-              <small className="faint">“Seçimi uygula” bu kutuların tam olarak işaretlendiği hâli kaydeder (mod “Özel” olabilir). Hazır olmayan bir seçenek, gerekli bağlantı kurulana kadar işaretlenemez.</small>
+              <small className="faint">“Seçimi uygula” bu kutuların tam olarak işaretlendiği hâli kaydeder (mod “Özel” olabilir); aşağıdaki değerlerde yazdığınız bir değişiklik varsa onu da kaydeder. Hazır olmayan bir seçenek, gerekli bağlantı kurulana kadar işaretlenemez.</small>
             </div>
           </Card>
 
-          <Card title="Değerler" actions={canEdit && <button className="btn" disabled={busy} onClick={fillRecommended}><Wand2 size={15} />Önerilen değerleri yaz</button>}>
+          <Card title="Değerler" actions={canEdit && <div className="row"><button className="btn" disabled={busy} onClick={fillRecommended}><Wand2 size={15} />Önerilen değerleri yaz</button><button className="btn primary" disabled={busy || !valuesDirty} onClick={saveValues}>Değerleri kaydet</button></div>}>
             <div className="stack">
-              <p className="muted">Yeni bir alan adı için günde birkaç iyi yazı, çok sayıda zayıf yazıdan daha sağlıklıdır. Bir mod düğmesine bastığınızda, <strong>kendi yazdığınız</strong> sayılar korunur; hâlâ fabrika değerinde duran limitler önerilene çekilir (kalite puanı yalnızca yükseltilir, tanımlı bir bütçe korunur). “Seçimi uygula” ise burada ne yazıyorsa onu kaydeder.</p>
+              <p className="muted">Yeni bir alan adı için günde birkaç iyi yazı, çok sayıda zayıf yazıdan daha sağlıklıdır. Bir mod düğmesine bastığınızda, <strong>kendi yazdığınız</strong> sayılar korunur; hâlâ fabrika değerinde duran limitler önerilene çekilir (kalite puanı yalnızca yükseltilir, tanımlı bir bütçe korunur). Sağ üstteki <strong>“Değerleri kaydet”</strong> burada yazdığınız sayıları ve saatleri olduğu gibi kaydeder; açık/kapalı seçeneklere dokunmaz. Yazdıktan sonra basmazsanız hiçbir şey değişmez.</p>
               <div className="grid g3">
                 <Field label="Günlük yeni makale" hint={<>{`Önerilen ${d.recommended.dailyArticles}. Bu sınır aşılamaz. `}<Effective e={d.effective.dailyArticles} typed={f.dailyArticles} what="makale" /></>}><input className="input num" type="number" min={1} max={d.max.dailyArticles} value={f.dailyArticles} onChange={set('dailyArticles')} disabled={!canEdit} aria-label="Günlük yeni makale" /></Field>
                 <Field label="Günlük WordPress yayını" hint={<>{`Önerilen ${d.recommended.dailyPublish}. `}<Effective e={d.effective.dailyPublish} typed={f.dailyPublish} what="yazı" /></>}><input className="input num" type="number" min={1} max={d.max.dailyPublish} value={f.dailyPublish} onChange={set('dailyPublish')} disabled={!canEdit} aria-label="Günlük WordPress yayını" /></Field>
                 <Field label="En düşük kalite puanı" hint={`Önerilen ${d.recommended.minQuality}. Altındaki makale hazır sayılmaz.`}><input className="input num" type="number" min={50} max={100} value={f.minQuality} onChange={set('minQuality')} disabled={!canEdit} aria-label="En düşük kalite puanı" /></Field>
-                <Field label="Yazım saatleri" hint={f.writerFrom ? 'Makale botunun çalıştığı saat aralığı' : 'Şu an sınır YOK: bot gece dahil her saat çalışır. Saat aralığı yazıp “Seçimi uygula” deyin.'}><div className="row"><input className="input" type="time" value={f.writerFrom} onChange={set('writerFrom')} disabled={!canEdit} aria-label="Yazım başlangıcı" /><span>–</span><input className="input" type="time" value={f.writerTo} onChange={set('writerTo')} disabled={!canEdit} aria-label="Yazım bitişi" /></div></Field>
+                <Field label="Yazım saatleri" hint={f.writerFrom ? 'Makale botunun çalıştığı saat aralığı' : 'Şu an sınır YOK: bot gece dahil her saat çalışır. Saat aralığını yazıp sağ üstteki “Değerleri kaydet”e basın.'}><div className="row"><input className="input" type="time" value={f.writerFrom} onChange={set('writerFrom')} disabled={!canEdit} aria-label="Yazım başlangıcı" /><span>–</span><input className="input" type="time" value={f.writerTo} onChange={set('writerTo')} disabled={!canEdit} aria-label="Yazım bitişi" /></div></Field>
                 <Field label="Yayın saatleri" hint="WordPress’e gönderim bu saatler içinde"><div className="row"><input className="input" type="time" value={f.publishFrom} onChange={set('publishFrom')} disabled={!canEdit} aria-label="Yayın başlangıcı" /><span>–</span><input className="input" type="time" value={f.publishTo} onChange={set('publishTo')} disabled={!canEdit} aria-label="Yayın bitişi" /></div></Field>
                 <Field label="Günlük toplam bütçe (USD)" hint={`Boş = sınır yok. Önerilen ${usd(d.recommended.dailyBudgetUsd)}. Yalnızca fiyatı bilinen harcamayı sayar.`}><input className="input num" type="number" min={0} step="0.5" value={f.dailyBudgetUsd} onChange={set('dailyBudgetUsd')} disabled={!canEdit} placeholder="sınırsız" aria-label="Günlük toplam bütçe" /></Field>
               </div>
