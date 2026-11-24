@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import { RULE0, RuleEditor, SKU_MODES, BAR_MODES, ruleBody } from '../products/XmlHandImportModal';
 
 const muted = { fontSize: 11.5, color: 'var(--text-muted)' };
-const FIELD = { price: 'Net tutar', stock: 'Stok', brand: 'Marka', vatRate: 'KDV', status: 'Durum', category: 'Kategori yazısı', title: 'Ad', sku: 'Stok kodu', barcode: 'Barkod' };
+const FIELD = { price: 'Fiyat', stock: 'Stok', brand: 'Marka', vatRate: 'KDV', status: 'Durum', category: 'Kategori yazısı', title: 'Ad', sku: 'Stok kodu', barcode: 'Barkod' };
 const fmt = (v) => (v === null || v === undefined || v === '' ? '—' : String(v));
 const errText = (e, fb) => (e && e.response && e.response.data && e.response.data.error) || fb;
 
@@ -13,7 +13,7 @@ const errText = (e, fb) => (e && e.response && e.response.data && e.response.dat
  * ONE change for many hand-added products. Every part is switched on by its own tick; "Önizle" shows how many products change, what they look like before and after and which cannot be changed (and why);
  * only then "Uygula" writes. Any change of the form asks for a new preview first.
  */
-export default function BulkEditModal({ target, count, onClose, onDone }) {
+export default function BulkEditModal({ target, count, pk, onClose, onDone }) {
   const [on, setOn] = useState({});
   const [f, setF] = useState({ priceMode: 'set', price: '', stockMode: 'set', stock: '', brand: '', vatRate: '20', status: 'active', categoryText: '', titlePrefix: '', titleSuffix: '', titleFind: '', titleReplace: '', sku: { ...RULE0 }, barcode: { ...RULE0 } });
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
@@ -62,9 +62,9 @@ export default function BulkEditModal({ target, count, onClose, onDone }) {
         <div className="modal-body" style={{ display: 'grid', gap: 10, maxHeight: '72vh', overflowY: 'auto' }}>
           <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Değiştirmek istediğiniz bölümleri işaretleyin; işaretlemediğiniz alanlara dokunulmaz. Önce <strong>Önizle</strong>: neyin değişeceğini görür, sonra uygularsınız.</div>
 
-          <Part k="price" title="Elime kalacak net tutar (₺)" hint="Pazaryeri satış fiyatı bu net tutardan, “Elle eklenen ürünler” fiyat şablonuyla hesaplanır. Fiyatı 0 olan ürüne yüzde uygulanmaz (0 kalır).">
+          <Part k="price" title={`${pk.label} (₺)`} hint={`${pk.what} Fiyatı 0 olan ürüne yüzde uygulanmaz (0 kalır). Pazaryeri satış fiyatı “Elle eklenen ürünler” fiyat şablonuyla hesaplanır.`}>
             <select className="form-input" style={{ width: 210 }} value={f.priceMode} onChange={(e) => set({ priceMode: e.target.value })}><option value="set">Hepsine şu tutarı yaz</option><option value="percent">Mevcut tutarı yüzde olarak değiştir</option></select>
-            <input type="number" step="0.01" className="form-input" style={{ width: 130 }} placeholder={f.priceMode === 'set' ? 'ör. 120' : 'ör. 10 ya da -5'} aria-label="Net tutar değeri" value={f.price} onChange={(e) => set({ price: e.target.value })} />
+            <input type="number" step="0.01" className="form-input" style={{ width: 130 }} placeholder={f.priceMode === 'set' ? 'ör. 120' : 'ör. 10 (zam) ya da -5'} aria-label="Fiyat değeri" value={f.price} onChange={(e) => set({ price: e.target.value })} />
           </Part>
           <Part k="stock" title="Stok">
             <select className="form-input" style={{ width: 210 }} value={f.stockMode} onChange={(e) => set({ stockMode: e.target.value })}><option value="set">Hepsine şu stoğu yaz</option><option value="add">Mevcut stoğa ekle / çıkar</option></select>

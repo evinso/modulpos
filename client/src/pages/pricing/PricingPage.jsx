@@ -41,7 +41,7 @@ const EMPTY_FORM = {
   inputVat: true,                 // VAT payer: the VAT inside purchase / shipping / commission / fee comes off the VAT to pay
   purchaseVatRate: '20',          // VAT % inside the purchase price
   withholdingPct: '1',            // stopaj, % of the price without VAT
-  netMode: 'cash',                // only for the "Elle eklenen ürünler" scope: 'cash' (the amount stays in hand) | 'purchase' (the amount is a purchase price, profit 0)
+  netMode: 'cash',                // only for the "Elle eklenen ürünler" scope: 'cash' (the amount stays in hand) | 'purchase' (the amount is a purchase price, profit 0) | 'profit' (the amount is a purchase price and the profit below is added, like an XML product)
   mode: 'single',                 // 'single' | 'tiered'
   unit: 'percent_of_purchase',    // 'percent_of_purchase' | 'fixed'
   value: '',                      // single profit
@@ -82,7 +82,7 @@ function ruleToForm(r) {
     name: r.name || '',
     connectionId: c.connectionId || '',
     xmlChoice: srcIds.length > 1 ? '__keep' : (srcIds[0] === HAND ? '__none' : (srcIds[0] || '')),
-    netMode: c.netMode === 'purchase' ? 'purchase' : 'cash',
+    netMode: c.netMode === 'purchase' ? 'purchase' : (c.netMode === 'profit' ? 'profit' : 'cash'),
     minPurchasePrice: c.minPurchasePrice ?? '',
     maxPurchasePrice: c.maxPurchasePrice ?? '',
     shippingCost: hasShippingTable ? '' : (c.shippingCost ?? ''),
@@ -109,8 +109,9 @@ function formToPayload(f) {
   const keep = f._keep || {};
   const [rm, re] = f.rounding.includes(':') ? f.rounding.split(':') : [f.rounding, null];
   const hand = f.xmlChoice === '__none';
+  const net = hand && f.netMode !== 'profit';                    // hand-added products priced from a NET amount (no profit inputs); 'profit' mode uses the profit inputs like any template
   const xmlSourceIds = hand ? [HAND] : (f.xmlChoice === '__keep' ? (keep.xmlSourceIds || []) : (f.xmlChoice ? [f.xmlChoice] : []));
-  const tiered = !hand && f.mode === 'tiered';
+  const tiered = !net && f.mode === 'tiered';
   const conditions = {
     connectionId: f.connectionId || null,
     xmlSourceIds,
@@ -128,8 +129,8 @@ function formToPayload(f) {
     extraPct: keep.extraPct ?? 0,
     commissionBasis: 'gross', // commission on the sale price the customer pays, as marketplaces charge it
     vatRate: null,            // sale VAT comes from the product's XML source
-    profitMode: hand ? 'fixed' : f.unit,
-    ...(hand ? { netMode: f.netMode === 'purchase' ? 'purchase' : 'cash' } : {}),
+    profitMode: net ? 'fixed' : f.unit,
+    ...(hand ? { netMode: f.netMode === 'purchase' ? 'purchase' : (f.netMode === 'profit' ? 'profit' : 'cash') } : {}),
     roundingMode: rm,
     roundingEnding: re ? parseFloat(re) : null,
     minPrice: keep.minPrice ?? null,
@@ -137,7 +138,7 @@ function formToPayload(f) {
     shippingTiers: [],
     profitTiers: tiered ? rowsToTiers(f.profitRows, 'value').tiers : [],
   };
-  return { name: f.name, type: 'percentage', value: tiered || hand ? 0 : (num(f.value) ?? 0), applyTo: 'price_template', priority: keep.priority ?? 0, conditions };
+  return { name: f.name, type: 'percentage', value: tiered || net ? 0 : (num(f.value) ?? 0), applyTo: 'price_template', priority: keep.priority ?? 0, conditions };
 }
 
 function Choice({ active, title, hint, onClick, testId }) {
@@ -176,9 +177,10 @@ export default function PricingPage() {
   // "?hand=1" (the link of the hand-added products workspace): open the template of the products added by hand (the existing one, or a new one with that scope chosen)
   useEffect(() => {
     if (loading || params.get('hand') !== '1') return;
+    const wantProfit = params.get('mode') === 'profit';
     setParams({}, { replace: true });
     const existing = rules.find((r) => parseConds(r).xmlSourceIds?.includes(HAND));
-    if (existing) openModal(existing); else { openModal(); setForm((f) => ({ ...f, xmlChoice: '__none' })); }
+    if (existing) openModal(existing); else { openModal(); setForm((f) => ({ ...f, xmlChoice: '__none', ...(wantProfit ? { netMode: 'profit' } : {}) })); }
   }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchOptions = async () => {
@@ -197,10 +199,11 @@ export default function PricingPage() {
   };
 
   const payload = useMemo(() => formToPayload(form), [form]);
-  const hand = form.xmlChoice === '__none';          // a template for the products added by hand: priced backwards from the net amount
-  const tiered = !hand && form.mode === 'tiered';
+  const hand = form.xmlChoice === '__none';          // a template for the products added by hand
+  const handNet = hand && form.netMode !== 'profit'; // ... priced backwards from the net amount (no profit inputs); with netMode 'profit' the amount is a purchase price and the profit inputs below are used
+  const tiered = !handNet && form.mode === 'tiered';
   const rowsIncomplete = tiered && rowsToTiers(form.profitRows, 'value').incomplete;
-  const profitReady = hand ? true : (tiered ? payload.conditions.profitTiers.length > 0 : form.value !== '');
+  const profitReady = handNet ? true : (tiered ? payload.conditions.profitTiers.length > 0 : form.value !== '');
 
   // Sale VAT used by the single-price try-out = the VAT chosen when the XML source was added
   const previewVat = useMemo(() => {
@@ -243,7 +246,7 @@ export default function PricingPage() {
     e.preventDefault();
     if (!form.name.trim()) return toast.error('Şablon adını yazın');
     if (tiered && rowsIncomplete) return toast.error('Kâr tablosundaki tüm alanları doldurun');
-    if (!hand && !tiered && form.value === '') return toast.error('Kâr değerini girin');
+    if (!handNet && !tiered && form.value === '') return toast.error('Kâr değerini girin');
     const min = num(form.minPurchasePrice), max = num(form.maxPurchasePrice);
     if (min !== null && max !== null && min > max) return toast.error('Alış fiyatı aralığında en düşük değer en yüksekten büyük olamaz');
     try {
@@ -271,7 +274,7 @@ export default function PricingPage() {
 
   const profitLabel = (r) => {
     const c = parseConds(r);
-    if ((c.xmlSourceIds || []).includes(HAND)) return c.netMode === 'purchase' ? 'Net tutar = alış, kâr 0' : 'Elime kalan net tutar';
+    if ((c.xmlSourceIds || []).includes(HAND)) return c.netMode === 'purchase' ? 'Net tutar = alış, kâr 0' : (c.netMode === 'profit' ? 'Alış fiyatı + kâr (XML ürünleri gibi)' : 'Elime kalan net tutar');
     if (r.applyTo === 'marketplace_xml') return r.type === 'fixed' ? `Tek kâr +₺${r.value}` : `Tek kâr %${r.value}`;
     const fixed = c.profitMode === 'fixed';
     if (Array.isArray(c.profitTiers) && c.profitTiers.length > 1) return `Kademeli kâr (${fixed ? 'tutar' : 'yüzde'})`;
@@ -382,11 +385,12 @@ export default function PricingPage() {
                 <div data-testid="template-form">
                   {hand ? (
                     <div data-testid="hand-banner" style={{ fontSize: 12, color: 'var(--text-secondary)', background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, padding: '8px 12px' }}>
-                      <strong>Elle eklenen ürünler için şablon.</strong> Bu ürünlerde yazılan tutar elinize kalmasını istediğiniz net tutardır; satış fiyatı aşağıdaki maliyet ve vergiler üstüne eklenerek hesaplanır.
+                      <strong>Elle eklenen ürünler için şablon.</strong> {handNet ? 'Bu ürünlerde yazılan tutar elinize kalmasını istediğiniz net tutardır; satış fiyatı aşağıdaki maliyet ve vergiler üstüne eklenerek hesaplanır.' : 'Bu ürünlerde yazılan tutar ürünün alış fiyatıdır; satış fiyatı alış fiyatı + aşağıdaki kâr + maliyet ve vergiler ile, XML’den gelen ürünlerdeki gibi hesaplanır.'}
                     </div>
-                  ) : (
+                  ) : null}
+                  {!handNet && (
                     <>
-                      <div style={{ ...sectionTitle, marginTop: 0 }}>Şablon türü</div>
+                      <div style={{ ...sectionTitle, marginTop: hand ? 14 : 0 }}>Şablon türü</div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                         <Choice testId="mode-single" active={!tiered} title="Tek kâr" hint="Tüm ürünlere aynı kâr" onClick={() => setMode('single')} />
                         <Choice testId="mode-tiered" active={tiered} title="Kademeli kâr" hint="Alış fiyatına göre farklı kâr" onClick={() => setMode('tiered')} />
@@ -459,11 +463,12 @@ export default function PricingPage() {
                     </div>
                   )}
 
-                  {hand ? (
+                  {hand && (
                     <div data-testid="net-section">
-                      <div style={sectionTitle}>Net tutar nasıl hesaplansın?</div>
+                      <div style={sectionTitle}>Ürüne yazdığınız tutar ne olsun?</div>
                       <div style={{ ...hintStyle, marginBottom: 8 }}>
-                        Elle eklediğiniz üründe yazdığınız tutar, <strong>satıştan sonra elinize kalmasını istediğiniz tutardır</strong>. Pazaryeri fiyatı, yukarıdaki maliyetler ve vergiler bu tutarın <em>üstüne</em> eklenerek hesaplanır. Kâr alanı kullanılmaz.
+                        {handNet ? <>Elle eklediğiniz üründe yazdığınız tutar, <strong>satıştan sonra elinize kalmasını istediğiniz tutardır</strong>. Pazaryeri fiyatı, yukarıdaki maliyetler ve vergiler bu tutarın <em>üstüne</em> eklenerek hesaplanır. Kâr alanı kullanılmaz.</>
+                          : <>Yazdığınız tutar <strong>ürünün alış fiyatıdır</strong>. Satış fiyatı, XML’den gelen ürünlerdeki gibi: alış fiyatı + aşağıdaki <strong>“Kârım”</strong> (yüzde, tutar ya da kademeli) + yukarıdaki maliyetler ve vergiler.</>}
                       </div>
                       <div style={{ display: 'grid', gap: 8 }}>
                         <Choice testId="net-cash" active={form.netMode === 'cash'} onClick={() => set({ netMode: 'cash' })}
@@ -472,9 +477,13 @@ export default function PricingPage() {
                         <Choice testId="net-purchase" active={form.netMode === 'purchase'} onClick={() => set({ netMode: 'purchase' })}
                           title="Tutar alış fiyatım olsun, kâr 0"
                           hint="Tutar ürünün alış fiyatı sayılır ve kâr sıfır olacak şekilde hesaplanır; “KDV mükellefiyim” açıksa alış KDV’si indirilir, bu yüzden fiyat daha düşük çıkar." />
+                        <Choice testId="net-profit" active={form.netMode === 'profit'} onClick={() => set({ netMode: 'profit' })}
+                          title="Tutar alış fiyatım olsun, üstüne kâr koyayım (XML ürünleri gibi)"
+                          hint="Alış fiyatını ürüne yazarsınız; kârı burada, “Kârım” bölümünde yüzde, tutar ya da alış fiyatına göre kademeli olarak belirlersiniz. Fiyat XML ürünleriyle aynı yöntemle hesaplanır." />
                       </div>
                     </div>
-                  ) : (
+                  )}
+                  {!handNet && (
                     <>
                   <div style={sectionTitle}>Kârım</div>
                   <div style={{ ...hintStyle, marginBottom: 8 }}>Kâr, tüm giderler düşüldükten sonra elinize kalan net tutardır.</div>
@@ -530,7 +539,7 @@ export default function PricingPage() {
                 <div>
                   <div style={{ position: 'sticky', top: 0 }}>
                     <CoveragePanel summary={summary} preview={preview} previewError={previewError} samplePrice={samplePrice}
-                      setSamplePrice={setSamplePrice} previewVat={previewVat} rowsIncomplete={rowsIncomplete} hand={hand} />
+                      setSamplePrice={setSamplePrice} previewVat={previewVat} rowsIncomplete={rowsIncomplete} hand={handNet} />
                   </div>
                 </div>
               </div>

@@ -2,7 +2,7 @@ const express = require('express');
 const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const productListCache = require('../services/productListCache');
-const { isHandScope } = require('../services/pricingEngine');
+const { isHandScope, loadPricingContext } = require('../services/pricingEngine');
 const HP = require('../services/handProducts');
 
 /**
@@ -19,11 +19,14 @@ const CHUNK = 100;
 /** a connection of THIS store (or null) */
 const ownConnection = (storeId, id) => (id ? prisma.marketplaceConnection.findFirst({ where: { id: String(id), storeId }, select: { id: true, marketplaceType: true } }) : null);
 
-const row = (p, connectionId) => {
+const row = (p, connectionId, ex = null) => {
   const ov = connectionId ? (p.categoryOverrides || [])[0] : null;
   return { id: p.id, sku: p.sku, barcode: p.barcode || '', title: p.title, price: p.price, stock: p.stock, brand: p.brand || '', vatRate: p.vatRate, status: p.status, categoryText: p.category || '',
     imageCount: HP.imageCount(p), firstImage: HP.firstImage(p), descriptionLength: (p.description || '').length, sent: (p._count ? p._count.marketplaceProducts : 0) > 0,
-    trendyolCategory: ov ? { id: ov.marketplaceCategoryId, name: ov.marketplaceCategoryName || ov.marketplaceCategoryId, source: ov.source } : null, createdAt: p.createdAt, updatedAt: p.updatedAt };
+    trendyolCategory: ov ? { id: ov.marketplaceCategoryId, name: ov.marketplaceCategoryName || ov.marketplaceCategoryId, source: ov.source } : null,
+    // what the price template makes of it on the chosen marketplace (null = no connection chosen; salePrice null = no template covers it / no amount typed yet)
+    pricing: connectionId ? { salePrice: ex ? ex.price : null, profit: ex && ex.breakdown ? ex.breakdown.profit : null, rule: ex ? ex.ruleName : null, manual: !!(ex && ex.manual) } : null,
+    createdAt: p.createdAt, updatedAt: p.updatedAt };
 };
 
 /** what is missing across ALL hand-added products (not only this page) and whether the template for them exists */
@@ -35,7 +38,8 @@ async function summary(storeId, connectionId) {
   ]);
   const hand = rules.filter((r) => { try { return isHandScope(JSON.parse(r.conditions || '{}')); } catch { return false; } });
   const on = hand.find((r) => r.isActive) || null;
-  return { total, noPrice, noStock, noBrand, noBarcode, noImage, sent, noCategory, template: { exists: hand.length > 0, active: !!on, id: (on || hand[0] || {}).id || null, name: (on || hand[0] || {}).name || null } };
+  const pick = on || hand[0] || null; let netMode = null; try { netMode = pick ? (JSON.parse(pick.conditions || '{}').netMode || 'cash') : null; } catch { netMode = 'cash'; }
+  return { total, noPrice, noStock, noBrand, noBarcode, noImage, sent, noCategory, template: { exists: hand.length > 0, active: !!on, id: pick ? pick.id : null, name: pick ? pick.name : null, netMode } };
 }
 
 // The list (one page) and what is missing. ?q= &filter= &sort= &dir= &page= &limit= &connectionId= (the Trendyol connection whose product-level categories are shown / filtered)
@@ -46,14 +50,15 @@ router.get('/', async (req, res, next) => {
     const conn = await ownConnection(store.id, req.query.connectionId); const connectionId = conn ? conn.id : null;
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50)); const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const where = HP.whereFor(store.id, { q: req.query.q, filter: req.query.filter, connectionId });
+    const pricing = connectionId ? await loadPricingContext(store.id, connectionId).catch(() => null) : null;      // a failure here never stops the list: just no prices
     const [total, rows, sum] = await Promise.all([
       prisma.product.count({ where }),
       prisma.product.findMany({ where, orderBy: HP.orderFor(req.query.sort, req.query.dir), skip: (page - 1) * limit, take: limit,
-        select: { id: true, sku: true, barcode: true, title: true, description: true, price: true, stock: true, brand: true, vatRate: true, status: true, category: true, images: true, createdAt: true, updatedAt: true,
+        select: { id: true, sku: true, barcode: true, title: true, description: true, price: true, xmlPrice: true, xmlSourceId: true, stock: true, brand: true, vatRate: true, status: true, category: true, images: true, createdAt: true, updatedAt: true,
           _count: { select: { marketplaceProducts: true } }, ...(connectionId ? { categoryOverrides: { where: { connectionId }, select: { marketplaceCategoryId: true, marketplaceCategoryName: true, source: true } } } : {}) } }),
       summary(store.id, connectionId),
     ]);
-    res.json({ items: rows.map((p) => row(p, connectionId)), total, page, limit, pages: Math.max(1, Math.ceil(total / limit)), summary: sum, connectionId });
+    res.json({ items: rows.map((p) => row(p, connectionId, pricing ? pricing.explainFor(p) : null)), total, page, limit, pages: Math.max(1, Math.ceil(total / limit)), summary: sum, connectionId });
   } catch (e) { next(e); }
 });
 

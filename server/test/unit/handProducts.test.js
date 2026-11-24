@@ -25,7 +25,7 @@ test('the filters are database filters of hand-added products only, and the ones
 
 test('the change is checked in words: numbers, VAT, status, title text, and "nothing to change"', () => {
   assert.throws(() => H.readPatch({}), /Değiştirilecek bir alan/); assert.throws(() => H.readPatch(null), /Değiştirilecek bir alan/);
-  assert.throws(() => H.readPatch({ price: { mode: 'set', value: -1 } }), /Net tutar/); assert.throws(() => H.readPatch({ price: { mode: 'percent', value: -95 } }), /yüzdesi/);
+  assert.throws(() => H.readPatch({ price: { mode: 'set', value: -1 } }), /Fiyat/); assert.throws(() => H.readPatch({ price: { mode: 'percent', value: -95 } }), /yüzdesi/);
   assert.throws(() => H.readPatch({ stock: { mode: 'set', value: 1.5 } }), /Stok/); assert.throws(() => H.readPatch({ stock: { mode: 'add', value: 'x' } }), /Stok eklemesi/);
   assert.throws(() => H.readPatch({ brand: '  ' }), /Marka boş/); assert.throws(() => H.readPatch({ vatRate: 7 }), /KDV oranı/); assert.throws(() => H.readPatch({ status: 'draft' }), /aktif/);
   assert.throws(() => H.readPatch({ title: { prefix: '', suffix: '', find: '' } }), /Başlık için/);
@@ -74,10 +74,10 @@ test('stock codes and barcodes: the same rules as the XML import, by position; p
 });
 
 test('a pasted list: Excel columns (tabs), semicolons, a header that names the columns, Turkish and English numbers, bad lines are told by line number', () => {
-  const rows = H.parseList('SKU\tNet tutar\tStok\nS-1\t1.874,70\t12\nS-2\t99.5\t\n8690000003\t\t7\n\nS-4\tabc\t1\nS-5\t10\t1,5\n\t5\t5\nS-7\t\t\n');
+  const rows = H.parseList('SKU\tFiyat\tStok\nS-1\t1.874,70\t12\nS-2\t99.5\t\n8690000003\t\t7\n\nS-4\tabc\t1\nS-5\t10\t1,5\n\t5\t5\nS-7\t\t\n');
   const by = (l) => rows.find((r) => r.line === l);
   assert.deepEqual([by(2).key, by(2).price, by(2).stock], ['S-1', 1874.7, 12]); assert.deepEqual([by(3).price, by(3).stock], [99.5, null]); assert.deepEqual([by(4).price, by(4).stock], [null, 7]);
-  assert.match(by(6).error, /Net tutar sayı değil/); assert.match(by(7).error, /Stok tam sayı olmalı/); assert.match(by(8).error, /Stok kodu \/ barkod yok/); assert.match(by(9).error, /Net tutar ya da stok yok/);
+  assert.match(by(6).error, /Fiyat sayı değil/); assert.match(by(7).error, /Stok tam sayı olmalı/); assert.match(by(8).error, /Stok kodu \/ barkod yok/); assert.match(by(9).error, /Fiyat ya da stok yok/);
   assert.deepEqual(H.parseList('S-1;250;3\nS-2;260;4').map((r) => [r.key, r.price, r.stock]), [['S-1', 250, 3], ['S-2', 260, 4]]);
   assert.deepEqual(H.parseList('S-1,250.5,3\nS-2,260,4').map((r) => [r.key, r.price, r.stock]), [['S-1', 250.5, 3], ['S-2', 260, 4]]);
   assert.deepEqual(H.parseList('Barkod;Stok;Fiyat\n111;5;80').map((r) => [r.key, r.price, r.stock]), [['111', 80, 5]], 'the header says which column is which');
@@ -91,7 +91,7 @@ test('the pasted list is matched with the products (stock code, then barcode, an
   const out = H.planList(rows, products);
   assert.deepEqual(out.items.map((x) => x.status), ['ok', 'same', 'unmatched', 'bad', 'bad', 'bad', 'unmatched', 'bad']);
   assert.deepEqual(out.updates.map((u) => [u.id, u.data]), [['p1', { price: 500, stock: 10 }]], 'only what differs is written: S-2 already has this price and stock');
-  assert.equal(out.items[1].note, 'Zaten bu değerde'); assert.match(out.items[3].note, /listede 1\. satırda da var/, 'the barcode of S-1 is the same product as line 1: only the first is taken'); assert.match(out.items[4].note, /2 üründe aynı kod var/); assert.match(out.items[5].note, /listede 1\. satırda da var/); assert.match(out.items[7].note, /Net tutar sayı değil/);
+  assert.equal(out.items[1].note, 'Zaten bu değerde'); assert.match(out.items[3].note, /listede 1\. satırda da var/, 'the barcode of S-1 is the same product as line 1: only the first is taken'); assert.match(out.items[4].note, /2 üründe aynı kod var/); assert.match(out.items[5].note, /listede 1\. satırda da var/); assert.match(out.items[7].note, /Fiyat sayı değil/);
   assert.deepEqual(out.counts, { rows: 8, ok: 1, same: 1, unmatched: 2, bad: 4 });
   const lower = H.planList(H.parseList('s-1;777;1'), products); assert.deepEqual([lower.items[0].status, lower.updates[0].data], ['ok', { price: 777 }], 'a lower-case code finds the product');
 });

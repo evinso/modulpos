@@ -32,6 +32,8 @@ const prisma = require('../config/database');
  *   to keep per sale and is priced backwards from it (see netExplain):
  *   netMode: 'cash' (default) the amount stays in hand after commission, shipping, service fee, stopaj and the VAT to pay (no purchase involved)
  *            'purchase'       the amount is a purchase price, profit 0 (the VAT inside it is deducted when inputVat is on)
+ *            'profit'         the amount is the PURCHASE price and the template's own profit (percent / fixed / tiers) is added, exactly like a product from an XML feed: the template of the
+ *                             scope "none" then prices hand-added products the ordinary way (see pricesAsNet)
  */
 
 const KINDS = ['price_template', 'price_range', 'marketplace_xml'];
@@ -395,7 +397,7 @@ class PricingContext {
       const purchase = num(product.xmlPrice) || num(product.price);
       const hasOwnVat = conds.vatRate !== null && conds.vatRate !== undefined && conds.vatRate !== '';
       const effective = hasOwnVat ? conds : { ...conds, vatRate: product.vatRate };
-      const hand = isHandAdded(product);
+      const hand = pricesAsNet(product, effective);
       const breakdown = hand ? netExplain(purchase, effective) : explainTemplatePrice(purchase, rule.value, effective);
       if (breakdown) {
         // for a hand-added product the "purchase" of the breakdown is 0 in cash mode (the amount is what stays, not what was paid)
@@ -459,7 +461,7 @@ class PricingContext {
       // Sale VAT: use the rule's own vatRate when set, otherwise the product's VAT (chosen when the XML source was added)
       const hasOwnVat = conds.vatRate !== null && conds.vatRate !== undefined && conds.vatRate !== '';
       const effective = hasOwnVat ? conds : { ...conds, vatRate: product.vatRate };
-      const price = isHandAdded(product) ? ((netExplain(purchase, effective) || {}).price ?? null) : computeTemplatePrice(purchase, rule.value, effective);
+      const price = pricesAsNet(product, effective) ? ((netExplain(purchase, effective) || {}).price ?? null) : computeTemplatePrice(purchase, rule.value, effective);
       if (price !== null) return { price, ruleId: rule.id, ruleName: rule.name };
     }
     return null;
@@ -515,6 +517,12 @@ const isHandAdded = (p) => !!p && p.xmlSourceId === null && !(num(p.xmlPrice) > 
 const isHandScope = (c) => ((c && c.xmlSourceIds) || []).includes(HAND_SCOPE);
 
 /**
+ * Is this product priced from a NET amount by this template (see netExplain)? A hand-added product is, unless the template says netMode 'profit': then its "price" is a purchase price and the template's
+ * profit settings apply, like for any XML product (purchase + profit). The decision is the TEMPLATE's, so one product can be priced either way by choosing / changing the template.
+ */
+const pricesAsNet = (product, c) => isHandAdded(product) && !(c && c.netMode === 'profit');
+
+/**
  * Sale price (and where it goes) for a product whose "price" is the net amount the owner wants to keep.
  * It is the same solver as every other template, asked backwards:
  *   cash     (default) profit = the amount, no purchase: exactly that much stays after commission, service fee, shipping, stopaj and VAT to pay
@@ -566,7 +574,7 @@ function summarizeCoverage(products, value, conds) {
     covered++;
     const purchase = num(p.xmlPrice) || num(p.price);
     const eff = hasOwnVat ? conds : { ...conds, vatRate: p.vatRate };
-    const hand = isHandAdded(p);
+    const hand = pricesAsNet(p, eff);
     const e = hand ? netExplain(purchase, eff) : explainTemplatePrice(purchase, value, eff);
     if (!e) continue;
     priced++;
@@ -615,4 +623,4 @@ function summarizeCoverage(products, value, conds) {
   };
 }
 
-module.exports = { HAND_SCOPE, isHandAdded, isHandScope, netExplain, autoBandEdges, taxModel, explainAtPrice, sellsAtLoss, MANUAL_RULE_NAME, PricingContext, loadPricingContext, computeTemplatePrice, resolveTemplate, validateTiers, MAX_TIERS, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };
+module.exports = { HAND_SCOPE, isHandAdded, isHandScope, pricesAsNet, netExplain, autoBandEdges, taxModel, explainAtPrice, sellsAtLoss, MANUAL_RULE_NAME, PricingContext, loadPricingContext, computeTemplatePrice, resolveTemplate, validateTiers, MAX_TIERS, explainTemplatePrice, summarizeCoverage, matchesConds: matches, parseConds };

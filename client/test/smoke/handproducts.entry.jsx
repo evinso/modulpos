@@ -20,22 +20,22 @@ const aria = (l) => document.querySelector(`[aria-label="${l}"]`);
 let where = '';
 const Where = () => { where = useLocation().pathname + useLocation().search; return null; };
 
-const P = (i, over = {}) => ({ id: `h${i}`, sku: `EL-${i}`, barcode: `869000000000${i}`, title: `El yapımı ürün ${i}`, price: 0, stock: 0, brand: '', vatRate: 20, status: 'active', categoryText: '', imageCount: 2, firstImage: 'https://img.example.com/a.jpg', descriptionLength: 40, sent: false, trendyolCategory: null, ...over });
+const P = (i, over = {}) => ({ pricing: null, id: `h${i}`, sku: `EL-${i}`, barcode: `869000000000${i}`, title: `El yapımı ürün ${i}`, price: 0, stock: 0, brand: '', vatRate: 20, status: 'active', categoryText: '', imageCount: 2, firstImage: 'https://img.example.com/a.jpg', descriptionLength: 40, sent: false, trendyolCategory: null, ...over });
 hand.items = [P(1), P(2, { price: 120, stock: 5, brand: 'Atölye', trendyolCategory: { id: '1', name: 'Ev > Mutfak > Kupa', source: 'manual' } }), P(3, { imageCount: 0, firstImage: null, sent: true, price: 90, stock: 2, brand: 'Atölye' })];
-hand.summary = { total: 3, noPrice: 1, noStock: 1, noBrand: 1, noBarcode: 0, noImage: 1, sent: 1, noCategory: 2, template: { exists: false, active: false, id: null, name: null } };
+hand.summary = { total: 3, noPrice: 1, noStock: 1, noBrand: 1, noBarcode: 0, noImage: 1, sent: 1, noCategory: 2, template: { exists: false, active: false, id: null, name: null, netMode: null } };
 const mount = async (path = '/hand-products') => { document.getElementById('root').innerHTML = ''; const root = createRoot(document.getElementById('root')); await act(async () => { root.render(<MemoryRouter initialEntries={[path]}><Where /><HandProductsPage /></MemoryRouter>); }); await wait(120); return root; };
 
 let root = await mount();
 ok('the page lists the hand-added products and asks the server for the Trendyol connection\'s categories', qa('hand-row').length === 3 && hand.gets.every((g) => g.connectionId === 'c1') && hand.gets.some((g) => g.limit === 50), JSON.stringify(hand.gets[0]));
-ok('the steps say where each thing stands: 1 without picture, 1 without a net amount, stock/brand/barcode counts, 2 without a category, NO price template', qa('hand-step').length === 5 && q('hand-steps').textContent.includes('1 ürünün fotoğrafı yok') && q('hand-steps').textContent.includes('Net tutar: 2 / 3') && q('hand-steps').textContent.includes('1 stoksuz · 1 markasız · 0 barkodsuz') && q('hand-steps').textContent.includes('Trendyol kategorisi: 1 / 3') && q('hand-steps').textContent.includes('Yok: net tutardan pazaryeri fiyatı hesaplanamaz'));
-ok('the row shows what is missing in words (net amount not entered, no brand, no picture) and a category button only where none is set', qa('hand-row')[0].textContent.includes('girilmemiş') && qa('hand-row')[0].textContent.includes('marka yok') && qa('hand-row')[2].textContent.includes('foto yok') && !!btn('Kategori ata', qa('hand-row')[0]) && !btn('Kategori ata', qa('hand-row')[1]) && qa('hand-row')[1].textContent.includes('Kupa'));
+ok('the steps say where each thing stands: 1 without picture, 1 without a net amount, stock/brand/barcode counts, 2 without a category, NO price template', qa('hand-step').length === 5 && q('hand-steps').textContent.includes('1 ürünün fotoğrafı yok') && q('hand-steps').textContent.includes('Alış fiyatı / net tutar: 2 / 3') && q('hand-steps').textContent.includes('1 stoksuz · 1 markasız · 0 barkodsuz') && q('hand-steps').textContent.includes('Trendyol kategorisi: 1 / 3') && q('hand-steps').textContent.includes('Yok: pazaryeri fiyatı hesaplanamaz'));
+ok('the row shows what is missing in words (net amount not entered, no brand, no picture) and a category button only where none is set', qa('hand-row')[0].textContent.includes('girilmemiş') && document.body.textContent.includes('Alış fiyatı / net tutar (₺)') && qa('hand-row')[0].textContent.includes('marka yok') && qa('hand-row')[2].textContent.includes('foto yok') && !!btn('Kategori ata', qa('hand-row')[0]) && !btn('Kategori ata', qa('hand-row')[1]) && qa('hand-row')[1].textContent.includes('Kupa'));
 ok('a product already sent to a marketplace cannot have its barcode typed over (the box is off and says why)', aria('EL-3 barkod').disabled === true && aria('EL-3 barkod').title.includes('yeni ürün olur') && aria('EL-1 barkod').disabled === false);
 
 // ── typing into a box saves it when you leave it ──
 const before = calls.filter((c) => c.m === 'PUT').length;
-await type(aria('EL-1 net tutar'), '150.5'); await blur(aria('EL-1 net tutar'));
+await type(aria('EL-1 fiyat'), '150.5'); await blur(aria('EL-1 fiyat'));
 const put1 = calls.filter((c) => c.m === 'PUT').slice(before);
-ok('the net amount is saved on leaving the box: PUT /products/h1 { price: 150.5 }', put1.length === 1 && put1[0].url === '/products/h1' && put1[0].body.price === 150.5, JSON.stringify(put1));
+ok('the price is saved on leaving the box: PUT /products/h1 { price: 150.5 }', put1.length === 1 && put1[0].url === '/products/h1' && put1[0].body.price === 150.5, JSON.stringify(put1));
 await type(aria('EL-1 stok'), '-3'); await blur(aria('EL-1 stok'));
 ok('an invalid stock is refused in words, nothing is sent and the old value comes back', toasts.some((t) => t.startsWith('err:Stok 0 veya daha büyük')) && calls.filter((c) => c.m === 'PUT').length === before + 1 && aria('EL-1 stok').value === '0');
 await type(aria('EL-1 marka'), 'Atölye'); await blur(aria('EL-1 marka'));
@@ -57,12 +57,12 @@ hand.bulkProblems = [{ id: 'h3', title: 'El yapımı ürün 3', reason: 'Pazarye
 await click(q('open-bulk'));
 ok('nothing is chosen at first: preview and apply are off; the dialog says unticked parts are left alone', q('bulk-preview-go').disabled === true && q('bulk-apply').disabled === true && q('bulk-edit').textContent.includes('dokunulmaz'));
 await click(q('bulk-edit').querySelector('input[type="checkbox"]'));
-await type(aria('Net tutar değeri'), '200');
+await type(aria('Fiyat değeri'), '200');
 await click(q('bulk-preview-go'), 60);
 const b0 = hand.bulks[0];
 ok('the preview sends the chosen rows and ONLY the ticked part, as a dry run', b0.dryRun === true && JSON.stringify(b0.ids) === '["h1","h2","h3"]' && JSON.stringify(b0.patch) === '{"price":{"mode":"set","value":"200"}}', JSON.stringify(b0));
 ok('it shows how many change, before → after and what cannot be changed and why', q('bulk-preview').textContent.includes('2 üründe değişiklik olacak') && qa('bulk-row').length === 2 && qa('bulk-row')[0].textContent.includes('150.5') && qa('bulk-row')[0].textContent.includes('200') && q('bulk-problems').textContent.includes('Pazaryerine gönderilmiş'));
-await type(aria('Net tutar değeri'), '210');
+await type(aria('Fiyat değeri'), '210');
 ok('changing the form asks for a new preview (apply is off again)', q('bulk-apply').disabled === true && !q('bulk-preview'));
 await click(q('bulk-preview-go'), 60); await click(q('bulk-apply'), 80);
 const b2 = hand.bulks[hand.bulks.length - 1];
@@ -81,10 +81,24 @@ ok('apply writes (dryRun false), says how many, and closes', hand.pastes[hand.pa
 
 // ── the price template tab and the link that opens it ──
 await click(q('tab-price'));
-ok('the price tab says there is no template and links to the template screen with the hand-added scope', q('tab-price-body').textContent.includes('Henüz elle eklenen ürünler için bir şablonunuz yok') && q('open-template').getAttribute('href') === '/pricing?hand=1' && q('open-template').textContent.includes('Şablonu oluştur') && where.includes('tab=price'));
-hand.summary = { ...hand.summary, template: { exists: true, active: true, id: 't1', name: 'Elle eklenenler' } };
+ok('the price tab says there is no template and links to the template screen with the hand-added scope', q('tab-price-body').textContent.includes('Henüz elle eklenen ürünler için bir şablonunuz yok') && q('open-template').getAttribute('href') === '/pricing?hand=1&mode=profit' && q('open-template').textContent.includes('Alış fiyatı + kâr şablonunu oluştur') && q('tab-price-body').textContent.includes('Elime kalacak net tutar') && where.includes('tab=price'));
+hand.summary = { ...hand.summary, template: { exists: true, active: true, id: 't1', name: 'Elle eklenenler', netMode: 'profit' } };
 await act(async () => { root.unmount(); }); root = await mount('/hand-products?tab=price');
-ok('the tab is in the address (a link can open it) and, with a template, says it works', q('tab-price-body').textContent.includes('“Elle eklenenler” şablonu çalışıyor') && q('open-template').textContent.includes('Şablonu aç'));
+ok('the tab is in the address (a link can open it) and, with a template, says it works', q('tab-price-body').textContent.includes('“Elle eklenenler” şablonu çalışıyor') && q('tab-price-body').textContent.includes('alış fiyatı olarak okunuyor') && q('open-template').textContent.includes('Şablonu aç') && q('open-template').getAttribute('href') === '/pricing?hand=1');
+await click(q('tab-products'));
+hand.items = [P(1, { price: 100, pricing: { salePrice: 1234.5, profit: 30.25, rule: 'Elle eklenenler', manual: false } }), P(2, { price: 80, pricing: { salePrice: 987, profit: -4.5, rule: 'Elle eklenenler', manual: false } }), P(3, { price: 50, pricing: { salePrice: null, profit: null, rule: null, manual: false } }), P(4, { price: 0, pricing: { salePrice: null, profit: null, rule: null, manual: false } })];
+await act(async () => { root.unmount(); }); root = await mount('/hand-products');
+ok('with a "purchase + profit" template everything is called "Alış fiyatı" (header, steps, hint), not "net tutar"', document.body.textContent.includes('Alış fiyatı (₺)') && q('hand-steps').textContent.includes('Alış fiyatı: 2 / 3') && !document.querySelector('th').textContent.includes('Net tutar') && document.body.textContent.includes('alış fiyatı, stok, marka, KDV'));
+ok('the table shows the sale price the template makes of each purchase price and the profit (or the loss), and says why a row has none', qa('sale-price')[0].textContent.includes('1.234,50') && qa('sale-price')[0].textContent.includes('kâr ₺30,25') && qa('sale-price')[1].textContent.includes('zarar ₺4,50') && qa('sale-price')[2].textContent.includes('şablon yok') && qa('sale-price')[3].textContent.trim() === '—');
+await click(aria('Sayfadakilerin hepsi')); await click(q('open-bulk'));
+ok('the bulk change calls the first part "Alış fiyatı" and says what it means', q('bulk-edit').textContent.includes('Alış fiyatı (₺)'));
+await click(q('bulk-edit').querySelector('input[type="checkbox"]'));
+ok('its hint explains the profit is added by the template', q('bulk-edit').textContent.includes('şablondaki kâr eklenerek hesaplanır'));
+await click(btn('Vazgeç', q('bulk-edit')));
+await click(q('open-paste'));
+ok('the paste dialog speaks of the purchase price too, and its example header uses it', q('paste-list').textContent.includes('alış fiyatı') && q('paste-text').getAttribute('placeholder').includes('Alış fiyatı'));
+await click(btn('Vazgeç', q('paste-list')));
+await act(async () => { root.unmount(); }); root = await mount('/hand-products?tab=price');
 await click(q('tab-products'));
 ok('back on the products tab the address is clean again', !where.includes('tab='));
 await act(async () => { root.unmount(); });

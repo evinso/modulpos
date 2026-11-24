@@ -40,7 +40,9 @@ export const PRICING = [
           { t: 'table', head: ['Seçim', 'Ne yapar', 'Örnek (komisyon %22, kargo 100 ₺, hizmet bedeli 13,19 ₺, stopaj %1)'], rows: [
             ['[[Her şeyden sonra elime tam bu tutar kalsın]]', 'Komisyon, kargo, hizmet bedeli, stopaj **ve ödenecek KDV** düşüldükten sonra elinize tam yazdığınız tutar geçer. Alış maliyeti yoktur.', '100 ₺ → yaklaşık 302,84 ₺ satış fiyatı'],
             ['[[Tutar alış fiyatım olsun, kâr 0]]', 'Tutar ürünün alış fiyatı sayılır, kâr sıfır olur. “KDV mükellefiyim” açıksa alış KDV’si indirildiği için fiyat daha düşük çıkar.', '100 ₺ → yaklaşık 276,87 ₺ satış fiyatı'],
+            ['[[Tutar alış fiyatım olsun, üstüne kâr koyayım (XML ürünleri gibi)]]', 'Tutar ürünün **alış fiyatı** sayılır ve şablondaki kâr (yüzde, sabit tutar ya da kademeli) XML’den gelen ürünlerdeki gibi üstüne eklenir. Bu seçilince şablonda “Kârım” bölümü de açılır.', 'Alış 100 ₺, kâr %30 → komisyon, kargo, hizmet bedeli ve vergiler eklenerek hesaplanan satış fiyatı'],
           ] },
+          { t: 'note', tone: 'warn', x: 'Şablondaki seçimi sonradan değiştirirseniz elle eklenen **tüm ürünlerin tutarı yeni anlamda okunur** (ör. “elime kalsın” iken yazdığınız 100 ₺, “alış fiyatım” seçilince alış fiyatı sayılır). Önce hangi anlamla gireceğinize karar verin; {{/hand-products|Elle Eklenen Ürünler}} sayfası tablonun başlığında hangi anlamın geçerli olduğunu gösterir.' },
           { t: 'note', tone: 'info', x: 'Ürünler sayfasında ve ürün ayrıntısında hesaplanan satış fiyatını ve kesintilerin dökümünü görürsünüz. Şablon yoksa ürünün fiyatı çıkmaz ve gönderilemez; Yeni ürün formu bunu uyarır. Bir ürün için fiyatı elle de yazabilirsiniz; o zaman o ürünün fiyatı sabit kalır.' },
         ],
       },
