@@ -250,6 +250,7 @@ async function syncDue({ projectId = null, articleId = null, now = new Date(), l
       if (ours === 'published') {
         await db.query("UPDATE publications SET status = 'published', published_at = $2, wp_url = $3, synced_at = $4, updated_at = now() WHERE id = $1", [r.id, wpDate(post.date, now), post.link, now]);
         await db.query("UPDATE articles SET status = 'published', updated_at = now() WHERE id = $1 AND status IN ('needs_review', 'ready', 'scheduled', 'needs_update')", [r.article_id]);
+        if (byHand) await db.query("UPDATE articles SET adsense_accepted_risk = 'review', adsense_accepted_at = now(), adsense_accepted_note = 'WordPress’te elle yayımlandı (yayımlayan kişi kabul etmiş sayıldı)' WHERE id = $1 AND adsense_risk = 'review' AND adsense_accepted_risk IS NULL", [r.article_id]);
         await log(r.id, 'sync', 'published', byHand ? `WordPress’te elle yayımlanmış: ${post.link}` : post.link); out.published++;
       } else if (ours === 'scheduled' && byHand && wpDate(post.date, null)) {
         await db.query("UPDATE publications SET status = 'scheduled', scheduled_at = $2, wp_url = $3, synced_at = $4, updated_at = now() WHERE id = $1", [r.id, wpDate(post.date, now), post.link, now]);

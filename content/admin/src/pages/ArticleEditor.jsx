@@ -72,7 +72,7 @@ function Versions({ articleId, current, canEdit, onRestored }) {
 
 /** what to DO about the blockers a person can fix on this very page (only controls that exist here are named) */
 const FIX = {
-  adsense_risk: 'Çözüm: yukarıdaki formda “AdSense risk sonucu” kutusunu (nedenini “Kontroller ve kalite” kartında okuyun) “Düşük” yapıp KAYDEDİN; ya da metni düzeltip kartta kontrolleri yeniden çalıştırın. Elle yaptığınız işaret sizin sorumluluğunuzdadır.',
+  adsense_risk: 'Çözüm: nedenini “Kontroller ve kalite” kartında okuyun. Yayına uygun buluyorsanız aşağıdaki “AdSense uyarısını kabul et” düğmesine basın (değerlendirmenin dediği kayıtta kalır, kabul ettiğiniz yazılır); ya da metni düzeltip kartta kontrolleri yeniden çalıştırın. Kabul sizin sorumluluğunuzdadır, AdSense onayı garanti etmez.',
   excluded_topic: 'Bu konu sitenizin nişinin dışında sayılıyor. Önerilen: “Arşivde durumuna al” (başlığı değiştirmek doğruluk kontrolünü sıfırlar, kategori değiştirmek kuralı dolanmak olur). Konu gerçekten istediğiniz bir konuysa Strateji sayfasında (Kategoriler ya da Hariç tutulan konular sekmesi) listeden çıkarın.',
   no_category: 'Çözüm: yukarıdaki “Kategori” alanından seçip kaydedin.',
 };
@@ -110,13 +110,21 @@ export default function ArticleEditor() {
     if (to === 'archived' && !(await confirm({ title: 'Makale arşivlensin mi?', body: 'Arşivlenen makale listelerde gizlenir; istediğiniz zaman geri alabilirsiniz.', confirmText: 'Arşivle' }))) return;
     if (await run(() => api.post(`/articles/${id}/status`, { status: to }), `Durum: ${STATUS[to][0]}`)) st.reload();
   };
+  /** the person accepts the reviewer's AdSense class "inceleme gerekli" (and approves the article); the class itself stays as it is in the record */
+  const acceptAdsense = async (approve) => {
+    const yes = await confirm({ title: 'AdSense uyarısı kabul edilsin mi?', body: `Değerlendirme bu makale için “inceleme gerekli” dedi (nedeni “Kontroller ve kalite” kartında). Kabul ederseniz yayına uygun olduğuna siz karar vermiş olursunuz${approve ? ' ve diğer zorunlu kontrolleri geçiyorsa makale “Yayına hazır” olur' : ''}. Kayıtta değerlendirmenin dediği korunur, kabul ettiğiniz yazılır; metin değişirse kabul sona erer. Bu bir AdSense onayı ya da gelir garantisi değildir.`, confirmText: approve ? 'Kabul et ve onayla' : 'Kabul et' });
+    if (!yes) return;
+    const r = await run(() => api.post(`/articles/${id}/adsense-accept`, { approve }));
+    if (r) { st.reload(); if (approve && !r.approved && r.reason) confirm({ title: 'Kabul edildi, ama makale onaylanamadı', body: r.reason, confirmText: 'Tamam' }); }
+  };
+  const withdrawAdsense = async () => { if (await run(() => api.post(`/articles/${id}/adsense-accept`, { accept: false }), 'Kabul geri alındı')) st.reload(); };
   const factCheck = async (checked) => { if (await run(() => api.post(`/articles/${id}/fact-check`, { checked }), checked ? 'Doğruluk kontrolü işaretlendi' : 'İşaret kaldırıldı')) st.reload(); };
   const remove = async () => { if (await confirm({ title: 'Makale silinsin mi?', body: 'Makale ve tüm sürümleri kalıcı olarak silinir.', confirmText: 'Sil', danger: true }) && await run(() => api.del(`/articles/${id}`), 'Makale silindi')) nav('/articles'); };
 
   const body = (
     <div className="page">
       <PageHead title={isNew ? 'Yeni makale' : (art ? art.h1 || '(başlıksız)' : 'Makale')} actions={<Link className="btn" to="/articles"><ArrowLeft size={15} />Arşive dön</Link>}>
-        {isNew ? 'Elle makale ekleyin. HTML güvenlik için otomatik temizlenir (script, stil, olay işleyicileri kaldırılır).' : art && <>{<Badge kind={STATUS[art.status][1]}>{STATUS[art.status][0]}</Badge>} {art.createdBy === 'ai' ? <Badge kind="info">AI üretimi</Badge> : <Badge>elle eklendi</Badge>} · sürüm {art.currentVersion} · {num(art.wordCount)} kelime · son değişiklik {dt(art.updatedAt)}{art.lastUpdatedAt && <> · Last Updated {dt(art.lastUpdatedAt)}</>}</>}
+        {isNew ? 'Elle makale ekleyin. HTML güvenlik için otomatik temizlenir (script, stil, olay işleyicileri kaldırılır).' : art && <>{<Badge kind={STATUS[art.status][1]}>{STATUS[art.status][0]}</Badge>}{art.live && art.status !== 'published' && <> <Badge kind="ok">Yayımlandı</Badge></>} {art.createdBy === 'ai' ? <Badge kind="info">AI üretimi</Badge> : <Badge>elle eklendi</Badge>} · sürüm {art.currentVersion} · {num(art.wordCount)} kelime · son değişiklik {dt(art.updatedAt)}{art.lastUpdatedAt && <> · Last Updated {dt(art.lastUpdatedAt)}</>}</>}
       </PageHead>
       {conflict && <Alert kind="warn" title="Çakışma">{conflict} <button className="btn sm" onClick={() => { setConflict(null); st.reload(); }}>Güncel sürümü yükle</button> (Yaptığınız değişiklikler bu ekranda kalır; kaydetmeden önce kopyalayabilirsiniz.)</Alert>}
       <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) 340px', alignItems: 'start' }}>
@@ -174,8 +182,15 @@ export default function ArticleEditor() {
                   {ready.data.problems.map((p) => <div key={p.code} className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}><Badge kind={p.blocking ? 'bad' : 'warn'}>{p.blocking ? 'Engel' : 'Uyarı'}</Badge><span>{p.message}{FIX[p.code] && <small className="faint" style={{ display: 'block', marginTop: 2 }}>{FIX[p.code]}</small>}</span></div>)}
                 </div>
               )}
+              {art.live && <small className="faint" style={{ display: 'block', marginTop: 8 }}>WordPress’te yayında: <a href={art.live.url} target="_blank" rel="noreferrer">{art.live.url}</a>{art.live.version && art.live.version !== art.currentVersion ? ` · sitedeki sürüm v${art.live.version}, bu sayfadaki v${art.currentVersion} (güncelleme sitede değil)` : ''}</small>}
+              {canEdit && art.adsenseRisk === 'review' && !art.adsenseAccepted && art.status !== 'archived' && (
+                <div className="stack" style={{ marginTop: 12 }}><div className="row">
+                  {art.status === 'needs_review' && <button className="btn sm primary" disabled={busy || dirty} onClick={() => acceptAdsense(true)}>AdSense uyarısını kabul et ve onayla</button>}
+                  <button className="btn sm" disabled={busy || dirty} onClick={() => acceptAdsense(false)}>Yalnızca kabul et</button></div>
+                  <small className="faint">AdSense değerlendirmesi “inceleme gerekli” dedi. Yayına uygun buluyorsanız kabul edin: değerlendirme kayıtta olduğu gibi kalır, kabul ettiğiniz yazılır.</small></div>)}
+              {canEdit && art.adsenseAccepted && <div className="row" style={{ marginTop: 12 }}><Badge kind="ok">AdSense uyarısı kabul edildi</Badge><small className="faint">{art.adsenseAcceptedNote}{art.adsenseAcceptedAt ? ` · ${dt(art.adsenseAcceptedAt)}` : ''}</small><button className="btn sm" disabled={busy} onClick={withdrawAdsense}>Kabulü geri al</button></div>}
               <ArticleFix art={art} ready={ready.data} dirty={dirty} onChanged={st.reload} />
-              {canEdit && (NEXT[art.status] || []).length > 0 && <div className="row" style={{ marginTop: 12 }}>{NEXT[art.status].map((to) => <button key={to} className={`btn sm ${to === 'ready' ? 'primary' : ''}`} disabled={busy || dirty} onClick={() => status(to)}>{STATUS[to][0]}{to === 'ready' ? ' yap' : ' durumuna al'}</button>)}</div>}
+              {canEdit && (NEXT[art.status] || []).length > 0 && <div className="row" style={{ marginTop: 12 }}>{NEXT[art.status].map((to) => <button key={to} className={`btn sm ${to === 'ready' ? 'primary' : ''}`} disabled={busy || dirty} onClick={() => status(to)}>{to === 'published' ? 'Güncelleme gerekmiyor: yayımlanmış kalsın' : <>{STATUS[to][0]}{to === 'ready' ? ' yap' : ' durumuna al'}</>}</button>)}</div>}
               {dirty && <small className="faint" style={{ color: 'var(--warn)' }}>Kaydedilmemiş değişiklik var: durum düğmeleri kapalıdır, önce sayfanın altındaki “Kaydet”e basın.</small>}
             </Card>
           )}

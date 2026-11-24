@@ -334,6 +334,21 @@ for (let i = 0; i < 10; i += 1) { if (!(await S.scheduler.workOnce({ ctx: {} }))
 await openAi();
 ok('after the job: the missing checks ran again (fact check + review, the checker vendor), the card shows what the bot did and that approval stays with the person, and every mandatory check is back', globalThis.__models.calls.length === fixBefore + 2 && txt().includes('Tüm zorunlu kontroller tamam.') && txt().includes('Düzeltildi, onay sizde') && txt().includes('Çalışmamış kontroller yeniden çalıştırıldı') && (await q1("SELECT status FROM articles WHERE id = $1", [aiArt.id])).status === 'needs_review' && !btn('Eksikleri bota düzelttir'));
 
+// a person accepts the reviewer's AdSense class "inceleme gerekli" and approves: the class stays in the record, who accepted is written, the list stops showing the warning
+const risk0 = (await q1('SELECT adsense_risk FROM articles WHERE id = $1', [aiArt.id])).adsense_risk;
+await S.db.query("UPDATE articles SET adsense_risk = 'review' WHERE id = $1", [aiArt.id]);
+await openAi();
+ok('with the class "inceleme gerekli" the card names it as the blocker and offers to accept it (and says what accepting means)', txt().includes('Eksikler var.') && !!btn('AdSense uyarısını kabul et ve onayla') && !!btn('Yalnızca kabul et') && txt().includes('kayıtta olduğu gibi kalır'));
+await click(btn('AdSense uyarısını kabul et ve onayla'), 600);
+ok('accepting asks first and says it is a person\'s decision, not an AdSense approval', !!$('.modal') && txt().includes('AdSense uyarısı kabul edilsin mi?') && txt().includes('AdSense onayı ya da gelir garantisi değildir'));
+await click(btn('Kabul et ve onayla', $('.modal')), 1200);
+const acc = await q1('SELECT status, adsense_risk, adsense_accepted_risk, adsense_accepted_note FROM articles WHERE id = $1', [aiArt.id]);
+ok('the article is "Yayına hazır", the reviewer\'s class is still "review" in the record, and the acceptance is written', acc.status === 'ready' && acc.adsense_risk === 'review' && acc.adsense_accepted_risk === 'review' && /kabul/.test(acc.adsense_accepted_note) && txt().includes('AdSense uyarısı kabul edildi') && !!btn('Kabulü geri al'));
+await click(nav('Makale Arşivi'), 700);
+const aiRow = () => $$('tbody tr').find((r) => r.textContent.includes(aiArt.h1.slice(0, 25)));
+ok('the archive list shows "Kabul edildi" instead of the warning for that article', !!aiRow() && aiRow().textContent.includes('Kabul edildi') && !aiRow().textContent.includes('İnceleme gerekli') && aiRow().textContent.includes('Yayına hazır'));
+await S.db.query("UPDATE articles SET status = 'needs_review', adsense_risk = $2, adsense_accepted_risk = NULL, adsense_accepted_at = NULL, adsense_accepted_note = NULL WHERE id = $1", [aiArt.id, risk0]);      // the following scenarios start from the draft they know
+
 await click(nav('AI Makale Üretimi'), 700);
 ok('the writer page lists the vendors (who writes, who checks) and the history of the run with its cost and a link to the article', txt().includes('Yapay zekâ sağlayıcıları') && txt().includes('Anthropic (Claude)') && txt().includes('yazar') && txt().includes('kontrol') && txt().includes('yazan modelin kendisi yapar') && txt().includes('Yazım geçmişi') && txt().includes('3 kaynak') === false && /\$0\.\d+/.test(txt()) && !!btn('Makale'));
 
@@ -403,6 +418,19 @@ ok('read while still a draft there: nothing changes', (await q1('SELECT status F
 const wpPostId = (await q1('SELECT wp_post_id FROM publications')).wp_post_id; WP.goLive(Number(wpPostId));
 await click(btn('Durumu WordPress’ten oku'), 1200);
 ok('after the person published it in WordPress the read-back makes publication and article "published", sends nothing, and the card says "Yayında"', (await q1('SELECT status FROM publications')).status === 'published' && (await q1('SELECT status FROM articles WHERE id = $1', [aiId])).status === 'published' && wpWrites() === w0 && txt().includes('Yayında') && !btn('Durumu WordPress’ten oku'));
+// a LIVE article is never "Onay bekliyor": flagged "Güncelleme bekliyor" it can stay published, and the archive list says "Yayımlandı" next to the flag
+const liveTitle = (await q1('SELECT h1 FROM articles WHERE id = $1', [aiId])).h1; const liveRisk0 = (await q1('SELECT adsense_risk FROM articles WHERE id = $1', [aiId])).adsense_risk;
+await S.db.query("UPDATE articles SET status = 'needs_update', adsense_risk = 'review' WHERE id = $1", [aiId]);
+await click(nav('Makale Arşivi'), 700);
+const liveRow = () => $$('tbody tr').find((r) => r.textContent.includes(liveTitle.slice(0, 25)));
+ok('the archive list says "Yayımlandı" (with the address on the site) next to "Güncelleme bekliyor" for an article that is live', !!liveRow() && liveRow().textContent.includes('Güncelleme bekliyor') && liveRow().textContent.includes('Yayımlandı') && !!liveRow().querySelector('a[href^="http"]'));
+await click(liveRow(), 900);
+ok('the editor says it is live and offers "Güncelleme gerekmiyor: yayımlanmış kalsın"', txt().includes('WordPress’te yayında:') && !!btn('Güncelleme gerekmiyor: yayımlanmış kalsın'));
+await click(btn('Güncelleme gerekmiyor: yayımlanmış kalsın'), 900);
+ok('pressing it puts the article back to "Yayımlandı"', (await q1('SELECT status FROM articles WHERE id = $1', [aiId])).status === 'published');
+const refusedLive = await S.articles.setStatus(aiId, 'needs_review').catch((e) => e);
+ok('"Onay bekliyor" is refused for a live article, in words', refusedLive.status === 409 && /WordPress’te yayında/.test(refusedLive.message) && (await q1('SELECT status FROM articles WHERE id = $1', [aiId])).status === 'published');
+await S.db.query("UPDATE articles SET adsense_risk = $2, adsense_accepted_risk = NULL, adsense_accepted_at = NULL, adsense_accepted_note = NULL WHERE id = $1", [aiId, liveRisk0]);
 // (put it back the way the following steps expect it)
 WP.posts.get(Number(wpPostId)).status = 'draft'; await S.db.query("UPDATE publications SET status = 'draft', published_at = NULL, synced_at = NULL WHERE article_id = $1", [aiId]); await S.db.query("UPDATE articles SET status = 'ready' WHERE id = $1", [aiId]);
 

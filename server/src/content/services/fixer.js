@@ -95,19 +95,23 @@ const rowsFor = async (ids) => {
   return by;
 };
 
-/** AI articles waiting for review whose readiness has blocking problems, oldest first, that the bot may still work on: [{ id, problems }] */
+/**
+ * AI articles waiting for review that the bot may still work on, oldest first: [{ id, problems }]. Those with BLOCKING problems come first; while automatic approval is on, a draft with no
+ * blocker at all is also taken (nothing is spent on it: the approval gate just looks at it again, which is how an article gets approved after a person accepted its AdSense warning).
+ */
 async function candidates(projectId, { limit = 2, scan = 25 } = {}) {
   const rows = (await db.query("SELECT id, current_version FROM articles WHERE project_id = $1 AND status = 'needs_review' AND created_by = 'ai' ORDER BY updated_at LIMIT $2", [V.uuid(projectId, 'Proje'), scan])).rows;
   if (!rows.length) return [];
-  const hist = await rowsFor(rows.map((r) => r.id)); const out = [];
+  const hist = await rowsFor(rows.map((r) => r.id)); const out = []; const clean = [];
+  const approvalOn = (await settings.get('quality', projectId)).value.manualApprovalNewArticles === false;
   for (const r of rows) {
     if (out.length >= limit) break;
     const st = stateOf({ current_version: r.current_version }, hist.get(r.id));
     if (st.parked || st.attempts >= MAX_ATTEMPTS) continue;
     const problems = blocking(await articles.readiness(r.id));
-    if (problems.length) out.push({ id: r.id, problems });
+    if (problems.length) out.push({ id: r.id, problems }); else if (approvalOn) clean.push({ id: r.id, problems: [] });
   }
-  return out;
+  return [...out, ...clean].slice(0, limit);
 }
 
 const insertRow = async (a, trigger, o) => (await db.query(`INSERT INTO article_fixes (project_id, article_id, trigger, version_before, version_after, result, problems, remaining, steps, cost_usd, calls)
