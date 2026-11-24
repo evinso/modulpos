@@ -90,7 +90,8 @@ function PasswordModal({ onClose, onChanged }) {
 }
 
 function Shell() {
-  const { me, projectId, setProjectId, projects, theme, setTheme, logout, unread, onPasswordChanged } = useApp();
+  const { me, projectId, setProjectId, projects, project, theme, setTheme, logout, unread, onPasswordChanged } = useApp();
+  const lineOn = !!(project && project.pipelineOn);
   const [open, setOpen] = useState(false);
   const [pw, setPw] = useState(false);
   const loc = useLocation();
@@ -102,7 +103,7 @@ function Shell() {
         {GROUPS.map((g) => (
           <div key={g.title || 'top'} className="nav-group" role="group" aria-label={g.title || 'Genel'}>
             {g.title && <div className="nav-sep">{g.title}</div>}
-            {g.items.map((m) => {
+            {g.items.filter((m) => !(m.research && lineOn)).map((m) => {
               const Icon = m.icon;
               return (
                 <NavLink key={m.label} to={m.to} end={m.end} className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}>
