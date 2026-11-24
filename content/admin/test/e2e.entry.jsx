@@ -23,6 +23,8 @@ const tab = (label) => $$('button.tab').find((b) => b.textContent.trim() === lab
 const nav = (label) => $$('a.nav').find((a) => a.textContent.includes(label));
 // the bots, limits and settings are tabs of the single page "Otomasyon ve Ayarlar"
 const goTab = async (label, ms = 500) => { await click(nav('Otomasyon ve Ayarlar'), ms); await click(tab(label), ms); };
+// the page opens on "Otomatik Üretim" now; the old modes and the flow card are on the tab "Gelişmiş modlar"
+const openGeneral = async (ms = 500) => { await click(nav('Otomasyon ve Ayarlar'), ms); await click(tab('Gelişmiş modlar'), ms); };
 const setVal = async (el, v) => {
   if (!el) throw new Error('input not found');
   const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : el.tagName === 'SELECT' ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype;
@@ -676,9 +678,9 @@ ok('there is no DataForSEO card and no login field any more (the Apify card only
 // ── Otomasyon Modu: three modes + checkboxes over the settings that already exist ─────────────────────────────────────────────
 const autoSched = async (bot) => { const r = await q1('SELECT enabled FROM schedule_settings WHERE bot_key = $1', [bot]); return { enabled: r ? r.enabled : false }; };   // no row = the bot's default, which for the paid ones is off
 const boxFor = (label) => $$('label.check').find((l) => l.textContent.includes(label));
-await click(nav('Otomasyon ve Ayarlar'), 900);
+await openGeneral(900);
 ok('the page shows the current mode, three mode cards, the 17 options in 4 groups, the values and the checklist', txt().includes('Şu anki mod:') && ['Elle', 'Yarı otomatik', 'Tam otomatik'].every((m) => !!btn(`${m} modunu uygula`) || txt().includes(m)) && $$('label.check').length >= 17 + 1 && ['Araştırma', 'Yazım ve onay', 'Yayın', 'Bakım, izleme ve raporlar'].every((g) => txt().includes(g)) && txt().includes('Günlük yeni makale') && txt().includes('Başlamadan önce kontrol listesi'));
-ok('Otomasyon ve Ayarlar is ONE page: tabs Genel, Botlar, Görev kuyruğu, Günlük limitler, Ayarlar and (admin) Kullanıcılar, Sistem; Genel is the one open', JSON.stringify($$('button.tab').map((b) => b.textContent)) === JSON.stringify(['Genel', 'Botlar', 'Görev kuyruğu', 'Günlük limitler', 'Ayarlar', 'Kullanıcılar', 'Sistem']) && tab('Genel').getAttribute('aria-selected') === 'true');
+ok('Otomasyon ve Ayarlar is ONE page: tabs Otomatik Üretim, Gelişmiş modlar, Botlar, Görev kuyruğu, Günlük limitler, Ayarlar and (admin) Kullanıcılar, Sistem; "Gelişmiş modlar" is the one open here', JSON.stringify($$('button.tab').map((b) => b.textContent)) === JSON.stringify(['Otomatik Üretim', 'Gelişmiş modlar', 'Botlar', 'Görev kuyruğu', 'Günlük limitler', 'Ayarlar', 'Kullanıcılar', 'Sistem']) && tab('Gelişmiş modlar').getAttribute('aria-selected') === 'true');
 const liveRows = () => $$('table[aria-label="Botların anlık durumu"] tbody tr');
 ok('the "Anlık durum" card lists all 14 bots with a state each, the day\'s numbers and the honest note that no scheduler runs on this test server', !!$$('section.card h2').find((h) => h.textContent === 'Anlık durum') && liveRows().length === 14 && liveRows().every((r) => /Çalışıyor|Sırada|Yeniden denenecek|Bekliyor|Duraklatıldı|Hatalar nedeniyle durdu|Kapalı/.test(r.textContent)) && txt().includes('Bugün yazılan') && txt().includes('Zamanlayıcı bu sunucuda çalışmıyor') && txt().includes('● canlı'));
 const pid0 = (await q1('SELECT id FROM content_projects ORDER BY created_at LIMIT 1')).id;
@@ -702,7 +704,7 @@ ok('ticking "publish live" also ticks "send to WordPress" (it cannot exist witho
 await click(boxFor('Hazır makaleleri WordPress’e gönder').querySelector('input'), 150);
 ok('un-ticking "send to WordPress" un-ticks "publish live" with it', boxFor('Taslak yerine doğrudan yayımla').querySelector('input').checked === false);
 ok('"Tam otomatik" is not offered while no WordPress site has passed its connection test, and the card says which one is missing', !!$$('.card').find((c) => c.textContent.includes('Tam otomatik') && c.textContent.includes('Bu mod için eksikler var') && c.textContent.includes('Bağlantı testi geçmiş')) && btn('Tam otomatik modunu uygula').disabled === true);
-await click(nav('Web Sitelerim'), 700); await click(btn('Bağlantıyı test et'), 1200); await click(nav('Otomasyon ve Ayarlar'), 900);
+await click(nav('Web Sitelerim'), 700); await click(btn('Bağlantıyı test et'), 1200); await openGeneral(900);
 ok('after the real connection test the mode becomes available', (await q1('SELECT last_test_ok FROM wp_sites')).last_test_ok === true && btn('Tam otomatik modunu uygula').disabled === false);
 await click(btn('Tam otomatik modunu uygula'), 700);
 ok('"Tam otomatik" first asks, in words, because articles would go public without a person (and applies nothing yet)', !!$('.modal') && txt().includes('SİZ BAKMADAN') && (await autoSched('article_writer')).enabled !== true);
@@ -720,11 +722,11 @@ const wsch = await q1("SELECT enabled, window_start, window_end FROM schedule_se
 ok('"Değerleri kaydet" saves the writer hours on the real bot schedule and the day\'s article number, keeps the mode (Tam otomatik) and the switches, and goes off again', wsch.enabled === true && wsch.window_start === '08:15' && wsch.window_end === '22:45' && txt().includes('Şu anki mod: Tam otomatik') && (await q1("SELECT daily_article_limit FROM niche_profiles LIMIT 1")).daily_article_limit === 5 && btn('Değerleri kaydet').disabled === true && aria('Yazım başlangıcı').value === '08:15');
 await goTab('Botlar', 800);
 ok('Bot Yönetimi shows the very same switches (the page has no state of its own)', txt().includes('Otomatik: 3 saatte bir') || txt().includes('3 saatte bir'));
-await click(nav('Otomasyon ve Ayarlar'), 800); await click(btn('Elle modunu uygula'), 1000);
+await openGeneral(800); await click(btn('Elle modunu uygula'), 1000);
 ok('and "Elle" takes everything back: manual approval again, WordPress as draft, no bot scheduled', txt().includes('Şu anki mod: Elle') && (await q1("SELECT value FROM automation_settings WHERE key = 'quality'")).value.manualApprovalNewArticles === true && (await q1("SELECT value FROM automation_settings WHERE key = 'publishing'")).value.mode === 'draft' && (await q1("SELECT count(*)::int n FROM schedule_settings WHERE enabled")).n === 0);
 
 // ── Bulgu akışı ve zaman dalgası: what was found, the waves, why ideas wait, the fresh-news window, the housekeeping ─────────────────────────────────────
-await click(nav('Otomasyon ve Ayarlar'), 900);
+await openGeneral(900);
 const flowCard = () => $$('section.card').find((c) => c.querySelector('h2') && c.querySelector('h2').textContent === 'Bulgu akışı ve zaman dalgası');
 ok('the flow card shows what was found, today\'s places, the waves by age and the housekeeping in plain words', !!flowCard() && flowCard().textContent.includes('Bulunan haber (son 24 saat)') && flowCard().textContent.includes('Nişe uygun olay (son 7 gün)') && flowCard().textContent.includes('Yazılmaya hazır fikir') && flowCard().textContent.includes('Bugün yazılan makale') && flowCard().textContent.includes('Zaman dalgası') && flowCard().textContent.includes('Son 12 saat') && flowCard().textContent.includes('7 günden eski') && flowCard().textContent.includes('hiçbir zaman'));
 ok('the values say what REALLY applies (the narrowest limit), not only the number typed', txt().includes('Fiilen geçerli: günde en çok') && txt().includes('genel sınır') && txt().includes('en dar olan geçerlidir'));
@@ -739,7 +741,7 @@ const otherReady = (await S.db.query('SELECT id FROM content_opportunities WHERE
 await S.db.query('UPDATE content_opportunities SET eligible = false WHERE id = ANY($1::uuid[])', [otherReady]);
 await S.limits.setProjectLimits(pid, { new_article: 20 }); await S.limits.setCategoryLimits(heldCat.id, { dailyMax: 1 });
 const heldGrant = await S.limits.reserve({ workType: 'new_article', projectId: pid, categoryId: heldCat.id });          // one article of this category was written today
-await goTab('Botlar', 400); await click(nav('Otomasyon ve Ayarlar'), 1000);
+await goTab('Botlar', 400); await openGeneral(1000);
 ok('the flow card says there are places and ready ideas but nothing can be written, names the category whose own limit is used up, and where to change it', flowCard().textContent.includes('fikir hazır, ama hiçbiri yazılamıyor') && flowCard().textContent.includes('kendi günlük kategori sınırı dolan') && flowCard().textContent.includes(`${heldCat.name_en}: 1 hazır fikir, günlük sınır 1`) && flowCard().textContent.includes('Bu bir hata değil') && !!flowCard().querySelector('a[href="/automation?tab=limitler"]'), flowCard().textContent.slice(0, 700));
 await S.limits.release({ workType: 'new_article', projectId: pid, categoryId: heldCat.id, amount: 1, day: heldGrant.day });
 await S.limits.setCategoryLimits(heldCat.id, { dailyMax: null }); await S.limits.setProjectLimits(pid, { new_article: 3 });
@@ -747,7 +749,7 @@ await S.db.query('DELETE FROM content_opportunities WHERE topic_id = $1', [heldT
 await S.db.query('UPDATE content_opportunities SET eligible = true WHERE id = ANY($1::uuid[])', [otherReady]);
 const flowCat = (await q1('SELECT id FROM categories LIMIT 1')).id;
 await S.db.query("INSERT INTO topics (project_id, category_id, title, origin, status, created_at) VALUES ($1,$2,'E2E stale idea','news','new', now() - interval '40 days')", [pid, flowCat]);
-await goTab('Botlar', 500); await click(nav('Otomasyon ve Ayarlar'), 900);
+await goTab('Botlar', 500); await openGeneral(900);
 ok('an idea nobody used for 40 days is announced as about to be removed (and the card says what is never removed)', flowCard().textContent.includes('Şu an silinecek: 1 fikir') && !btn('Şimdi temizle', flowCard()).disabled);
 await click(btn('Şimdi temizle', flowCard()), 500); ok('cleaning asks first and lists what stays', !!$('.modal') && txt().includes('geri alınamaz') && txt().includes('silinmez'));
 await click(btn('Temizle', $('.modal')), 1000);
@@ -794,7 +796,7 @@ ok('choosing a photo downloads it to our own storage with its credit, at no cost
 ok('the card shows the photo with its credit and says it is free (no price, no drawing prompt)', txt().includes('Ücretsiz fotoğraf') && txt().includes('Jane Doe') && txt().includes('kaynak göstermeyi şart koşmaz') && txt().includes('Aranan kelime') && !txt().includes('Çizilen tarif'));
 await click($$('button').find((b) => b.textContent.trim() === 'Sil' && b.className.includes('danger')), 500); await click(btn('Sil', $('.modal')), 800);
 ok('removing it works for a free photo too', (await q1('SELECT count(*)::int n FROM article_images')).n === 0);
-await click(nav('Otomasyon ve Ayarlar'), 800);
+await openGeneral(800);
 const imgBox = $$('label.check').find((l) => l.textContent.includes('Makaleye kapak görseli ekle'));
 ok('Otomasyon Modu: with a Pixabay key the cover option is free (no "ücretli" badge) and ready', !!imgBox && !imgBox.textContent.includes('ücretli') && !imgBox.querySelector('input').disabled);
 
@@ -805,6 +807,36 @@ for (const [from, label] of [['/bots', 'Botlar'], ['/limits', 'Günlük limitler
   if (btn('Giriş yap')) { await setVal(input('E-posta'), 'smoke@example.com'); await setVal(input('Şifre'), 'Correct-Horse-9-Battery'); await click(btn('Giriş yap'), 1500); }
   ok(`the old address ${from} opens the single page on its tab "${label}"`, !!tab(label) && tab(label).getAttribute('aria-selected') === 'true' && txt().includes('Otomasyon ve Ayarlar'), txt().slice(0, 400) + ' | tabs: ' + $$('button.tab').map((b) => b.textContent + ':' + b.getAttribute('aria-selected')).join(','));
 }
+
+// ── Otomatik Üretim: the tab the page opens on (the simple switch, the pace, one piece of work at a time) ──────────────────────────────────────────────
+await click(nav('Otomasyon ve Ayarlar'), 1200);
+const paceSel = () => $('select[aria-label="Üretim sıklığı"]'); const exact = (label) => $$('button').find((b) => b.textContent.trim() === label);
+ok('the page opens on "Otomatik Üretim": it says what the line does, it is OFF, and the pace is a single drop-down', tab('Otomatik Üretim').getAttribute('aria-selected') === 'true' && txt().includes('tek bir işi') && txt().includes('KAPALI') && !!paceSel());
+ok('the paces are the plain ones: once a day, twice a day, every 6 / 4 / 3 / 2 hours', [...paceSel().options].map((o) => o.textContent).join('|') === 'Günde 1|Günde 2|Günde 3|6 saatte 1|4 saatte 1|3 saatte 1|2 saatte 1');
+ok('the upkeep bots are shown apart (content updates, internal links ...), each with its own pace and no weekdays or hours', !!$('table[aria-label="Bakım botları"]') && ['Paylaşılan içeriğin güncellenmesi', 'İç bağlantı ekleme', 'Eski makale kontrolü'].every((n) => txt().includes(n)) && !!$('select[aria-label="İç bağlantı ekleme: ne sıklıkla"]') && !txt().includes('Yalnızca hafta içi'));
+await click(exact('Aç'), 800);
+ok('turning it ON asks first, in words, because articles go public without a person (nothing is switched yet)', !!$('.modal') && txt().includes('SİZ BAKMADAN') && (await q1("SELECT count(*)::int n FROM automation_settings WHERE key = 'pipeline'")).n === 0);
+await click(btn('Evet, aç', $('.modal')), 1500);
+const pset = async () => (await q1("SELECT value FROM automation_settings WHERE key = 'pipeline' AND project_id IS NOT NULL")).value;
+ok('after the yes it is ON, saved on the server, automatic approval is on (the line needs it) and the page says what else it changed', (await pset()).enabled === true && (await q1("SELECT value FROM automation_settings WHERE key = 'quality'")).value.manualApprovalNewArticles === false && txt().includes('AÇIK') && txt().includes('Son değişiklik') && txt().includes('Şu anki iş'));
+await goTab('Botlar', 1000);
+ok('while the line is on, the Botlar tab says which bots the line runs itself (and they carry a badge)', txt().includes('Otomatik Üretim açık') && txt().includes('News Discovery Bot') && $$('.badge').filter((b) => b.textContent === 'üretim hattı yönetiyor').length === 7);
+await click(nav('Otomasyon ve Ayarlar'), 1200);
+ok('with nothing running it says when the next cycle starts and in which category (the first of the order)', txt().includes('sonraki döngü') && txt().includes('AI Tools & Updates'));
+await setVal(paceSel(), '720'); await wait(1200);
+ok('the pace is saved: twice a day', (await pset()).everyMinutes === 720 && txt().includes('2 döngü / gün'));
+await click(btn('Şimdi başlat'), 1300);
+const prun = await q1('SELECT * FROM pipeline_runs'); const pjob = await q1("SELECT * FROM jobs WHERE bot_key = 'daily_pipeline'");
+ok('"Şimdi başlat" opens a cycle at its first step and queues ONE job for it', !!prun && prun.status === 'running' && prun.step === 'idea' && prun.trigger === 'manual' && !!pjob && pjob.trigger === 'manual' && txt().includes('Çalışıyor') && txt().includes('Fikir bulunuyor'));
+ok('the eight steps are listed in order, the first one marked as the one being worked on', ['idea', 'keyword', 'serp', 'check', 'write', 'fix', 'publish', 'cleanup'].every((k) => !!$(`[data-testid="step-${k}"]`)) && $('[data-testid="step-idea"]').dataset.state === 'now' && $('[data-testid="step-write"]').dataset.state === 'todo');
+await click(btn('Bu döngüyü bırak'), 600); await click(btn('Bırak', $('.modal')), 1200);
+ok('giving the cycle up ends it (nothing else is touched) and the page is back to "bekliyor"', (await q1('SELECT status FROM pipeline_runs')).status === 'cancelled' && txt().includes('sonraki döngü'));
+await setVal($('select[aria-label="İç bağlantı ekleme: ne sıklıkla"]'), '10080'); await wait(1200);
+ok('an upkeep bot\'s pace is its real schedule: internal links once a week now', (await q1("SELECT interval_minutes FROM schedule_settings WHERE bot_key = 'internal_linking'")).interval_minutes === 10080);
+await click(exact('Kapat'), 1200);
+ok('switching it OFF says KAPALI and is saved (the old schedules apply again)', (await pset()).enabled === false && txt().includes('KAPALI'));
+await goTab('Botlar', 1000);
+ok('and the Botlar tab no longer claims any bot', !txt().includes('Otomatik Üretim açık') && !$$('.badge').some((b) => b.textContent === 'üretim hattı yönetiyor'));
 await act(async () => { root.render(<MemoryRouter key="back" initialEntries={['/']}><App /></MemoryRouter>); }); await wait(700);
 if (btn('Giriş yap')) { await setVal(input('E-posta'), 'smoke@example.com'); await setVal(input('Şifre'), 'Correct-Horse-9-Battery'); await click(btn('Giriş yap'), 1500); }
 await click(aria('Çıkış'), 600);

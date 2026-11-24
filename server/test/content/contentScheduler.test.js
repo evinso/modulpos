@@ -82,9 +82,9 @@ test('tick: defaults (free bots on, paid bots off), one job per bot and project,
   const s = await SC.getSchedule('news_discovery'); assert.equal(new Date(s.nextRunAt).getTime(), plus(MON, 120).getTime());
   const t2 = await SC.tick({ now: plus(MON, 121) }); assert.deepEqual(t2.enqueued, [], 'the earlier jobs are still waiting: no second copy of the same job');
   for (const j of await jobsOf('queued')) await H.db().query("UPDATE jobs SET status = 'done' WHERE id = $1", [j.id]);
-  const t3 = await SC.tick({ now: plus(MON, 12 * 60) }); assert.deepEqual(t3.enqueued.map((e) => e.bot).sort(), ['content_health', 'content_opportunity', 'news_discovery'], 'after a long sleep ONE job per bot, not one per missed interval (the daily niche bot is not due yet)');
+  const t3 = await SC.tick({ now: plus(MON, 12 * 60) }); assert.deepEqual(t3.enqueued.map((e) => e.bot).sort(), ['content_opportunity', 'news_discovery'], 'after a long sleep ONE job per bot, not one per missed interval (the daily bots - niche, link health (now daily too) - are not due yet)');
   for (const j of await jobsOf('queued')) await H.db().query("UPDATE jobs SET status = 'done' WHERE id = $1", [j.id]);
-  assert.deepEqual((await SC.tick({ now: plus(MON, 25 * 60) })).enqueued.map((e) => e.bot).sort(), ['content_health', 'content_opportunity', 'internal_linking', 'news_discovery', 'niche_discovery'], 'a day later the daily bots are due');
+  assert.deepEqual((await SC.tick({ now: plus(MON, 25 * 60) })).enqueued.map((e) => e.bot).sort(), ['content_health', 'content_opportunity', 'internal_linking', 'news_discovery', 'niche_discovery'], 'a day later the daily bots are due (the upkeep bots run once a day by default)');
   assert.equal((await SC.getSchedule('news_discovery')).failStreak, 0);
   // paused: nothing
   for (const j of await jobsOf('queued')) await H.db().query("UPDATE jobs SET status = 'done' WHERE id = $1", [j.id]);

@@ -25,6 +25,7 @@ const internalLinks = require('./internalLinks');
 const adsenseAudit = require('./adsenseAudit');
 const reports = require('./reports');
 const fixer = require('./fixer');
+const pipeline = require('./pipeline');
 
 /**
  * The scheduler and the background worker (phase 4). No n8n, no external cron: one in-process loop pair that only needs the content database.
@@ -42,8 +43,8 @@ const DEFAULTS = {
   seo_competition:     { enabled: false, intervalMinutes: 240,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 5 }, spends: true, label: 'SERP rekabet analizi' },
   article_writer:      { enabled: false, intervalMinutes: 180,  windowStart: '09:00', windowEnd: '23:00', weekdaysOnly: false, options: { perRun: 1 }, spends: true, label: 'Makale yazımı' },
   article_fixer:       { enabled: false, intervalMinutes: 30,   windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 2 }, spends: true, label: 'Makale düzeltme' },
-  content_health:      { enabled: true,  intervalMinutes: 720,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 10 }, spends: false, label: 'İçerik sağlığı kontrolü' },
-  content_refresh:     { enabled: false, intervalMinutes: 360,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 1 }, spends: true, label: 'İçerik güncelleme' },
+  content_health:      { enabled: true,  intervalMinutes: 1440, windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 10 }, spends: false, label: 'İçerik sağlığı kontrolü' },
+  content_refresh:     { enabled: false, intervalMinutes: 1440, windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: { perRun: 1 }, spends: true, label: 'İçerik güncelleme' },
   seo_performance:     { enabled: false, intervalMinutes: 1440, windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: {}, spends: false, label: 'Search Console verisi' },
   adsense_compliance:  { enabled: true,  intervalMinutes: 10080, windowStart: null,   windowEnd: null,    weekdaysOnly: false, options: {}, spends: false, label: 'AdSense site denetimi' },
   reporting:           { enabled: true,  intervalMinutes: 1440,  windowStart: '06:00', windowEnd: '12:00', weekdaysOnly: false, options: {}, spends: false, label: 'Günlük/haftalık rapor' },
@@ -51,6 +52,10 @@ const DEFAULTS = {
   content_publishing:  { enabled: false, intervalMinutes: 60,   windowStart: '09:00', windowEnd: '21:00', weekdaysOnly: false, options: { perRun: 2 }, spends: false, label: 'WordPress yayını' },
 };
 const SCHEDULABLE = Object.keys(DEFAULTS);
+/** the bots of the PRODUCTION LINE (services/pipeline.js): while the line is on for a project the line runs these steps itself, one idea at a time, so their own schedules do not queue them for that project */
+const PIPELINE_OWNED = new Set(['news_discovery', 'content_opportunity', 'niche_discovery', 'keyword_research', 'seo_competition', 'article_writer', 'article_fixer']);
+/** the upkeep bots the panel shows apart from the line (each with its own "how often" choice) */
+const UPKEEP = ['content_health', 'content_refresh', 'internal_linking', 'seo_performance', 'adsense_compliance', 'reporting', 'content_publishing'];
 const FAIL_LIMIT = 5;                                                  // consecutive failed scheduled jobs before a bot is switched off
 const GATES = { news_discovery: 'news', keyword_research: 'seo', seo_competition: 'seo', content_opportunity: 'seo', niche_discovery: 'seo' };   // the per-project "bot active" switches of the settings page
 
@@ -272,12 +277,16 @@ HANDLERS.content_publishing = { idempotent: true, async run(job, ctx) {
   return { status: stats.rejected.length ? 'partial' : 'ok', stats, message: `${stats.sent} makale ${cfg.mode === 'publish' ? 'yayına' : 'taslak olarak'} gönderime alındı${stats.rejected.length ? `; ${stats.rejected[0].reason}` : ''}` };
 } };
 
+/** the production line: ONE job per project works the open cycle (see services/pipeline.js); it is never retried by the queue, the cycle itself remembers where it is */
+HANDLERS.daily_pipeline = { idempotent: false, async run(job, ctx) { return pipeline.work(job.projectId, { ...ctx, userId: job.userId, trigger: job.trigger }); } };
+
 // ── the tick: which bots are due ────────────────────────────────────────────────────────────────────────────────────
 /** @returns { paused, enqueued: [{ bot, projectId, jobId }], moved: [bot] } */
 async function tick({ now = new Date() } = {}) {
   const out = { paused: false, enqueued: [], moved: [] };
   if ((await settings.get('bots')).value.paused) { out.paused = true; return out; }
-  const schedules = await loadSchedules(); let projects = null;
+  const schedules = await loadSchedules(); let projects = null; const lineOn = new Map();
+  const owns = async (bot, pid) => { if (!PIPELINE_OWNED.has(bot)) return false; if (!lineOn.has(pid)) lineOn.set(pid, await pipeline.isOn(pid)); return lineOn.get(pid); };
   for (const bot of SCHEDULABLE) {
     const s = schedules.get(bot);
     if (!s.enabled || (s.nextRunAt && new Date(s.nextRunAt) > now)) continue;
@@ -285,11 +294,14 @@ async function tick({ now = new Date() } = {}) {
     projects = projects || (await db.query("SELECT id FROM content_projects WHERE status = 'active' ORDER BY created_at")).rows;
     for (const p of projects) {
       if (GATES[bot] && !(await settings.get(GATES[bot], p.id)).value.enabled) continue;
+      if (await owns(bot, p.id)) continue;                                                              // the production line works this project: it runs this step itself
       const q = await queue.enqueue({ botKey: bot, projectId: p.id, trigger: 'schedule', dedupeKey: `${bot}:${p.id}`, runAfter: now, maxAttempts: s.spends ? 1 : 3 });      // paid work is never retried on its own
       if (!q.duplicate) out.enqueued.push({ bot, projectId: p.id, jobId: q.job.id });
     }
     await saveSchedule(bot, { lastScheduledAt: now, nextRunAt: sched.nextRun(now, s.intervalMinutes, s) });
   }
+  const line = await pipeline.tick({ now });
+  out.enqueued.push(...line.enqueued); out.lineStarted = line.started;
   return out;
 }
 
@@ -340,14 +352,14 @@ const WORKER_ID = `${os.hostname()}:${process.pid}:${Math.random().toString(36).
 const idempotent = (bot) => !!(HANDLERS[bot] && HANDLERS[bot].idempotent);
 
 async function afterSuccess(job) {
-  if (job.trigger === 'manual' || job.trigger === 'retry') return;
+  if (!DEFAULTS[job.botKey] || job.trigger === 'manual' || job.trigger === 'retry') return;
   const s = await getSchedule(job.botKey); if (s.failStreak) await saveSchedule(job.botKey, { failStreak: 0 });
 }
 async function afterFinalFailure(job, err) {
   if (job.payload && job.payload.publicationId) return;                 // a failed WordPress send has told the owner already (publishing.js), and one article never switches the bot off
   const label = (DEFAULTS[job.botKey] || {}).label || job.botKey;
   await notifications.create({ type: 'job_failed', severity: 'warning', title: `${label} görevi başarısız oldu`, body: `${String((err && err.message) || err).slice(0, 400)} (${job.attempts} deneme)`, data: { jobId: job.id, bot: job.botKey } });
-  if (job.trigger !== 'schedule') return;                              // a person's own click failing does not switch a bot off
+  if (!DEFAULTS[job.botKey] || job.trigger !== 'schedule') return;      // a person's own click failing does not switch a bot off (and the production line has no schedule row to switch off: it stops its own cycle)
   const s = await getSchedule(job.botKey); const streak = s.failStreak + 1;
   if (streak >= FAIL_LIMIT) {
     await saveSchedule(job.botKey, { failStreak: streak, enabled: false, disabledReason: `Art arda ${streak} zamanlanmış görev başarısız oldu: ${String((err && err.message) || err).slice(0, 200)}` });
@@ -396,4 +408,4 @@ function start({ tickMs = 60000, workMs = 15000 } = {}) {
 function stop() { clearInterval(loop.tick); clearInterval(loop.work); loop.started = false; loop.busy = false; }
 const status = () => ({ running: loop.started, lastTickAt: loop.lastTickAt, lastWorkAt: loop.lastWorkAt, lastError: loop.lastError, workerId: WORKER_ID });
 
-module.exports = { DEFAULTS, SCHEDULABLE, FAIL_LIMIT, HANDLERS, loadSchedules, getSchedule, saveSchedule, updateSchedule, tick, runNow, runAll, RUN_ORDER, workOnce, start, stop, status, idempotent };
+module.exports = { DEFAULTS, SCHEDULABLE, PIPELINE_OWNED, UPKEEP, FAIL_LIMIT, HANDLERS, loadSchedules, getSchedule, saveSchedule, updateSchedule, tick, runNow, runAll, RUN_ORDER, workOnce, start, stop, status, idempotent };
