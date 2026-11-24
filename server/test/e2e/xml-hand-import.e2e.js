@@ -54,6 +54,23 @@ const XML = `<?xml version="1.0" encoding="utf-8"?>
     const rd2 = await call('POST', '/products/xml-import/read', XML, 'text/xml'); ok('read again: every row says it already exists (same SKU)', rd2.s === 200 && rd2.d.items.every((x) => x.exists === 'sku'), JSON.stringify(rd2.d.items.map((x) => x.exists)));
     const again = await call('POST', '/products/xml-import', { token: rd2.d.token, refs: [0, 1, 2], options: opts }); ok('import again: nothing is created, three are skipped as existing', again.s === 200 && again.d.created === 0 && again.d.skipped.length === 3 && again.d.skipped.every((x) => x.reason === 'exists'), `${again.s} ${JSON.stringify(again.d)}`);
 
+    // ── ONE rule for the stock codes and ONE for the barcodes: the preview and the write use the same function ──
+    const rules = { sku: { mode: 'affix', prefix: 'BEN-' }, barcode: { mode: 'generate', digits: '200', start: 100 } };
+    const pv = await call('POST', '/products/xml-import/preview', { token: rd2.d.token, codes: rules });
+    ok('rules: the preview gives every row its new stock code and its own EAN-13, none of them exists yet', pv.s === 200 && pv.d.rows.length === 3 && pv.d.rows[0].sku === 'BEN-X-100' && /^200\d{10}$/.test(pv.d.rows[0].barcode) && pv.d.rows.every((x) => x.exists === null) && pv.d.conflicts === 0, `${pv.s} ${JSON.stringify(pv.d).slice(0, 200)}`);
+    const ean = (b) => { let n = 0; for (let i = 0; i < 12; i++) n += Number(b[i]) * (i % 2 ? 3 : 1); return String((10 - (n % 10)) % 10) === b[12]; };
+    ok('rules: the generated barcodes are real EAN-13 (check digit) and differ per row', pv.d.rows.every((x) => ean(x.barcode)) && new Set(pv.d.rows.map((x) => x.barcode)).size === 3);
+    const same = await call('POST', '/products/xml-import/preview', { token: rd2.d.token, codes: { sku: { mode: 'keep' }, barcode: { mode: 'keep' } } });
+    ok('rules: with nothing changed the preview says what the first read said (the XML\'s own codes already exist)', same.s === 200 && same.d.rows.every((x) => x.exists === 'sku') && same.d.conflicts === 3, JSON.stringify(same.d && same.d.conflicts));
+    const badRule = await call('POST', '/products/xml-import/preview', { token: rd2.d.token, codes: { sku: { mode: 'replace' } } }); ok('rules: a rule without its text is refused in words (400)', badRule.s === 400 && /değiştirilecek metni/.test((badRule.d && badRule.d.error) || ''), `${badRule.s} ${badRule.d && badRule.d.error}`);
+    const wrongTok = await call('POST', '/products/xml-import/preview', { token: 'y'.repeat(24), codes: rules }); ok('rules: an unknown token asks to read again (410)', wrongTok.s === 410);
+    const imp2 = await call('POST', '/products/xml-import', { token: rd2.d.token, refs: [0, 1], options: { ...opts, codes: rules } });
+    ok('rules: the products are written with the codes the preview showed', imp2.s === 201 && imp2.d.created === 2, `${imp2.s} ${JSON.stringify(imp2.d)}`);
+    const own = (await c.query(`select sku, barcode from app."Product" where "storeId" = $1 and sku like 'BEN-%' order by sku`, [A.user.stores[0].id])).rows;
+    ok('rules: BEN-X-100 / BEN-X-101 with the generated barcodes, the supplier\'s barcodes are not on them', own.length === 2 && own[0].sku === 'BEN-X-100' && own[0].barcode === pv.d.rows[0].barcode && own[1].barcode === pv.d.rows[1].barcode && !own.some((x) => /^86933/.test(x.barcode)), JSON.stringify(own));
+    const again2 = await call('POST', '/products/xml-import', { token: rd2.d.token, refs: [0, 1], options: { ...opts, codes: rules } }); ok('rules: the same rule again skips them as existing (same new stock codes)', again2.s === 200 && again2.d.created === 0 && again2.d.skipped.length === 2 && again2.d.skipped.every((x) => x.reason === 'exists'), JSON.stringify(again2.d));
+    await c.query(`delete from app."Product" where "storeId" = $1 and sku like 'BEN-%'`, [A.user.stores[0].id]);
+
     // ── the plan's product limit ──
     await c.query(`delete from app."Product" where "storeId" = $1 and sku = 'X-102'`, [A.user.stores[0].id]);
     await c.query(`update app."User" set "maxProducts" = 2 where id = $1`, [A.user.id]);

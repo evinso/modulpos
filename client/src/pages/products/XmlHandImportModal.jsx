@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FileUp, Link2, Loader2, Search } from 'lucide-react';
 import api from '../../services/api';
@@ -12,6 +12,32 @@ const LABELS = { title: 'Ürün adı', description: 'Açıklama', images: 'Foto�
 const REASON = { exists: 'zaten ekli (aynı SKU)', barcode: 'aynı barkod zaten var', limit: 'plan ürün limiti', unknown: 'bulunamadı' };
 const errText = (e, fallback) => (e && e.response && e.response.data && e.response.data.error) || fallback;
 
+const RULE0 = { mode: 'keep', prefix: '', suffix: '', find: '', replace: '', start: '1', pad: '4', digits: '200' };
+const SKU_MODES = [['keep', 'XML’deki gibi kalsın'], ['affix', 'Başına / sonuna ek yaz'], ['replace', 'Metin değiştir (bul → yerine)'], ['barcode', 'Barkodla aynı olsun'], ['counter', 'Kendi numaram (sıralı: BEN-0001…)']];
+const BAR_MODES = [['keep', 'XML’deki gibi kalsın'], ['none', 'Barkod yazma (sonra ben girerim)'], ['sku', 'Stok koduyla aynı olsun'], ['affix', 'Başına / sonuna ek yaz'], ['replace', 'Metin değiştir (bul → yerine)'], ['generate', 'Kendi barkodumu üret (EAN-13)']];
+/** what the server wants: numbers as numbers, only the fields of the chosen mode */
+const ruleBody = (r) => ({ mode: r.mode, prefix: r.prefix, suffix: r.suffix, find: r.find, replace: r.replace, start: r.start === '' ? undefined : Number(r.start), pad: r.pad === '' ? undefined : Number(r.pad), digits: r.digits });
+
+/** ONE choice for a code of every product, with the few boxes the choice needs */
+function RuleEditor({ label, modes, value, onChange, testid }) {
+  const set = (patch) => onChange({ ...value, ...patch });
+  const box = (key, ph, w = 130, type = 'text') => <input type={type} className="form-input" style={{ width: w }} placeholder={ph} value={value[key]} onChange={(e) => set({ [key]: e.target.value })} aria-label={ph} />;
+  return (
+    <div className="form-group"><label className="form-label">{label}</label>
+      <select className="form-input" data-testid={testid} value={value.mode} onChange={(e) => set({ mode: e.target.value })}>{modes.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+        {value.mode === 'affix' && <>{box('prefix', 'Başına yaz')}{box('suffix', 'Sonuna yaz')}</>}
+        {value.mode === 'replace' && <>{box('find', 'Bu metni bul')}{box('replace', 'Yerine bunu yaz (boş = sil)', 170)}</>}
+        {value.mode === 'counter' && <>{box('prefix', 'Başına (ör. BEN-)')}{box('start', 'İlk numara', 90, 'number')}{box('pad', 'Basamak', 80, 'number')}{box('suffix', 'Sonuna')}</>}
+        {value.mode === 'generate' && <>{box('digits', 'Başı (rakam, ör. 200)', 150)}{box('start', 'İlk numara', 90, 'number')}</>}
+      </div>
+      {value.mode === 'counter' && <small style={muted}>Numara, dosyadaki sıraya göre verilir (ilk numara + satır sırası); aynı dosyayı yeniden okuyunca aynı kodlar çıkar.</small>}
+      {value.mode === 'generate' && <small style={muted}>İç kullanım için üretilir (20–29 ile başlayan numaralar mağaza içi kullanıma ayrılmıştır). Trendyol’da ürünün katalogdaki mevcut bir ürünle eşleşmesi gerçek barkoda bağlıdır; üretilen barkodlu ürün yeni bir ürün olarak açılır.</small>}
+      {value.mode === 'barcode' && <small style={muted}>XML’de barkod yoksa XML’deki stok kodu kalır.</small>}
+    </div>
+  );
+}
+
 /**
  * "XML'den ürün ekle": products ADDED BY HAND from an XML file or address. Only the name, the description, the pictures (as addresses), the barcode / stock code and the category text come from the file; the XML's price,
  * brand, stock and VAT are never used (the owner's own brand comes from the store settings, price and stock are typed later). Reading writes nothing: the page shows what would happen and the owner chooses.
@@ -24,7 +50,9 @@ export default function XmlHandImportModal({ connection, onClose, onDone }) {
   const [rd, setRd] = useState(null);                         // what the last reading answered
   const [map, setMap] = useState({});                          // the field choices of the person (re-reading applies them)
   const [sel, setSel] = useState(new Set()); const [q, setQ] = useState(''); const [page, setPage] = useState(0);
-  const [opts, setOpts] = useState({ vatRate: '20', stock: '0', brand: storeBrand ? storeBrand.name : '', useBarcode: true });
+  const [opts, setOpts] = useState({ vatRate: '20', stock: '0', brand: storeBrand ? storeBrand.name : '' });
+  const [codes, setCodes] = useState({ sku: { ...RULE0 }, barcode: { ...RULE0 } });          // ONE rule for the stock codes, ONE for the barcodes
+  const [pv, setPv] = useState(null);                           // what the rules give (from the server): { map: ref -> { sku, barcode, exists }, conflicts, error, loading }
   const [progress, setProgress] = useState(null);              // { done, total } while writing
   const [result, setResult] = useState(null);                  // what writing did
   const [text, setText] = useState('');                         // the decoded file, kept to read it again with other field choices
@@ -43,25 +71,42 @@ export default function XmlHandImportModal({ connection, onClose, onDone }) {
     finally { setBusy(false); }
   };
 
+  const plain = codes.sku.mode === 'keep' && codes.barcode.mode === 'keep';
+  const codesKey = JSON.stringify([ruleBody(codes.sku), ruleBody(codes.barcode)]);
+  useEffect(() => {                                              // the server computes what the rules give (the same function that writes), shortly after the person stops typing
+    if (!rd || plain) { setPv(null); return undefined; }
+    let off = false; setPv((p) => ({ ...(p || { map: new Map(), conflicts: 0 }), loading: true, error: '' }));
+    const t = setTimeout(async () => {
+      try {
+        const r = await api.post('/products/xml-import/preview', { token: rd.token, codes: { sku: ruleBody(codes.sku), barcode: ruleBody(codes.barcode) } });
+        if (!off) setPv({ map: new Map(r.data.rows.map((x) => [x.ref, x])), conflicts: r.data.conflicts, loading: false, error: '' });
+      } catch (e) { if (!off) setPv({ map: new Map(), conflicts: 0, loading: false, error: errText(e, 'Kodlar hesaplanamadı') }); }
+    }, 450);
+    return () => { off = true; clearTimeout(t); };
+  }, [rd, codesKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const eff = (i) => (pv && pv.map.get(i.ref)) || { sku: i.sku, barcode: i.barcode, exists: pv && !pv.loading && !pv.error ? null : i.exists };       // the codes and "already there" flag a row has under the rules
+
   const rows = useMemo(() => {
     if (!rd) return [];
     const k = q.trim().toLocaleLowerCase('tr');
     return k ? rd.items.filter((i) => `${i.title} ${i.sku} ${i.barcode} ${i.category}`.toLocaleLowerCase('tr').includes(k)) : rd.items;
   }, [rd, q]);
   const shown = rows.slice(page * PAGE, page * PAGE + PAGE);
-  const counts = useMemo(() => rd ? { exists: rd.items.filter((i) => i.exists).length, noImage: rd.items.filter((i) => !i.imageCount).length, generated: rd.items.filter((i) => i.skuGenerated).length } : null, [rd]);
+  const counts = rd ? { exists: rd.items.filter((i) => eff(i).exists).length, noImage: rd.items.filter((i) => !i.imageCount).length, generated: rd.items.filter((i) => i.skuGenerated).length } : null;
   const toggle = (ref) => setSel((s) => { const n = new Set(s); if (n.has(ref)) n.delete(ref); else n.add(ref); return n; });
-  const addable = (i) => !i.exists;
+  const addable = (i) => !eff(i).exists;
+  const chosen = rd ? [...sel].filter((r) => addable(rd.items[r])).sort((a, b) => a - b) : [];          // a row whose NEW code the store already has is never sent
+  const rulesOk = !pv || (!pv.error && !pv.loading);
   const brandOk = !!opts.brand.trim();
 
   const write = async () => {
-    const refs = [...sel].sort((a, b) => a - b); const total = refs.length;
+    const refs = chosen; const total = refs.length;
     if (!total) return;
     setBusy(true); setError(''); setProgress({ done: 0, total });
     const sum = { created: 0, skipped: [], limitMessage: '' };
     try {
       for (let i = 0; i < refs.length; i += BATCH) {
-        const r = await api.post('/products/xml-import', { token: rd.token, refs: refs.slice(i, i + BATCH), options: { vatRate: Number(opts.vatRate), stock: Number(opts.stock || 0), brand: opts.brand.trim(), useBarcode: opts.useBarcode } }, { timeout: 300000 });
+        const r = await api.post('/products/xml-import', { token: rd.token, refs: refs.slice(i, i + BATCH), options: { vatRate: Number(opts.vatRate), stock: Number(opts.stock || 0), brand: opts.brand.trim(), codes: { sku: ruleBody(codes.sku), barcode: ruleBody(codes.barcode) } } }, { timeout: 300000 });
         sum.created += r.data.created; sum.skipped.push(...r.data.skipped); if (r.data.limitMessage) sum.limitMessage = r.data.limitMessage;
         setProgress({ done: Math.min(total, i + BATCH), total });
         if (r.data.limitReached) break;
@@ -112,7 +157,7 @@ export default function XmlHandImportModal({ connection, onClose, onDone }) {
               <div data-testid="xml-summary" style={{ fontSize: 13 }}>
                 <strong>{rd.items.length}</strong> ürün okundu{rd.truncated ? ` (dosyada ${rd.total} ürün var; ilk ${rd.max} okundu: kalanı için dosyayı bölün)` : ''}
                 {' · '}<strong>{rd.items.length - counts.exists}</strong> eklenebilir
-                {counts.exists > 0 && <> · <span style={{ color: 'var(--warning)' }}>{counts.exists} zaten ekli (atlanır)</span></>}
+                {counts.exists > 0 && <> · <span style={{ color: 'var(--warning)' }}>{counts.exists} zaten ekli ya da aynı kodlu (atlanır)</span></>}
                 {counts.noImage > 0 && <> · <span style={{ color: 'var(--warning)' }}>{counts.noImage} ürünün fotoğrafı yok</span> <small style={muted}>(Trendyol fotoğrafsız ürün kabul etmez; varsayılan olarak seçili gelmez)</small></>}
                 {counts.generated > 0 && <> · {counts.generated} ürünün kodu yok (adından üretilir)</>}
                 {rd.noName > 0 && <> · {rd.noName} satırın adı yok (alınmaz)</>}{rd.duplicatesInFile > 0 && <> · {rd.duplicatesInFile} tekrar eden kod (ilki alınır)</>}
@@ -140,9 +185,17 @@ export default function XmlHandImportModal({ connection, onClose, onDone }) {
                 <div className="form-group"><label className="form-label">Başlangıç stoğu</label>
                   <input type="number" min="0" step="1" className="form-input" value={opts.stock} onChange={(e) => setOpts({ ...opts, stock: e.target.value })} />
                   <small style={muted}>XML’deki stok alınmaz; gerçek stoğunuzu sonradan girersiniz.</small></div>
-                <div className="form-group"><label className="form-label">Barkod</label>
-                  <label className="check" style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={opts.useBarcode} onChange={(e) => setOpts({ ...opts, useBarcode: e.target.checked })} /> XML’deki barkodu kullan</label>
-                  <small style={muted}>Kapalıysa ürünler barkodsuz eklenir; Trendyol barkodsuz ürün kabul etmez, sonradan yazarsınız.</small></div>
+              </div>
+
+              <div data-testid="xml-codes" style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+                <strong style={{ fontSize: 13 }}>Stok kodu ve barkod kuralı</strong> <small style={muted}>Her biri için tek bir seçenek, hepsine birden uygulanır. Aşağıdaki tabloda sonucu görürsünüz.</small>
+                <div className="grid grid-2" style={{ marginTop: 8 }}>
+                  <RuleEditor label="Stok kodu (SKU)" modes={SKU_MODES} value={codes.sku} onChange={(v) => setCodes({ ...codes, sku: v })} testid="xml-sku-mode" />
+                  <RuleEditor label="Barkod" modes={BAR_MODES} value={codes.barcode} onChange={(v) => setCodes({ ...codes, barcode: v })} testid="xml-barcode-mode" />
+                </div>
+                {pv && pv.loading && <small style={muted} data-testid="xml-codes-loading">Kodlar hesaplanıyor…</small>}
+                {pv && pv.error && <div data-testid="xml-codes-error" style={{ color: 'var(--danger)', fontSize: 12.5 }}>{pv.error}</div>}
+                {pv && !pv.loading && !pv.error && pv.conflicts > 0 && <small style={{ color: 'var(--warning)' }} data-testid="xml-codes-conflicts">{pv.conflicts} ürünün yeni kodu mağazada zaten var ya da başka bir satırla aynı: bunlar eklenmez.</small>}
               </div>
 
               <div className="row" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -155,13 +208,14 @@ export default function XmlHandImportModal({ connection, onClose, onDone }) {
                 <table className="table" style={{ width: '100%', fontSize: 12.5 }}>
                   <thead><tr><th style={{ width: 30 }} /><th style={{ width: 46 }} /><th>Ürün</th><th>Kod / barkod</th><th>Foto</th><th>Durum</th></tr></thead>
                   <tbody>{shown.map((i) => (
-                    <tr key={i.ref} data-testid="xml-row" style={i.exists ? { opacity: 0.55 } : undefined}>
-                      <td><input type="checkbox" aria-label={`${i.title} seç`} checked={sel.has(i.ref)} disabled={!!i.exists} onChange={() => toggle(i.ref)} /></td>
+                    <tr key={i.ref} data-testid="xml-row" style={eff(i).exists ? { opacity: 0.55 } : undefined}>
+                      <td><input type="checkbox" aria-label={`${i.title} seç`} checked={sel.has(i.ref) && !eff(i).exists} disabled={!!eff(i).exists} onChange={() => toggle(i.ref)} /></td>
                       <td>{i.firstImage ? <img src={i.firstImage} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: 38, height: 38, objectFit: 'cover', borderRadius: 4 }} onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }} /> : null}</td>
                       <td><strong style={{ display: 'block', maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.title}</strong><small style={muted}>{i.category || '—'}{i.descriptionLength ? ` · açıklama ${i.descriptionLength} krk` : ' · açıklama yok'}</small></td>
-                      <td><span className="mono">{i.sku}</span>{i.barcode && <small style={{ display: 'block', ...muted }}>{i.barcode}</small>}</td>
+                      <td data-testid="xml-code-cell"><span className="mono">{eff(i).sku}</span>{eff(i).sku !== i.sku && <small style={{ display: 'block', ...muted, textDecoration: 'line-through' }}>{i.sku}</small>}
+                        {eff(i).barcode && <small style={{ display: 'block', ...muted }}>{eff(i).barcode}</small>}{eff(i).barcode !== i.barcode && i.barcode && <small style={{ display: 'block', ...muted, textDecoration: 'line-through' }}>{i.barcode}</small>}</td>
                       <td>{i.imageCount || <span style={{ color: 'var(--warning)' }}>yok</span>}</td>
-                      <td>{i.exists ? <span style={{ color: 'var(--warning)' }}>zaten ekli ({i.exists === 'sku' ? 'SKU' : 'barkod'})</span> : i.skuGenerated ? <span style={muted}>kod üretilecek</span> : <span style={{ color: 'var(--success, #16a34a)' }}>eklenebilir</span>}</td>
+                      <td>{eff(i).exists ? <span style={{ color: 'var(--warning)' }}>{eff(i).exists === 'file' ? 'aynı kod (başka satır)' : `zaten ekli (${eff(i).exists === 'sku' ? 'SKU' : 'barkod'})`}</span> : i.skuGenerated && codes.sku.mode === 'keep' ? <span style={muted}>kod üretilecek</span> : <span style={{ color: 'var(--success, #16a34a)' }}>eklenebilir</span>}</td>
                     </tr>))}</tbody>
                 </table>
               </div>
@@ -186,7 +240,7 @@ export default function XmlHandImportModal({ connection, onClose, onDone }) {
         <div className="modal-footer">
           {progress && <small style={{ ...muted, marginRight: 'auto' }} data-testid="xml-progress">Ekleniyor: {progress.done} / {progress.total}</small>}
           {!result && <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>Vazgeç</button>}
-          {rd && !result && <button type="button" className="btn btn-primary" data-testid="xml-import-go" disabled={busy || sel.size === 0 || !brandOk} onClick={write} title={brandOk ? '' : 'Önce bir marka yazın'}>{busy ? <><Loader2 size={14} className="spinning" /> Ekleniyor…</> : `Seçili ${sel.size} ürünü ekle`}</button>}
+          {rd && !result && <button type="button" className="btn btn-primary" data-testid="xml-import-go" disabled={busy || chosen.length === 0 || !brandOk || !rulesOk} onClick={write} title={!brandOk ? 'Önce bir marka yazın' : !rulesOk ? 'Kod kuralını düzeltin' : ''}>{busy ? <><Loader2 size={14} className="spinning" /> Ekleniyor…</> : `Seçili ${chosen.length} ürünü ekle`}</button>}
           {result && <button type="button" className="btn btn-primary" data-testid="xml-done" onClick={() => onDone(result.created)}>Elle eklenen ürünlere git</button>}
         </div>
       </div>

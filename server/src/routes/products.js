@@ -631,7 +631,21 @@ router.post('/xml-import/read', express.text({ type: ['text/xml', 'application/x
   } catch (error) { next(error); }
 });
 
-// Step 2: write the chosen rows (at most 500 per call; the page sends batches). Body: { token, refs: [row numbers], options: { vatRate, stock, brand, useBarcode } }
+// What every row would get under a stock code / barcode rule ({ token, codes: { sku: { mode, ... }, barcode: { mode, ... } } }) and which of those the store already has. Nothing is written; the page shows it
+// next to the old codes and the write uses the very same function. Answer: { rows: [{ ref, sku, barcode, exists: 'sku' | 'barcode' | 'file' | null }], conflicts }
+router.post('/xml-import/preview', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const { token, codes } = req.body || {};
+    let entry; let rules;
+    try { entry = xmlHandImport.recall(token, { userId: req.user.id, storeId: store.id }); rules = xmlHandImport.readCodeRules(codes, { count: entry.items.length }); }
+    catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+    res.json(await xmlHandImport.preview({ prisma, storeId: store.id, items: entry.items, rules }));
+  } catch (error) { next(error); }
+});
+
+// Step 2: write the chosen rows (at most 500 per call; the page sends batches). Body: { token, refs: [row numbers], options: { vatRate, stock, brand, codes (the same rule the preview showed) } }
 // Answer: { created, skipped: [{ ref, title, reason: exists | barcode | limit | unknown }], limitReached }. What the store already has (same SKU / barcode) and what the plan's product limit does not allow is skipped, not an error.
 router.post('/xml-import', async (req, res, next) => {
   try {
@@ -640,7 +654,7 @@ router.post('/xml-import', async (req, res, next) => {
     const { token, refs, options } = req.body || {};
     if (!Array.isArray(refs) || refs.length === 0 || refs.length > 500) return res.status(400).json({ error: 'Bir seferde 1 ile 500 ürün eklenebilir' });
     let entry; let opts;
-    try { entry = xmlHandImport.recall(token, { userId: req.user.id, storeId: store.id }); opts = xmlHandImport.readOptions(options); }
+    try { entry = xmlHandImport.recall(token, { userId: req.user.id, storeId: store.id }); opts = xmlHandImport.readOptions(options, { count: entry.items.length }); }
     catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
     const { maxProducts } = await getUserQuota(req.user.id);
     const room = Math.max(0, maxProducts - await prisma.product.count({ where: { storeId: store.id } }));
