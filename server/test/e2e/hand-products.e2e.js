@@ -121,6 +121,20 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     ok('the product detail shows the ordinary breakdown: purchase 80, no "net amount" reading', mp && mp.pricing && !mp.pricing.net && mp.pricing.breakdown && mp.pricing.breakdown.purchase === 80 && Math.abs(mp.pricing.salePrice - calc.d.price) < 0.011, JSON.stringify(mp && mp.pricing && [mp.pricing.net, mp.pricing.breakdown && mp.pricing.breakdown.purchase]));
     const raise = await a('POST', '/hand-products/bulk', { ids: [id(5)], patch: { price: { mode: 'percent', value: 10 } }, dryRun: false }); const dear = await priceOf('HW-5');
     ok('raising the purchase price by 10% in bulk raises the sale price the template makes of it', raise.d.applied === 1 && dear.price === 88 && dear.pricing.salePrice > profitRow.pricing.salePrice, JSON.stringify([dear.price, dear.pricing]));
+    // a title over Trendyol's 100 characters blocks the product; the send setting "shortenTitle" cuts it on the way out and leaves the stored title alone
+    const LONGT = 'Gümüş Kaplama Kadın Kolye Küpe Yüzük Bilezik Set Hediyelik Şık Zarif Takı Seti Sevgililer Günü Anneler Günü Yıldönümü Hediyesi Özel Tasarım';
+    await a('PUT', `/products/${id(5)}`, { title: LONGT });
+    const listOne = async () => ((await a('GET', `/marketplace/connections/${conn}/product-list?search=HW-5&fresh=1`)).d.products || []).find((p) => p.id === id(5));
+    const long0 = await listOne();
+    ok('a title over 100 characters is reported (title_too_long) and not marked as cut while the setting is off', LONGT.length > 100 && !!long0 && long0.issues.some((i) => i.code === 'title_too_long') && long0.titleShortened === false, JSON.stringify(long0 && [long0.issues.map((i) => i.code), long0.titleShortened]));
+    const curS = (await a('GET', `/marketplace/connections/${conn}/send-settings`)).d.settings;
+    const putS = await a('PUT', `/marketplace/connections/${conn}/send-settings`, { settings: { ...curS, shortenTitle: true } });
+    ok('the setting is saved', putS.s === 200 && putS.d.settings.shortenTitle === true && /kısaltılır/.test((putS.d.summary || []).join(' ')), JSON.stringify(putS.d));
+    const long1 = await listOne();
+    ok('with the setting on: no title_too_long, the list says the title was cut and shows what goes out (<= 100, a prefix of the stored title)', !!long1 && !long1.issues.some((i) => i.code === 'title_too_long') && long1.titleShortened === true && long1.sendTitle.length <= 100 && LONGT.startsWith(long1.sendTitle) && long1.sendTitle.length > 50, JSON.stringify(long1 && [long1.issues.map((i) => i.code), long1.titleShortened, long1.sendTitle]));
+    ok('the stored title is NOT changed', (await a('GET', `/products/${id(5)}`)).d.title === LONGT);
+    const offS = await a('PUT', `/marketplace/connections/${conn}/send-settings`, { settings: { ...curS, shortenTitle: false } });
+    ok('switching it off brings the report back', offS.s === 200 && (await listOne()).issues.some((i) => i.code === 'title_too_long'));
     // the category given on the "Trendyol kategorisi" tab must show on the products page (it only has the marketplace-side category in `pricing.mapName`; a hand-added product has no category text of its own)
     const kupa = (await a('GET', `/marketplace/connections/${conn}/product-categories/search?q=kupa`)).d.find((r) => r.name === 'Kupa');
     const asg = await a('PUT', `/marketplace/connections/${conn}/product-categories`, { assignments: [{ productId: id(5), categoryId: kupa && kupa.id, source: 'manual' }] });

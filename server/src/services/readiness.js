@@ -12,7 +12,7 @@ const { buildOverrideMappings } = require('./productCategories');
  */
 
 const LIMITS = {
-  TITLE_MAX: 100,          // Trendyol rejects longer titles
+  TITLE_MAX: SS.TITLE_MAX, // Trendyol rejects longer titles (100)
   DESCRIPTION_MAX: 30000,
   BARCODE_MIN: 3,
   BARCODE_MAX: 40,

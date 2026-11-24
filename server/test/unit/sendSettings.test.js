@@ -88,3 +88,44 @@ test('removeWords: appears in the summary only when used', () => {
   assert.deepEqual(S.describeSettings(norm({})), []);
   assert.ok(S.describeSettings(norm({ removeWords: 'a, b' })).includes('2 kelime çıkarılır'));
 });
+
+// ---- long titles: cut at a word boundary on the way out (the stored title is never changed)
+const LONG = 'Gümüş Kaplama Kadın Kolye Küpe Yüzük Bilezik Set Hediyelik Şık Zarif Takı Seti Sevgililer Günü Anneler Günü Yıldönümü için ve';
+
+test('fitTitle: a title that fits is only tidied; a long one is cut at a word boundary and never exceeds the limit', () => {
+  assert.equal(S.fitTitle('  Kısa   başlık '), 'Kısa başlık');
+  assert.equal(S.fitTitle('x'.repeat(100)), 'x'.repeat(100), 'exactly the limit is fine');
+  const cut = S.fitTitle(LONG);
+  assert.ok(LONG.length > 100 && cut.length <= 100, String(cut.length));
+  assert.ok(LONG.startsWith(cut), 'it is a prefix: the beginning (brand, product kind) is kept');
+  assert.ok(LONG[cut.length] === ' ', 'cut between words, never inside one');
+});
+
+test('fitTitle: what the cut leaves hanging is taken off (connectors, punctuation, unclosed brackets)', () => {
+  assert.equal(S.fitTitle('Altın Kaplama Kolye ve Küpe Seti', 22), 'Altın Kaplama Kolye'); // "…Kolye ve" -> "ve" dropped
+  assert.equal(S.fitTitle('Pamuklu Tişört, Kırmızı Beden Kadın', 15), 'Pamuklu Tişört');           // trailing comma
+  assert.equal(S.fitTitle('Spor Ayakkabı (Ortopedik Taban Destekli) Siyah', 30), 'Spor Ayakkabı');    // an unclosed bracket goes with its content
+  assert.equal(S.fitTitle('Kolye - Küpe - Yüzük - Bilezik', 15), 'Kolye - Küpe');
+  assert.equal(S.fitTitle('A'.repeat(130), 100).length, 100, 'one endless word is cut hard');
+  assert.equal(S.fitTitle('Merhaba Dünya', 5), 'Merha', 'a first word longer than the room is cut hard (nothing else to keep)');
+});
+
+test('shortenTitle: off by default (the title is only reported), on = cut so that prefix and suffix still fit in 100', () => {
+  assert.equal(norm({}).shortenTitle, false);
+  assert.equal(S.shapeTitle(LONG, norm({})).length, LONG.length, 'off: untouched');
+  const on = S.shapeTitle(LONG, norm({ shortenTitle: true }));
+  assert.ok(on.length <= 100 && on.length > 60);
+  const withSuffix = S.shapeTitle(LONG, norm({ shortenTitle: true, titleSuffix: ' | Atölye', titlePrefix: 'Yeni ' }));
+  assert.ok(withSuffix.length <= 100 && withSuffix.startsWith('Yeni Gümüş') && withSuffix.endsWith(' | Atölye'), withSuffix);
+  assert.equal(S.shapeTitle('Kısa', norm({ shortenTitle: true })), 'Kısa', 'a short title is not touched');
+});
+
+test('shortenTitle: no room left (a huge prefix / suffix) -> the title is left alone, so the "too long" report still shows it', () => {
+  const s = norm({ shortenTitle: true, titlePrefix: 'P'.repeat(50), titleSuffix: 'S'.repeat(50) });
+  assert.equal(S.shapeTitle(LONG, s).length, 100 + LONG.length);
+});
+
+test('shortenTitle is part of the settings summary and the readiness limit is the same number', () => {
+  assert.ok(S.describeSettings(norm({ shortenTitle: true })).some((x) => /kısaltılır/.test(x)));
+  assert.equal(require('../../src/services/readiness').LIMITS.TITLE_MAX, S.TITLE_MAX);
+});

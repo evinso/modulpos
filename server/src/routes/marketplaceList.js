@@ -3,6 +3,7 @@ const prisma = require('../config/database');
 const { auth } = require('../middleware/auth');
 const { ownedParam } = require('../middleware/ownership');
 const { buildReadinessContext } = require('../services/readiness');
+const SS = require('../services/sendSettings');
 
 const router = express.Router();
 router.use(auth);
@@ -135,9 +136,20 @@ router.get('/connections/:id/product-list', async (req, res, next) => {
     const order = new Map(slice.map((r, i) => [r.id, i]));
     full.sort((a, b) => order.get(a.id) - order.get(b.id));
 
+    // what goes out as the title, and whether the automatic shortening ("uzun başlıkları kısalt" send setting) had to cut it: shown under the title so nothing changes silently
+    let cfg = {}; try { cfg = connection.config ? JSON.parse(connection.config) : {}; } catch { cfg = {}; }
+    const send = SS.normalizeSendSettings(cfg.sendSettings);
+    const sendTitleOf = (p) => {
+      if (!send.shortenTitle) return { sendTitle: null, titleShortened: false };
+      const t = (p.title || '').trim();
+      const sent = SS.shapeTitle(t, send);
+      return { sendTitle: sent, titleShortened: sent !== SS.shapeTitle(t, { ...send, shortenTitle: false }) };
+    };
+
     res.json({
       products: full.map((p) => ({
         ...p,
+        ...sendTitleOf(p),
         salePrice: byId[p.id].salePrice,
         priceRule: byId[p.id].priceRule,
         mapName: byId[p.id].mapName,
