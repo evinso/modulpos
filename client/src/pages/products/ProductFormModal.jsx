@@ -34,6 +34,8 @@ export default function ProductFormModal({ product, connection = null, onClose, 
     brand: product.brand || '', category: product.category || '', description: product.description || '',
     status: product.status || 'active', vatRate: String(product.vatRate ?? 20), images: imageLines(product.images),
   } : { ...EMPTY, brand: storeBrand ? storeBrand.name : '' });
+  const [priceMode, setPriceMode] = useState('cash');         // how the template of the hand-added products reads the number: 'cash' (net amount to keep) | 'purchase' | 'profit' (a purchase price)
+  const asPurchase = hand && (priceMode === 'profit' || priceMode === 'purchase');
   const [hasTemplate, setHasTemplate] = useState(true);     // is there an active template that prices hand-added products?
   const [saving, setSaving] = useState(false);
   const [descTouched, setDescTouched] = useState(false);
@@ -133,13 +135,17 @@ export default function ProductFormModal({ product, connection = null, onClose, 
     let off = false;
     api.get('/pricing').then((r) => {
       if (off) return;
-      const ok = (r.data || []).some((rule) => {
-        if (!rule.isActive || rule.applyTo !== 'price_template') return false;
+      // the templates that can price a hand-added product; the one made for them ('none') wins over a general one (this is only wording: the engine decides the price)
+      const found = [];
+      for (const rule of (r.data || [])) {
+        if (!rule.isActive || rule.applyTo !== 'price_template') continue;
         let c = {}; try { c = rule.conditions ? JSON.parse(rule.conditions) : {}; } catch { /* ignore */ }
         const ids = c.xmlSourceIds && c.xmlSourceIds.length ? c.xmlSourceIds : (c.xmlSourceId ? [c.xmlSourceId] : []);
-        return ids.length === 0 || ids.includes('none');
-      });
-      setHasTemplate(ok);
+        if (ids.length === 0 || ids.includes('none')) found.push({ own: ids.includes('none'), mode: c.netMode });
+      }
+      const pick = found.find((f) => f.own) || found[0];
+      setHasTemplate(found.length > 0);
+      setPriceMode(pick && (pick.mode === 'profit' || pick.mode === 'purchase') ? pick.mode : 'cash');
     }).catch(() => { /* the note is only a hint */ });
     return () => { off = true; };
   }, [hand]);
@@ -154,7 +160,7 @@ export default function ProductFormModal({ product, connection = null, onClose, 
         if (list.length === 0) { toast.error('En az bir görsel ekleyin: bir adres yazın ya da fotoğraf yükleyin (Trendyol görselsiz ürün kabul etmez)'); setSaving(false); return; }
         const bad = list.find((u) => !/^https?:\/\/\S+$/i.test(u));
         if (bad) { toast.error(`Görsel adresi http:// ya da https:// ile başlamalı: ${bad.slice(0, 50)}`); setSaving(false); return; }
-        if (!(parseFloat(form.price) > 0)) { toast.error('Elinize kalacak net tutarı yazın'); setSaving(false); return; }
+        if (!(parseFloat(form.price) > 0)) { toast.error(asPurchase ? 'Alış fiyatını yazın' : 'Elinize kalacak net tutarı yazın'); setSaving(false); return; }
         if (trendyol && !editing && !cat) { toast.error('Trendyol kategorisini seçin'); setSaving(false); return; }
       }
       const body = {
@@ -201,7 +207,9 @@ export default function ProductFormModal({ product, connection = null, onClose, 
             {hand && !editing && <TrendyolImport onImported={applyImport} />}
             {hand && (
               <div data-testid="hand-note" style={{ fontSize: 12, color: 'var(--text-secondary)', background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, padding: '8px 12px', marginBottom: 14 }}>
-                Elle eklediğiniz üründe yazdığınız tutar, <strong>satıştan sonra size kalması gereken net tutardır</strong>. Pazaryerinde satılacak fiyat, kargo, komisyon, hizmet bedeli, stopaj ve KDV bu tutarın üstüne eklenerek hesaplanır.
+                {asPurchase
+                  ? <>Elle eklediğiniz üründe yazdığınız tutar, <strong>ürünün alış fiyatıdır</strong>. Pazaryerinde satılacak fiyat, {priceMode === 'profit' ? 'fiyat şablonundaki kâr ile birlikte ' : ''}kargo, komisyon, hizmet bedeli, stopaj ve KDV bu tutarın üstüne eklenerek hesaplanır.</>
+                  : <>Elle eklediğiniz üründe yazdığınız tutar, <strong>satıştan sonra size kalması gereken net tutardır</strong>. Pazaryerinde satılacak fiyat, kargo, komisyon, hizmet bedeli, stopaj ve KDV bu tutarın üstüne eklenerek hesaplanır.</>}
                 {!hasTemplate && (
                   <div data-testid="no-template-note" style={{ color: 'var(--warning)', marginTop: 6 }}>
                     Bu fiyatın hesaplanması için henüz “Elle eklenen ürünler” fiyat şablonu yok. <Link to="/pricing" onClick={onClose}>Fiyat Şablonları</Link> sayfasında, XML kaynağı olarak “Elle eklenen ürünler”i seçip kargo ve komisyonu yazarak bir şablon ekleyin; yoksa ürünün fiyatı hesaplanamaz ve gönderilemez.
@@ -224,10 +232,10 @@ export default function ProductFormModal({ product, connection = null, onClose, 
             <div className="form-group"><label className="form-label">Ürün adı * <span style={{ color: form.title.length > 100 ? 'var(--danger)' : 'var(--text-muted)', fontWeight: 400 }}>({form.title.length}/100)</span></label>
               <input className="form-input" value={form.title} onChange={(e) => set({ title: e.target.value })} required /></div>
             <div className="grid grid-2">
-              <div className="form-group"><label className="form-label">{hand ? 'Elime kalacak net tutar (₺) *' : 'Fiyat (₺)'}</label>
+              <div className="form-group"><label className="form-label">{hand ? (asPurchase ? 'Alış fiyatı (₺) *' : 'Elime kalacak net tutar (₺) *') : 'Fiyat (₺)'}</label>
                 <input type="number" min="0" step="0.01" className="form-input" data-testid="net-price" value={form.price} onChange={(e) => set({ price: e.target.value })} required={hand} />
-                {hand && <small style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Satıştan sonra, kargo-komisyon-stopaj-KDV düşüldükten sonra elinize geçmesini istediğiniz tutar. Pazaryeri fiyatı buna göre hesaplanır.</small>}
-                {imported && imported.price && <small data-testid="ref-price" style={{ display: 'block', fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 4 }}>Linkteki ürün Trendyol’da ₺{Number(imported.price).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} (yalnızca bilgi için; net tutarı siz yazın).</small>}</div>
+                {hand && <small data-testid="price-hint" style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{asPurchase ? 'Ürünün alış fiyatı. Pazaryeri fiyatı buna göre, fiyat şablonunuzdaki kâr ve giderlerle hesaplanır.' : 'Satıştan sonra, kargo-komisyon-stopaj-KDV düşüldükten sonra elinize geçmesini istediğiniz tutar. Pazaryeri fiyatı buna göre hesaplanır.'}</small>}
+                {imported && imported.price && <small data-testid="ref-price" style={{ display: 'block', fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 4 }}>Linkteki ürün Trendyol’da ₺{Number(imported.price).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} (yalnızca bilgi için; {asPurchase ? 'alış fiyatını' : 'net tutarı'} siz yazın).</small>}</div>
               <div className="form-group"><label className="form-label">Stok</label>
                 <input type="number" min="0" step="1" className="form-input" value={form.stock} onChange={(e) => set({ stock: e.target.value })} /></div>
             </div>
