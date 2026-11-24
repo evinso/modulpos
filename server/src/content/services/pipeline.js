@@ -63,7 +63,7 @@ const HARD = /Reddedildi|Kapsam dışı|Nişe uygun değil|kanibalizasyon|Hiçbi
 const shape = (r) => (r ? {
   id: r.id, projectId: r.project_id, categoryId: r.category_id, trigger: r.trigger, status: r.status, step: r.step, stepSince: r.step_since, attempt: r.attempt, opportunityId: r.opportunity_id,
   articleId: r.article_id, publicationId: r.publication_id, waitUntil: r.wait_until, note: r.note, scanned: r.scanned, triedCategories: r.tried_categories || [], retries: r.retries, trail: r.trail || [],
-  costUsd: Number(r.cost_usd), unknownCost: r.unknown_cost, result: r.result, startedAt: r.started_at, finishedAt: r.finished_at, updatedAt: r.updated_at,
+  costUsd: Number(r.cost_usd), unknownCost: r.unknown_cost, rewrites: r.rewrites, hints: r.hints || {}, result: r.result, startedAt: r.started_at, finishedAt: r.finished_at, updatedAt: r.updated_at,
 } : null);
 
 const OPEN = "('running', 'waiting', 'stopped')";
@@ -79,9 +79,9 @@ async function create(projectId, trigger, now) {
 /** writes every mutable column of the in-memory run (a step changes several at once; one statement keeps them consistent) */
 async function persist(run, now = new Date()) {
   await db.query(`UPDATE pipeline_runs SET category_id = $2, status = $3, step = $4, step_since = $5, attempt = $6, opportunity_id = $7, article_id = $8, publication_id = $9, wait_until = $10, note = $11,
-    scanned = $12, tried_categories = $13, retries = $14, trail = $15, cost_usd = $16, unknown_cost = $17, result = $18, finished_at = $19, updated_at = $20 WHERE id = $1`,
+    scanned = $12, tried_categories = $13, retries = $14, trail = $15, cost_usd = $16, unknown_cost = $17, result = $18, finished_at = $19, updated_at = $20, rewrites = $21, hints = $22 WHERE id = $1`,
   [run.id, run.categoryId, run.status, run.step, run.stepSince, run.attempt, run.opportunityId, run.articleId, run.publicationId, run.waitUntil, run.note, run.scanned, run.triedCategories, run.retries,
-    JSON.stringify(run.trail), run.costUsd, run.unknownCost, run.result ? JSON.stringify(run.result) : null, run.finishedAt, now]);
+    JSON.stringify(run.trail), run.costUsd, run.unknownCost, run.result ? JSON.stringify(run.result) : null, run.finishedAt, now, run.rewrites, JSON.stringify(run.hints || {})]);
 }
 
 const say = (run, step, ok, text) => {
@@ -398,7 +398,7 @@ async function stepWrite(run, ctx, now) {
   const room = await roomFor(run.projectId, 'new_article', now);
   if (room.left <= 0) return wait(tomorrow(now), `Günlük yeni makale sınırı doldu (${room.done}/${room.limit}); yarın devam edilecek`);
   let started;
-  try { started = await writer.start(o.id, { manual: false, userId: null, fetchImpl: ctx.fetchImpl, fetcher: ctx.fetcher, now, background: false }); }
+  try { started = await writer.start(o.id, { manual: false, userId: null, provider: (run.hints && run.hints.provider) || null, notes: (run.hints && run.hints.notes) || '', fetchImpl: ctx.fetchImpl, fetcher: ctx.fetcher, now, background: false }); }
   catch (err) {
     if (err instanceof HttpError && err.status === 409 && !(err.extra && err.extra.limit)) {
       if (/şu anda zaten çalışıyor|şu anda yazılıyor/.test(err.message)) return retryLater(err.message);
@@ -414,8 +414,8 @@ async function stepWrite(run, ctx, now) {
     const code = wr.stats && wr.stats.code; const text = wr.error || 'Makale yazılamadı';
     if (['funds', 'auth', 'model'].includes(code)) return stop(text);
     if (['budget'].includes(code) || /bütçe/i.test(text)) return wait(tomorrow(now), text);
-    if (['rate_limit', 'overloaded', 'timeout', 'network'].includes(code)) { if (run.retries >= WRITE_TRIES) return reject(`Yazım ${WRITE_TRIES + 1} denemede tamamlanamadı: ${text}`); return retryLater(text); }
-    return reject(`Makale yazılamadı: ${text}`);
+    if (['rate_limit', 'overloaded', 'timeout', 'network'].includes(code)) { if (run.retries >= WRITE_TRIES) return (await redo(run, `yazım ${WRITE_TRIES + 1} denemede tamamlanamadı: ${text}`, '', now, { noArticle: true })) || reject(`Yazım ${WRITE_TRIES + 1} denemede tamamlanamadı: ${text}`); return retryLater(text); }
+    return (await redo(run, `makale yazılamadı: ${text}`, '', now, { noArticle: true })) || reject(`Makale yazılamadı: ${text}`);
   }
   run.articleId = after.article_id;
   const a = (await db.query('SELECT h1, word_count, quality_score, adsense_risk, status FROM articles WHERE id = $1', [run.articleId])).rows[0];
@@ -427,6 +427,25 @@ async function discardArticle(run, reason) {
   if (!run.articleId) return;
   await db.query("UPDATE articles SET status = 'archived', archived_at = now(), updated_at = now() WHERE id = $1 AND status IN ('needs_review', 'fact_checking', 'ready')", [run.articleId]);
   say(run, 'fix', false, `Taslak arşive alındı: ${reason}`);
+}
+
+/**
+ * Before an idea is thrown away (or a draft archived) the line tries ONCE more on the same idea: the failed draft is archived, a FRESH one is written, by another writer when there is one,
+ * and told why the first one failed. Not for what no draft can cure (a topic the site excludes, a duplicate, no sources) and never twice for one idea.
+ * @returns { redo: 'write' } or null (no place left today: the caller throws the idea away as before)
+ */
+async function redo(run, why, notes, now, { noArticle = false } = {}) {
+  if (run.rewrites >= 1) return null;
+  const room = await roomFor(run.projectId, 'new_article', now); if (room.left <= 0) return null;
+  const a = run.articleId ? (await db.query('SELECT generation FROM articles WHERE id = $1', [run.articleId])).rows[0] : null;
+  const first = a && a.generation && a.generation.provider;
+  const ready = (await llm.available()).filter((v) => v.ready).map((v) => v.key);
+  const alt = ready.find((k) => k !== first) || null;
+  if (run.articleId) await db.query("UPDATE articles SET status = 'archived', archived_at = now(), updated_at = now() WHERE id = $1 AND status IN ('needs_review', 'fact_checking', 'ready')", [run.articleId]);
+  await db.query("UPDATE content_opportunities SET status = 'new', article_id = NULL, updated_at = now() WHERE id = $1", [run.opportunityId]);
+  run.rewrites += 1; run.articleId = null; run.hints = { provider: alt, notes: `${why}${notes ? `; ${notes}` : ''}`.slice(0, 1200) };
+  say(run, run.step, null, `${noArticle ? 'Taslak çıkmadı' : 'İlk taslak kontrollerden geçemedi'} (${String(why).slice(0, 160)}). Fikir elenmeden önce yeniden deneniyor: ${alt ? `farklı yazar (${alt}), ` : ''}${noArticle ? '' : 'sorunlar yazım talimatına eklendi'}`);
+  return { redo: 'write' };
 }
 
 async function stepFix(run, ctx, now) {
@@ -445,24 +464,31 @@ async function stepFix(run, ctx, now) {
       const why = (ap.problems && ap.problems[0]) || 'onay kapısı geçmedi';
       await discardArticle(run, why); return reject(`Onay kapısı: ${why}`);
     }
-    if (round === FIX_ROUNDS) { await discardArticle(run, left[0].message); return reject(`${FIX_ROUNDS} düzeltme denemesinden sonra eksik kaldı: ${left.map((p) => p.message).join('; ')}`); }
+    if (round === FIX_ROUNDS) {
+      const why = `${FIX_ROUNDS} düzeltme denemesinden sonra eksik kaldı: ${left.map((p) => p.message).join('; ')}`;
+      const again = await redo(run, why, '', now); if (again) return again;
+      await discardArticle(run, left[0].message); return reject(why);
+    }
     say(run, 'fix', null, `Eksik var (${left.map((p) => p.message).join('; ')}); düzeltme deneniyor (${round + 1}/${FIX_ROUNDS})`);
     const cfg = await config(run.projectId);
     const r = await fixer.fixOne(aid, { trigger: 'schedule', userId: null, force: true, notify: false, editSubject: cfg.acceptSubjectWarning, fetchImpl: ctx.fetchImpl, now });
     addCost(run, r.costUsd);
     if (r.result === 'needs_person') {
       // only the AdSense class "inceleme gerekli" caused by the SUBJECT is left (the text was made neutral once): the owner decided the line accepts it itself. "Yayınlanamaz" and every other person-only problem (a topic the site excludes, a duplicate, no sources) are never accepted.
-      const onlySubject = cfg.acceptSubjectWarning && (r.remaining || []).length > 0 && r.remaining.every((p) => p.code === 'adsense_risk');
       const art = (await db.query('SELECT adsense_risk FROM articles WHERE id = $1', [aid])).rows[0];
-      if (onlySubject && art && art.adsense_risk === 'review') {
+      const subjectOnly = (r.remaining || []).length > 0 && r.remaining.every((p) => p.code === 'adsense_risk') && !!art && art.adsense_risk === 'review';
+      if (cfg.acceptSubjectWarning && subjectOnly) {
         const acc = await articles.acceptAdsense(aid, { accept: true, approve: true, note: 'Otomatik Üretim: sahibinin izniyle kabul edildi (konu kaynaklı hassas içerik uyarısı; metin bir kez nötrleştirildi)' });
         await audit.audit(null, { action: 'article.adsense_accept_auto', entity: 'article', entityId: aid, before: { adsenseRisk: 'review' }, after: { acceptedBy: 'pipeline', approved: acc.approved, reason: acc.reason } });
         if (acc.approved) { say(run, 'fix', true, 'Metin nötrleştirildi; konu kaynaklı AdSense uyarısı sahibin izniyle hat tarafından kabul edildi ve makale “Yayına hazır” yapıldı'); return go('publish'); }
         await discardArticle(run, acc.reason || 'onay kapısı geçmedi'); return reject(`AdSense uyarısı kabul edildi ama makale onaylanamadı: ${acc.reason}`);
       }
+      // what no new draft can cure stays a rejection (the idea itself is the problem; or the owner keeps the subject-level warning for a person); anything else (a "blocked" class from the TEXT, claims the sources do not carry) gets one fresh draft first
+      const ideaProblem = (r.remaining || []).some((p) => fixer.PERSON.has(p.code)) || subjectOnly;
+      if (!ideaProblem) { const again = await redo(run, r.message, '', now); if (again) return again; }
       await discardArticle(run, r.message); return reject(`Bir kişinin kararı gerekiyor, otomatik çözülemez: ${r.message}`);
     }
-    if (r.result === 'skipped') { await discardArticle(run, r.message); return reject(r.message); }
+    if (r.result === 'skipped') { const again = await redo(run, r.message, '', now); if (again) return again; await discardArticle(run, r.message); return reject(r.message); }
     if (r.result === 'approved') { say(run, 'fix', true, 'Eksikler giderildi ve makale “Yayına hazır” yapıldı'); return go('publish'); }
     say(run, 'fix', r.result === 'fixed', `Düzeltme sonucu: ${r.message}`);
   }
@@ -550,7 +576,7 @@ async function dropIdea(o) {
 async function rejectIdea(run, reason, now) {
   say(run, run.step, false, `Fikir elendi: ${reason}`);
   if (run.opportunityId) { const o = await idea(run.opportunityId); if (o) await dropIdea(o); }
-  run.opportunityId = null; run.articleId = null; run.publicationId = null; run.attempt += 1; moveTo(run, 'idea', now);
+  run.opportunityId = null; run.articleId = null; run.publicationId = null; run.attempt += 1; run.rewrites = 0; run.hints = {}; moveTo(run, 'idea', now);
 }
 
 async function notifyStop(run, reason) {
@@ -560,6 +586,7 @@ async function notifyStop(run, reason) {
 /** applies what a step answered to the in-memory run; returns true when the cycle goes on in this job */
 async function apply(run, out, now, resumedFromStop) {
   if (out.go) { say(run, run.step, true, `${LABEL[run.step]}: tamam`); moveTo(run, out.go, now); return true; }
+  if (out.redo) { moveTo(run, out.redo, now); return true; }                                              // a fresh draft of the SAME idea (see redo())
   if (out.reject) { await rejectIdea(run, out.reject, now); if (run.attempt > RUNAWAY) { run.status = 'stopped'; run.note = `${RUNAWAY} fikir denendi ve hiçbiri sonuçlanmadı; bir sorun olabilir, durumu inceleyin`; await notifyStop(run, run.note); return false; } return true; }
   if (out.wait) { run.status = 'waiting'; run.waitUntil = out.wait.until; run.note = out.wait.reason; say(run, run.step, null, `Bekleniyor: ${out.wait.reason}`); return false; }
   if (out.retry) {

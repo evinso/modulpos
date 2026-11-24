@@ -135,12 +135,35 @@ test('... and when the rewrite is enough the warning is simply gone: nothing is 
   assert.deepEqual([a.status, a.adsense_risk, a.adsense_accepted_at], ['published', 'low', null]);
 });
 
-test('a class "blocked" is NEVER accepted by the line, whatever the switch says: the idea is thrown away and the draft archived', opts, async () => {
-  const w = await world(); const { pid } = w; let n = 0;
-  w.m.st.override.review = () => { n++; if (n === 1) return { ...SENSITIVE, risk: 'blocked', categories: { ...SENSITIVE.categories, copyright: { status: 'fail', note: 'Copied.' } } }; delete w.m.st.override.review; return undefined; };
+const BLOCKED = { ...SENSITIVE, risk: 'blocked', categories: { ...SENSITIVE.categories, sensitive: { status: 'pass', note: '' }, copyright: { status: 'fail', note: 'Copied.' } } };
+
+test('before a draft is archived and its idea thrown away the line tries ONCE more on the same idea: a fresh draft, by the OTHER writer, told why the first one failed (a "blocked" class is never accepted, but it may be cured by a new text)', opts, async () => {
+  const w = await world(); const { pid } = w; let n = 0; w.m.st.override.review = () => { n++; if (n === 1) return BLOCKED; delete w.m.st.override.review; return undefined; };
   await turnOn(pid); await run(w, D0);
-  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.attempt, 2); assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['archived', 'published']);
-  assert.equal((await q1("SELECT count(*)::int n FROM articles WHERE adsense_accepted_at IS NOT NULL")).n, 0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(d.attempt, 1, 'the SAME idea was written again: no other idea was needed');
+  assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['archived', 'published'], 'the first draft is archived only now that a second one exists');
+  const writes = w.m.byRole('write'); assert.equal(writes.length, 2); assert.notEqual(writes[0].vendor, writes[1].vendor, 'another writer for the second draft'); assert.match(writes[1].user, /A PREVIOUS DRAFT OF THIS ARTICLE WAS REJECTED/); assert.doesNotMatch(writes[0].user, /PREVIOUS DRAFT/);
+  assert.ok(d.trail.some((t) => /Fikir elenmeden önce yeniden deneniyor/.test(t.text))); assert.equal((await q1("SELECT count(*)::int n FROM articles WHERE adsense_accepted_at IS NOT NULL")).n, 0, 'a blocked class was not accepted');
+});
+
+test('... only ONCE per idea: when the second draft fails too the idea is thrown away and the next idea goes on', opts, async () => {
+  const w = await world(); const { pid } = w; let n = 0; w.m.st.override.review = () => { n++; if (n <= 2) return BLOCKED; delete w.m.st.override.review; return undefined; };
+  await turnOn(pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(d.attempt, 2);
+  assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['archived', 'archived', 'published']); assert.equal(w.m.byRole('write').length, 3);
+});
+
+test('... and not for what no new draft can cure: a person-only problem of the IDEA (here the owner keeps the subject-level warning for a person) is dropped at once, one draft per idea', opts, async () => {
+  const w = await world(); const { pid } = w; let n = 0; w.m.st.override.review = () => { n++; if (n === 1) return SENSITIVE; delete w.m.st.override.review; return undefined; };
+  await turnOn(pid); await PL.setConfig(pid, { acceptSubjectWarning: false }); await run(w, D0);
+  assert.equal(w.m.byRole('write').length, 2, 'one draft for the first idea (no second try), one for the next idea'); assert.equal((await q1('SELECT attempt FROM pipeline_runs')).attempt, 2);
+});
+
+test('a writer that fails WITHOUT a draft (unreadable answers) gets a second try with the other vendor before the idea is dropped', opts, async () => {
+  const w = await world(); const { pid } = w; let n = 0; w.m.st.override.write = () => { n++; if (n === 2) delete w.m.st.override.write; return 'this is not json at all'; };            // the first two answers (the writer asks twice) are unreadable, from the third on the default writer answers
+  await turnOn(pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(d.attempt, 1);
+  assert.ok(d.trail.some((t) => /Taslak çıkmadı/.test(t.text))); assert.equal(wp.posts.size, 1);
 });
 
 test('Apify\'s daily run limit no longer means waiting for hours: ONE run serves the first ideas of the category, and when the limit is hit anyway a FRESH news idea goes on by the news lane (real SERP, no volume); with the switch off the line waits', opts, async () => {
