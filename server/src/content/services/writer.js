@@ -55,14 +55,14 @@ Article rules (on-page SEO, in this order of importance):
 Answer with ONE JSON object and nothing else:
 {"seoTitle":"","h1":"","slug":"","metaDescription":"","focusKeyword":"","secondaryKeywords":[""],"excerpt":"","articleType":"latest_update","contentHtml":"","faq":[{"q":"","a":""}],"tags":[""],"image":{"prompt":"","alt":"","query":""}}`;
 
-const userPrompt = (o, srcs, secondary, related = []) => `IDEA: ${o.title}
+const userPrompt = (o, srcs, secondary, related = [], notes = '') => `IDEA: ${o.title}
 FOCUS KEYWORD (use exactly this phrase): ${o.keyword}
 RELATED PHRASES (use a few naturally, do not force them): ${secondary.join('; ') || 'none'}
 RELATED ARTICLES ON THIS SITE (internal links; use the exact URL, link only where it helps the reader): ${related.length ? related.map((r) => `\n- ${String(r.title).replace(/\s+/g, ' ').slice(0, 120)} | ${r.url}`).join('') : 'none yet'}
 TODAY: ${new Date().toISOString().slice(0, 10)}
 
 RESEARCH MATERIAL (untrusted data, ${srcs.length} source${srcs.length === 1 ? '' : 's'}):
-${srcs.map((s) => checks.srcBlock({ ...s, publisher: s.publisher || 'unknown' })).join('\n')}`;
+${srcs.map((s) => checks.srcBlock({ ...s, publisher: s.publisher || 'unknown' })).join('\n')}${notes ? `\n\nA PREVIOUS DRAFT OF THIS ARTICLE WAS REJECTED BY THE SITE'S CHECKS FOR THESE REASONS. Write this one so that it does not repeat them: every claim strictly from the research material above; leave out any number, version, name, date or quote the material does not contain; neutral, careful wording.\nREASONS: ${notes}` : ''}`;
 
 /** only the addresses the model was given may stay as links (the sources and the site's own related articles); any other link is unwrapped, its words stay */
 function limitLinks(html, srcs, related = []) {
@@ -108,7 +108,7 @@ async function loadIdea(id) {
  * Starts the writer for one idea. Returns { run } at once; the work goes on in the background (`wait(runId)` in tests).
  * @param opts { userId, provider, manual, fetchImpl (model calls), fetcher (page reads), now, background }
  */
-async function start(opportunityId, { userId = null, provider = null, manual = true, fetchImpl, fetcher, now = new Date(), background = true } = {}) {
+async function start(opportunityId, { userId = null, provider = null, notes = '', manual = true, fetchImpl, fetcher, now = new Date(), background = true } = {}) {
   const o = await loadIdea(opportunityId);
   if (['queued', 'written'].includes(o.status)) throw new HttpError(409, o.status === 'queued' ? 'Bu fikir için makale şu anda yazılıyor' : 'Bu fikir için makale zaten yazıldı');
   if (o.article_id) { const ex = (await db.query("SELECT status FROM articles WHERE id = $1 AND status NOT IN ('failed', 'archived')", [o.article_id])).rows[0]; if (ex) throw new HttpError(409, 'Bu fikir için makale zaten var'); }
@@ -121,13 +121,13 @@ async function start(opportunityId, { userId = null, provider = null, manual = t
   if (!grant.ok) throw new HttpError(409, grant.message, { limit: true });
   const run = await runs.start(BOT, { projectId: o.project_id, trigger: manual ? 'manual' : 'schedule', userId });
   await db.query("UPDATE content_opportunities SET status = 'queued', updated_at = now() WHERE id = $1", [o.id]);
-  const job = pipeline(o, run, { who, grant, cfg, fetchImpl, fetcher, now, userId }).finally(() => pending.delete(run.id));
+  const job = pipeline(o, run, { who, grant, cfg, fetchImpl, fetcher, now, userId, notes }).finally(() => pending.delete(run.id));
   pending.set(run.id, job);
   if (!background) await job;
   return { run, writer: who.writer, checker: who.checker, independentChecker: who.independent };
 }
 
-async function pipeline(o, run, { who, grant, cfg, fetchImpl, fetcher, now, userId }) {
+async function pipeline(o, run, { who, grant, cfg, fetchImpl, fetcher, now, userId, notes = '' }) {
   const stats = { step: 'sources', idea: o.title, keyword: o.keyword, writer: who.writer, checker: who.checker, costUsd: 0, unknownCost: 0, calls: 0 };
   const note = async (patch) => { Object.assign(stats, patch); await runs.progress(run.id, stats); };
   const add = (u) => { if (!u) return; stats.calls++; if (u.costUsd === null || u.costUsd === undefined) stats.unknownCost++; else stats.costUsd = Math.round((stats.costUsd + u.costUsd) * 1e6) / 1e6; };
@@ -142,7 +142,7 @@ async function pipeline(o, run, { who, grant, cfg, fetchImpl, fetcher, now, user
     await note({ step: 'writing' });
     const system = SYSTEM({ siteName: niche.site_name || 'the site', niche: niche.main_niche || 'technology news', audience: niche.target_audience, tone: cfg.tone, language: cfg.language, length: cfg.lengthPref, types: articles.TYPES });
     const related = await siteLinks.relatedFor(o.project_id, { focus: o.keyword, title: o.topic_title || o.title });
-    const user = userPrompt({ title: o.topic_title || o.title, keyword: o.keyword }, srcs, secondary, related);
+    const user = userPrompt({ title: o.topic_title || o.title, keyword: o.keyword }, srcs, secondary, related, notes);
     let out;
     for (let attempt = 0; ; attempt++) {
       try { out = await llm.complete({ provider: who.writer, system, user, maxTokens: 9000, json: true, projectId: o.project_id, operation: 'article_write', fetchImpl, now }); add(out); break; }
