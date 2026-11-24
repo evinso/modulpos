@@ -51,7 +51,7 @@ function readPatch(raw, { count = 0 } = {}) {
   const r = raw && typeof raw === 'object' ? raw : {}; const out = {};
   if (r.price !== undefined) {
     const mode = r.price.mode === 'percent' ? 'percent' : 'set';
-    out.price = mode === 'percent' ? { mode, value: num(r.price.value, 'Fiyat değişimi yüzdesi', { min: -90, max: 1000 }) } : { mode, value: num(r.price.value, 'Net tutar', { min: 0, max: 10000000 }) };
+    out.price = mode === 'percent' ? { mode, value: num(r.price.value, 'Fiyat değişimi yüzdesi', { min: -90, max: 1000 }) } : { mode, value: num(r.price.value, 'Fiyat', { min: 0, max: 10000000 }) };
   }
   if (r.stock !== undefined) {
     const mode = r.stock.mode === 'add' ? 'add' : 'set';
@@ -121,7 +121,7 @@ function delimiterOf(lines) {
   return (l.match(/,/g) || []).length === 1 ? ',' : '\t';
 }
 
-/** The pasted text -> rows { line, key, price (number | null), stock (integer | null), error? }. Columns: stock code or barcode, net amount, stock (the last two are optional but one of them is needed). A header line is skipped and its names choose the columns. */
+/** The pasted text -> rows { line, key, price (number | null), stock (integer | null), error? }. Columns: stock code or barcode, price (purchase price or net amount, as the template reads it), stock (the last two are optional but one of them is needed). A header line is skipped and its names choose the columns. */
 function parseList(text) {
   const lines = String(text || '').replace(/\r/g, '').split('\n'); const first = lines.findIndex((l) => l.trim());
   if (first < 0) throw bad('Yapıştırılacak bir liste yazın');
@@ -141,9 +141,9 @@ function parseList(text) {
     const pc = col.price >= 0 ? clean(cells[col.price]) : ''; const sc = col.stock >= 0 ? clean(cells[col.stock]) : '';
     const row = { line: i + 1, key, price: null, stock: null };
     if (!key) { out.push({ ...row, error: 'Stok kodu / barkod yok' }); continue; }
-    if (pc) { if (!/\d/.test(pc)) { out.push({ ...row, error: `Net tutar sayı değil: “${pc.slice(0, 20)}”` }); continue; } const n = parsePrice(pc); if (!(n >= 0) || n > 10000000) { out.push({ ...row, error: `Net tutar geçersiz: “${pc.slice(0, 20)}”` }); continue; } row.price = round2(n); }
+    if (pc) { if (!/\d/.test(pc)) { out.push({ ...row, error: `Fiyat sayı değil: “${pc.slice(0, 20)}”` }); continue; } const n = parsePrice(pc); if (!(n >= 0) || n > 10000000) { out.push({ ...row, error: `Fiyat geçersiz: “${pc.slice(0, 20)}”` }); continue; } row.price = round2(n); }
     if (sc) { if (!/^\d+$/.test(sc.replace(/[.\s]/g, ''))) { out.push({ ...row, error: `Stok tam sayı olmalı: “${sc.slice(0, 20)}”` }); continue; } row.stock = parseInt(sc.replace(/[.\s]/g, ''), 10); if (row.stock > 1000000) { out.push({ ...row, error: 'Stok çok büyük' }); continue; } }
-    if (row.price === null && row.stock === null) { out.push({ ...row, error: 'Net tutar ya da stok yok' }); continue; }
+    if (row.price === null && row.stock === null) { out.push({ ...row, error: 'Fiyat ya da stok yok' }); continue; }
     out.push(row);
   }
   if (!out.length) throw bad('Listede ürün satırı bulunamadı');

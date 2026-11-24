@@ -80,7 +80,7 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     ok('the other user sees none of ours', (await b('GET', '/hand-products')).d.total === 1 && (await b('GET', '/hand-products')).d.items[0].sku === 'HW-B1');
 
     // ── a pasted list ──
-    const text = 'SKU\tNet tutar\tStok\nHW-4\t1.874,70\t12\nHW-5\t80\t3\n8699900000003\t95,5\t\nYOK-1\t5\t5\nHW-3\tabc\t1\nBEN-001\t300\t2\nBEN-002\t132\t7\n';
+    const text = 'SKU\tFiyat\tStok\nHW-4\t1.874,70\t12\nHW-5\t80\t3\n8699900000003\t95,5\t\nYOK-1\t5\t5\nHW-3\tabc\t1\nBEN-001\t300\t2\nBEN-002\t132\t7\n';
     const pp = await a('POST', '/hand-products/paste', { text, dryRun: true });
     ok('paste preview: matched by stock code or barcode, the unchanged one is "same", the unknown and the broken ones are told', pp.s === 200 && pp.d.counts.rows === 7 && pp.d.counts.ok === 4 && pp.d.counts.same === 1 && pp.d.counts.unmatched === 1 && pp.d.counts.bad === 1 && pp.d.items.find((x) => x.key === 'YOK-1').status === 'unmatched' && /sayı değil/.test(pp.d.items.find((x) => x.key === 'HW-3').note), JSON.stringify(pp.d.counts));
     ok('paste preview wrote nothing', Number((await c.query(`select price from app."Product" where "storeId" = $1 and sku = 'HW-4'`, [store.id])).rows[0].price) === 120);
@@ -92,9 +92,28 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     const crossPaste = await b('POST', '/hand-products/paste', { text: 'HW-4;1;1', dryRun: false }); ok('isolation: the other user\'s paste cannot reach our product (unmatched)', crossPaste.d.counts.unmatched === 1 && Number((await c.query(`select price from app."Product" where id = $1`, [id(4)])).rows[0].price) === 1874.7);
 
     // ── the price template shows up in the summary once it exists ──
-    const t = await a('POST', '/pricing', { name: 'Elle eklenenler', type: 'percentage', value: 0, applyTo: 'price_template', conditions: { connectionId: null, xmlSourceIds: ['none'], categories: [], brands: [], shippingCost: 100, packagingCost: 0, extraCost: 0, commissionPct: 22, extraPct: 0, serviceFee: 13.19, inputVat: true, commissionBasis: 'gross', vatRate: null, profitMode: 'fixed', roundingMode: 'none', shippingTiers: [], profitTiers: [], netMode: 'cash' } });
+    const conds = { connectionId: null, xmlSourceIds: ['none'], categories: [], brands: [], shippingCost: 100, packagingCost: 0, extraCost: 0, commissionPct: 22, extraPct: 0, serviceFee: 13.19, inputVat: true, commissionBasis: 'gross', vatRate: null, profitMode: 'fixed', roundingMode: 'none', shippingTiers: [], profitTiers: [], netMode: 'cash' };
+    const t = await a('POST', '/pricing', { name: 'Elle eklenenler', type: 'percentage', value: 0, applyTo: 'price_template', conditions: conds });
     const S2 = (await a('GET', '/hand-products?limit=1')).d.summary;
-    ok('summary: once the template for the hand-added scope exists it says so', (t.s === 200 || t.s === 201) && S2.template.exists === true && S2.template.active === true && S2.template.name === 'Elle eklenenler', JSON.stringify(S2.template));
+    ok('summary: once the template for the hand-added scope exists it says so, and how it reads the amount', (t.s === 200 || t.s === 201) && S2.template.exists === true && S2.template.active === true && S2.template.name === 'Elle eklenenler' && S2.template.netMode === 'cash', JSON.stringify(S2.template));
+    const priceOf = async (sku) => (await a('GET', `/hand-products?q=${sku}&connectionId=${conn}`)).d.items[0];
+    const cashRow = await priceOf('HW-5');
+    ok('list (cash template): the amount 80 becomes a sale price on the chosen connection, "what stays" is the amount', cashRow.price === 80 && cashRow.pricing && cashRow.pricing.salePrice > 80 && Math.abs(cashRow.pricing.profit - 80) < 0.05, JSON.stringify(cashRow.pricing));
+
+    // ── netMode "profit": the amount is a PURCHASE price and the template's profit is added, like an XML product ──
+    const badMode = await a('PUT', `/pricing/${t.d.id}`, { conditions: { ...conds, netMode: 'weird' } }); ok('a net mode that does not exist is still refused (400), and the message names the new one', badMode.s === 400 && /profit/.test((badMode.d && badMode.d.error) || ''), `${badMode.s} ${badMode.d && badMode.d.error}`);
+    const pconds = { ...conds, profitMode: 'percent_of_purchase', netMode: 'profit' };
+    const up = await a('PUT', `/pricing/${t.d.id}`, { value: 30, conditions: pconds }); ok('the template is saved with "alış fiyatı + kâr" (30%)', up.s === 200, `${up.s} ${up.d && up.d.error}`);
+    const calc = await a('POST', '/pricing/calculate', { purchasePrice: 80, value: 30, conditions: pconds });
+    const calcX = await a('POST', '/pricing/calculate', { purchasePrice: 80, value: 30, conditions: { ...pconds, xmlSourceIds: [] } });
+    ok('the calculator treats a hand-scope template in profit mode as an ordinary one (purchase + profit), the same number as for an XML product', calc.s === 200 && Math.abs(calc.d.price - calcX.d.price) < 0.011 && calc.d.price > 80 * 1.3 && !calc.d.net && calc.d.purchase === 80, JSON.stringify(calc.d).slice(0, 160));
+    const profitRow = await priceOf('HW-5');
+    ok('list (profit template): purchase 80 + 30% profit and the costs: the same sale price the calculator gave, a real profit', Math.abs(profitRow.pricing.salePrice - calc.d.price) < 0.011 && profitRow.pricing.profit > 0 && profitRow.pricing.salePrice !== cashRow.pricing.salePrice, JSON.stringify(profitRow.pricing));
+    const S3 = (await a('GET', '/hand-products?limit=1')).d.summary; ok('summary: the template says it reads the amount as a purchase price with profit', S3.template.netMode === 'profit', JSON.stringify(S3.template));
+    const detail = (await a('GET', `/products/${id(5)}/detail`)).d; const mp = detail.marketplaces.find((m) => m.connectionId === conn);
+    ok('the product detail shows the ordinary breakdown: purchase 80, no "net amount" reading', mp && mp.pricing && !mp.pricing.net && mp.pricing.breakdown && mp.pricing.breakdown.purchase === 80 && Math.abs(mp.pricing.salePrice - calc.d.price) < 0.011, JSON.stringify(mp && mp.pricing && [mp.pricing.net, mp.pricing.breakdown && mp.pricing.breakdown.purchase]));
+    const raise = await a('POST', '/hand-products/bulk', { ids: [id(5)], patch: { price: { mode: 'percent', value: 10 } }, dryRun: false }); const dear = await priceOf('HW-5');
+    ok('raising the purchase price by 10% in bulk raises the sale price the template makes of it', raise.d.applied === 1 && dear.price === 88 && dear.pricing.salePrice > profitRow.pricing.salePrice, JSON.stringify([dear.price, dear.pricing]));
     ok('unauthenticated: refused', (await fetch(API + '/hand-products')).status === 401);
   } catch (e) { console.log('ERROR', e); fails++; } finally {
     for (const id of users) await c.query(`delete from app."User" where id=$1`, [id]).catch((e) => console.log('cleanup:', e.message));

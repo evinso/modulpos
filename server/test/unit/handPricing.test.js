@@ -160,3 +160,47 @@ test('isHandScope / isHandAdded', () => {
   assert.equal(E.isHandAdded({ xmlSourceId: 'a', xmlPrice: 0 }), false);
   assert.equal(E.isHandAdded({ xmlPrice: 0 }), false);
 });
+
+// ── netMode 'profit': a hand-added product with a PURCHASE price, priced like an XML product (purchase + the template's profit) ──────────────────────────
+const PROFIT = { ...COSTS, profitMode: 'percent_of_purchase', xmlSourceIds: ['none'], netMode: 'profit' };
+
+test('profit mode: the hand-added product is priced EXACTLY like an XML product with the same purchase price (purchase + profit), not as a net amount', () => {
+  const value = 30;
+  const rule = R({ value, conditions: JSON.stringify(PROFIT) });
+  const xmlRule = R({ id: 'r2', value, conditions: JSON.stringify({ ...PROFIT, xmlSourceIds: ['src-1'], netMode: undefined }) });
+  const h = new E.PricingContext([rule], 'C'); const x = new E.PricingContext([xmlRule], 'C');
+  const hp = h.priceFor(hand({ price: 100 })); const xp = x.priceFor({ id: 'x1', xmlSourceId: 'src-1', xmlPrice: 100, price: 100, vatRate: 20 });
+  near(hp.price, xp.price, 'the same price as the XML product'); assert.ok(hp.price > 100 * 1.3, 'purchase 100 + 30% profit + costs is far above 130');
+  const ex = h.explainFor(hand({ price: 100 }));
+  assert.equal(ex.net, null, 'no "net amount" reading: the screens show the ordinary purchase / profit breakdown'); assert.equal(ex.purchase, 100); assert.equal(ex.kind, 'template');
+  const xex = x.explainFor({ id: 'x1', xmlSourceId: 'src-1', xmlPrice: 100, price: 100, vatRate: 20 });
+  near(ex.breakdown.profit, xex.breakdown.profit, 'the same profit as the XML product', 0.02); assert.ok(ex.breakdown.profit > 0);
+  assert.equal(h.priceFor(hand({ price: 0 })), null, 'no purchase price entered yet: no price');
+});
+
+test('profit mode honours profit tiers and fixed profit like any template; the other modes of the SAME product are untouched', () => {
+  const tiers = { ...PROFIT, profitMode: 'percent_of_purchase', profitTiers: [{ upTo: 100, value: 50 }, { upTo: null, value: 20 }] };
+  const ctx = new E.PricingContext([R({ conditions: JSON.stringify(tiers) })], 'C');
+  const cheap = ctx.explainFor(hand({ price: 80 })); const dear = ctx.explainFor(hand({ price: 300 }));
+  assert.ok(cheap.breakdown.profit / 80 > dear.breakdown.profit / 300, 'the cheap one gets the bigger profit share (50% vs 20% of the purchase)');
+  const fixed = new E.PricingContext([R({ value: 25, conditions: JSON.stringify({ ...PROFIT, profitMode: 'fixed' }) })], 'C').explainFor(hand({ price: 100 }));
+  near(fixed.breakdown.profit, 25, 'a fixed profit of 25 TL', 0.05);
+  // the same product under cash / purchase templates is priced as before
+  near(new E.PricingContext([R({ conditions: JSON.stringify({ ...COSTS, xmlSourceIds: ['none'], netMode: 'cash' }) })], 'C').priceFor(hand()).price, 302.84, 'cash');
+  near(new E.PricingContext([R({ conditions: JSON.stringify({ ...COSTS, xmlSourceIds: ['none'], netMode: 'purchase' }) })], 'C').priceFor(hand()).price, 276.87, 'purchase');
+});
+
+test('profit mode in the coverage summary: the profit is the template\'s profit on the purchase price, the basis of the bands is the purchase price', () => {
+  const products = [hand({ id: 'a', price: 100 }), hand({ id: 'b', price: 200 }), { id: 'x', xmlSourceId: 'src-1', xmlPrice: 100, price: 100, vatRate: 20 }];
+  const s = E.summarizeCoverage(products, 30, PROFIT);
+  assert.equal(s.covered, 2, 'only the hand-added ones (scope none)'); assert.equal(s.priced, 2); assert.equal(s.avgPurchase, 150, 'the purchase prices, not net amounts');
+  assert.ok(s.avgProfit > 0 && s.losing === 0);
+  const asNet = E.summarizeCoverage(products, 30, { ...PROFIT, netMode: 'cash' });
+  assert.notEqual(asNet.avgProfit, s.avgProfit, 'the cash reading of the same numbers is a different calculation');
+});
+
+test('pricesAsNet: a hand-added product is a net amount unless the template says "profit"; an XML product never is', () => {
+  assert.equal(E.pricesAsNet(hand(), { netMode: 'cash' }), true); assert.equal(E.pricesAsNet(hand(), {}), true); assert.equal(E.pricesAsNet(hand(), { netMode: 'purchase' }), true);
+  assert.equal(E.pricesAsNet(hand(), { netMode: 'profit' }), false);
+  assert.equal(E.pricesAsNet({ id: 'x', xmlSourceId: 's', xmlPrice: 5, price: 5 }, { netMode: 'cash' }), false);
+});

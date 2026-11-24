@@ -8,11 +8,11 @@ import BulkEditModal from './BulkEditModal';
 import PasteListModal from './PasteListModal';
 
 const PAGE = 50; const muted = { fontSize: 11.5, color: 'var(--text-muted)' };
-export const FILTERS = [['all', 'Hepsi'], ['no_price', 'Net tutarı girilmemiş'], ['no_stock', 'Stoğu 0'], ['no_brand', 'Markasız'], ['no_barcode', 'Barkodsuz'], ['no_image', 'Fotoğrafsız'], ['no_category', 'Trendyol kategorisi yok'], ['sent', 'Pazaryerine gönderilmiş'], ['not_sent', 'Gönderilmemiş']];
-const SORTS = [['createdAt', 'Eklenme'], ['updatedAt', 'Son değişiklik'], ['title', 'Ad'], ['price', 'Net tutar'], ['stock', 'Stok'], ['sku', 'Stok kodu'], ['brand', 'Marka']];
+export const FILTERS = [['all', 'Hepsi'], ['no_price', 'Fiyatı girilmemiş'], ['no_stock', 'Stoğu 0'], ['no_brand', 'Markasız'], ['no_barcode', 'Barkodsuz'], ['no_image', 'Fotoğrafsız'], ['no_category', 'Trendyol kategorisi yok'], ['sent', 'Pazaryerine gönderilmiş'], ['not_sent', 'Gönderilmemiş']];
+const SORTS = [['createdAt', 'Eklenme'], ['updatedAt', 'Son değişiklik'], ['title', 'Ad'], ['price', 'Fiyat'], ['stock', 'Stok'], ['sku', 'Stok kodu'], ['brand', 'Marka']];
 
 /** The table of the products added by hand: every box is editable (saved when you leave it), many products can be chosen and changed at once, a price / stock list can be pasted. */
-export default function HandGrid({ connId, filter, setFilter, onSummary, onOpenCategories }) {
+export default function HandGrid({ connId, pk, filter, setFilter, onSummary, onOpenCategories }) {
   const [q, setQ] = useState(''); const [qLive, setQLive] = useState('');
   const [sort, setSort] = useState('createdAt'); const [dir, setDir] = useState('desc'); const [page, setPage] = useState(1);
   const [data, setData] = useState({ items: [], total: 0, pages: 1 }); const [loading, setLoading] = useState(true);
@@ -33,7 +33,7 @@ export default function HandGrid({ connId, filter, setFilter, onSummary, onOpenC
 
   const put = async (p, field, raw) => {
     let value = raw;
-    if (field === 'price') { value = Number(String(raw).replace(',', '.')); if (String(raw).trim() === '' || !Number.isFinite(value) || value < 0) { toast.error('Net tutar 0 veya daha büyük bir sayı olmalı'); return false; } }
+    if (field === 'price') { value = Number(String(raw).replace(',', '.')); if (String(raw).trim() === '' || !Number.isFinite(value) || value < 0) { toast.error('Fiyat 0 veya daha büyük bir sayı olmalı'); return false; } }
     if (field === 'stock') { value = Number(raw); if (String(raw).trim() === '' || !Number.isInteger(value) || value < 0) { toast.error('Stok 0 veya daha büyük bir tam sayı olmalı'); return false; } }
     if (field === 'vatRate') value = Number(raw);
     if (field === 'title' && !String(raw).trim()) { toast.error('Ürün adı boş olamaz'); return false; }
@@ -69,19 +69,19 @@ export default function HandGrid({ connId, filter, setFilter, onSummary, onOpenC
           <span style={{ fontSize: 13 }} data-testid="sel-count"><strong>{sel.size}</strong> ürün seçili</span>
           <button className="btn btn-primary" data-testid="open-bulk" onClick={() => setBulk(true)}><Pencil size={15} /> Seçilileri toplu düzenle</button>
           <button className="btn btn-secondary" onClick={() => setSel(new Set())}>Seçimi temizle</button>
-        </> : <small style={muted}>Birden çok ürünü seçip aynı anda net tutar, stok, marka, KDV, ad ya da stok kodu / barkodlarını değiştirebilirsiniz. Tek tek değiştirmek için kutulara doğrudan yazın (kutudan çıkınca kaydedilir).</small>}
+        </> : <small style={muted}>Birden çok ürünü seçip aynı anda {pk.lower}, stok, marka, KDV, ad ya da stok kodu / barkodlarını değiştirebilirsiniz. Tek tek değiştirmek için kutulara doğrudan yazın (kutudan çıkınca kaydedilir).</small>}
       </div>
 
       <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
-        <table className="table" style={{ width: '100%', minWidth: 1180, fontSize: 12.5 }}>
+        <table className="table" style={{ width: '100%', minWidth: 1300, fontSize: 12.5 }}>
           <thead><tr>
             <th style={{ width: 30 }}><input type="checkbox" aria-label="Sayfadakilerin hepsi" checked={allOnPage} onChange={togglePage} /></th>
             <th style={{ width: 44 }} /><th style={{ minWidth: 240 }}>Ürün adı</th><th style={{ width: 120 }}>Stok kodu</th><th style={{ width: 130 }}>Barkod</th>
-            <th style={{ width: 110 }}>Net tutar (₺)</th><th style={{ width: 70 }}>Stok</th><th style={{ width: 130 }}>Marka</th><th style={{ width: 70 }}>KDV</th><th style={{ width: 90 }}>Durum</th><th style={{ width: 190 }}>Trendyol kategorisi</th>
+            <th style={{ width: 112 }} title={pk.what}>{pk.label} (₺)</th><th style={{ width: 118 }} title="Seçili Trendyol bağlantısında, elle eklenen ürünler fiyat şablonunun bu ürün için hesapladığı satış fiyatı ve kâr">Pazaryeri fiyatı</th><th style={{ width: 70 }}>Stok</th><th style={{ width: 130 }}>Marka</th><th style={{ width: 70 }}>KDV</th><th style={{ width: 90 }}>Durum</th><th style={{ width: 190 }}>Trendyol kategorisi</th>
           </tr></thead>
           <tbody>
-            {loading && data.items.length === 0 ? <tr><td colSpan={11} style={{ padding: 18, textAlign: 'center' }}>Yükleniyor…</td></tr>
-              : data.items.length === 0 ? <tr><td colSpan={11} style={{ padding: 18, textAlign: 'center' }} data-testid="hand-empty">{data.total === 0 && filter === 'all' && !q ? <>Henüz elle eklenen ürün yok. <Link to="/products">Ürünler</Link> sayfasından “Yeni ürün” ya da “XML’den ürün ekle” ile ekleyin.</> : 'Bu filtreye uyan ürün yok.'}</td></tr>
+            {loading && data.items.length === 0 ? <tr><td colSpan={12} style={{ padding: 18, textAlign: 'center' }}>Yükleniyor…</td></tr>
+              : data.items.length === 0 ? <tr><td colSpan={12} style={{ padding: 18, textAlign: 'center' }} data-testid="hand-empty">{data.total === 0 && filter === 'all' && !q ? <>Henüz elle eklenen ürün yok. <Link to="/products">Ürünler</Link> sayfasından “Yeni ürün” ya da “XML’den ürün ekle” ile ekleyin.</> : 'Bu filtreye uyan ürün yok.'}</td></tr>
                 : data.items.map((p) => (
                   <tr key={p.id} data-testid="hand-row" style={p.status === 'passive' ? { opacity: 0.6 } : undefined}>
                     <td><input type="checkbox" aria-label={`${p.title} seç`} checked={sel.has(p.id)} onChange={() => toggle(p.id)} /></td>
@@ -89,7 +89,8 @@ export default function HandGrid({ connId, filter, setFilter, onSummary, onOpenC
                     <td><Cell value={p.title} label={`${p.title} adı`} onSave={(v) => put(p, 'title', v)} />{p.categoryText && <small style={muted}>{p.categoryText}</small>}</td>
                     <td className="mono" style={{ fontSize: 12 }}>{p.sku}</td>
                     <td><Cell value={p.barcode} label={`${p.sku} barkod`} disabled={p.sent} title={p.sent ? 'Pazaryerine gönderilmiş: barkod değişirse pazaryerinde yeni ürün olur' : undefined} onSave={(v) => put(p, 'barcode', v)} /></td>
-                    <td><Cell type="number" step="0.01" min="0" align="right" value={p.price} label={`${p.sku} net tutar`} onSave={(v) => put(p, 'price', v)} />{p.price <= 0 && <small style={{ color: 'var(--warning)', fontSize: 11 }}>girilmemiş</small>}</td>
+                    <td><Cell type="number" step="0.01" min="0" align="right" value={p.price} label={`${p.sku} fiyat`} onSave={(v) => put(p, 'price', v)} />{p.price <= 0 && <small style={{ color: 'var(--warning)', fontSize: 11 }}>girilmemiş</small>}</td>
+                    <td data-testid="sale-price" style={{ fontSize: 12 }}>{!p.pricing ? <span style={muted}>—</span> : p.pricing.salePrice ? <><strong>₺{Number(p.pricing.salePrice).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>{p.pricing.profit !== null && <small style={{ display: 'block', color: p.pricing.profit < 0 ? 'var(--danger)' : 'var(--text-muted)' }} title="Şablonun hesabına göre kâr (elinize kalan)">{p.pricing.profit < 0 ? 'zarar' : 'kâr'} ₺{Math.abs(p.pricing.profit).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</small>}</> : p.price > 0 ? <span style={{ color: 'var(--warning)' }} title="Elle eklenen ürünleri kapsayan etkin bir fiyat şablonu yok">şablon yok</span> : <span style={muted}>—</span>}</td>
                     <td><Cell type="number" step="1" min="0" align="right" value={p.stock} label={`${p.sku} stok`} onSave={(v) => put(p, 'stock', v)} /></td>
                     <td><Cell value={p.brand} label={`${p.sku} marka`} onSave={(v) => put(p, 'brand', v)} />{!p.brand && <small style={{ color: 'var(--warning)', fontSize: 11 }}>marka yok</small>}</td>
                     <td><select className="form-select" aria-label={`${p.sku} KDV`} style={{ padding: '3px 4px', fontSize: 12.5 }} value={p.vatRate} onChange={(e) => put(p, 'vatRate', e.target.value)}>{[0, 1, 8, 10, 18, 20].map((v) => <option key={v} value={v}>%{v}</option>)}</select></td>
@@ -103,8 +104,8 @@ export default function HandGrid({ connId, filter, setFilter, onSummary, onOpenC
         <button className="btn btn-secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>Önceki</button><small style={muted}>Sayfa {page} / {data.pages} · {data.total} ürün</small>
         <button className="btn btn-secondary" disabled={page >= data.pages} onClick={() => setPage(page + 1)}>Sonraki</button></div>}
 
-      {bulk && <BulkEditModal target={{ ids: [...sel] }} count={sel.size} onClose={() => setBulk(false)} onDone={done} />}
-      {paste && <PasteListModal onClose={() => setPaste(false)} onDone={done} />}
+      {bulk && <BulkEditModal target={{ ids: [...sel] }} count={sel.size} pk={pk} onClose={() => setBulk(false)} onDone={done} />}
+      {paste && <PasteListModal pk={pk} onClose={() => setPaste(false)} onDone={done} />}
     </div>
   );
 }
