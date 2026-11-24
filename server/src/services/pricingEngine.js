@@ -440,6 +440,21 @@ class PricingContext {
     };
   }
 
+  /**
+   * What to print next to a product as "alış" (the lists show it): { purchase, net }.
+   *  - an XML product: purchase = its feed price (net null);
+   *  - a hand-added product whose template reads the number as a PURCHASE price (profit / purchase mode): purchase = that number;
+   *  - a hand-added product in cash mode: the number is the NET amount to keep, not a purchase price: purchase null, net = the amount;
+   *  - a hand-added product no template prices (or without a number yet): both null (the template decides what the number means).
+   */
+  buyingOf(product) {
+    if (!isHandAdded(product)) return { purchase: num(product.xmlPrice) > 0 ? num(product.xmlPrice) : null, net: null };
+    const amount = num(product.price);
+    const base = amount > 0 ? this._resolve(product) : null;
+    if (!base) return { purchase: null, net: null };
+    return base.net ? { purchase: null, net: amount } : { purchase: amount, net: null };
+  }
+
   /** Returns { price, ruleId, ruleName } or null when no rule matches / can price the product. */
   priceFor(product) {
     const manual = this.manualPrice(product);

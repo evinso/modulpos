@@ -49,7 +49,7 @@ const get = async (url, cfg = {}) => {
   if (url === '/products/summary') return { data: { total: 8, active: 7, passive: 1, outOfStock: 3, lowStock: 2, noImage: 1, noBarcode: 0, lowStockMax: 5 } };
   if (url === '/products/facets') return { data: { categories: [{ name: 'Giyim|Kadın|Elbise', count: 8 }], brands: [{ name: 'ModaX', count: 4 }] } };
   if (url === '/products/stats') return { data: { total: 8, manual: 1, mpStatus: { active: 1, pending: 0, rejected: 0, passive: 0, not_sent: 7 } } };
-  if (url === '/products') { const rows = [0, 1, 2, 3, 4].map((i) => (i === 0 ? mk(i, { category: '' }) : mk(i)));   // p0: like a product added by hand: no category text of its own, the marketplace category was chosen on the category tab
+  if (url === '/products') { const rows = [0, 1, 2, 3, 4].map((i) => (i === 0 ? mk(i, { category: '', xmlSourceId: null, xmlPrice: 0, price: 80, purchasePrice: 80 }) : (i === 4 ? mk(i, { xmlSourceId: null, xmlPrice: 0, price: 120, netAmount: 120 }) : mk(i))));   // p0: like a product added by hand: no category text of its own, the marketplace category was chosen on the category tab
      return { data: { products: rows, pagination: { total: 8, page: cfg.params?.page || 1, limit: cfg.params?.limit || 20, totalPages: 1 } } }; }
   if (url === '/products/ids') return { data: { ids: ['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'], total: 8 } };
   if (/^\/products\/[^/]+\/detail$/.test(url)) return { data: detail };
@@ -68,7 +68,11 @@ const get = async (url, cfg = {}) => {
   ] };
   if (url === '/marketplace/connections/c1/product-list') {
     const total = 250; const page = cfg.params?.page || 1;
-    return { data: { products: Array.from({ length: 20 }, (_, i) => ({ ...mk((page - 1) * 20 + i + 10), ready: true, issues: [], salePrice: 150, mapName: 'Aksesuar', marketplaceProducts: [] })), pagination: { total, page, limit: 20, totalPages: 13 }, stats: { total, ready: 250, blocked: 0, byIssue: {}, mp: { not_sent: 250, pending: 0, active: 0, rejected: 0, passive: 0 } } } };
+    return { data: { products: Array.from({ length: 20 }, (_, i) => ({ ...mk((page - 1) * 20 + i + 10), ready: true, issues: [], salePrice: 150, mapName: 'Aksesuar', marketplaceProducts: [],
+      // the first rows: added by hand (no feed price): a number the template reads as a purchase price / as a net amount / no number yet
+      ...(page === 1 && i === 0 ? { xmlSourceId: null, xmlPrice: 0, price: 80, purchasePrice: 80, netAmount: null } : {}),
+      ...(page === 1 && i === 1 ? { xmlSourceId: null, xmlPrice: 0, price: 120, purchasePrice: null, netAmount: 120 } : {}),
+      ...(page === 1 && i === 2 ? { xmlSourceId: null, xmlPrice: 0, price: 0, purchasePrice: null, netAmount: null } : {}) })), pagination: { total, page, limit: 20, totalPages: 13 }, stats: { total, ready: 250, blocked: 0, byIssue: {}, mp: { not_sent: 250, pending: 0, active: 0, rejected: 0, passive: 0 } } } };
   }
   if (url === '/marketplace/connections/c1/product-list/ids') return { data: { ids: Array.from({ length: 250 }, (_, i) => 'id' + i), sendable: 250, matching: 250, truncated: false } };
   if (url === '/orders') return { data: { orders: [], pagination: { total: 0, page: 1, totalPages: 1 } } };

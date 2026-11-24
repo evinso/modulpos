@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Send, AlertTriangle, RotateCcw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
-import { Thumb, parseImages, money } from './productsUi';
+import { Thumb, parseImages, money, buyingOf } from './productsUi';
 import { pushToMarketplace, sendLabel, errorText } from './priceActions';
 
 /**
@@ -96,7 +96,7 @@ export default function PriceModal({ product, connection, onClose, onDone }) {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, fontSize: 12 }}>
             {[
-              ['Alış fiyatı', product.xmlPrice > 0 ? `₺${money(product.xmlPrice)}` : '—'],
+              (() => { const b = buyingOf(product); return b.kind === 'net' ? ['Elinize kalacak net', `₺${money(b.value)}`] : ['Alış fiyatı', b.kind === 'purchase' ? `₺${money(b.value)}` : '—']; })(),
               ['Şablon fiyatı', templatePrice != null ? `₺${money(templatePrice)}` : 'Şablon yok'],
               [`${connection.supplierName || connection.marketplaceType}’daki fiyat`, listing && listing.status === 'active' && listing.marketplacePrice != null ? `₺${money(listing.marketplacePrice)}` : (listing ? 'Henüz satışta değil' : 'Gönderilmedi')],
             ].map(([k, v]) => (

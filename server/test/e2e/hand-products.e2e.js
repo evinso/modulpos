@@ -104,12 +104,18 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     const badMode = await a('PUT', `/pricing/${t.d.id}`, { conditions: { ...conds, netMode: 'weird' } }); ok('a net mode that does not exist is still refused (400), and the message names the new one', badMode.s === 400 && /profit/.test((badMode.d && badMode.d.error) || ''), `${badMode.s} ${badMode.d && badMode.d.error}`);
     // a fixed VAT rate in the template: the calculator takes no product, so it could not know the VAT of the product row (the template's own rate wins over the product's)
     const pconds = { ...conds, profitMode: 'percent_of_purchase', netMode: 'profit', vatRate: 20 };
+    const sendOf = async () => ((await a('GET', `/marketplace/connections/${conn}/product-list?search=HW-5&fresh=1`)).d.products || []).find((p) => p.id === id(5));
+    const listOf = async () => ((await a('GET', `/products?search=HW-5&priceFor=${conn}`)).d.products || []).find((p) => p.id === id(5));
+    const sc = await sendOf(); const lc = await listOf();
+    ok('cash template: the send list and the products list say the number is a NET amount (80), not a purchase price', !!sc && sc.netAmount === 80 && sc.purchasePrice === null && !!lc && lc.netAmount === 80 && lc.purchasePrice === null, JSON.stringify([sc && [sc.purchasePrice, sc.netAmount], lc && [lc.purchasePrice, lc.netAmount]]));
     const up = await a('PUT', `/pricing/${t.d.id}`, { value: 30, conditions: pconds }); ok('the template is saved with "alış fiyatı + kâr" (30%)', up.s === 200, `${up.s} ${up.d && up.d.error}`);
     const calc = await a('POST', '/pricing/calculate', { purchasePrice: 80, value: 30, conditions: pconds });
     const calcX = await a('POST', '/pricing/calculate', { purchasePrice: 80, value: 30, conditions: { ...pconds, xmlSourceIds: [] } });
     ok('the calculator treats a hand-scope template in profit mode as an ordinary one (purchase + profit), the same number as for an XML product', calc.s === 200 && Math.abs(calc.d.price - calcX.d.price) < 0.011 && calc.d.price > 80 * 1.3 && !calc.d.net && calc.d.purchase === 80, JSON.stringify(calc.d).slice(0, 160));
     const profitRow = await priceOf('HW-5');
     ok('list (profit template): purchase 80 + 30% profit and the costs: the same sale price the calculator gave, a real profit', Math.abs(profitRow.pricing.salePrice - calc.d.price) < 0.011 && profitRow.pricing.profit > 0 && profitRow.pricing.salePrice !== cashRow.pricing.salePrice, JSON.stringify(profitRow.pricing));
+    const sp = await sendOf(); const lp = await listOf();
+    ok('profit template: both lists show 80 as the PURCHASE price (what the send page printed as "alış ₺0")', !!sp && sp.purchasePrice === 80 && sp.netAmount === null && !!lp && lp.purchasePrice === 80 && lp.netAmount === null, JSON.stringify([sp && [sp.purchasePrice, sp.netAmount], lp && [lp.purchasePrice, lp.netAmount]]));
     const S3 = (await a('GET', '/hand-products?limit=1')).d.summary; ok('summary: the template says it reads the amount as a purchase price with profit', S3.template.netMode === 'profit', JSON.stringify(S3.template));
     const detail = (await a('GET', `/products/${id(5)}/detail`)).d; const mp = detail.marketplaces.find((m) => m.connectionId === conn);
     ok('the product detail shows the ordinary breakdown: purchase 80, no "net amount" reading', mp && mp.pricing && !mp.pricing.net && mp.pricing.breakdown && mp.pricing.breakdown.purchase === 80 && Math.abs(mp.pricing.salePrice - calc.d.price) < 0.011, JSON.stringify(mp && mp.pricing && [mp.pricing.net, mp.pricing.breakdown && mp.pricing.breakdown.purchase]));
