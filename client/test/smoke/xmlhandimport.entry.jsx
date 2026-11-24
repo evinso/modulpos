@@ -50,7 +50,7 @@ await click(btn('Eklenebilenlerin hepsini seç'));
 ok('"all addable" ticks 3 (the existing one never)', q('xml-import-go').textContent.includes('Seçili 3 ürünü ekle'));
 await click(q('xml-import-go'), 80);
 const w = xmlImp.written[0];
-ok('the write sends the token and the row numbers (not the data) with the owner\'s own choices: VAT 20, stock 0, the store brand, the barcode', xmlImp.written.length === 1 && w.token === 'tok1' && JSON.stringify(w.refs) === '[0,2,3]' && w.options.vatRate === 20 && w.options.stock === 0 && w.options.brand === 'Atölye Marka' && w.options.useBarcode === true, JSON.stringify(w));
+ok('the write sends the token and the row numbers (not the data) with the owner\'s own choices: VAT 20, stock 0, the store brand, codes as in the XML', xmlImp.written.length === 1 && w.token === 'tok1' && JSON.stringify(w.refs) === '[0,2,3]' && w.options.vatRate === 20 && w.options.stock === 0 && w.options.brand === 'Atölye Marka' && w.options.codes.sku.mode === 'keep' && w.options.codes.barcode.mode === 'keep', JSON.stringify(w));
 ok('the result says 3 products were added and tells the next steps (net amount, stock, category, price template)', q('xml-result').textContent.includes('3 ürün eklendi') && q('xml-result').textContent.includes('Elime kalacak net tutar') && q('xml-result').textContent.includes('Ürün bazlı kategori') && q('xml-result').textContent.includes('fiyat şablonu'));
 await click(q('xml-done'));
 ok('"Elle eklenen ürünlere git" reports how many were created (the page then shows the hand-added group)', JSON.stringify(calls.done) === '[3]');
@@ -78,6 +78,34 @@ const sels = [...document.querySelectorAll('details select')]; const titleSel = 
 await act(async () => { Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set.call(titleSel, 'URUNKODU'); titleSel.dispatchEvent(new window.Event('change', { bubbles: true })); });
 await click(btn('Bu alanlarla yeniden oku'), 80);
 ok('choosing another field and reading again sends the choice', xmlImp.read.length === 2 && xmlImp.read[1].body.mapping && xmlImp.read[1].body.mapping.title === 'URUNKODU', JSON.stringify(xmlImp.read[1] && xmlImp.read[1].body));
+await act(async () => { root.unmount(); });
+
+// ---- ONE rule for the stock codes and ONE for the barcodes: the server shows what they give, and the same rules are written ----
+xmlImp.written.length = 0; xmlImp.read.length = 0; xmlImp.previews.length = 0; xmlImp.previewExists = {};
+xmlImp.items = [item(0), item(1), item(2), item(3)];
+({ root, calls } = await mount());
+await click(btn('XML adresi')); await type(q('xml-url'), 'https://x.example/a.xml'); await click(q('xml-read'), 60);
+ok('the rule card is there with both choices on "as in the XML", and no preview is asked while nothing changes', !!q('xml-codes') && q('xml-sku-mode').value === 'keep' && q('xml-barcode-mode').value === 'keep' && xmlImp.previews.length === 0);
+const pick = async (el, v) => { await act(async () => { Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set.call(el, v); el.dispatchEvent(new window.Event('change', { bubbles: true })); }); };
+await pick(q('xml-sku-mode'), 'affix');
+ok('"text before/after" shows its two boxes (and only those)', !!document.querySelector('[aria-label="Başına yaz"]') && !!document.querySelector('[aria-label="Sonuna yaz"]') && !document.querySelector('[aria-label="İlk numara"]'));
+await type(document.querySelector('[aria-label="Başına yaz"]'), 'BEN-'); await wait(700);
+ok('after the person stops typing the server is asked once with the rule (not on every key)', xmlImp.previews.length === 1 && xmlImp.previews[0].token === 'tok1' && xmlImp.previews[0].codes.sku.mode === 'affix' && xmlImp.previews[0].codes.sku.prefix === 'BEN-' && xmlImp.previews[0].codes.barcode.mode === 'keep', JSON.stringify(xmlImp.previews));
+ok('the table shows the NEW stock code with the XML\'s struck through under it', qa('xml-code-cell')[0].textContent.includes('BEN-TR-0') && qa('xml-code-cell')[0].querySelector('small[style*="line-through"]') && qa('xml-code-cell')[0].querySelector('small[style*="line-through"]').textContent === 'TR-0');
+await pick(q('xml-barcode-mode'), 'generate');
+ok('"own barcode" explains what it is for and what it costs (a new product on Trendyol, not a catalogue match)', document.body.textContent.includes('kullanım için üretilir') && document.body.textContent.includes('yeni bir ürün olarak açılır') && !!document.querySelector('[aria-label="Başı (rakam, ör. 200)"]'));
+await wait(700);
+ok('the generated barcodes are listed, one per row', xmlImp.previews.length === 2 && xmlImp.previews[1].codes.barcode.mode === 'generate' && qa('xml-code-cell')[1].textContent.includes('2000000000002') && qa('xml-code-cell')[0].textContent.includes('2000000000001'), qa('xml-code-cell')[1].textContent);
+xmlImp.previewExists = { 1: 'sku' };
+await pick(q('xml-sku-mode'), 'counter'); await wait(700);
+ok('a row whose NEW code the store already has is flagged, cannot be ticked and is counted', qa('xml-row')[1].querySelector('input').disabled === true && q('xml-codes-conflicts').textContent.includes('1 ürünün yeni kodu mağazada zaten var') && q('xml-summary').textContent.includes('1 zaten ekli ya da aynı kodlu'));
+ok('the choices stay: every addable row is ticked again with "all addable" and the button counts only those', (await click(btn('Eklenebilenlerin hepsini seç')), q('xml-import-go').textContent.includes('Seçili 3 ürünü ekle')));
+xmlImp.previewFail = 'Stok kodu için bir baş ya da son ek yazın'; await pick(q('xml-sku-mode'), 'affix'); await type(document.querySelector('[aria-label="Başına yaz"]'), ''); await wait(700);
+ok('a rule the server refuses is shown in its words and nothing can be written meanwhile', q('xml-codes-error').textContent.includes('baş ya da son ek yazın') && q('xml-import-go').disabled === true);
+xmlImp.previewFail = null; await pick(q('xml-sku-mode'), 'counter'); await type(document.querySelector('[aria-label="Başına (ör. BEN-)"]'), 'BEN-'); await wait(700);
+await click(q('xml-import-go'), 100);
+const w2 = xmlImp.written[0];
+ok('the write carries the SAME rules the preview showed (own numbering for the stock code, own EAN-13 for the barcode) and only the rows without a conflict', w2 && JSON.stringify(w2.refs) === '[0,2,3]' && w2.options.codes.sku.mode === 'counter' && w2.options.codes.sku.prefix === 'BEN-' && w2.options.codes.sku.start === 1 && w2.options.codes.sku.pad === 4 && w2.options.codes.barcode.mode === 'generate' && w2.options.codes.barcode.digits === '200', JSON.stringify(w2));
 await act(async () => { root.unmount(); });
 
 const real = errors.filter((e) => !/not wrapped in act|ReactDOMTestUtils|act\(/.test(e));

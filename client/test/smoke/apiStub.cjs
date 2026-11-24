@@ -16,7 +16,7 @@ const uploads = [];   // the pictures the product form uploaded
 const xmlSrc = { status: 'active' };   // the one XML source of the stub: the page switches it between active and paused (passive)
 const handCfg = { scoped: false };   // true: every template is limited to the XML source s1, so nothing prices the products added by hand
 // "XML'den ürün ekle": what the read answers (items), a failure to play ({ status, error }), and every write the page sent
-const xmlImp = { items: [], fail: null, written: [], read: [] };
+const xmlImp = { items: [], fail: null, written: [], read: [], previews: [], previewExists: {}, previewFail: null };
 const sendBehaviour = { failAt150: false, allBelowStock: false };
 const pc = { aiError: null, aiMatched: 2, saved: [], attrAiError: null };   // saved: category mappings the page saved during the test
 const conv = { feeds: {}, previewFeed: null };   // XML converter page: what /xml-converter/feeds/status answers per address, and the feed row a new conversion returns
@@ -140,6 +140,16 @@ const post = async (url, body) => {
     if (xmlImp.fail) { const e = new Error('x'); e.response = { status: xmlImp.fail.status, data: { error: xmlImp.fail.error } }; throw e; }
     return { data: { token: 'tok1', total: xmlImp.items.length, truncated: false, max: 5000, mapping: { title: 'URUNADI', description: 'ACIKLAMA', images: 'RESIMLER.RESIM', sku: 'URUNKODU', barcode: 'BARKOD', category: 'KATEGORI' },
       fields: [{ path: 'URUNADI', sample: 'Kupa' }, { path: 'URUNKODU', sample: 'TR-1' }, { path: 'ACIKLAMA', sample: 'x' }], noName: 0, duplicatesInFile: 0, items: xmlImp.items } };
+  }
+  if (url === '/products/xml-import/preview') {
+    xmlImp.previews.push(body);
+    if (xmlImp.previewFail) { const e = new Error('x'); e.response = { status: 400, data: { error: xmlImp.previewFail } }; throw e; }
+    const c = body.codes; const rows = xmlImp.items.map((it) => {
+      let sku = it.sku; if (c.sku.mode === 'affix') sku = `${c.sku.prefix}${sku}${c.sku.suffix}`; else if (c.sku.mode === 'counter') sku = `${c.sku.prefix}${String(c.sku.start + it.ref).padStart(c.sku.pad, '0')}${c.sku.suffix}`;
+      let barcode = it.barcode; if (c.barcode.mode === 'none') barcode = ''; else if (c.barcode.mode === 'sku') barcode = sku; else if (c.barcode.mode === 'generate') barcode = `${c.barcode.digits}${String(c.barcode.start + it.ref).padStart(10, '0')}`;
+      return { ref: it.ref, sku, barcode, exists: xmlImp.previewExists[it.ref] || null };
+    });
+    return { data: { rows, conflicts: rows.filter((r) => r.exists).length } };
   }
   if (url === '/products/xml-import') { xmlImp.written.push(body); return { data: { created: body.refs.length, skipped: [], limitReached: false } }; }
   if (url === '/products') return { data: { id: 'new1', ...body } };

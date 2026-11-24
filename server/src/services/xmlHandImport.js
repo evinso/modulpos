@@ -82,6 +82,22 @@ async function existing(prisma, storeId, items) {
   return out;
 }
 
+/**
+ * What every row would get under the rules and what the store already has: { rows: [{ ref, sku, barcode, exists: 'sku' | 'barcode' | 'file' | null }], conflicts }.
+ * 'file' = another row of the same reading ends with the same code (only the first one is written).
+ */
+async function preview({ prisma, storeId, items, rules }) {
+  const mapped = items.map((it) => ({ ref: it.ref, ...codesFor(it, rules) }));
+  const have = await existing(prisma, storeId, mapped); const skus = new Set(); const codes = new Set();
+  const rows = mapped.map((m) => {
+    let exists = have.get(m.ref) || null;
+    if (!exists && skus.has(m.sku)) exists = 'file'; else if (!exists && m.barcode && codes.has(m.barcode)) exists = 'file';
+    if (!exists) { skus.add(m.sku); if (m.barcode) codes.add(m.barcode); }
+    return { ref: m.ref, sku: m.sku, barcode: m.barcode, exists };
+  });
+  return { rows, conflicts: rows.filter((r) => r.exists).length };
+}
+
 // ── the short-lived cache of one reading ───────────────────────────────────────────────────────
 function sweep(now = Date.now()) { for (const [k, v] of cache) if (now - v.at > TTL_MS) cache.delete(k); }
 function keep({ userId, storeId, items, now = Date.now() }) {
@@ -101,15 +117,73 @@ function recall(token, { userId, storeId, now = Date.now() }) {
 }
 const forget = (token) => cache.delete(String(token || ''));
 
+// ── stock codes and barcodes: ONE rule for each, applied to every product ───────────────────────────────────────────────
+// The XML's codes are the supplier's; the owner may want their own. Each of the two has a single choice:
+//   stock code (sku):  keep | affix (text before / after) | replace (find -> replace) | barcode (use the XML's barcode) | counter (own numbering: prefix + number + suffix)
+//   barcode:           keep | none | sku (same as the final stock code) | affix | replace | generate (own EAN-13 for in-store use: a prefix of digits + a running number + the check digit)
+// A number is `start + row number`, so reading the same file again gives the same codes. The rule is checked here (never trusted from the page) and the preview and the write use the same function.
+const SKU_MODES = ['keep', 'affix', 'replace', 'barcode', 'counter']; const BAR_MODES = ['keep', 'none', 'sku', 'affix', 'replace', 'generate'];
+const bad = (m) => Object.assign(new Error(m), { status: 400 });
+const text = (v, max, label) => { const t = clean(v); if (t.length > max) throw bad(`${label} en çok ${max} karakter olabilir`); return t; };
+
+/** @returns { sku: {...}, barcode: {...} } with every field checked; throws a 400 sentence. @param count how many rows there are (a running number must not overflow its width) */
+function readCodeRules(o = {}, { count = 0 } = {}) {
+  const s = (o && o.sku) || {}; const b = (o && o.barcode) || {};
+  const sm = s.mode || 'keep'; const bm = b.mode || 'keep';
+  if (!SKU_MODES.includes(sm)) throw bad('Stok kodu kuralı geçersiz'); if (!BAR_MODES.includes(bm)) throw bad('Barkod kuralı geçersiz');
+  const sku = { mode: sm, prefix: text(s.prefix, 30, 'Stok kodu başı'), suffix: text(s.suffix, 30, 'Stok kodu sonu'), find: text(s.find, 60, 'Aranan metin'), replace: text(s.replace, 60, 'Yeni metin'), start: 1, pad: 4 };
+  const bar = { mode: bm, prefix: text(b.prefix, 30, 'Barkod başı'), suffix: text(b.suffix, 30, 'Barkod sonu'), find: text(b.find, 60, 'Aranan metin'), replace: text(b.replace, 60, 'Yeni metin'), start: 1, digits: '200' };
+  if (sm === 'replace' && !sku.find) throw bad('Stok kodunda değiştirilecek metni yazın');
+  if (bm === 'replace' && !bar.find) throw bad('Barkodda değiştirilecek metni yazın');
+  if (sm === 'affix' && !sku.prefix && !sku.suffix) throw bad('Stok kodu için bir baş ya da son ek yazın');
+  if (bm === 'affix' && !bar.prefix && !bar.suffix) throw bad('Barkod için bir baş ya da son ek yazın');
+  if (sm === 'counter') {
+    const start = Number(s.start === undefined || s.start === '' ? 1 : s.start); const pad = Number(s.pad === undefined || s.pad === '' ? 4 : s.pad);
+    if (!Number.isInteger(start) || start < 0 || start > 99999999) throw bad('Stok kodu başlangıç numarası 0 ile 99.999.999 arasında olmalı'); if (!Number.isInteger(pad) || pad < 1 || pad > 10) throw bad('Basamak sayısı 1 ile 10 arasında olmalı');
+    Object.assign(sku, { start, pad });
+  }
+  if (bm === 'generate') {
+    const digits = clean(b.digits === undefined || b.digits === '' ? '200' : b.digits); const start = Number(b.start === undefined || b.start === '' ? 1 : b.start);
+    if (!/^\d{1,8}$/.test(digits)) throw bad('Barkod başı 1 ile 8 haneli rakamlardan oluşmalı (ör. 200)');
+    if (!Number.isInteger(start) || start < 0) throw bad('Barkod başlangıç numarası 0 ya da daha büyük bir tam sayı olmalı');
+    const width = 12 - digits.length; if (start + Math.max(0, count - 1) >= 10 ** width) throw bad(`Bu barkod başıyla en çok ${10 ** width} ürüne numara verilebilir; daha kısa bir baş yazın`);
+    Object.assign(bar, { digits, start, width });
+  }
+  return { sku, barcode: bar };
+}
+
+/** EAN-13 check digit of the first 12 digits */
+const ean13 = (body12) => { let n = 0; for (let i = 0; i < 12; i++) n += Number(body12[i]) * (i % 2 ? 3 : 1); return `${body12}${(10 - (n % 10)) % 10}`; };
+const swap = (v, r) => String(v).split(r.find).join(r.replace);
+
+/** the stock code and barcode a row gets under the rules: { sku, barcode } (an emptied stock code falls back to the XML's) */
+function codesFor(item, rules) {
+  const { sku: s, barcode: b } = rules;
+  let sku = item.sku;
+  if (s.mode === 'affix') sku = `${s.prefix}${sku}${s.suffix}`;
+  else if (s.mode === 'replace') sku = swap(sku, s);
+  else if (s.mode === 'barcode') sku = item.barcode || sku;
+  else if (s.mode === 'counter') sku = `${s.prefix}${String(s.start + item.ref).padStart(s.pad, '0')}${s.suffix}`;
+  sku = clean(sku).replace(/\s+/g, ' ').slice(0, 80) || item.sku;
+  let barcode = item.barcode;
+  if (b.mode === 'none') barcode = '';
+  else if (b.mode === 'sku') barcode = sku;
+  else if (b.mode === 'affix') barcode = barcode ? `${b.prefix}${barcode}${b.suffix}` : '';
+  else if (b.mode === 'replace') barcode = barcode ? swap(barcode, b) : '';
+  else if (b.mode === 'generate') barcode = ean13(`${b.digits}${String(b.start + item.ref).padStart(b.width, '0')}`);
+  return { sku, barcode: clean(barcode).replace(/\s+/g, '').slice(0, 60) };
+}
+
 const VAT = new Set([0, 1, 8, 10, 18, 20]);
 /** the choices of the person, checked: { vatRate, stock, brand, useBarcode } */
-function readOptions(o = {}) {
+function readOptions(o = {}, { count = 0 } = {}) {
   const vat = o.vatRate === undefined || o.vatRate === '' ? 20 : Number(o.vatRate);
   if (!VAT.has(vat)) throw Object.assign(new Error('KDV oranı 0, 1, 8, 10, 18 ya da 20 olmalı'), { status: 400 });
   const stock = o.stock === undefined || o.stock === '' ? 0 : Number(o.stock);
   if (!Number.isInteger(stock) || stock < 0 || stock > 1000000) throw Object.assign(new Error('Stok 0 veya daha büyük bir tam sayı olmalı'), { status: 400 });
   const brand = clean(o.brand).slice(0, 120);
-  return { vatRate: vat, stock, brand, useBarcode: o.useBarcode !== false };
+  const codes = readCodeRules(o.codes || (o.useBarcode === false ? { barcode: { mode: 'none' } } : {}), { count });      // the older "use the barcode" box is the barcode rule "none"
+  return { vatRate: vat, stock, brand, useBarcode: codes.barcode.mode !== 'none', codes };
 }
 
 /**
@@ -117,13 +191,14 @@ function readOptions(o = {}) {
  * @returns { created, skipped: [{ ref, title, reason: 'exists' (same SKU) | 'barcode' (same barcode) | 'limit' (plan) | 'unknown' }], limitReached }
  */
 async function create({ prisma, storeId, items, refs, options, room = Infinity }) {
-  const byRef = new Map(items.map((it) => [it.ref, it]));
+  const rules = options.codes || readCodeRules({ barcode: { mode: options.useBarcode === false ? 'none' : 'keep' } });
+  const byRef = new Map(items.map((it) => [it.ref, { ...it, ...codesFor(it, rules) }]));                  // the codes the rules give; everything else of the row is the XML's
   const chosen = [...new Set((Array.isArray(refs) ? refs : []).map(Number).filter(Number.isInteger))].map((r) => byRef.get(r) || r);
   const have = await existing(prisma, storeId, chosen.filter((x) => typeof x === 'object'));
   const skipped = []; const data = []; const usedSku = new Set(); const usedCode = new Set(); let limitReached = false;
   for (const x of chosen) {
     if (typeof x !== 'object') { skipped.push({ ref: x, title: '', reason: 'unknown' }); continue; }
-    const code = options.useBarcode ? x.barcode : '';
+    const code = x.barcode;
     const h = have.get(x.ref);
     if (h === 'sku' || usedSku.has(x.sku)) { skipped.push({ ref: x.ref, title: x.title, reason: 'exists' }); continue; }
     if (h === 'barcode' || (code && usedCode.has(code))) { skipped.push({ ref: x.ref, title: x.title, reason: 'barcode' }); continue; }
@@ -136,4 +211,4 @@ async function create({ prisma, storeId, items, refs, options, room = Infinity }
   return { created: data.length, skipped, limitReached };
 }
 
-module.exports = { MAX_ITEMS, FIELDS, read, fromText, toItem, imageList, safeText, existing, keep, recall, forget, readOptions, create, _cache: cache };
+module.exports = { MAX_ITEMS, FIELDS, read, fromText, toItem, imageList, safeText, existing, preview, keep, recall, forget, readOptions, readCodeRules, codesFor, ean13, create, _cache: cache };
