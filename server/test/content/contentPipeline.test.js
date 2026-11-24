@@ -342,6 +342,16 @@ test('the AdSense fix bot is a bot of its own in the registry (it runs inside th
   const w = await world(); await turnOn(w.pid); const fix = (await L.status({ projectId: w.pid })).items.find((i) => i.workType === 'article_fix'); assert.ok(fix.limit >= 12, `article_fix places: ${fix.limit}`);
 });
 
+test('migration 0024 raises a project\'s own article_fix limit to what the pace needs, never lowers it, and leaves a project with the line off alone', opts, async () => {
+  const w = await world(); await turnOn(w.pid, { everyMinutes: 480 });
+  const db = H.db(); const sql = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../src/content/migrations/0024_pipeline_fix_places_project.sql'), 'utf8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+  const setP = (n) => db.query("INSERT INTO daily_work_limits (scope, project_id, category_id, work_type, max_per_day) VALUES ('project', $1, NULL, 'article_fix', $2) ON CONFLICT (scope, COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(category_id, '00000000-0000-0000-0000-000000000000'::uuid), work_type) DO UPDATE SET max_per_day = $2", [w.pid, n]);
+  const getP = async () => (await db.query("SELECT max_per_day FROM daily_work_limits WHERE scope = 'project' AND project_id = $1 AND work_type = 'article_fix'", [w.pid])).rows[0].max_per_day;
+  await setP(10); await db.query(sql); assert.equal(await getP(), 28, '3 cycles a day x 8 rounds + 4');
+  await setP(60); await db.query(sql); assert.equal(await getP(), 60, 'a higher value of the owner stays');
+  await setP(10); await db.query("UPDATE automation_settings SET value = jsonb_set(value, '{enabled}', 'false') WHERE key = 'pipeline' AND project_id = $1", [w.pid]); await db.query(sql); assert.equal(await getP(), 10, 'a project with the line off is left alone');
+});
+
 test('turning it on: missing connections are named; limits only go UP for the pace; the old batch bots stop queueing for this project while the line is on, and come back when it is off', opts, async () => {
   const pid = (await P.seedDefault()).projectId;
   await assert.rejects(PL.setConfig(pid, { enabled: true, confirm: true }), (e) => e.status === 409 && e.extra.problems.some((x) => x.key === 'model') && e.extra.problems.some((x) => x.key === 'wordpress'));
