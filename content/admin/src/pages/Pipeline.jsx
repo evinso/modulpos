@@ -137,7 +137,7 @@ export default function Pipeline() {
                 </Check>
                 <Check checked={!!d.newsFallback} disabled={!canEdit || busy} onChange={(v) => send({ newsFallback: v }, v ? 'Açıldı' : 'Kapatıldı')}>
                   <span>Anahtar kelime hakkı bitince beklemeyip taze haber hattıyla devam et
-                    <small className="faint" style={{ display: 'block' }}>Apify ücretsiz planında günde 5 çalıştırma var (her çalıştırmada sıradaki birkaç fikrin kelimeleri birlikte sorulur, bu yüzden genelde yeter). Hak yine de biterse, <strong>taze</strong> bir haber fikri aranma hacmi olmadan ama gerçek SERP rekabeti ölçülerek yazılır. Kapalıyken hat Apify’ın yenilenmesini bekler.</small></span>
+                    <small className="faint" style={{ display: 'block' }}>Apify ücretsiz planında günde 5 çalıştırma var (her çalıştırmada sıradaki birkaç fikrin kelimeleri birlikte sorulur, bu yüzden genelde yeter). Hak yine de biterse hat beklemez: fikrin aranma verisi zaten varsa onunla devam eder; yoksa verisi hazır başka bir fikre geçer (eldeki fikir silinmez). Anahtar açıksa <strong>taze</strong> bir haber fikri de aranma hacmi olmadan ama gerçek SERP rekabeti ölçülerek yazılır. Hiçbiri olmazsa yenilenmeyi bekler.</small></span>
                 </Check>
               </div>
               {d.enabled && <small className="faint">Açıkken eski toplu botlar (haber taraması, fırsat puanlama, anahtar kelime, SERP, makale yazımı, düzeltme) kendi zamanlamalarıyla çalışmaz: bu işleri hat tek tek yürütür. Kapatırsanız eski zamanlamalar geri gelir.</small>}

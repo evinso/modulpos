@@ -281,12 +281,36 @@ test('the fresh-news lane marks even a FULLY scored idea: such an idea must stil
 test('Apify\'s free plan gives 5 runs a day: when the actor answers with nothing and its log says so, the cycle WAITS for the reset (00:05 UTC) - it neither burns ideas nor retries - and goes on after it', opts, async () => {
   const w = await world(); const { pid } = w; w.apify.state.freeLimit = true;
   await turnOn(pid); await run(w, D0);
-  const r = await PL.openRun(pid); assert.equal(r.status, 'waiting', r.note); assert.equal(r.step, 'keyword'); assert.match(r.note, /ücretsiz planında günlük 5 çalıştırma/); assert.equal(r.attempt, 1, 'no idea was thrown away for it');
+  const r = await PL.openRun(pid); assert.equal(r.status, 'waiting', r.note); assert.equal(r.step, 'idea', 'nothing could go on: every idea waits for the data (put aside, none thrown away)'); assert.match(r.note, /ücretsiz planında günlük 5 çalıştırma/); assert.equal(r.attempt, 1, 'no idea was thrown away for it');
   assert.equal(new Date(r.waitUntil).toISOString(), '2026-11-24T00:05:00.000Z', 'the next 00:05 UTC');
   assert.equal(w.apify.asked().length, 1, 'ONE call was spent finding out');
   await run(w, plus(D0, 600)); assert.equal(w.apify.asked().length, 1, 'nothing is asked again before the reset');
   w.apify.state.freeLimit = false;
   await run(w, new Date('2026-11-24T00:10:00Z')); assert.equal((await q1('SELECT status FROM pipeline_runs')).status, 'done'); assert.equal(wp.posts.size, 1);
+});
+
+/** the old way of working, before the line: the news scanned and the keywords asked for by hand (what a pile of earlier research looks like); `skip` keeps some ideas without data */
+async function preseed(w, skip = /^$/) {
+  const KW = require('../../src/content/services/keywords');
+  await N.runDiscovery(w.pid, { trigger: 'manual', userId: null, fetchImpl: w.ctx.newsFetch, now: D0, gapMs: 0, force: false }); await O.refresh(w.pid, { trigger: 'manual', userId: null, now: D0 });
+  const ids = (await q('SELECT k.id, o.title FROM keywords k JOIN content_opportunities o ON o.topic_id = k.topic_id')).filter((r) => !skip.test(r.title)).map((r) => r.id);
+  await KW.fetchMetrics(w.pid, { ids, manual: true, trigger: 'manual', userId: null, fetchImpl: w.ctx.fetchImpl, now: D0 }); await O.refresh(w.pid, { trigger: 'manual', userId: null, now: D0 });
+  return ids.length;
+}
+
+test('Apify\'s limit never stops an idea that ALREADY has volume data: the new Google keywords just have no volume, the line goes on with the data it has (no waiting until 03:00)', opts, async () => {
+  const w = await world({ suggest: { '*': ['openai pricing plans 2026', 'openai chatgpt plus price increase'] } }); assert.ok(await preseed(w) > 3); w.apify.state.freeLimit = true;
+  await turnOn(w.pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(wp.posts.size, 1);
+  assert.ok(d.trail.some((t) => /aranma verisi zaten var, onunla devam ediliyor/.test(t.text)), JSON.stringify(d.trail.map((t) => t.text)));
+});
+
+test('Apify\'s limit with an idea that has NO volume data: the idea is put aside (not thrown away) and the cycle takes the next idea that already has its data; it waits for the reset only when none can go on', opts, async () => {
+  const w = await world(); await preseed(w, /openai|chatgpt/i); w.apify.state.freeLimit = true;
+  await turnOn(w.pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(wp.posts.size, 1);
+  assert.ok(d.trail.some((t) => /fikir kuyrukta bırakıldı, verisi hazır başka fikre geçiliyor/.test(t.text)), JSON.stringify(d.trail.map((t) => t.text)));
+  assert.equal(d.attempt, 1, 'putting an idea aside is not a failed try'); assert.ok(!/openai|chatgpt/i.test(d.result.title), `the article is about an idea with data: ${d.result.title}`);
 });
 
 test('keywords the platform would pay for must hold a NAME of the headline; a generic word ("leaked") is not asked for, and an idea with no such keyword is skipped without being counted as a try', opts, async () => {

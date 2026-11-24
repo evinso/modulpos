@@ -250,16 +250,31 @@ function sane(keyword, title) {
 
 /** the ideas of the category, best first, that have at least one keyword worth asking for (`kwIds`); ideas without one are skipped (they are not tried, not counted, and the clean-up takes them away) */
 async function candidatesOf(projectId, categoryId, limit = 40) {
-  const rows = (await db.query(`SELECT o.id, o.title, o.provisional_score, o.topic_id, (SELECT COALESCE(json_agg(json_build_object('id', k.id, 'keyword', k.keyword) ORDER BY k.created_at, k.id), '[]'::json) FROM keywords k WHERE k.topic_id = o.topic_id) AS kws
+  const rows = (await db.query(`SELECT o.id, o.title, o.provisional_score, o.topic_id, o.total_score, o.explain->'missing' AS missing, (o.explain->>'lane') = 'true' AS lane, (SELECT COALESCE(json_agg(json_build_object('id', k.id, 'keyword', k.keyword) ORDER BY k.created_at, k.id), '[]'::json) FROM keywords k WHERE k.topic_id = o.topic_id) AS kws
     FROM content_opportunities o JOIN topics t ON t.id = o.topic_id
     WHERE o.project_id = $1 AND o.category_id = $2 AND o.status IN ('new', 'shortlisted') AND t.status = 'new' AND o.provisional_score IS NOT NULL AND COALESCE(o.ineligible_reason, '') !~ $3
     ORDER BY o.provisional_score DESC, o.updated_at DESC LIMIT $4`, [projectId, categoryId, HARD.source, limit])).rows;
   return rows.map((r) => ({ ...r, kwIds: r.kws.filter((k) => sane(k.keyword, r.title)).map((k) => k.id) })).filter((r) => r.kwIds.length);
 }
-const bestCandidate = async (projectId, categoryId) => (await candidatesOf(projectId, categoryId))[0] || null;
+
+/**
+ * While Apify's daily limit is known (hints.apifyOut) NOTHING is asked of it: an idea that already has real volume data goes on as it is, a fresh news idea goes on by the news lane (switch), and an idea that has neither is put
+ * aside for later (hints.deferred) while the cycle takes the next idea that can go on. Only when no idea can does the cycle wait for the reset.
+ */
+const apifyOut = (run, now) => { const a = run.hints && run.hints.apifyOut; return a && new Date(a.until) > now ? a : null; };
+const keepOut = (run, now) => { const a = apifyOut(run, now); return a ? { apifyOut: a, deferred: (run.hints && run.hints.deferred) || [] } : {}; };
+const canGoOn = (c, cfg) => !(c.missing || []).includes('demand') && c.missing !== null && c.missing !== undefined || (cfg.newsFallback && c.lane === true);   // real volume data (the SERP part is optional), or a fresh news idea
+async function bestCandidate(run, cfg, categoryId, now) {
+  const list = await candidatesOf(run.projectId, categoryId);
+  if (!apifyOut(run, now)) return list[0] || null;
+  const later = new Set((run.hints && run.hints.deferred) || []);
+  return list.find((c) => !later.has(c.id) && canGoOn(c, cfg)) || null;
+}
 
 /** every category has been looked at and none had anything: wait, then scan the news again and look at all of them again */
 function dry(run, now) {
+  const out = apifyOut(run, now);        // ideas are only held back by Apify's limit: no new scan, just wait for the reset
+  if (out) { run.triedCategories = []; run.categoryId = null; return wait(out.until, `${out.reason} (Verisi hazır, devam edebilecek başka fikir de yok.)`); }
   run.triedCategories = []; run.scanned = false; run.categoryId = null;
   return wait(inMinutes(now, DRY_WAIT_MIN), 'Hiçbir kategoride uygun fikir yok; haber kaynakları 1 saat sonra yeniden taranacak');
 }
@@ -268,7 +283,7 @@ async function stepIdea(run, ctx, now) {
   const pid = run.projectId;
   const room = await roomFor(pid, 'new_article', now);
   if (room.left <= 0) return wait(tomorrow(now), `Günlük yeni makale sınırı doldu (${room.done}/${room.limit}); yarın devam edilecek`);
-  const cats = await activeCategories(pid);
+  const cats = await activeCategories(pid); const cfg = await config(pid);
   if (!cats.length) return stop('Etkin kategori yok');
   if (!run.scanned) { await scan(run, ctx, now); run.scanned = true; await persist(run, now); }
   for (let guard = 0; guard < cats.length * 2 + 2; guard++) {
@@ -281,7 +296,7 @@ async function stepIdea(run, ctx, now) {
     if (cat.daily_max !== null && await categoryUsed(cat.id, now) >= cat.daily_max) {
       run.triedCategories.push(cat.id); run.categoryId = null; say(run, 'idea', false, `${cat.name_en}: günlük makale sınırı (${cat.daily_max}) dolu, sıradaki kategoriye geçildi`); continue;
     }
-    const pick = await bestCandidate(pid, cat.id);
+    const pick = await bestCandidate(run, cfg, cat.id, now);
     if (pick) { run.opportunityId = pick.id; say(run, 'idea', true, `Fikir seçildi: “${pick.title}” (${cat.name_en}, ön puan ${pick.provisional_score})`); return go('keyword'); }
     run.triedCategories.push(cat.id); run.categoryId = null; say(run, 'idea', false, `${cat.name_en}: uygun fikir yok, sıradaki kategoriye geçildi`);
   }
@@ -308,6 +323,7 @@ async function apifyFreeLimit(ctx, now) {
 }
 
 /** The free plan's keyword actor takes about 20 keywords per run (and only 5 runs a day), so ONE run asks for the chosen idea's keywords AND those of the next ideas of the category (data only: they are still worked one at a time). */
+const DEFER_MAX = 12;                                                    // ideas put aside for the limit in one cycle (then the cycle just waits)
 const PREFETCH = 20;
 const NEAR = 9;
 
@@ -347,6 +363,19 @@ async function stepKeyword(run, ctx, now) {
   if (all.some((k) => sane(k.keyword, o.topic_title || o.title))) { await enrichKeywords(run, ctx, o, now, all); all = await own(); }
   const mineIds = all.filter((k) => sane(k.keyword, o.topic_title || o.title)).map((k) => k.id);
   if (!mineIds.length) return reject('Bu konu için aranmaya değer bir anahtar kelime çıkmadı (başlıkta özel ad yok)');
+  // no volume can be had now (Apify's daily limit, the monthly cap): never wait for it while something else can go on
+  const hasDemand = async () => { const r = await opportunities.rescore(run.opportunityId, { now }); return !!r.keywordId && !((r.explain && r.explain.missing) || []).includes('demand'); };
+  const noVolume = async (why, until) => {
+    if (await hasDemand()) { say(run, 'keyword', null, `${String(why).slice(0, 110)}: bu fikrin aranma verisi zaten var, onunla devam ediliyor`); return go('serp'); }
+    const fb = await newsFallback(run, cfg, why, now); if (fb) return fb;
+    const later = [...new Set([...((run.hints && run.hints.deferred) || []), o.id])];
+    if (later.length > DEFER_MAX) return wait(until, why);
+    run.hints = { apifyOut: { until, reason: why }, deferred: later }; run.opportunityId = null;
+    say(run, 'keyword', null, `Bu fikir için aranma verisi alınamıyor (${String(why).slice(0, 110)}): fikir kuyrukta bırakıldı, verisi hazır başka fikre geçiliyor`);
+    return { go: 'idea', quiet: true };
+  };
+  const known = apifyOut(run, now);
+  if (known) return noVolume(known.reason, known.until);
   const near = (await candidatesOf(pid, run.categoryId, NEAR + 1)).filter((c) => c.id !== o.id);
   const ids = [...mineIds, ...near.flatMap((c) => c.kwIds)]; const order = new Map(ids.map((id, i) => [id, i]));
   const need = (await keywords.needing(pid, { ids, cacheDays: seo.cacheDays, now })).sort((a, b) => order.get(a.id) - order.get(b.id));
@@ -356,11 +385,11 @@ async function stepKeyword(run, ctx, now) {
     const ask = need.slice(0, PREFETCH).map((k) => k.id);
     out = await keywords.fetchMetrics(pid, { ids: ask, manual: false, trigger: 'schedule', userId: null, fetchImpl: ctx.fetchImpl, now });
     run.costUsd = Math.round((run.costUsd + Number(out.costUsd || 0)) * 1e6) / 1e6; run.unknownCost += out.unknownCost || 0;
-    if (out.stopped && !out.fetched && out.requested > 0) return (await newsFallback(run, cfg, out.stopped, now)) || wait(tomorrow(now), out.stopped);
+    if (out.stopped && !out.fetched && out.requested > 0) return noVolume(out.stopped, tomorrow(now));
     if (out.noAnswer && !out.fetched) {
       // nothing came back for ANY keyword: on Apify's free plan that is the daily run limit (the actor answers "today's 5 free runs are used" and looks nothing up); otherwise these keywords have no data
       const limit = await apifyFreeLimit(ctx, now);
-      if (limit) return (await newsFallback(run, cfg, 'Apify günlük çalıştırma hakkı bitti', now)) || wait(limit.until, limit.reason);
+      if (limit) return noVolume(limit.reason, limit.until);
       return reject('Veri sağlayıcısı bu anahtar kelimeler için hiç veri döndürmedi');
     }
   }
@@ -629,7 +658,7 @@ async function dropIdea(o) {
 async function rejectIdea(run, reason, now) {
   say(run, run.step, false, `Fikir elendi: ${reason}`);
   if (run.opportunityId) { const o = await idea(run.opportunityId); if (o) await dropIdea(o); }
-  run.opportunityId = null; run.articleId = null; run.publicationId = null; run.attempt += 1; run.rewrites = 0; run.hints = {}; moveTo(run, 'idea', now);
+  run.opportunityId = null; run.articleId = null; run.publicationId = null; run.attempt += 1; run.rewrites = 0; run.hints = keepOut(run, now); moveTo(run, 'idea', now);
 }
 
 async function notifyStop(run, reason) {
