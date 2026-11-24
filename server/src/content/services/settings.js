@@ -59,8 +59,9 @@ const GROUPS = {
   },
   pipeline: {                                                    // the production line (services/pipeline.js): on/off and how often a new cycle starts
     projectOverride: true,
-    defaults: { enabled: false, everyMinutes: 1440 },
-    validate: (v) => ({ enabled: V.bool(v.enabled, 'Otomatik üretim', false), everyMinutes: V.oneOf(Number(v.everyMinutes), 'Üretim sıklığı', [120, 180, 240, 360, 480, 720, 1440], { fallback: 1440 }) }),
+    defaults: { enabled: false, everyMinutes: 1440, newsFallback: true, acceptSubjectWarning: true },
+    validate: (v) => ({ enabled: V.bool(v.enabled, 'Otomatik üretim', false), everyMinutes: V.oneOf(Number(v.everyMinutes), 'Üretim sıklığı', [120, 180, 240, 360, 480, 720, 1440], { fallback: 1440 }),
+      newsFallback: V.bool(v.newsFallback, 'Hacim verisi alınamazsa taze haber hattı', true), acceptSubjectWarning: V.bool(v.acceptSubjectWarning, 'Konu kaynaklı AdSense uyarısını hat kabul etsin', true) }),
   },
   retention: {                                                  // how long found-but-unused research stays: nothing piles up for ever (see services/cleanup.js)
     projectOverride: true,

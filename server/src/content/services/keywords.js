@@ -353,4 +353,4 @@ async function generateForTopic(topicId) {
   return { ...r, candidates: cands };
 }
 
-module.exports = { BOT, normalize, add, list, exportCsv, remove, plan, fetchMetrics, importMetrics, suggest, candidatesFor, generateForTopic, usedThisMonth };
+module.exports = { BOT, normalize, add, list, exportCsv, remove, plan, needing, fetchMetrics, importMetrics, suggest, candidatesFor, generateForTopic, usedThisMonth };
