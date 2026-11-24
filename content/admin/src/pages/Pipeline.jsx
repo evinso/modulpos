@@ -113,6 +113,9 @@ export default function Pipeline() {
           <Card title={<span className="row" style={{ gap: 8 }}><Power size={17} />Otomatik Üretim{d.enabled ? <Badge kind="ok">AÇIK</Badge> : <Badge>KAPALI</Badge>}</span>}>
             <div className="stack">
               <div className="row" style={{ gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <Field label="Makale en az kaç kelime?" hint="Daha kısa taslak yayımlanmaz; yazıcıya da bu söylenir.">
+                  <input className="input num" type="number" min={300} max={3000} step={50} aria-label="En az kelime" defaultValue={d.minWords} key={d.minWords} disabled={!canEdit || busy} onBlur={(e) => { const v = Number(e.target.value); if (v >= 300 && v <= 3000 && v !== d.minWords) send({ minWords: v }, 'Kaydedildi'); }} />
+                </Field>
                 <Field label="Ne sıklıkla yeni makale?" hint={`${d.cyclesPerDay} döngü / gün. Her döngü bir makale yayımlar.`}>
                   <select className="input" aria-label="Üretim sıklığı" value={d.everyMinutes} disabled={!canEdit || busy} onChange={(e) => send({ everyMinutes: Number(e.target.value) }, 'Sıklık kaydedildi')}>
                     {d.frequencies.map((f) => <option key={f.minutes} value={f.minutes}>{f.label}</option>)}

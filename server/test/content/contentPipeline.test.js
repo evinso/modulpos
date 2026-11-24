@@ -43,7 +43,7 @@ const q = (sql, p = []) => H.db().query(sql, p).then((r) => r.rows);
 const q1 = async (sql, p = []) => (await q(sql, p))[0];
 
 /** a project with every service connected and the news of `items` scanned by the line itself (nothing is done by hand but the switch) */
-async function world({ noVolume = /^$/, items = ITEMS, freshHours = 0 } = {}) {
+async function world({ noVolume = /^$/, items = ITEMS, freshHours = 0, suggest = {} } = {}) {
   const pid = (await P.seedDefault()).projectId;
   await PR.save('anthropic', { secret: 'sk-ant-test-key-0123456789', extra: { inputPricePerM: '3', outputPricePerM: '15' } });
   await PR.save('openai', { secret: 'sk-test-key-0123456789abcdef', extra: { model: 'gpt-test', inputPricePerM: '1', outputPricePerM: '4' } });
@@ -53,12 +53,13 @@ async function world({ noVolume = /^$/, items = ITEMS, freshHours = 0 } = {}) {
   await H.db().query('UPDATE niche_profiles SET min_opportunity_score = 30 WHERE project_id = $1', [pid]); await H.db().query('UPDATE categories SET min_opportunity_score = NULL');
   await S.set('quality', { ...(await S.get('quality')).value, minScore: 50 }, { scope: 'global' }); await S.set('seo', { ...(await S.get('seo')).value, freshHours }, { scope: 'global' });
   const volumes = new Proxy({}, { get: (_, k) => (typeof k !== 'string' ? undefined : (noVolume.test(k) ? { none: true } : { volume: 5400, cpc: 1.2, comp: 0.4, kd: 35 })), has: () => true });
-  const apify = fakeApify({ volumes }); const serper = fakeSerper({ '*': ['smallblog.example', 'nichesite.example', 'tinydocs.example', 'devnotes.example', 'forum.example'] });
-  const m = fakeModels();
+  const apify = fakeApify({ volumes }); const serper = fakeSerper({ '*': ['smallblog.example', 'nichesite.example', 'tinydocs.example', 'devnotes.example', 'forum.example'] }, suggest);
+  const m = fakeModels(); m.st.long = true;                                                       // drafts of more than 950 words: the line's minimum length
   const route = async (url, o) => { const u = String(url); if (u.includes('api.apify.com')) return apify.fetchImpl(url, o); if (u.includes('serper.dev')) return serper.fetchImpl(url, o); return m.fetchImpl(url, o); };
   const feed = { items, pub: undefined }; const ctx = { fetchImpl: route, fetcher: pageFetcher, get newsFetch() { return feedsOf(feed.items, feed.pub); }, gapMs: 0, probe: probeOk };
   return { pid, site, apify, serper, m, ctx, feed };
 }
+const dbg = async (label) => { if (process.env.DEBUG_PIPELINE) console.log(`TRAIL[${label}]`, JSON.stringify((await q('SELECT trail FROM pipeline_runs ORDER BY started_at DESC LIMIT 1'))[0].trail.map((t) => `${t.step}${t.ok === false ? '✗' : ''}: ${t.text}`.slice(0, 230)), null, 1)); };
 const turnOn = (pid, extra = {}) => PL.setConfig(pid, { enabled: true, confirm: true, ...extra });
 /** the clock of the line: queue what is due, then let the worker work until nothing is left */
 const run = async (w, now) => { await SC.tick({ now }); return drain(now, w.ctx); };
@@ -98,7 +99,7 @@ test('the gate rule: an idea whose keyword has NO volume data is thrown away at 
   await turnOn(pid); await run(w, D0);
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done'); assert.equal(d.attempt, 2, 'the first idea was dropped, the second one was written');
   const dropped = d.trail.filter((t) => /Fikir elendi/.test(t.text)); assert.equal(dropped.length, 1); assert.equal(dropped[0].step, 'keyword'); assert.match(dropped[0].text, /Anahtar kelime verisi bulunamadı/);
-  assert.equal(w.serper.calls.length, 1, 'only the idea that passed the keyword step got a SERP analysis');
+  assert.equal(w.serper.calls.filter((c) => /\/search$/.test(c.url)).length, 1, 'only the idea that passed the keyword step got a SERP analysis (the Google suggestions for the keywords are separate calls)');
   const art = await q1('SELECT h1 FROM articles'); assert.match(art.h1, /gemini/i, 'the second idea (Gemini) is the one that became the article');
   assert.equal(wp.posts.size, 1);
 });
@@ -131,23 +132,34 @@ test('a SUBJECT-level AdSense warning is no longer left to a person (the owner\'
 test('... and when the rewrite is enough the warning is simply gone: nothing is accepted', opts, async () => {
   const w = await world(); const { pid } = w; let n = 0; w.m.st.override.review = () => { n++; if (n === 1) return SENSITIVE; delete w.m.st.override.review; return undefined; };
   await turnOn(pid); await run(w, D0);
-  assert.equal((await q1('SELECT status FROM pipeline_runs')).status, 'done'); const a = await q1('SELECT status, adsense_risk, adsense_accepted_at FROM articles');
+  await dbg('rewrite-is-enough'); assert.equal((await q1('SELECT status FROM pipeline_runs')).status, 'done'); const a = await q1('SELECT status, adsense_risk, adsense_accepted_at FROM articles');
   assert.deepEqual([a.status, a.adsense_risk, a.adsense_accepted_at], ['published', 'low', null]);
 });
 
 const BLOCKED = { ...SENSITIVE, risk: 'blocked', categories: { ...SENSITIVE.categories, sensitive: { status: 'pass', note: '' }, copyright: { status: 'fail', note: 'Copied.' } } };
+/** the reviewer calls the first `k` reviews "blocked" (the writer's own check + the fix bot's re-checks), then the default reviewer answers */
+const blockedFor = (m, k) => { let n = 0; m.st.override.review = () => { n++; if (n >= k) delete m.st.override.review; return BLOCKED; }; };
 
-test('before a draft is archived and its idea thrown away the line tries ONCE more on the same idea: a fresh draft, by the OTHER writer, told why the first one failed (a "blocked" class is never accepted, but it may be cured by a new text)', opts, async () => {
-  const w = await world(); const { pid } = w; let n = 0; w.m.st.override.review = () => { n++; if (n === 1) return BLOCKED; delete w.m.st.override.review; return undefined; };
+test('the AdSense FIX BOT works a draft the reviewer called "blocked" over (a text-level class is cured by a new text, never accepted): the idea is NOT lost', opts, async () => {
+  const w = await world(); const { pid } = w; blockedFor(w.m, 2);                                    // the writer\'s check says blocked, the first re-check (after the bot\'s rewrite) says fine
   await turnOn(pid); await run(w, D0);
-  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(d.attempt, 1, 'the SAME idea was written again: no other idea was needed');
-  assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['archived', 'published'], 'the first draft is archived only now that a second one exists');
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(d.attempt, 1);
+  assert.deepEqual((await q('SELECT status FROM articles')).map((x) => x.status), ['published']); assert.ok(w.m.byRole('fix').length >= 1, 'the bot rewrote the text');
+  assert.ok(d.trail.some((t) => /AdSense Düzeltme Botu devrede/.test(t.text))); assert.equal((await q1("SELECT count(*)::int n FROM articles WHERE adsense_accepted_at IS NOT NULL")).n, 0, 'a blocked class was not accepted');
+  assert.equal((await q1("SELECT count(*)::int n FROM automation_runs WHERE bot_key = 'adsense_fixer'")).n, 1, 'the bot has its own run record');
+});
+
+test('when even the bot\'s 4 rounds cannot clear the draft the line tries ONCE more: a FRESH draft by the OTHER writer, told why the first one failed; only then the first one is archived', opts, async () => {
+  const w = await world(); const { pid } = w; blockedFor(w.m, 6);                                    // writer check + 4 bot re-checks blocked; the second draft is judged by the default reviewer
+  await turnOn(pid); await run(w, D0); await dbg('redo');
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + ' ' + JSON.stringify(d.trail.map((t) => t.text).slice(-6))); assert.equal(d.attempt, 1, 'the SAME idea was written again');
+  assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['archived', 'published']);
   const writes = w.m.byRole('write'); assert.equal(writes.length, 2); assert.notEqual(writes[0].vendor, writes[1].vendor, 'another writer for the second draft'); assert.match(writes[1].user, /A PREVIOUS DRAFT OF THIS ARTICLE WAS REJECTED/); assert.doesNotMatch(writes[0].user, /PREVIOUS DRAFT/);
-  assert.ok(d.trail.some((t) => /Fikir elenmeden önce yeniden deneniyor/.test(t.text))); assert.equal((await q1("SELECT count(*)::int n FROM articles WHERE adsense_accepted_at IS NOT NULL")).n, 0, 'a blocked class was not accepted');
+  assert.ok(d.trail.some((t) => /Fikir elenmeden önce yeniden deneniyor/.test(t.text)));
 });
 
 test('... only ONCE per idea: when the second draft fails too the idea is thrown away and the next idea goes on', opts, async () => {
-  const w = await world(); const { pid } = w; let n = 0; w.m.st.override.review = () => { n++; if (n <= 2) return BLOCKED; delete w.m.st.override.review; return undefined; };
+  const w = await world(); const { pid } = w; blockedFor(w.m, 11);                                   // both drafts of the first idea (1 + 4, 1 + 4 checks) are blocked
   await turnOn(pid); await run(w, D0);
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(d.attempt, 2);
   assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['archived', 'archived', 'published']); assert.equal(w.m.byRole('write').length, 3);
@@ -173,7 +185,7 @@ test('Apify\'s daily run limit no longer means waiting for hours: ONE run serves
   await H.clean(); await wp.close(); wp = await startFakeWp();
   const w2 = await world({ freshHours: 36 }); w2.apify.state.freeLimit = true; await turnOn(w2.pid); await run(w2, D0);
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text)));
-  assert.ok(d.trail.some((t) => /taze haber hattıyla devam ediliyor/.test(t.text)) && d.trail.some((t) => /^Uygun \(taze haber hattı\)/.test(t.text))); assert.equal(wp.posts.size, 1);
+  assert.ok(d.trail.some((t) => /taze haber hattıyla devam ediliyor/.test(t.text)) && d.trail.some((t) => /^Uygun \(hacim verisi olmadan/.test(t.text))); assert.equal(wp.posts.size, 1);
   await H.clean(); await wp.close(); wp = await startFakeWp();
   const w3 = await world({ freshHours: 36 }); w3.apify.state.freeLimit = true; await turnOn(w3.pid); await PL.setConfig(w3.pid, { newsFallback: false }); await run(w3, D0);
   const r = await PL.openRun(w3.pid); assert.equal(r.status, 'waiting'); assert.match(r.note, /ücretsiz planında günlük 5 çalıştırma/); assert.equal(wp.posts.size, 0);
@@ -263,7 +275,7 @@ test('the fresh-news lane marks even a FULLY scored idea: such an idea must stil
   const w = await world({ freshHours: 36 }); const { pid } = w;
   await turnOn(pid); await run(w, D0);
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text)));
-  assert.ok(d.trail.some((t) => /^Uygun: fırsat puanı \d+/.test(t.text)), 'the suitability step said yes with a real score'); assert.equal(wp.posts.size, 1);
+  assert.ok(d.trail.some((t) => /^Uygun \(tam puan\): fırsat puanı \d+/.test(t.text)), 'the suitability step said yes with a real score'); assert.equal(wp.posts.size, 1);
 });
 
 test('Apify\'s free plan gives 5 runs a day: when the actor answers with nothing and its log says so, the cycle WAITS for the reset (00:05 UTC) - it neither burns ideas nor retries - and goes on after it', opts, async () => {
@@ -296,6 +308,38 @@ test('while the line is on the old modes page is PASSIVE: the server refuses to 
   await assert.rejects(AU.apply({ projectId: pid, mode: 'custom', options: { news: false } }), (e) => e.status === 409);
   await PL.setConfig(pid, { enabled: false });
   const ok = await AU.apply({ projectId: pid, mode: 'custom', options: { news: false } }); assert.equal(ok.options.find((o) => o.key === 'news').on, false);
+});
+
+test('keywords are no longer single names: Google\'s own suggestions are added once per idea and the focus keyword is a multi-word phrase that holds the name (and has volume when there is some)', opts, async () => {
+  const w = await world({ suggest: { '*': ['openai pricing plans 2026', 'openai chatgpt plus price increase', 'how to cancel'] } }); const { pid } = w;
+  await turnOn(pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text)));
+  assert.ok(d.trail.some((t) => /Google önerilerinden \d+ zengin anahtar kelime eklendi/.test(t.text)), 'the suggestions were added'); assert.equal(w.serper.calls.filter((c) => /autocomplete$/.test(c.url)).length, 1, 'one Serper credit for the idea');
+  const fk = (await q1('SELECT focus_keyword FROM articles')).focus_keyword; assert.ok(fk.split(' ').length >= 3 && /openai/.test(fk) && !/'/.test(fk), `the focus keyword is a phrase: "${fk}"`);
+  assert.ok(d.trail.some((t) => /Odak anahtar kelime seçildi: “/.test(t.text)));
+});
+
+test('the SERP analysis is NOT required: when Serper fails (or its limit is used up) the cycle goes on without it, judged on the parts that are real, and publishes', opts, async () => {
+  const w = await world(); const { pid } = w; w.serper.state.status = 500;
+  await turnOn(pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.ok(d.trail.some((t) => /SERP atlandı \(zorunlu değil\)/.test(t.text)));
+  assert.ok(d.trail.some((t) => /^Uygun \(SERP verisi olmadan/.test(t.text))); assert.equal(wp.posts.size, 1);
+});
+
+test('the minimum length (950 words): the writer is told, a shorter draft is blocked by readiness (and worked on by the fix bot), and the number is the owner\'s to change', opts, async () => {
+  const w = await world(); const { pid } = w; w.m.st.long = false;                                          // the fake writer's drafts have ~570 words
+  await turnOn(pid); await run(w, D0);
+  assert.match(w.m.byRole('write')[0].system, /AT LEAST 950 words/, 'the writer prompt carries the minimum');
+  assert.equal(wp.posts.size, 0, 'a 570-word draft is not published'); const art = await q('SELECT word_count, status FROM articles'); assert.ok(art.length > 0 && art.every((x) => x.word_count < 950));
+  assert.ok((await q1('SELECT trail FROM pipeline_runs')).trail.some((t) => /en az 950 gerekli/.test(t.text)), 'the reason is told in words');
+  await H.clean(); await wp.close(); wp = await startFakeWp();
+  const w2 = await world(); w2.m.st.long = false; await turnOn(w2.pid, { minWords: 500 }); await run(w2, D0);
+  assert.equal(wp.posts.size, 1, 'with the minimum at 500 the same draft goes out'); assert.equal((await S.get('pipeline', w2.pid)).value.minWords, 500);
+});
+
+test('the AdSense fix bot is a bot of its own in the registry (it runs inside the line) and a line that is on gets the places its rounds need', opts, async () => {
+  const BO = require('../../src/content/services/bots'); assert.ok(BO.BOTS.some((b) => b.key === 'adsense_fixer') && BO.IMPLEMENTED.has('adsense_fixer'));
+  const w = await world(); await turnOn(w.pid); const fix = (await L.status({ projectId: w.pid })).items.find((i) => i.workType === 'article_fix'); assert.ok(fix.limit >= 12, `article_fix places: ${fix.limit}`);
 });
 
 test('turning it on: missing connections are named; limits only go UP for the pace; the old batch bots stop queueing for this project while the line is on, and come back when it is off', opts, async () => {

@@ -21,6 +21,7 @@ const fixer = require('./fixer');
 const articles = require('./articles');
 const autoApprove = require('./autoApprove');
 const audit = require('./audit');
+const adsenseBot = require('./adsenseBot');
 const publishing = require('./publishing');
 
 /**
@@ -45,15 +46,14 @@ const publishing = require('./publishing');
 const BOT = 'daily_pipeline';
 const STEPS = ['idea', 'keyword', 'serp', 'check', 'write', 'fix', 'publish', 'cleanup'];
 const LABEL = {
-  idea: 'Fikir bulunuyor', keyword: 'Anahtar kelime araştırması', serp: 'SERP rekabet analizi', check: 'Uygunluk kontrolü', write: 'Makale yazılıyor ve zorunlu kontroller yapılıyor',
-  fix: 'Eksikler giderilip onaylanıyor', publish: 'WordPress’e yayımlanıyor', cleanup: 'Araştırma artıkları temizleniyor',
+  idea: 'Fikir bulunuyor', keyword: 'Anahtar kelime araştırması', serp: 'SERP rekabet analizi (isteğe bağlı)', check: 'Uygunluk kontrolü', write: 'Makale yazılıyor ve zorunlu kontroller yapılıyor',
+  fix: 'AdSense Düzeltme Botu: eksikler giderilip onaylanıyor', publish: 'WordPress’e yayımlanıyor', cleanup: 'Araştırma artıkları temizleniyor',
 };
 const FREQUENCIES = [[1440, 'Günde 1'], [720, 'Günde 2'], [480, 'Günde 3'], [360, '6 saatte 1'], [240, '4 saatte 1'], [180, '3 saatte 1'], [120, '2 saatte 1']];
 const JOB_MS = 9 * 60000;
 const RETRY_MIN = 10;                // a service that does not answer: look again after this long
 const MAX_RETRIES = 6;               // ... and give up (stop, tell the owner) after this many tries in a row at one step
 const STOP_RETRY_MIN = 30;           // a stopped cycle looks again by itself after this long (the owner may have fixed the cause)
-const FIX_ROUNDS = 2;
 const WRITE_TRIES = 2;
 const RUNAWAY = 30;                  // ideas tried in ONE cycle before it stops for a human look
 const DRY_WAIT_MIN = 60;
@@ -130,7 +130,8 @@ async function ensureRoom(projectId, everyMinutes, changes, userId) {
   const wantArticles = cycles + 2;                       // + 2: an article that cannot be fixed still used its place
   const st = (await limits.status({ projectId })).items; const item = (t) => st.find((i) => i.workType === t);
   const raiseG = {}; const raiseP = {};
-  for (const [t, want] of [['new_article', wantArticles], ['publish', cycles]]) {
+  const wantFix = cycles * 2 * adsenseBot.ROUNDS + 4;      // the AdSense fix bot may use up to 4 rounds on each of two drafts of an idea
+  for (const [t, want] of [['new_article', wantArticles], ['publish', cycles], ['article_fix', wantFix]]) {
     if (item(t).limit < want) raiseG[t] = want;
     const pl = item(t).project;
     if ((pl ? pl.limit : -1) < want && (t === 'new_article' || pl)) raiseP[t] = want;
@@ -155,7 +156,8 @@ async function setConfig(projectId, body, { userId = null } = {}) {
   const next = { enabled: body.enabled !== undefined ? V.bool(body.enabled, 'Otomatik üretim') : cur.enabled,
     everyMinutes: body.everyMinutes !== undefined ? V.oneOf(Number(body.everyMinutes), 'Üretim sıklığı', FREQUENCIES.map((f) => f[0])) : cur.everyMinutes,
     newsFallback: body.newsFallback !== undefined ? V.bool(body.newsFallback, 'Taze haber hattı') : cur.newsFallback,
-    acceptSubjectWarning: body.acceptSubjectWarning !== undefined ? V.bool(body.acceptSubjectWarning, 'Konu kaynaklı uyarıyı hat kabul etsin') : cur.acceptSubjectWarning };
+    acceptSubjectWarning: body.acceptSubjectWarning !== undefined ? V.bool(body.acceptSubjectWarning, 'Konu kaynaklı uyarıyı hat kabul etsin') : cur.acceptSubjectWarning,
+    minWords: body.minWords !== undefined ? V.int(body.minWords, 'Makale en az kelime', { min: 300, max: 3000 }) : cur.minWords };
   const changes = [];
   if (next.enabled) {
     const pre = await prerequisites(pid);
@@ -175,6 +177,7 @@ async function setConfig(projectId, body, { userId = null } = {}) {
   await settings.set('pipeline', next, { scope: 'project', projectId: pid, userId });
   if (next.enabled !== cur.enabled) changes.unshift(next.enabled ? 'Otomatik üretim AÇILDI (eski toplu botlar artık kendiliğinden çalışmaz: üretimi hat yürütür)' : 'Otomatik üretim kapatıldı (eski bot zamanlamaları yeniden geçerli)');
   if (next.everyMinutes !== cur.everyMinutes) changes.push(`Sıklık: ${FREQUENCIES.find((f) => f[0] === next.everyMinutes)[1]}`);
+  if (next.minWords !== cur.minWords) changes.push(`Makale en az kelime: ${cur.minWords} → ${next.minWords}`);
   if (next.newsFallback !== cur.newsFallback) changes.push(next.newsFallback ? 'Apify hakkı bitince taze haber hattıyla devam AÇILDI' : 'Apify hakkı bitince taze haber hattıyla devam kapatıldı (hat bekler)');
   if (next.acceptSubjectWarning !== cur.acceptSubjectWarning) changes.push(next.acceptSubjectWarning ? 'Konu kaynaklı AdSense uyarısını hat kendisi kabul etsin AÇILDI' : 'Konu kaynaklı AdSense uyarısı yine bir kişiye bırakılıyor (fikir elenir)');
   return { ...(await overview(pid)), changes };
@@ -318,6 +321,21 @@ async function newsFallback(run, cfg, why, now) {
   return go('serp');
 }
 
+/**
+ * The platform's own candidates are single NAMES ("faa", "netflix", "openai's"). Google itself knows what people type after a name: its autocomplete suggestions (one Serper credit) are added
+ * as keywords of the topic ("staples canada data breach", "…settlement"), once per idea. Failing to get them never stops the cycle.
+ */
+async function enrichKeywords(run, ctx, o, now, all) {
+  const have = (await db.query("SELECT count(*)::int n FROM keywords WHERE topic_id = $1 AND origin IN ('suggestion', 'related', 'question')", [o.topic_id])).rows[0].n;
+  if (have) return;
+  const names = all.filter((k) => sane(k.keyword, o.topic_title || o.title)).sort((a, b) => b.keyword.split(' ').length - a.keyword.split(' ').length);
+  if (!names.length) return;
+  try {
+    const out = await keywords.suggest(run.projectId, names[0].keyword, { mode: 'suggestions', limit: 10, topicId: o.topic_id, categoryId: o.category_id, manual: false, fetchImpl: ctx.fetchImpl, now });
+    say(run, 'keyword', out.added ? true : null, out.added ? `Google önerilerinden ${out.added} zengin anahtar kelime eklendi (“${names[0].keyword}” için)` : `Google önerisi gelmedi${out.stopped ? ` (${String(out.stopped).slice(0, 100)})` : ''}: mevcut kelimelerle devam`);
+  } catch (err) { say(run, 'keyword', null, `Google önerileri alınamadı (${String(err.message).slice(0, 100)}): mevcut kelimelerle devam`); }
+}
+
 async function stepKeyword(run, ctx, now) {
   const pid = run.projectId; const o = await idea(run.opportunityId);
   if (!o) return reject('Fikir bulunamadı (silinmiş)');
@@ -326,6 +344,7 @@ async function stepKeyword(run, ctx, now) {
   const own = async () => (await db.query('SELECT id, keyword FROM keywords WHERE topic_id = $1', [o.topic_id])).rows;
   let all = await own();
   if (!all.length) { await keywords.generateForTopic(o.topic_id); all = await own(); }
+  if (all.some((k) => sane(k.keyword, o.topic_title || o.title))) { await enrichKeywords(run, ctx, o, now, all); all = await own(); }
   const mineIds = all.filter((k) => sane(k.keyword, o.topic_title || o.title)).map((k) => k.id);
   if (!mineIds.length) return reject('Bu konu için aranmaya değer bir anahtar kelime çıkmadı (başlıkta özel ad yok)');
   const near = (await candidatesOf(pid, run.categoryId, NEAR + 1)).filter((c) => c.id !== o.id);
@@ -351,36 +370,64 @@ async function stepKeyword(run, ctx, now) {
   return go('serp');
 }
 
+/** the SERP analysis is NOT required (owner): when it cannot be had the cycle goes on without it, and the suitability step judges on the parts that are real */
+const skipSerp = (run, why) => { say(run, 'serp', null, `SERP atlandı (zorunlu değil): ${String(why).slice(0, 160)}`); return { go: 'check', quiet: true }; };
+
 async function stepSerp(run, ctx, now) {
   const o = await opportunities.get(run.opportunityId).catch(() => null);
   if (!o || !o.keywordId) return reject('Fikrin odak anahtar kelimesi yok');
-  const out = await serp.analyze(o.keywordId, { manual: false, trigger: 'schedule', userId: null, fetchImpl: ctx.fetchImpl, now });
-  if (out.stopped && !out.analysis) return wait(tomorrow(now), out.stopped);
-  if (!out.analysis) return retryLater('SERP analizi alınamadı');
+  let out;
+  try { out = await serp.analyze(o.keywordId, { manual: false, trigger: 'schedule', userId: null, fetchImpl: ctx.fetchImpl, now }); }
+  catch (err) { return skipSerp(run, `SERP analizi alınamadı: ${err.message}`); }
+  if (out.stopped && !out.analysis) return skipSerp(run, out.stopped);
+  if (!out.analysis) return skipSerp(run, 'SERP analizi alınamadı');
   if (!out.cached) addCost(run, out.analysis.costUsd);
-  const r = await opportunities.rescore(run.opportunityId, { now });
-  if (r.explain && (r.explain.missing || []).includes('competition')) return reject('SERP analizi sonucu işlenemedi (rekabet puanı yok)');
+  await opportunities.rescore(run.opportunityId, { now });
   say(run, 'serp', true, `SERP rekabet tahmini: ${out.analysis.competition}/100${out.cached ? ' (önbellekten)' : ''}`);
-  return go('check');
+  return { go: 'check', quiet: true };
+}
+
+const BONUS = { 1: 0, 2: 22, 3: 30, 4: 28, 5: 22, 6: 14 };
+/** the focus keyword of the article: a phrase that holds a NAME of the headline, with several words (people search "staples canada data breach", not "staples"), real volume when there is some, no apostrophe oddities, not already an article's focus */
+async function chooseFocus(run, o, now) {
+  const rows = (await db.query(`SELECT k.id, k.keyword, m.found, m.search_volume FROM keywords k
+    LEFT JOIN LATERAL (SELECT found, search_volume FROM keyword_metrics x WHERE x.keyword_id = k.id ORDER BY fetched_at DESC LIMIT 1) m ON true WHERE k.topic_id = $1`, [o.topic_id])).rows;
+  const taken = new Set((await db.query("SELECT focus_keyword FROM articles WHERE project_id = $1 AND status NOT IN ('archived', 'failed') AND focus_keyword <> ''", [run.projectId])).rows.map((r) => r.focus_keyword));
+  const title = o.topic_title || o.title;
+  const scored = rows.filter((k) => sane(k.keyword, title) && !taken.has(k.keyword)).map((k) => {
+    const n = k.keyword.split(' ').length; const vol = k.found && Number(k.search_volume) > 0 ? Math.log10(Number(k.search_volume) + 1) * 8 : 0;
+    return { ...k, score: (BONUS[n] ?? 10) + vol - (/['’]/.test(k.keyword) ? 30 : 0) };
+  }).sort((a, b) => b.score - a.score);
+  const best = scored[0]; if (!best || best.id === o.keyword_id) return;
+  await db.query('UPDATE content_opportunities SET keyword_id = $2, updated_at = now() WHERE id = $1', [o.id, best.id]);
+  say(run, 'check', true, `Odak anahtar kelime seçildi: “${best.keyword}”${best.found && Number(best.search_volume) > 0 ? ` (aylık ~${Number(best.search_volume).toLocaleString('tr-TR')} arama)` : ''}`);
 }
 
 async function stepCheck(run, ctx, now) {
   const r = await opportunities.rescore(run.opportunityId, { now });
   const cfg = await config(run.projectId);
   const missing = (r.explain && r.explain.missing) || [];
+  const minScore = r.explain && Number.isFinite(Number(r.explain.minScore)) ? Number(r.explain.minScore) : 70;
   const full = r.total !== null && r.total !== undefined && !missing.length;
-  // the news lane (owner's switch): a FRESH idea without a volume number but WITH a real SERP analysis may pass on the time wave; everything else still needs a full score
-  const lane = !full && cfg.newsFallback && !!(r.explain && r.explain.lane) && missing.length > 0 && missing.every((m) => m === 'demand');
-  const why = [];
+  // SERP is optional (owner) and so is the volume number on the news lane (switch): what is missing may only be those two; everything else (trend, relevance, source) must be real, and the score of the REAL parts must reach the bar
+  const demandOk = !missing.includes('demand') || (cfg.newsFallback && !!(r.explain && r.explain.lane));
+  const other = missing.filter((m) => m !== 'demand' && m !== 'competition');
+  const bar = Math.min(minScore, 60);
+  const why = []; let basis = 'tam puan';
   if (r.status === 'rejected') why.push('Reddedilmiş');
-  if (!full && !lane) why.push('Tam puan çıkmadı (eksik veri ya da kısmi puan geçerli sayılmaz)');
-  else if (!r.eligible) why.push(r.ineligibleReason || 'Fırsat puanı yetersiz');
+  if (full) { if (!r.eligible) why.push(r.ineligibleReason || 'Fırsat puanı yetersiz'); }
+  else if (other.length || !demandOk) why.push('Tam puan çıkmadı (eksik veri ya da kısmi puan geçerli sayılmaz)');
+  else if ((r.provisional ?? 0) < bar) why.push(`Eldeki gerçek verilerle ön puan ${r.provisional}, en az ${bar} gerekli`);
+  else basis = `${missing.map((m) => (m === 'competition' ? 'SERP' : 'hacim')).join(' ve ')} verisi olmadan, gerçek parçaların puanı`;
   if (!why.length) {
     const scope = await projects.checkTopic(run.projectId, `${r.title} ${r.keyword || ''}`, r.categoryId);
     if (!scope.allowed) why.push(`Kapsam dışı konu (${scope.matched.map((m) => m.topic).join(', ')})`);
   }
   if (why.length) return reject(why.join('; '));
-  say(run, 'check', true, lane ? `Uygun (taze haber hattı): ön puan ${r.provisional}, odak anahtar kelime “${r.keyword}” (hacim verisi yok, SERP rekabeti gerçek)` : `Uygun: fırsat puanı ${r.total}, odak anahtar kelime “${r.keyword}”`);
+  if (!r.eligible) await db.query("UPDATE content_opportunities SET eligible = true, ineligible_reason = '', updated_at = now() WHERE id = $1", [run.opportunityId]);       // the line's own judgement (like a person's short-list approval) lets the writer take it
+  await chooseFocus(run, await idea(run.opportunityId), now);
+  const f = await opportunities.get(run.opportunityId);
+  say(run, 'check', true, `Uygun (${basis}): ${full ? `fırsat puanı ${r.total}` : `ön puan ${r.provisional}`}, odak anahtar kelime “${f.keyword}”`);
   return go('write');
 }
 
@@ -448,51 +495,57 @@ async function redo(run, why, notes, now, { noArticle = false } = {}) {
   return { redo: 'write' };
 }
 
+/** the approval gate once nothing blocks: ready -> publish; a closed switch or a refusal is said in words */
+async function approveOutcome(run, aid) {
+  const cur0 = (await db.query('SELECT status FROM articles WHERE id = $1', [aid])).rows[0];
+  if (cur0 && ['ready', 'published', 'scheduled'].includes(cur0.status)) { say(run, 'fix', true, 'Makale “Yayına hazır”'); return go('publish'); }          // the fix bot's last pass already approved it
+  const ap = await autoApprove.approveIfClean(aid);
+  if (ap.approved) { say(run, 'fix', true, 'Tüm kontroller temiz: makale “Yayına hazır” yapıldı'); return go('publish'); }
+  if (ap.reason === 'manual') return stop('“Temiz geçen makaleyi kendiliğinden Yayına hazır yap” kapalı: Otomatik Üretim’i yeniden açın');
+  if (ap.reason === 'changed') { const cur = (await db.query('SELECT status FROM articles WHERE id = $1', [aid])).rows[0]; if (cur && ['ready', 'published', 'scheduled'].includes(cur.status)) return go('publish'); }
+  const why = (ap.problems && ap.problems[0]) || 'onay kapısı geçmedi';
+  await discardArticle(run, why); return reject(`Onay kapısı: ${why}`);
+}
+
+/**
+ * The draft after writing: nothing blocks it -> approve; otherwise the ADSENSE FIX BOT (services/adsenseBot.js) works it over in up to 4 targeted rewrites with all checks re-run each time, so the
+ * line is not stopped by the AdSense check, by claims the sources do not carry, by a low quality score or by too few words. What is left after that: the owner's subject-level acceptance, one
+ * fresh draft (see redo()), or the idea is dropped.
+ */
 async function stepFix(run, ctx, now) {
   const aid = run.articleId;
   const a0 = (await db.query('SELECT id, status FROM articles WHERE id = $1', [aid])).rows[0];
   if (!a0 || a0.status === 'archived') return reject('Makale arşive alınmış');
   if (['ready', 'published', 'scheduled'].includes(a0.status)) return go('publish');
   const blocking = async () => (await articles.readiness(aid)).problems.filter((p) => p.blocking);
-  for (let round = 0; round <= FIX_ROUNDS; round++) {
-    const left = await blocking();
-    if (!left.length) {
-      const ap = await autoApprove.approveIfClean(aid);
-      if (ap.approved) { say(run, 'fix', true, 'Tüm kontroller temiz: makale “Yayına hazır” yapıldı'); return go('publish'); }
-      if (ap.reason === 'manual') return stop('“Temiz geçen makaleyi kendiliğinden Yayına hazır yap” kapalı: Otomatik Üretim’i yeniden açın');
-      if (ap.reason === 'changed') { const now2 = (await db.query('SELECT status FROM articles WHERE id = $1', [aid])).rows[0]; if (now2 && ['ready', 'published', 'scheduled'].includes(now2.status)) return go('publish'); }
-      const why = (ap.problems && ap.problems[0]) || 'onay kapısı geçmedi';
-      await discardArticle(run, why); return reject(`Onay kapısı: ${why}`);
+  let left = await blocking();
+  if (!left.length) return approveOutcome(run, aid);
+  const cfg = await config(run.projectId);
+  say(run, 'fix', null, `Eksik var (${left.map((p) => p.message).join('; ')}); AdSense Düzeltme Botu devrede (en çok ${adsenseBot.ROUNDS} tur)`);
+  const bot = await adsenseBot.clear(aid, { projectId: run.projectId, editSubject: cfg.acceptSubjectWarning, fetchImpl: ctx.fetchImpl, now });
+  run.costUsd = Math.round((run.costUsd + bot.costUsd) * 1e6) / 1e6; run.unknownCost += bot.unknownCost;
+  const r = bot.last;
+  if (r && r.result === 'needs_person') {
+    // only the AdSense class "inceleme gerekli" caused by the SUBJECT is left (the text was made neutral): the owner decided the line accepts it itself. "Yayınlanamaz" and every other person-only problem (a topic the site excludes, a duplicate, no sources) are never accepted.
+    const art = (await db.query('SELECT adsense_risk FROM articles WHERE id = $1', [aid])).rows[0];
+    const subjectOnly = (r.remaining || []).length > 0 && r.remaining.every((p) => p.code === 'adsense_risk') && !!art && art.adsense_risk === 'review';
+    if (cfg.acceptSubjectWarning && subjectOnly) {
+      const acc = await articles.acceptAdsense(aid, { accept: true, approve: true, note: 'Otomatik Üretim: sahibinin izniyle kabul edildi (konu kaynaklı hassas içerik uyarısı; metin nötrleştirildi)' });
+      await audit.audit(null, { action: 'article.adsense_accept_auto', entity: 'article', entityId: aid, before: { adsenseRisk: 'review' }, after: { acceptedBy: 'pipeline', approved: acc.approved, reason: acc.reason } });
+      if (acc.approved) { say(run, 'fix', true, 'Metin nötrleştirildi; konu kaynaklı AdSense uyarısı sahibin izniyle hat tarafından kabul edildi ve makale “Yayına hazır” yapıldı'); return go('publish'); }
+      await discardArticle(run, acc.reason || 'onay kapısı geçmedi'); return reject(`AdSense uyarısı kabul edildi ama makale onaylanamadı: ${acc.reason}`);
     }
-    if (round === FIX_ROUNDS) {
-      const why = `${FIX_ROUNDS} düzeltme denemesinden sonra eksik kaldı: ${left.map((p) => p.message).join('; ')}`;
-      const again = await redo(run, why, '', now); if (again) return again;
-      await discardArticle(run, left[0].message); return reject(why);
-    }
-    say(run, 'fix', null, `Eksik var (${left.map((p) => p.message).join('; ')}); düzeltme deneniyor (${round + 1}/${FIX_ROUNDS})`);
-    const cfg = await config(run.projectId);
-    const r = await fixer.fixOne(aid, { trigger: 'schedule', userId: null, force: true, notify: false, editSubject: cfg.acceptSubjectWarning, fetchImpl: ctx.fetchImpl, now });
-    addCost(run, r.costUsd);
-    if (r.result === 'needs_person') {
-      // only the AdSense class "inceleme gerekli" caused by the SUBJECT is left (the text was made neutral once): the owner decided the line accepts it itself. "Yayınlanamaz" and every other person-only problem (a topic the site excludes, a duplicate, no sources) are never accepted.
-      const art = (await db.query('SELECT adsense_risk FROM articles WHERE id = $1', [aid])).rows[0];
-      const subjectOnly = (r.remaining || []).length > 0 && r.remaining.every((p) => p.code === 'adsense_risk') && !!art && art.adsense_risk === 'review';
-      if (cfg.acceptSubjectWarning && subjectOnly) {
-        const acc = await articles.acceptAdsense(aid, { accept: true, approve: true, note: 'Otomatik Üretim: sahibinin izniyle kabul edildi (konu kaynaklı hassas içerik uyarısı; metin bir kez nötrleştirildi)' });
-        await audit.audit(null, { action: 'article.adsense_accept_auto', entity: 'article', entityId: aid, before: { adsenseRisk: 'review' }, after: { acceptedBy: 'pipeline', approved: acc.approved, reason: acc.reason } });
-        if (acc.approved) { say(run, 'fix', true, 'Metin nötrleştirildi; konu kaynaklı AdSense uyarısı sahibin izniyle hat tarafından kabul edildi ve makale “Yayına hazır” yapıldı'); return go('publish'); }
-        await discardArticle(run, acc.reason || 'onay kapısı geçmedi'); return reject(`AdSense uyarısı kabul edildi ama makale onaylanamadı: ${acc.reason}`);
-      }
-      // what no new draft can cure stays a rejection (the idea itself is the problem; or the owner keeps the subject-level warning for a person); anything else (a "blocked" class from the TEXT, claims the sources do not carry) gets one fresh draft first
-      const ideaProblem = (r.remaining || []).some((p) => fixer.PERSON.has(p.code)) || subjectOnly;
-      if (!ideaProblem) { const again = await redo(run, r.message, '', now); if (again) return again; }
-      await discardArticle(run, r.message); return reject(`Bir kişinin kararı gerekiyor, otomatik çözülemez: ${r.message}`);
-    }
-    if (r.result === 'skipped') { const again = await redo(run, r.message, '', now); if (again) return again; await discardArticle(run, r.message); return reject(r.message); }
-    if (r.result === 'approved') { say(run, 'fix', true, 'Eksikler giderildi ve makale “Yayına hazır” yapıldı'); return go('publish'); }
-    say(run, 'fix', r.result === 'fixed', `Düzeltme sonucu: ${r.message}`);
+    // the idea itself (or the owner's choice to keep the subject-level warning for a person): no new draft can cure it; anything else (a "blocked" class from the TEXT ...) gets one fresh draft first
+    const ideaProblem = (r.remaining || []).some((p) => fixer.PERSON.has(p.code)) || subjectOnly;
+    if (!ideaProblem) { const again = await redo(run, r.message, '', now); if (again) return again; }
+    await discardArticle(run, r.message); return reject(`Bir kişinin kararı gerekiyor, otomatik çözülemez: ${r.message}`);
   }
-  return reject('Düzeltme tamamlanamadı');
+  if (r && r.result === 'skipped') { const again = await redo(run, r.message, '', now); if (again) return again; await discardArticle(run, r.message); return reject(r.message); }
+  left = await blocking();
+  if (!left.length) { say(run, 'fix', true, `AdSense Düzeltme Botu ${bot.rounds} turda eksikleri giderdi`); return approveOutcome(run, aid); }
+  const why = `AdSense Düzeltme Botu ${bot.rounds} turdan sonra eksik kaldı: ${left.map((p) => p.message).join('; ')}`;
+  const again = await redo(run, why, '', now); if (again) return again;
+  await discardArticle(run, left[0].message); return reject(why);
 }
 
 async function stepPublish(run, ctx, now) {
@@ -585,7 +638,7 @@ async function notifyStop(run, reason) {
 
 /** applies what a step answered to the in-memory run; returns true when the cycle goes on in this job */
 async function apply(run, out, now, resumedFromStop) {
-  if (out.go) { say(run, run.step, true, `${LABEL[run.step]}: tamam`); moveTo(run, out.go, now); return true; }
+  if (out.go) { if (!out.quiet) say(run, run.step, true, `${LABEL[run.step]}: tamam`); moveTo(run, out.go, now); return true; }
   if (out.redo) { moveTo(run, out.redo, now); return true; }                                              // a fresh draft of the SAME idea (see redo())
   if (out.reject) { await rejectIdea(run, out.reject, now); if (run.attempt > RUNAWAY) { run.status = 'stopped'; run.note = `${RUNAWAY} fikir denendi ve hiçbiri sonuçlanmadı; bir sorun olabilir, durumu inceleyin`; await notifyStop(run, run.note); return false; } return true; }
   if (out.wait) { run.status = 'waiting'; run.waitUntil = out.wait.until; run.note = out.wait.reason; say(run, run.step, null, `Bekleniyor: ${out.wait.reason}`); return false; }
@@ -730,7 +783,7 @@ async function overview(projectId, { now = new Date() } = {}) {
   if ((await settings.get('bots')).value.paused) warnings.push({ kind: 'bad', text: 'Botlar duraklatılmış durumda; hiçbir otomatik iş (bu hat dahil) çalışmaz.', to: '/automation?tab=botlar' });
   if (cfg.enabled && cycles >= 4) warnings.push({ kind: 'warn', text: `Günde ${cycles} makale yeni bir alan adı için hızlı bir tempo: Google ve AdSense az sayıda iyi yazıyı çok sayıda yazıdan daha olumlu değerlendirir. Günde 1-2 önerilir.` });
   if (cfg.enabled && item('new_article').limit < cycles) warnings.push({ kind: 'warn', text: `Günlük yeni makale sınırı (${item('new_article').limit}) bu tempodan düşük; hat sınır dolunca ertesi güne bekler.` });
-  return { projectId: pid, enabled: cfg.enabled, everyMinutes: cfg.everyMinutes, newsFallback: cfg.newsFallback, acceptSubjectWarning: cfg.acceptSubjectWarning, frequencies: FREQUENCIES.map(([minutes, label]) => ({ minutes, label })), cyclesPerDay: cycles, prerequisites: { ok: pre.ok, items: pre.items },
+  return { projectId: pid, enabled: cfg.enabled, everyMinutes: cfg.everyMinutes, newsFallback: cfg.newsFallback, acceptSubjectWarning: cfg.acceptSubjectWarning, minWords: cfg.minWords, frequencies: FREQUENCIES.map(([minutes, label]) => ({ minutes, label })), cyclesPerDay: cycles, prerequisites: { ok: pre.ok, items: pre.items },
     current: cur, next, recent, today: { published: today.n, costUsd: Number(today.usd), articles: { done: item('new_article').done, limit: item('new_article').limit }, publishes: { done: item('publish').done, limit: item('publish').limit } },
     lastCleanup: cleanedLast.rows[0] ? { counts: cleanedLast.rows[0].counts, ranAt: cleanedLast.rows[0].ran_at } : null, warnings, steps: STEPS.map((k) => ({ key: k, label: LABEL[k] })),
     schedulerRunning: !!require('./scheduler').status().running, ownedBots: [...require('./scheduler').PIPELINE_OWNED] };
