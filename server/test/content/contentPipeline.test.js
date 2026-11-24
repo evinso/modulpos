@@ -103,17 +103,57 @@ test('the gate rule: an idea whose keyword has NO volume data is thrown away at 
   assert.equal(wp.posts.size, 1);
 });
 
-test('an article the checks cannot clear and only a person could decide (a sensitive subject) is archived, its idea is thrown away, and the cycle starts again with the next idea and publishes THAT', opts, async () => {
+test('with the owner\'s switch OFF an article the checks cannot clear and only a person could decide (a sensitive subject) is archived, its idea is thrown away, and the cycle starts again with the next idea and publishes THAT', opts, async () => {
   const w = await world(); const { pid } = w; let reviews = 0;
   const sensitive = { categories: Object.fromEntries(['originality', 'user_value', 'source_accuracy', 'hallucination', 'copyright', 'keyword_stuffing', 'misleading_title', 'spam', 'low_value_auto', 'sensitive', 'ad_restrictions', 'image_rights', 'integrity'].map((k) => [k, k === 'sensitive' ? { status: 'warn', note: 'A data-breach story needs careful sourcing.' } : { status: 'pass', note: '' }])), risk: 'review', ratings: { originality: 82, usefulness: 80, editorial: 84 }, improvements: [], summary: 'Fine, but sensitive.' };
-  const base = w.m.st.override.review; w.m.st.override.review = (user, n) => { reviews++; return reviews === 1 ? sensitive : (base ? base(user, n) : undefined) || require('./fakeModels').fakeModels().st.override.review; };
-  // (the default reviewer answer is used from the second call on: ask the fake for it by clearing the override)
-  w.m.st.override.review = (user, n) => { reviews++; if (reviews === 1) return sensitive; delete w.m.st.override.review; return undefined; };
-  await turnOn(pid); await run(w, D0);
+  w.m.st.override.review = () => { reviews++; if (reviews === 1) return sensitive; delete w.m.st.override.review; return undefined; };          // sensitive for the first article, the default (low) reviewer from then on
+  await turnOn(pid); await PL.setConfig(pid, { acceptSubjectWarning: false });                              // the owner's switch OFF: such a warning stays a person's decision
+  await run(w, D0);
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note); assert.equal(d.attempt, 2);
   assert.ok(d.trail.some((t) => /Fikir elendi: Bir kişinin kararı gerekiyor/.test(t.text)), JSON.stringify(d.trail.map((t) => t.text)));
   const arts = await q('SELECT status FROM articles ORDER BY created_at'); assert.deepEqual(arts.map((a) => a.status), ['archived', 'published'], 'the draft that could not be cleared is archived (a person can still take it back), the next one went live');
   assert.equal(wp.posts.size, 1);
+});
+
+const SENSITIVE = { categories: Object.fromEntries(['originality', 'user_value', 'source_accuracy', 'hallucination', 'copyright', 'keyword_stuffing', 'misleading_title', 'spam', 'low_value_auto', 'sensitive', 'ad_restrictions', 'image_rights', 'integrity'].map((k) => [k, k === 'sensitive' ? { status: 'warn', note: 'A data-breach story needs careful sourcing.' } : { status: 'pass', note: '' }])), risk: 'review', ratings: { originality: 82, usefulness: 80, editorial: 84 }, improvements: [], summary: 'Fine, but sensitive.' };
+
+test('a SUBJECT-level AdSense warning is no longer left to a person (the owner\'s decision): the line rewrites the text neutrally ONCE, then accepts the warning itself, approves and publishes; the class is not rewritten and the acceptance says who did it', opts, async () => {
+  const w = await world(); const { pid } = w; w.m.st.override.review = SENSITIVE;                          // the reviewer keeps flagging the subject, whatever the wording
+  await turnOn(pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(d.attempt, 1, 'no idea was thrown away for it');
+  const a = await q1('SELECT status, adsense_risk, adsense_accepted_risk, adsense_accepted_note FROM articles');
+  assert.equal(a.status, 'published'); assert.equal(a.adsense_risk, 'review', 'the reviewer\'s class stays what it said'); assert.equal(a.adsense_accepted_risk, 'review'); assert.match(a.adsense_accepted_note, /Otomatik Üretim: sahibinin izniyle/);
+  assert.equal(w.m.byRole('fix').length, 1, 'ONE neutral rewrite was asked for (and its prompt names the subject)'); assert.match(w.m.byRole('fix')[0].user, /SUBJECT of the article as sensitive/);
+  assert.equal((await q1("SELECT count(*)::int n FROM audit_logs WHERE action = 'article.adsense_accept_auto'")).n, 1, 'said in the audit log'); assert.equal(wp.posts.size, 1);
+  assert.ok(d.trail.some((t) => /sahibin izniyle hat tarafından kabul edildi/.test(t.text)));
+});
+
+test('... and when the rewrite is enough the warning is simply gone: nothing is accepted', opts, async () => {
+  const w = await world(); const { pid } = w; let n = 0; w.m.st.override.review = () => { n++; if (n === 1) return SENSITIVE; delete w.m.st.override.review; return undefined; };
+  await turnOn(pid); await run(w, D0);
+  assert.equal((await q1('SELECT status FROM pipeline_runs')).status, 'done'); const a = await q1('SELECT status, adsense_risk, adsense_accepted_at FROM articles');
+  assert.deepEqual([a.status, a.adsense_risk, a.adsense_accepted_at], ['published', 'low', null]);
+});
+
+test('a class "blocked" is NEVER accepted by the line, whatever the switch says: the idea is thrown away and the draft archived', opts, async () => {
+  const w = await world(); const { pid } = w; let n = 0;
+  w.m.st.override.review = () => { n++; if (n === 1) return { ...SENSITIVE, risk: 'blocked', categories: { ...SENSITIVE.categories, copyright: { status: 'fail', note: 'Copied.' } } }; delete w.m.st.override.review; return undefined; };
+  await turnOn(pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.attempt, 2); assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['archived', 'published']);
+  assert.equal((await q1("SELECT count(*)::int n FROM articles WHERE adsense_accepted_at IS NOT NULL")).n, 0);
+});
+
+test('Apify\'s daily run limit no longer means waiting for hours: ONE run serves the first ideas of the category, and when the limit is hit anyway a FRESH news idea goes on by the news lane (real SERP, no volume); with the switch off the line waits', opts, async () => {
+  const w = await world({ noVolume: /chatgpt|openai/ }); await turnOn(w.pid); await run(w, D0);
+  assert.equal(w.apify.asked().length, 1, 'ONE actor run asked for the keywords of both ideas (the first has no data, the second does): the second idea cost no run of its own');
+  assert.equal((await q1('SELECT attempt FROM pipeline_runs')).attempt, 2);
+  await H.clean(); await wp.close(); wp = await startFakeWp();
+  const w2 = await world({ freshHours: 36 }); w2.apify.state.freeLimit = true; await turnOn(w2.pid); await run(w2, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text)));
+  assert.ok(d.trail.some((t) => /taze haber hattıyla devam ediliyor/.test(t.text)) && d.trail.some((t) => /^Uygun \(taze haber hattı\)/.test(t.text))); assert.equal(wp.posts.size, 1);
+  await H.clean(); await wp.close(); wp = await startFakeWp();
+  const w3 = await world({ freshHours: 36 }); w3.apify.state.freeLimit = true; await turnOn(w3.pid); await PL.setConfig(w3.pid, { newsFallback: false }); await run(w3, D0);
+  const r = await PL.openRun(w3.pid); assert.equal(r.status, 'waiting'); assert.match(r.note, /ücretsiz planında günlük 5 çalıştırma/); assert.equal(wp.posts.size, 0);
 });
 
 test('categories are used in turns: the next cycle starts in the category after the one that produced the last article; a category with nothing is skipped', opts, async () => {

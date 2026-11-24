@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Play, Square, Loader2, CheckCircle2, CircleAlert, PauseCircle, XCircle, Circle, Power } from 'lucide-react';
 import { api, qs } from '../api.js';
-import { Alert, Async, Badge, Card, Empty, Field, NeedsProject, useAction, useApp, useLoad } from '../ui.jsx';
+import { Alert, Async, Badge, Card, Check, Empty, Field, NeedsProject, useAction, useApp, useLoad } from '../ui.jsx';
 import { dt, usd } from '../format.js';
 
 const STATE = { running: ['Çalışıyor', 'info'], waiting: ['Bekliyor', 'warn'], stopped: ['Durdu: sizin bir şey yapmanız gerekebilir', 'bad'] };
@@ -127,6 +127,16 @@ export default function Pipeline() {
                   {d.prerequisites.items.filter((i) => !i.ok).map((i) => <div key={i.key}><strong>{i.label}</strong>: {i.detail} <Link to={i.to}>Düzelt</Link></div>)}
                 </Alert>
               )}
+              <div className="stack" style={{ gap: 6 }}>
+                <Check checked={!!d.acceptSubjectWarning} disabled={!canEdit || busy} onChange={(v) => send({ acceptSubjectWarning: v }, v ? 'Açıldı' : 'Kapatıldı')}>
+                  <span>Konu kaynaklı AdSense uyarısını (hassas içerik) hat kendisi çözsün
+                    <small className="faint" style={{ display: 'block' }}>Önce metni bir kez nötrleştirir (sansasyonel anlatım, kişisel veri, zarar verebilecek ayrıntı çıkarılır). Uyarı konunun kendisinden geliyorsa ve başka eksik yoksa uyarıyı <strong>sizin adınıza kabul edip</strong> makaleyi onaylar ve yayımlar; kabul kaydında “Otomatik Üretim” yazar. “Yayınlanamaz” sınıfı ve kapsam dışı konu, tekrar, kaynaksızlık hiçbir zaman kabul edilmez. Kapalıyken bu fikir elenir. AdSense’in kendi kararını değiştirmez: hassas içerikli sayfalarda reklam kısıtlanabilir.</small></span>
+                </Check>
+                <Check checked={!!d.newsFallback} disabled={!canEdit || busy} onChange={(v) => send({ newsFallback: v }, v ? 'Açıldı' : 'Kapatıldı')}>
+                  <span>Anahtar kelime hakkı bitince beklemeyip taze haber hattıyla devam et
+                    <small className="faint" style={{ display: 'block' }}>Apify ücretsiz planında günde 5 çalıştırma var (her çalıştırmada sıradaki birkaç fikrin kelimeleri birlikte sorulur, bu yüzden genelde yeter). Hak yine de biterse, <strong>taze</strong> bir haber fikri aranma hacmi olmadan ama gerçek SERP rekabeti ölçülerek yazılır. Kapalıyken hat Apify’ın yenilenmesini bekler.</small></span>
+                </Check>
+              </div>
               {d.enabled && <small className="faint">Açıkken eski toplu botlar (haber taraması, fırsat puanlama, anahtar kelime, SERP, makale yazımı, düzeltme) kendi zamanlamalarıyla çalışmaz: bu işleri hat tek tek yürütür. Kapatırsanız eski zamanlamalar geri gelir.</small>}
               {changes && changes.length > 0 && <Alert kind="ok" title="Son değişiklik"><ul style={{ margin: '4px 0 0 18px' }}>{changes.map((c) => <li key={c}>{c}</li>)}</ul></Alert>}
             </div>

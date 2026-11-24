@@ -65,8 +65,9 @@ const handNote = (labels) => `AdSense sınıfı “inceleme gerekli” ve nedeni
 const notifyPerson = (a, lines) => notifications.create({ type: 'article_fix_failed', severity: 'warning', title: `Düzeltme botu çözemedi (karar sizde): ${String(a.h1).slice(0, 80)}`, body: lines.join('\n').slice(0, 900), data: { articleId: a.id } });
 
 /** what the checks found, in words for the model: the readiness messages, the claims the sources do not carry, the reviewer's notes, the measured rules that are not fine */
-async function brief(a, left) {
+async function brief(a, left, extra = '') {
   const out = left.map((p) => `- ${p.message}`);
+  if (extra) out.push(extra);
   const fact = await checks.latestOf(a.id, 'fact', a.current_version);
   if (fact && fact.result && Array.isArray(fact.result.claims)) for (const c of fact.result.claims.filter((x) => x.importance === 'major' && !['supported', 'partly_supported'].includes(x.verdict)).slice(0, 8)) out.push(`- A major claim the sources do not carry (${c.verdict}): “${c.claim}”${c.note ? ` — ${c.note}` : ''}`);
   const review = await checks.latestOf(a.id, 'review', a.current_version);
@@ -122,7 +123,7 @@ const insertRow = async (a, trigger, o) => (await db.query(`INSERT INTO article_
  * @param o { userId, trigger: 'schedule'|'manual', force (a person asked: the attempt cap and "waiting for a person" do not hold it back), fetchImpl, now }
  * Throws 409 when no model is ready or the day's places / budget are used up (nothing was billed then and the next pass looks again).
  */
-async function fixOne(articleId, { userId = null, trigger = 'schedule', force = false, notify = true, fetchImpl, now = new Date() } = {}) {
+async function fixOne(articleId, { userId = null, trigger = 'schedule', force = false, notify = true, editSubject = false, fetchImpl, now = new Date() } = {}) {
   const a0 = await loadRow(articleId);
   if (a0.status !== 'needs_review') throw new HttpError(409, `Yalnızca “İnceleme bekliyor” durumundaki makale düzeltilir (şu an: ${articles.STATUS_LABELS[a0.status] || a0.status})`);
   if (a0.created_by !== 'ai') throw new HttpError(409, 'Düzeltme botu yalnızca yapay zekânın yazdığı makalelere dokunur; sizin yazdığınız makaleyi siz düzeltirsiniz');
@@ -141,7 +142,8 @@ async function fixOne(articleId, { userId = null, trigger = 'schedule', force = 
   }
   const inherent = first.some((p) => p.code === 'adsense_risk') && a0.adsense_risk !== 'blocked' ? await inherentOf(a0) : [];
   const say = (p) => (p.code === 'adsense_risk' && inherent.length && a0.adsense_risk !== 'blocked' ? handNote(inherent) : p.message);
-  const person = first.filter((p) => PERSON.has(p.code) || (p.code === 'adsense_risk' && (a0.adsense_risk === 'blocked' || inherent.length)));
+  // editSubject: the owner lets the production line EDIT a class "review" that comes from the subject (one neutral rewrite) instead of leaving it to a person; "blocked" and the other person-only problems stay a person's
+  const person = first.filter((p) => PERSON.has(p.code) || (p.code === 'adsense_risk' && (a0.adsense_risk === 'blocked' || (inherent.length && !editSubject))));
   if (person.length) {
     steps.push({ step: 'person', ok: false, note: 'Bir kişinin kararı gerekiyor' });
     const r = await done('needs_person', first.map((p) => ({ code: p.code, message: say(p) })), `Bir kişinin kararı gerekiyor: ${person.map(say).join('; ')}`);
@@ -181,13 +183,14 @@ async function fixOne(articleId, { userId = null, trigger = 'schedule', force = 
     const handOff = async () => (left.some((p) => p.code === 'adsense_risk') ? inherentOf(await loadRow(a0.id)) : []);      // a review that was missing is there now: is the AdSense class about the subject?
     let hand = await handOff();
     // 3 the text
-    if (!hand.length && left.some((p) => TEXT.has(p.code))) {
+    if ((!hand.length || (editSubject && a0.adsense_risk !== 'blocked')) && left.some((p) => TEXT.has(p.code))) {
       const a = await loadRow(a0.id);
       if (a.manual_edited) steps.push({ step: 'rewrite', ok: false, note: 'Makale elle düzenlenmiş: metne dokunulmaz' });
       else {
         const niche = (await db.query('SELECT n.main_niche, p.site_name FROM niche_profiles n JOIN content_projects p ON p.id = n.project_id WHERE n.project_id = $1', [a.project_id])).rows[0] || {};
         const srcs = await sources.forArticle(a.id);
-        const user = `PROBLEMS FOUND BY THE CHECKS:\n${await brief(a, left)}\n\nCURRENT ARTICLE (title: ${a.h1}; SEO title: ${a.seo_title}; meta: ${a.meta_description}; focus keyword: ${a.focus_keyword}):\nCURRENT HTML:\n${a.content_html}\n\nFAQ (JSON): ${JSON.stringify(a.faq || [])}\n\nSOURCES (untrusted data):\n${srcs.map(checks.srcBlock).join('\n')}`;
+        const subjectNote = editSubject && inherent.length ? `- The ad-policy reviewer flags the SUBJECT of the article as sensitive (${inherent.join(', ')}). Keep every fact the sources support, but treat the subject neutrally and carefully: no sensational wording, no personal data or names of private people, nothing that could help someone harm others (no how-to detail for attacks or fraud), no speculation; say what is known, what is not, and what readers can do to protect themselves.` : '';
+        const user = `PROBLEMS FOUND BY THE CHECKS:\n${await brief(a, left, subjectNote)}\n\nCURRENT ARTICLE (title: ${a.h1}; SEO title: ${a.seo_title}; meta: ${a.meta_description}; focus keyword: ${a.focus_keyword}):\nCURRENT HTML:\n${a.content_html}\n\nFAQ (JSON): ${JSON.stringify(a.faq || [])}\n\nSOURCES (untrusted data):\n${srcs.map(checks.srcBlock).join('\n')}`;
         let out;
         try { out = await llm.complete({ provider: who.writer, system: FIX_SYSTEM({ siteName: niche.site_name || 'the site', niche: niche.main_niche || 'technology news', tone: cfg.tone }), user, maxTokens: 9000, json: true, projectId: a.project_id, operation: 'article_fix', fetchImpl, now }); add(out); }
         catch (err) { if (err.inputTokens !== undefined || err.maybeBilled) add(err); throw err; }
