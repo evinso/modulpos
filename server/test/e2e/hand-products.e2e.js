@@ -115,6 +115,11 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
     ok('the product detail shows the ordinary breakdown: purchase 80, no "net amount" reading', mp && mp.pricing && !mp.pricing.net && mp.pricing.breakdown && mp.pricing.breakdown.purchase === 80 && Math.abs(mp.pricing.salePrice - calc.d.price) < 0.011, JSON.stringify(mp && mp.pricing && [mp.pricing.net, mp.pricing.breakdown && mp.pricing.breakdown.purchase]));
     const raise = await a('POST', '/hand-products/bulk', { ids: [id(5)], patch: { price: { mode: 'percent', value: 10 } }, dryRun: false }); const dear = await priceOf('HW-5');
     ok('raising the purchase price by 10% in bulk raises the sale price the template makes of it', raise.d.applied === 1 && dear.price === 88 && dear.pricing.salePrice > profitRow.pricing.salePrice, JSON.stringify([dear.price, dear.pricing]));
+    // the category given on the "Trendyol kategorisi" tab must show on the products page (it only has the marketplace-side category in `pricing.mapName`; a hand-added product has no category text of its own)
+    const kupa = (await a('GET', `/marketplace/connections/${conn}/product-categories/search?q=kupa`)).d.find((r) => r.name === 'Kupa');
+    const asg = await a('PUT', `/marketplace/connections/${conn}/product-categories`, { assignments: [{ productId: id(5), categoryId: kupa && kupa.id, source: 'manual' }] });
+    const onPage = (await a('GET', `/products?search=HW-5&priceFor=${conn}`)).d.products.find((p) => p.id === id(5));
+    ok('the category chosen on the category tab is on the products page too (pricing.mapName), while the product has no category text', !!kupa && asg.s === 200 && !!onPage && !onPage.category && /Kupa/.test((onPage.pricing && onPage.pricing.mapName) || ''), JSON.stringify([asg.s, onPage && onPage.category, onPage && onPage.pricing && onPage.pricing.mapName]));
     ok('unauthenticated: refused', (await fetch(API + '/hand-products')).status === 401);
   } catch (e) { console.log('ERROR', e); fails++; } finally {
     for (const id of users) await c.query(`delete from app."User" where id=$1`, [id]).catch((e) => console.log('cleanup:', e.message));

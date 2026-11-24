@@ -518,7 +518,15 @@ export default function ProductsPage() {
                           </div>
                         </td>
                         <td style={{ maxWidth: 190 }}>
-                          <div style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.category || ''}>{p.category ? p.category.split('|').filter(Boolean).pop() : <span style={{ color: 'var(--warning)' }}>Kategori yok</span>}</div>
+                          {/* the product's own category text (XML products have it, hand-added ones do not) and, under it, the category chosen on the marketplace (hand-products "Trendyol kategorisi" tab, category matching): only with a marketplace picked, because that is where the pairing lives */}
+                          {(p.category || !(pr && pr.mapName)) && (
+                            <div style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.category || ''}>{p.category ? p.category.split('|').filter(Boolean).pop() : <span style={{ color: 'var(--warning)' }}>Kategori yok</span>}</div>
+                          )}
+                          {pr && pr.mapName && (
+                            <div data-testid={`mp-category-${p.id}`} style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`Pazaryeri kategorisi: ${pr.mapName}`}>
+                              <span style={{ color: 'var(--text-muted)' }}>Pazaryeri: </span>{pr.mapName}
+                            </div>
+                          )}
                           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.brand || 'Marka yok'}</div>
                         </td>
                         <td style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
