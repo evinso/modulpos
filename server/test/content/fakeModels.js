@@ -21,6 +21,9 @@ const sectionHtml = (kw) => {
 };
 
 /** a tiny valid-looking JPEG (recognised by its first bytes) for the picture tests */
+/** more sections for the tests of a minimum length (st.long): about 500 more words made of the same kind of own-words explanation */
+const EXTRA = (kw) => { const p = (i) => `<p>${ORIGINAL[i % ORIGINAL.length]}</p>`; return `<h2>Questions readers ask about ${kw}</h2>${p(0)}${p(2)}${p(4)}<h2>What to check before you decide</h2>${p(1)}${p(3)}${p(0)}<h2>How this fits the bigger picture</h2>${p(2)}${p(4)}${p(1)}<h2>A short checklist</h2>${p(3)}${p(0)}${p(2)}`; };
+
 const PICTURE = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('JFIF fake cover picture '.repeat(60)), Buffer.from([0xff, 0xd9])]);
 const header = (h, n) => { if (!h) return undefined; if (typeof h.get === 'function') return h.get(n); const k = Object.keys(h).find((x) => x.toLowerCase() === n.toLowerCase()); return k ? h[k] : undefined; };
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -31,7 +34,7 @@ function fakeModels() {
   const focusOf = (user) => (/FOCUS KEYWORD \(use exactly this phrase\): (.+)/.exec(user) || [])[1] || 'the topic';
   const defaults = {
     write: (user) => { const kw = focusOf(user); return { seoTitle: `${kw[0].toUpperCase()}${kw.slice(1)}: What Changes`, h1: `${kw[0].toUpperCase()}${kw.slice(1)}: what you need to know`, slug: kw.replace(/ /g, '-'), metaDescription: `What is changing with ${kw}, why it is happening and what readers can do about it before the new price takes effect this winter.`,
-      focusKeyword: kw, secondaryKeywords: ['subscription price'], excerpt: `A plain-language look at ${kw}.`, articleType: 'latest_update', contentHtml: sectionHtml(kw), faq: [{ q: 'Will current subscribers pay more?', a: 'Existing subscribers keep the current price until the change takes effect.' }, { q: 'Is there a free option?', a: 'A free tier exists, with lower limits.' }], tags: ['ai', 'pricing'] }; },
+      focusKeyword: kw, secondaryKeywords: ['subscription price'], excerpt: `A plain-language look at ${kw}.`, articleType: 'latest_update', contentHtml: sectionHtml(kw) + (st.long ? EXTRA(kw) : ''), faq: [{ q: 'Will current subscribers pay more?', a: 'Existing subscribers keep the current price until the change takes effect.' }, { q: 'Is there a free option?', a: 'A free tier exists, with lower limits.' }], tags: ['ai', 'pricing'] }; },
     update: (user) => { const html = (/CURRENT HTML:\n([\s\S]*?)\n\nNEW MATERIAL/.exec(user) || [])[1] || '<p>x</p>'; return { noChange: false, changeType: 'minor', reasons: [{ code: 'other', text: 'A small correction.' }], summary: 'Added one clarifying sentence.',
       fields: { contentHtml: `${html.replace(/<a [^>]*>([^<]*)<\/a>/g, '$1')}<p>Update: the plan details were rechecked against the latest reports and nothing else changed for subscribers.</p>` } }; },
     fix: (user) => { const html = (/CURRENT HTML:\n([\s\S]*?)\n\nFAQ \(JSON\)/.exec(user) || [])[1] || '<p>x</p>'; return { fixed: ['Removed the claim the sources do not carry.'], unfixed: [],

@@ -337,7 +337,9 @@ async function readiness(id) {
   else if (a.meta_description.length < 70 || a.meta_description.length > 160) add('meta_length', `Meta açıklama ${a.meta_description.length} karakter (ideal 70–160)`, false);
   if (!a.focus_keyword.trim()) add('no_focus', 'Odak anahtar kelime yok', false);
   if (!a.category_id) add('no_category', 'Kategori seçilmedi');
-  if (a.word_count < MIN_WORDS) add('too_short', `İçerik ${a.word_count} kelime; en az ${MIN_WORDS} gerekli (ince içerik AdSense riskidir)`);
+  const line = (await settings.get('pipeline', a.project_id)).value;                            // while the production line is on its minimum length applies (owner: at least 950 words)
+  const minWords = line.enabled ? Math.max(MIN_WORDS, Number(line.minWords) || 0) : MIN_WORDS;
+  if (a.word_count < minWords) add('too_short', `İçerik ${a.word_count} kelime; en az ${minWords} gerekli (ince içerik AdSense riskidir)`);
   if (!a.fact_checked_at) {
     const fc = await checks.latestOf(a.id, 'fact', a.current_version);
     if (fc && fc.status === 'error') add('fact_check_error', `Doğruluk kontrolü çalıştırılamadı: ${String(fc.result.error || '').slice(0, 160)}`);

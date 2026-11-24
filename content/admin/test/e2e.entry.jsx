@@ -148,7 +148,7 @@ ok('cost tiles say "Bilinmiyor" never an invented number when empty (no calls ye
 
 // ── bots, settings, logs, notifications ───────────────────────────────────────────────────────────
 await goTab('Botlar', 500);
-ok('16 bots: every bot of the specification is ready now and shows its real last runs; none is "coming in a later phase"', $$('tbody tr').length === 16 && txt().includes('16 / 16 bot hazır') && !/Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
+ok('17 bots (the 16 of the specification + the AdSense fix bot of the production line): every bot is ready now and shows its real last runs; none is "coming in a later phase"', $$('tbody tr').length === 17 && txt().includes('17 / 17 bot hazır') && !/Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
 await goTab('Ayarlar', 500);
 ok('the Ayarlar tab keeps no second copy of what the flow card edits (no "Birikim temizliği" card, no fresh-news field) and still has the other groups', !$$('section.card h2').find((h) => h.textContent === 'Birikim temizliği') && !txt().includes('Taze haber penceresi') && !!$$('section.card h2').find((h) => h.textContent === 'SEO araştırması') && !!$$('section.card h2').find((h) => h.textContent === 'Platform bütçesi'));
 ok('automation settings load; the three mandatory checks are locked', txt().includes('Kalite ve zorunlu kontroller') && $$('.badge').filter((b) => b.textContent === 'kilitli').length === 3);
@@ -831,6 +831,11 @@ ok('two switches the owner asked for are there, ON by default and explained: the
 await click(subjSw().querySelector('input'), 1200);
 ok('switching the AdSense one off is saved', (await pset()).acceptSubjectWarning === false && (await pset()).newsFallback === true);
 await click(subjSw().querySelector('input'), 1200);
+const minW = $('input[aria-label="En az kelime"]');
+ok('the minimum length is a number on the card, 950 by default', !!minW && minW.value === '950');
+await setVal(minW, '1000'); await act(async () => { minW.dispatchEvent(new window.Event('focusout', { bubbles: true })); }); await wait(1200);
+ok('changing it is saved on the server', (await pset()).minWords === 1000);
+await setVal($('input[aria-label="En az kelime"]'), '950'); await act(async () => { $('input[aria-label="En az kelime"]').dispatchEvent(new window.Event('focusout', { bubbles: true })); }); await wait(1000);
 await setVal(paceSel(), '720'); await wait(1200);
 ok('the pace is saved: twice a day', (await pset()).everyMinutes === 720 && txt().includes('2 döngü / gün'));
 await click(btn('Şimdi başlat'), 1300);

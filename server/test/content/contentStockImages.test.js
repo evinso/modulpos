@@ -127,7 +127,7 @@ test('the search words: the writer\'s own suggestion first, then the focus keywo
   const b = await article(pid, { focus: 'wifi extender' }); px.calls.length = 0; const ok2 = await IM.autoForArticle(b.id, pid, { query: 'cable management' }, { fetchImpl: px.fetchImpl, now: NOW }); assert.equal(ok2.status, 'ok'); assert.deepEqual(px.calls.map((c) => c.q), ['wifi extender'], 'the writer\'s words found nothing a minute ago: that answer comes from the 24-hour cache (no request), the focus keyword is the one asked');
 });
 
-test('writer: the prompt asks for the search words (w4), and the cover comes from Pixabay at no cost; the picture step is part of the run', opts, async () => {
+test('writer: the prompt asks for the search words (w5), and the cover comes from Pixabay at no cost; the picture step is part of the run', opts, async () => {
   const pid = await setup(); await PR.save('anthropic', { secret: 'sk-ant-test-key-0123456789' }); await connectPx(); useFakeDownload(); await turnOn(pid);
   const m = fakeModels(); const px = fakePixabay(); const { sectionHtml } = require('./fakeModels');
   m.st.override.write = (user) => { const kw = (/FOCUS KEYWORD \(use exactly this phrase\): (.+)/.exec(user) || [])[1]; return { seoTitle: `${kw}: what changes`, h1: `${kw}: what you need to know`, slug: kw.replace(/ /g, '-'), metaDescription: `What is changing with ${kw}, what is known and what to do next about the new price.`, focusKeyword: kw, secondaryKeywords: [], excerpt: 'x', articleType: 'latest_update', contentHtml: sectionHtml(kw), faq: [], tags: [],
@@ -142,7 +142,7 @@ test('writer: the prompt asks for the search words (w4), and the cover comes fro
   const run = await R.get(out.run.id); const row = (await H.db().query('SELECT article_id FROM content_opportunities WHERE id = $1', [o.id])).rows[0];
   assert.match(m.byRole('write')[0].system, /"image":\{"prompt":"","alt":"","query":""\}/); assert.match(m.byRole('write')[0].system, /"image\.query" is 2-4 plain English words/);
   assert.deepEqual([run.stats.image, run.stats.step, px.calls[0].q], ['ok', 'done', 'laptop on desk']); const cover = await IM.forArticle(row.article_id); assert.deepEqual([cover.provider, cover.costUsd, cover.sourceId], ['pixabay', 0, '101']);
-  assert.equal((await A.get(row.article_id)).generation.promptVersion, 'w4');
+  assert.equal((await A.get(row.article_id)).generation.promptVersion, 'w5');
 });
 
 test('a person\'s own choice: a search shows candidates (nothing saved, flagged ones marked), choosing one looks it up again BY ID, downloads it and replaces the cover; a wrong address or a non-image file is refused', opts, async () => {

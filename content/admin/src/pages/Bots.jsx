@@ -97,7 +97,7 @@ export function BotList() {
   };
   return (
     <div className="stack">
-      <p className="muted">Platformun 15 botu. Bir bot yalnızca kodu gerçekten çalışıyorsa “Hazır” görünür. Zamanlanan botlar sunucudaki zamanlayıcı tarafından <strong>kalıcı görev kuyruğu</strong> üzerinden çalıştırılır (n8n yok): sunucu yeniden başlasa görevler kaybolmaz, aynı iş iki kez başlamaz, hatalı iş 1–5–20 dakika arayla yeniden denenir, art arda 5 başarısızlıkta bot kapanır ve size bildirim gelir. Para harcayan botlar (makale, SERP, anahtar kelime verisi) <strong>kapalı</strong> başlar; sizin açmanız gerekir.</p>
+      <p className="muted">Platformun 17 botu. Bir bot yalnızca kodu gerçekten çalışıyorsa “Hazır” görünür. Zamanlanan botlar sunucudaki zamanlayıcı tarafından <strong>kalıcı görev kuyruğu</strong> üzerinden çalıştırılır (n8n yok): sunucu yeniden başlasa görevler kaybolmaz, aynı iş iki kez başlamaz, hatalı iş 1–5–20 dakika arayla yeniden denenir, art arda 5 başarısızlıkta bot kapanır ve size bildirim gelir. Para harcayan botlar (makale, SERP, anahtar kelime verisi) <strong>kapalı</strong> başlar; sizin açmanız gerekir.</p>
       <Async state={st}>{(d) => (
         <>
           <Alert kind={d.paused ? 'warn' : 'info'} title={d.paused ? 'Botlar duraklatıldı' : `${d.items.filter((b) => b.implemented).length} / ${d.items.length} bot hazır`}>

@@ -119,7 +119,7 @@ test('writer: one eligible idea -> a cited, checked draft that waits for a perso
   const a = await A.get((await O.get(o.id)).explain.keyword ? (await H.db().query('SELECT article_id FROM content_opportunities WHERE id = $1', [o.id])).rows[0].article_id : null);
   assert.deepEqual([a.createdBy, a.status, a.manualEdited, a.focusKeyword === o.keyword, a.factCheckedAt !== null, a.adsenseRisk], ['ai', 'needs_review', false, true, true, 'low']);
   assert.ok(a.wordCount >= 300 && a.qualityScore >= 60 && a.qualityScore <= 100, `${a.wordCount} words, quality ${a.qualityScore}`); assert.equal(a.categoryId, o.categoryId);
-  assert.deepEqual([a.generation.provider, a.generation.model, a.generation.costUsd, a.generation.checker, a.generation.independentChecker, a.generation.promptVersion], ['anthropic', 'claude-sonnet-5-5', (1500 * 3 + 900 * 15) / 1e6, 'openai', true, 'w4']);
+  assert.deepEqual([a.generation.provider, a.generation.model, a.generation.costUsd, a.generation.checker, a.generation.independentChecker, a.generation.promptVersion], ['anthropic', 'claude-sonnet-5-5', (1500 * 3 + 900 * 15) / 1e6, 'openai', true, 'w5']);
   const src = (await H.db().query('SELECT * FROM article_sources WHERE article_id = $1 ORDER BY position', [a.id])).rows;
   assert.deepEqual(src.map((s) => [s.position, s.publisher, s.read_ok, s.reliability]), [[1, 'Outlet A', true, 80], [2, 'Outlet B', false, 70]]); assert.ok(src[0].excerpt.includes('ChatGPT Plus will cost 22 dollars') && src[1].excerpt.length < 300);
   const ck = await C.latest(a.id); assert.deepEqual(['rules', 'fact', 'review', 'quality'].map((k) => [k, ck[k] && ck[k].stale]), [['rules', false], ['fact', false], ['review', false], ['quality', false]]);
