@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, Trash2, Tags, ToggleLeft, ToggleRight, Edit2, AlertTriangle } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
@@ -169,8 +170,16 @@ export default function PricingPage() {
   const [previewError, setPreviewError] = useState('');
   const [summary, setSummary] = useState(null);
   const reqId = useRef(0);
+  const [params, setParams] = useSearchParams();
 
   useEffect(() => { fetchRules(); fetchOptions(); }, []);
+  // "?hand=1" (the link of the hand-added products workspace): open the template of the products added by hand (the existing one, or a new one with that scope chosen)
+  useEffect(() => {
+    if (loading || params.get('hand') !== '1') return;
+    setParams({}, { replace: true });
+    const existing = rules.find((r) => parseConds(r).xmlSourceIds?.includes(HAND));
+    if (existing) openModal(existing); else { openModal(); setForm((f) => ({ ...f, xmlChoice: '__none' })); }
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchOptions = async () => {
     try {

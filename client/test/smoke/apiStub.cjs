@@ -17,6 +17,8 @@ const xmlSrc = { status: 'active' };   // the one XML source of the stub: the pa
 const handCfg = { scoped: false };   // true: every template is limited to the XML source s1, so nothing prices the products added by hand
 // "XML'den ürün ekle": what the read answers (items), a failure to play ({ status, error }), and every write the page sent
 const xmlImp = { items: [], fail: null, written: [], read: [], previews: [], previewExists: {}, previewFail: null };
+// "Elle eklenen ürünler" workspace: the rows the list answers (and what the page asked / wrote)
+const hand = { items: [], summary: null, bulkRows: [], bulkProblems: [], pasteItems: [], gets: [], bulks: [], pastes: [], puts: [], idsCalls: 0 };
 const sendBehaviour = { failAt150: false, allBelowStock: false };
 const pc = { aiError: null, aiMatched: 2, saved: [], attrAiError: null };   // saved: category mappings the page saved during the test
 const conv = { feeds: {}, previewFeed: null };   // XML converter page: what /xml-converter/feeds/status answers per address, and the feed row a new conversion returns
@@ -37,6 +39,8 @@ const detail = {
 const get = async (url, cfg = {}) => {
   calls.push({ m: 'GET', url, params: cfg.params });
   { const b = bulkStub.handle('GET', url, null, cfg); if (b) return b; }
+  if (url === '/hand-products') { hand.gets.push(cfg.params); const f = (cfg.params || {}).filter; const items = f === 'no_price' ? hand.items.filter((p) => p.price <= 0) : hand.items; return { data: { items, total: items.length, page: 1, limit: 50, pages: 1, summary: hand.summary, connectionId: (cfg.params || {}).connectionId || null } }; }
+  if (url === '/hand-products/ids') { hand.idsCalls++; return { data: { ids: hand.items.map((p) => p.id), truncated: false } }; }
   if (url === '/xml-sources') return { data: [{ id: 's1', name: 'Tedarikçi A', totalProducts: 8, status: xmlSrc.status, url: 'https://example.invalid/a.xml', syncIntervalMin: 60, mappingConfig: '{"title":"t"}', _count: { products: 8 } }] };
   if (url === '/marketplace/connections/c1/category-mappings') return { data: [{ id: 'cm1', xmlSourceId: 's1', localCategory: 'Giyim' }, { id: 'cm2', xmlSourceId: 's1', localCategory: 'Aksesuar' }, ...pc.saved] };
   if (/^\/products\/[^/]+\/price-preview$/.test(url)) { const price = Number(cfg.params.price); return { data: { salePrice: price, templatePrice: 251.9, hasTemplate: true, ruleName: 'genel', purchase: 101, profit: Math.round((price * 0.5 - 120) * 100) / 100, profitPct: 30, marginOnPricePct: 12, commissionAmount: 20, fixedCosts: 10, vatAmount: 40, loss: price < 120 } }; }
@@ -141,6 +145,8 @@ const post = async (url, body) => {
     return { data: { token: 'tok1', total: xmlImp.items.length, truncated: false, max: 5000, mapping: { title: 'URUNADI', description: 'ACIKLAMA', images: 'RESIMLER.RESIM', sku: 'URUNKODU', barcode: 'BARKOD', category: 'KATEGORI' },
       fields: [{ path: 'URUNADI', sample: 'Kupa' }, { path: 'URUNKODU', sample: 'TR-1' }, { path: 'ACIKLAMA', sample: 'x' }], noName: 0, duplicatesInFile: 0, items: xmlImp.items } };
   }
+  if (url === '/hand-products/bulk') { hand.bulks.push(body); return { data: { matched: body.ids.length, changed: hand.bulkRows.length, rows: hand.bulkRows, problems: hand.bulkProblems, problemCount: hand.bulkProblems.length, applied: body.dryRun === false ? hand.bulkRows.length : 0, dryRun: body.dryRun !== false } }; }
+  if (url === '/hand-products/paste') { hand.pastes.push(body); const ok = hand.pasteItems.filter((i) => i.status === 'ok').length; return { data: { items: hand.pasteItems, counts: { rows: hand.pasteItems.length, ok, same: 0, unmatched: hand.pasteItems.filter((i) => i.status === 'unmatched').length, bad: hand.pasteItems.filter((i) => i.status === 'bad').length }, truncated: false, applied: body.dryRun === false ? ok : 0, dryRun: body.dryRun !== false } }; }
   if (url === '/products/xml-import/preview') {
     xmlImp.previews.push(body);
     if (xmlImp.previewFail) { const e = new Error('x'); e.response = { status: 400, data: { error: xmlImp.previewFail } }; throw e; }
@@ -228,5 +234,5 @@ const put = async (url, body) => {
   }
   if (/send-settings$/.test(url)) return { data: { settings: body.settings, summary: [] } }; return { data: {} }; };
 const del = async (url, cfg) => { calls.push({ m: 'DELETE', url, params: cfg && cfg.params, body: cfg && cfg.data }); { const b = bulkStub.handle('DELETE', url, null, cfg); if (b) return b; } return { data: /sale-price$/.test(url) ? { ok: true, removed: 1 } : (/product-categories$/.test(url) ? { removed: (cfg.data.productIds || []).length } : {}) }; };
-module.exports = { get, post, put, delete: del, calls, uploads, xmlImp, handCfg, formCfg, xmlSrc, wa, sendBehaviour, pc, profitTax, conv, bulk: bulkStub.bulk };
+module.exports = { get, post, put, delete: del, calls, uploads, xmlImp, hand, handCfg, formCfg, xmlSrc, wa, sendBehaviour, pc, profitTax, conv, bulk: bulkStub.bulk };
 module.exports.default = module.exports;

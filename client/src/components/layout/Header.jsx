@@ -11,6 +11,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api
 const pageTitles = {
   '/dashboard': 'Dashboard',
   '/products': 'Ürün Yönetimi',
+  '/hand-products': 'Elle Eklenen Ürünler',
   '/xml-sources': 'XML Kaynakları',
   '/xml-converter': 'XML Dönüştürücü',
   '/marketplace': 'Pazaryeri Bağlantıları',
