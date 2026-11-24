@@ -4,6 +4,15 @@ import { Package } from 'lucide-react';
 
 export const money = (n) => (Number(n) || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const moneyShort = (n) => (Number(n) || 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+// The "alış" of a product row. The server sends purchasePrice / netAmount when a marketplace is chosen (the number a hand-added product carries is a
+// purchase price only when its price template reads it so; in cash mode it is the NET amount to keep). Without them: the feed price of an XML product.
+//   { kind: 'purchase', value } | { kind: 'net', value } | { kind: 'none', hand } (hand: added by hand, no number yet or the template unknown)
+export function buyingOf(p) {
+  if (p.purchasePrice != null) return { kind: 'purchase', value: p.purchasePrice };
+  if (p.netAmount != null) return { kind: 'net', value: p.netAmount };
+  if (p.xmlPrice > 0) return { kind: 'purchase', value: p.xmlPrice };
+  return { kind: 'none', hand: !p.xmlSourceId };
+}
 export const dateTime = (d) => (d ? new Date(d).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export function parseImages(raw) {

@@ -156,6 +156,9 @@ router.get('/', async (req, res, next) => {
         };
         const ex = ctx.priceCtx.explainFor(p);
         if (ex && ex.breakdown) out.pricing.profit = ex.breakdown.profit;
+        const buying = ctx.priceCtx.buyingOf(p);
+        out.purchasePrice = buying.purchase;                              // what the "Alış" cell shows (a hand-added product's number is a purchase price only when its template says so)
+        out.netAmount = buying.net;
         out.pricing.net = ex && ex.net ? ex.net : null;                  // hand-added product: the "price" is the net amount to keep ({ amount, mode })
         out.pricing.manual = !!(ex && ex.manual);                       // a price typed in by hand wins over the template
         out.pricing.templatePrice = ex && ex.manual ? ex.templatePrice : null;

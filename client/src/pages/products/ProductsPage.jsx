@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
-import { Thumb, Pill, StockPill, StatusPill, MpPills, MP_STATUS, ISSUE_LABELS, parseImages, moneyShort } from './productsUi';
+import { Thumb, Pill, StockPill, StatusPill, MpPills, MP_STATUS, ISSUE_LABELS, parseImages, moneyShort, buyingOf } from './productsUi';
 import ProductDetailDrawer from './ProductDetailDrawer';
 import ProductFormModal from './ProductFormModal';
 import XmlHandImportModal from './XmlHandImportModal';
@@ -530,7 +530,12 @@ export default function ProductsPage() {
                           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.brand || 'Marka yok'}</div>
                         </td>
                         <td style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
-                          {p.xmlPrice > 0 ? `₺${moneyShort(p.xmlPrice)}` : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                          {(() => {
+                            const b = buyingOf(p);
+                            if (b.kind === 'purchase') return `₺${moneyShort(b.value)}`;
+                            if (b.kind === 'net') return <span data-testid={`net-${p.id}`} title="Elle eklenen ürün: yazdığınız tutar elinize kalmasını istediğiniz net tutar (fiyat şablonunuz böyle okuyor), alış fiyatı değil">net ₺{moneyShort(b.value)}</span>;
+                            return <span style={{ color: 'var(--text-muted)' }}>—</span>;
+                          })()}
                           {p.xmlSource && <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{p.xmlSource.name}</div>}
                         </td>
                         {hasPrice && (() => {

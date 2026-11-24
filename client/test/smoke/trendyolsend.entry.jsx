@@ -32,6 +32,12 @@ ok('and the mappings of that source', calls.some((c) => /c1\/category-mappings$/
 ok('the hint is gone and the buttons work', !text().includes('Devam etmek için yukarıdan') && !btn('Tümünü Gönder').disabled && !btn('Durumları Sorgula').disabled);
 
 ok('the page lists the first 20 products and says there are 250', text().includes('Ürünler (250)'));
+const sendRows = [...document.querySelectorAll('tbody tr')];
+const rowWith = (sku) => sendRows.find((tr) => tr.textContent.includes(sku));
+ok('a hand-added product (template reads the number as a purchase price): "alış ₺80", not "alış ₺0"', !!rowWith('SKU-10') && rowWith('SKU-10').textContent.includes('alış ₺80') && !rowWith('SKU-10').textContent.includes('alış ₺0'), rowWith('SKU-10') && rowWith('SKU-10').textContent.slice(-80));
+ok('a hand-added product in "net amount" mode says "elinize kalacak net ₺120", never "alış"', !!rowWith('SKU-11') && rowWith('SKU-11').textContent.includes('elinize kalacak net ₺120') && !rowWith('SKU-11').textContent.includes('alış ₺'), rowWith('SKU-11') && rowWith('SKU-11').textContent.slice(-80));
+ok('a hand-added product with no number yet says so', !!rowWith('SKU-12') && rowWith('SKU-12').textContent.includes('alış fiyatı girilmemiş'));
+ok('an XML product still shows its feed price', !!rowWith('SKU-13') && rowWith('SKU-13').textContent.includes('alış ₺113'), rowWith('SKU-13') && rowWith('SKU-13').textContent.slice(-80));
 ok('"select all" offers the full filtered count, not just the page', !!btn('Filtredeki Tümünü Seç (250)'));
 
 calls.length = 0;

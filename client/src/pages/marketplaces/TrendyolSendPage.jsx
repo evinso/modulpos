@@ -7,6 +7,16 @@ import api from '../../services/api';
 import toast from 'react-hot-toast';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import SendSettingsPanel from './SendSettingsPanel';
+import { buyingOf } from '../products/productsUi';
+
+// The small "alış" line under the sale price. A hand-added product's number is a purchase price only when its template says so (cash mode: the net amount to keep).
+const tl = (n) => (Number(n) || 0).toLocaleString('tr-TR');
+const buyingText = (p) => {
+  const b = buyingOf(p);
+  if (b.kind === 'purchase') return `alış ₺${tl(b.value)}`;
+  if (b.kind === 'net') return `elinize kalacak net ₺${tl(b.value)}`;
+  return b.hand ? 'alış fiyatı girilmemiş' : 'alış ₺0';
+};
 
 const MP_STATUS = {
   active:  { label: 'Aktif',    color: 'var(--success)',      bg: 'rgba(16,185,129,0.1)',  icon: <Check size={11} /> },
@@ -595,13 +605,13 @@ export default function TrendyolSendPage() {
                         <>
                           <div style={{ fontWeight: 700 }}>₺{p.salePrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                           <div style={{ fontSize: 10, color: 'var(--text-muted)' }} title={p.priceRule?.name ? `Şablon: ${p.priceRule.name}` : undefined}>
-                            alış ₺{(p.xmlPrice || 0).toLocaleString('tr-TR')}{p.priceRule?.name ? ` · ${p.priceRule.name}` : ''}
+                            {buyingText(p)}{p.priceRule?.name ? ` · ${p.priceRule.name}` : ''}
                           </div>
                         </>
                       ) : (
                         <>
                           <div style={{ fontWeight: 600, color: 'var(--danger)' }}>—</div>
-                          <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>alış ₺{(p.xmlPrice || 0).toLocaleString('tr-TR')}</div>
+                          <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{buyingText(p)}</div>
                         </>
                       )}
                     </td>

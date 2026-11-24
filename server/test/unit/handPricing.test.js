@@ -204,3 +204,20 @@ test('pricesAsNet: a hand-added product is a net amount unless the template says
   assert.equal(E.pricesAsNet(hand(), { netMode: 'profit' }), false);
   assert.equal(E.pricesAsNet({ id: 'x', xmlSourceId: 's', xmlPrice: 5, price: 5 }, { netMode: 'cash' }), false);
 });
+
+test('buyingOf: what the lists print as "alış" depends on what the template makes of the number', () => {
+  const cashRule = R({ conditions: JSON.stringify({ ...COSTS, xmlSourceIds: ['none'], netMode: 'cash' }) });
+  const profitRule = R({ conditions: JSON.stringify({ ...COSTS, xmlSourceIds: ['none'], netMode: 'profit', profitMode: 'percent_of_purchase' }), value: 30 });
+  const xml = { id: 'x1', xmlSourceId: 's1', xmlPrice: 55, price: 99, vatRate: 20, category: '', brand: '' };
+  // an XML product: its feed price, whatever the templates are
+  assert.deepEqual(new E.PricingContext([cashRule], 'C').buyingOf(xml), { purchase: 55, net: null });
+  // hand-added, cash mode: the number is the NET amount to keep, not a purchase price
+  assert.deepEqual(new E.PricingContext([cashRule], 'C').buyingOf(hand({ price: 80 })), { purchase: null, net: 80 });
+  // hand-added, purchase + profit mode: the number IS the purchase price
+  assert.deepEqual(new E.PricingContext([profitRule], 'C').buyingOf(hand({ price: 80 })), { purchase: 80, net: null });
+  // no number yet, or no template that prices it: nothing to claim
+  assert.deepEqual(new E.PricingContext([profitRule], 'C').buyingOf(hand({ price: 0 })), { purchase: null, net: null });
+  assert.deepEqual(new E.PricingContext([], 'C').buyingOf(hand({ price: 80 })), { purchase: null, net: null });
+  // an XML product without a feed price (0) has none to show either
+  assert.deepEqual(new E.PricingContext([profitRule], 'C').buyingOf({ ...xml, xmlPrice: 0 }), { purchase: null, net: null });
+});

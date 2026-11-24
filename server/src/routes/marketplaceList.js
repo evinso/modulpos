@@ -75,7 +75,7 @@ async function getRows(connection, { search = '', xmlSourceId = '', categories =
       for (const p of batch) {
         const ev = ctx.evaluate(p);
         const mp = ctx.mpByProduct.get(p.id) || null;
-        rows.push({ id: p.id, t: new Date(p.createdAt).getTime(), ready: ev.ready, issues: ev.issues, salePrice: ev.salePrice, priceRule: ev.priceRule, mapName: ev.mapping ? (ev.mapping.marketplaceCategoryName || String(ev.mapping.marketplaceCategoryId)) : null, mpStatus: mp ? mp.status : null });
+        rows.push({ id: p.id, t: new Date(p.createdAt).getTime(), ready: ev.ready, issues: ev.issues, salePrice: ev.salePrice, priceRule: ev.priceRule, mapName: ev.mapping ? (ev.mapping.marketplaceCategoryName || String(ev.mapping.marketplaceCategoryId)) : null, mpStatus: mp ? mp.status : null, buying: ctx.priceCtx.buyingOf(p) });
       }
       cursor = batch[batch.length - 1].id;
       if (batch.length < BATCH) break;
@@ -141,6 +141,8 @@ router.get('/connections/:id/product-list', async (req, res, next) => {
         salePrice: byId[p.id].salePrice,
         priceRule: byId[p.id].priceRule,
         mapName: byId[p.id].mapName,
+        purchasePrice: byId[p.id].buying.purchase,      // what the "alış" text shows: the feed price, or the number the owner typed when the template reads it as a purchase price
+        netAmount: byId[p.id].buying.net,
         ready: byId[p.id].ready,
         issues: byId[p.id].issues,
       })),

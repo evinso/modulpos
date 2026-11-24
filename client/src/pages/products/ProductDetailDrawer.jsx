@@ -172,12 +172,19 @@ function General({ data, imgIndex, setImgIndex }) {
 
 function PriceTab({ data }) {
   const p = data.product;
+  // added by hand: no feed price; the number it carries is a purchase price or a net amount depending on the price template (the server's explanation says which)
+  const hand = !p.xmlSourceId && !(p.xmlPrice > 0);
+  const priced = (data.marketplaces || []).map((m) => m.pricing).filter(Boolean);
+  const asPurchase = priced.find((x) => x.breakdown && !x.net);
+  const asNet = priced.find((x) => x.net);
+  const buyLabel = !hand ? 'Alış fiyatı (XML)' : (asNet && !asPurchase ? 'Elinize kalacak net tutar' : 'Alış fiyatı');
+  const buyValue = !hand ? p.xmlPrice : (asNet && !asPurchase ? asNet.net.amount : (asPurchase ? asPurchase.breakdown.purchase : null));
   return (
     <>
       <Section title="Fiyat bilgileri">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 14 }}>
-          <Field label="Alış fiyatı (XML)">₺{money(p.xmlPrice)}</Field>
-          <Field label="Kayıtlı fiyat">₺{money(p.price)}{Math.abs(p.price - p.xmlPrice) > 0.005 && <Pill color="var(--info)" style={{ marginLeft: 6 }}>elle</Pill>}</Field>
+          <Field label={buyLabel}>{buyValue != null ? `₺${money(buyValue)}` : '—'}</Field>
+          <Field label="Kayıtlı fiyat">₺{money(p.price)}{!hand && Math.abs(p.price - p.xmlPrice) > 0.005 && <Pill color="var(--info)" style={{ marginLeft: 6 }}>elle</Pill>}</Field>
           <Field label="Liste fiyatı">{p.listPrice ? `₺${money(p.listPrice)}` : '—'}</Field>
           <Field label="Maliyet">{p.cost ? `₺${money(p.cost)}` : '—'}</Field>
         </div>
