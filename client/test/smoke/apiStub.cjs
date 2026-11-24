@@ -15,6 +15,8 @@ const formCfg = { unavailable: false, importMode: 'ok' };   // the new-product f
 const uploads = [];   // the pictures the product form uploaded
 const xmlSrc = { status: 'active' };   // the one XML source of the stub: the page switches it between active and paused (passive)
 const handCfg = { scoped: false };   // true: every template is limited to the XML source s1, so nothing prices the products added by hand
+// "XML'den ürün ekle": what the read answers (items), a failure to play ({ status, error }), and every write the page sent
+const xmlImp = { items: [], fail: null, written: [], read: [] };
 const sendBehaviour = { failAt150: false, allBelowStock: false };
 const pc = { aiError: null, aiMatched: 2, saved: [], attrAiError: null };   // saved: category mappings the page saved during the test
 const conv = { feeds: {}, previewFeed: null };   // XML converter page: what /xml-converter/feeds/status answers per address, and the feed row a new conversion returns
@@ -133,6 +135,13 @@ const get = async (url, cfg = {}) => {
 const post = async (url, body) => {
   calls.push({ m: 'POST', url, body });
   { const b = bulkStub.handle('POST', url, body); if (b) return b; }
+  if (url.startsWith('/products/xml-import/read')) {
+    xmlImp.read.push({ url, body });
+    if (xmlImp.fail) { const e = new Error('x'); e.response = { status: xmlImp.fail.status, data: { error: xmlImp.fail.error } }; throw e; }
+    return { data: { token: 'tok1', total: xmlImp.items.length, truncated: false, max: 5000, mapping: { title: 'URUNADI', description: 'ACIKLAMA', images: 'RESIMLER.RESIM', sku: 'URUNKODU', barcode: 'BARKOD', category: 'KATEGORI' },
+      fields: [{ path: 'URUNADI', sample: 'Kupa' }, { path: 'URUNKODU', sample: 'TR-1' }, { path: 'ACIKLAMA', sample: 'x' }], noName: 0, duplicatesInFile: 0, items: xmlImp.items } };
+  }
+  if (url === '/products/xml-import') { xmlImp.written.push(body); return { data: { created: body.refs.length, skipped: [], limitReached: false } }; }
   if (url === '/products') return { data: { id: 'new1', ...body } };
   if (/product-categories\/attribute-form$/.test(url)) {
     if (formCfg.unavailable) return { data: { category: { id: body.categoryId, name: 'Pense', path: 'Hırdavat > Manuel El Aletleri > Pense' }, attributes: [], unavailable: true } };
@@ -209,5 +218,5 @@ const put = async (url, body) => {
   }
   if (/send-settings$/.test(url)) return { data: { settings: body.settings, summary: [] } }; return { data: {} }; };
 const del = async (url, cfg) => { calls.push({ m: 'DELETE', url, params: cfg && cfg.params, body: cfg && cfg.data }); { const b = bulkStub.handle('DELETE', url, null, cfg); if (b) return b; } return { data: /sale-price$/.test(url) ? { ok: true, removed: 1 } : (/product-categories$/.test(url) ? { removed: (cfg.data.productIds || []).length } : {}) }; };
-module.exports = { get, post, put, delete: del, calls, uploads, handCfg, formCfg, xmlSrc, wa, sendBehaviour, pc, profitTax, conv, bulk: bulkStub.bulk };
+module.exports = { get, post, put, delete: del, calls, uploads, xmlImp, handCfg, formCfg, xmlSrc, wa, sendBehaviour, pc, profitTax, conv, bulk: bulkStub.bulk };
 module.exports.default = module.exports;
