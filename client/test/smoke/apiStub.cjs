@@ -49,7 +49,8 @@ const get = async (url, cfg = {}) => {
   if (url === '/products/summary') return { data: { total: 8, active: 7, passive: 1, outOfStock: 3, lowStock: 2, noImage: 1, noBarcode: 0, lowStockMax: 5 } };
   if (url === '/products/facets') return { data: { categories: [{ name: 'Giyim|Kadın|Elbise', count: 8 }], brands: [{ name: 'ModaX', count: 4 }] } };
   if (url === '/products/stats') return { data: { total: 8, manual: 1, mpStatus: { active: 1, pending: 0, rejected: 0, passive: 0, not_sent: 7 } } };
-  if (url === '/products') { const rows = [0, 1, 2, 3, 4].map((i) => mk(i)); return { data: { products: rows, pagination: { total: 8, page: cfg.params?.page || 1, limit: cfg.params?.limit || 20, totalPages: 1 } } }; }
+  if (url === '/products') { const rows = [0, 1, 2, 3, 4].map((i) => (i === 0 ? mk(i, { category: '' }) : mk(i)));   // p0: like a product added by hand: no category text of its own, the marketplace category was chosen on the category tab
+     return { data: { products: rows, pagination: { total: 8, page: cfg.params?.page || 1, limit: cfg.params?.limit || 20, totalPages: 1 } } }; }
   if (url === '/products/ids') return { data: { ids: ['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'], total: 8 } };
   if (/^\/products\/[^/]+\/detail$/.test(url)) return { data: detail };
   if (/^\/products\/[^/]+$/.test(url)) return { data: { ...mk(1), description: 'Tam açıklama' } };

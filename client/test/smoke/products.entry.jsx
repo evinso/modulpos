@@ -46,6 +46,10 @@ ok('the context bar names the chosen marketplace and XML source', q('context-bar
 ok('the old XML and marketplace drop-downs are gone from the filters', !text().includes('Fiyat ve durum için pazaryeri') && ![...document.querySelectorAll('label')].some((l) => l.textContent === 'XML kaynağı'));
 ok('price columns visible for the chosen marketplace', text().includes('Satış / kâr') && text().includes('Hazırlık'));
 ok('sale price and profit shown', text().includes('₺251,9') && text().includes('+₺51'), '');
+const rowOf = (id) => [...document.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes('SKU-' + id));
+ok('a product without a category text of its own (added by hand) shows the marketplace category it was given, not "Kategori yok"', rowOf(0).textContent.includes('Aksesuar > Elbise') && !rowOf(0).textContent.includes('Kategori yok') && !!q('mp-category-p0'), rowOf(0).textContent.slice(0, 160));
+ok('a product with a category text shows both lines', rowOf(1).textContent.includes('Elbise') && !!q('mp-category-p1') && q('mp-category-p1').textContent.includes('Aksesuar > Elbise'));
+ok('a product with no marketplace category yet only has its own text (and no empty marketplace line)', rowOf(2).textContent.includes('Elbise') && !q('mp-category-p2'));
 ok('"template missing" and issue count pills', text().includes('Şablon yok') && text().includes('1 sorun'));
 ok('marketplace status chips on the product', text().includes('Mağazam: Satışta'));
 ok('status tabs with counts', text().includes('Gönderilmemiş') && text().includes('Onay bekliyor'));
