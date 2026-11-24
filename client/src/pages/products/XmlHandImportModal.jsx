@@ -12,14 +12,14 @@ const LABELS = { title: 'Ürün adı', description: 'Açıklama', images: 'Foto�
 const REASON = { exists: 'zaten ekli (aynı SKU)', barcode: 'aynı barkod zaten var', limit: 'plan ürün limiti', unknown: 'bulunamadı' };
 const errText = (e, fallback) => (e && e.response && e.response.data && e.response.data.error) || fallback;
 
-const RULE0 = { mode: 'keep', prefix: '', suffix: '', find: '', replace: '', start: '1', pad: '4', digits: '200' };
-const SKU_MODES = [['keep', 'XML’deki gibi kalsın'], ['affix', 'Başına / sonuna ek yaz'], ['replace', 'Metin değiştir (bul → yerine)'], ['barcode', 'Barkodla aynı olsun'], ['counter', 'Kendi numaram (sıralı: BEN-0001…)']];
-const BAR_MODES = [['keep', 'XML’deki gibi kalsın'], ['none', 'Barkod yazma (sonra ben girerim)'], ['sku', 'Stok koduyla aynı olsun'], ['affix', 'Başına / sonuna ek yaz'], ['replace', 'Metin değiştir (bul → yerine)'], ['generate', 'Kendi barkodumu üret (EAN-13)']];
+export const RULE0 = { mode: 'keep', prefix: '', suffix: '', find: '', replace: '', start: '1', pad: '4', digits: '200' };
+export const SKU_MODES = [['keep', 'XML’deki gibi kalsın'], ['affix', 'Başına / sonuna ek yaz'], ['replace', 'Metin değiştir (bul → yerine)'], ['barcode', 'Barkodla aynı olsun'], ['counter', 'Kendi numaram (sıralı: BEN-0001…)']];
+export const BAR_MODES = [['keep', 'XML’deki gibi kalsın'], ['none', 'Barkod yazma (sonra ben girerim)'], ['sku', 'Stok koduyla aynı olsun'], ['affix', 'Başına / sonuna ek yaz'], ['replace', 'Metin değiştir (bul → yerine)'], ['generate', 'Kendi barkodumu üret (EAN-13)']];
 /** what the server wants: numbers as numbers, only the fields of the chosen mode */
-const ruleBody = (r) => ({ mode: r.mode, prefix: r.prefix, suffix: r.suffix, find: r.find, replace: r.replace, start: r.start === '' ? undefined : Number(r.start), pad: r.pad === '' ? undefined : Number(r.pad), digits: r.digits });
+export const ruleBody = (r) => ({ mode: r.mode, prefix: r.prefix, suffix: r.suffix, find: r.find, replace: r.replace, start: r.start === '' ? undefined : Number(r.start), pad: r.pad === '' ? undefined : Number(r.pad), digits: r.digits });
 
 /** ONE choice for a code of every product, with the few boxes the choice needs */
-function RuleEditor({ label, modes, value, onChange, testid }) {
+export function RuleEditor({ label, modes, value, onChange, testid }) {
   const set = (patch) => onChange({ ...value, ...patch });
   const box = (key, ph, w = 130, type = 'text') => <input type={type} className="form-input" style={{ width: w }} placeholder={ph} value={value[key]} onChange={(e) => set({ [key]: e.target.value })} aria-label={ph} />;
   return (

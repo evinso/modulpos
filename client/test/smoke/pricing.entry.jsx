@@ -1,5 +1,6 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import PricingPage from '../../src/pages/pricing/PricingPage.jsx';
 import { calls } from './apiStub.cjs';
 
@@ -21,7 +22,7 @@ const errors = [];
 console.error = (...a) => { errors.push(a.map(String).join(' ').slice(0, 200)); };
 
 const root = createRoot(document.getElementById('root'));
-await act(async () => { root.render(<PricingPage />); });
+await act(async () => { root.render(<MemoryRouter><PricingPage /></MemoryRouter>); });
 await wait(150);
 
 // ---- list ----
@@ -161,6 +162,15 @@ await wait(100);
 const made = calls.filter((c) => c.m === 'POST' && c.url === '/pricing').pop();
 ok('saved: scope "none", net mode, no profit, costs as typed', made && made.body.conditions.xmlSourceIds.length === 1 && made.body.conditions.xmlSourceIds[0] === 'none' && made.body.conditions.netMode === 'cash'
   && made.body.conditions.profitMode === 'fixed' && made.body.value === 0 && made.body.conditions.profitTiers.length === 0 && made.body.conditions.shippingCost === 100 && made.body.conditions.commissionPct === 22 && made.body.conditions.serviceFee === 13.19, made && JSON.stringify(made.body).slice(0, 260));
+
+// ---- the link of the hand-added products workspace ("/pricing?hand=1") opens the template of the products added by hand ----
+await act(async () => { root.unmount(); });
+document.getElementById('root').innerHTML = '';
+const root2 = createRoot(document.getElementById('root'));
+await act(async () => { root2.render(<MemoryRouter initialEntries={['/pricing?hand=1']}><PricingPage /></MemoryRouter>); });
+await wait(200);
+ok('"?hand=1" opens the template form with the scope "Elle eklenen ürünler" already chosen (its banner is there)', !!document.querySelector('[data-testid="hand-banner"]') && document.querySelector('[data-testid="hand-banner"]').textContent.includes('Elle eklenen ürünler için şablon'));
+await act(async () => { root2.unmount(); });
 
 console.error = () => {};
 const real = errors.filter((e) => !/not wrapped in act|Warning: An update|ReactDOMTestUtils|act\(/.test(e));

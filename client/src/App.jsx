@@ -39,6 +39,7 @@ const OrdersPage          = lazy(() => import('./pages/orders/OrdersPage'));
 const DropshipOrdersPage  = lazy(() => import('./pages/dropship/DropshipOrdersPage'));
 const SupportPage         = lazy(() => import('./pages/support/SupportPage'));
 const PricingPage         = lazy(() => import('./pages/pricing/PricingPage'));
+const HandProductsPage    = lazy(() => import('./pages/handproducts/HandProductsPage'));
 const CreditsPage         = lazy(() => import('./pages/credits/CreditsPage'));
 const LogsPage            = lazy(() => import('./pages/activity/LogsPage'));
 const SettingsPage        = lazy(() => import('./pages/settings/SettingsPage'));
@@ -108,6 +109,7 @@ function App() {
             <Route path="/dropship-orders"  element={<DropshipOrdersPage />} />
             <Route path="/support"          element={<SupportPage />} />
             <Route path="/pricing"          element={<PricingPage />} />
+            <Route path="/hand-products"    element={<HandProductsPage />} />
             <Route path="/credits"          element={<CreditsPage />} />
             <Route path="/logs"             element={<LogsPage />} />
             <Route path="/settings"         element={<SettingsPage />} />
