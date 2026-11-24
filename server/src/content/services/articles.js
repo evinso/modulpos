@@ -29,7 +29,7 @@ const RISKS = ['low', 'review', 'blocked'];
 /** what a person may do by hand: from -> allowed targets */
 const TRANSITIONS = {
   topic_discovered: ['archived'], seo_researching: ['archived'], ready_to_generate: ['archived'],
-  needs_review: ['ready', 'needs_update', 'archived'], ready: ['needs_review', 'archived'], needs_update: ['needs_review', 'archived'],
+  needs_review: ['ready', 'needs_update', 'archived'], ready: ['needs_review', 'archived'], needs_update: ['needs_review', 'archived', 'published'],
   failed: ['needs_review', 'archived'], archived: ['needs_review'], published: ['needs_update'],
 };
 const DELETABLE = new Set(['topic_discovered', 'seo_researching', 'ready_to_generate', 'needs_review', 'ready', 'needs_update', 'failed', 'archived']);
@@ -41,7 +41,7 @@ function row(r, { withContent = true } = {}) {
   const out = {
     id: r.id, projectId: r.project_id, categoryId: r.category_id, categoryName: r.category_name, status: r.status, statusLabel: STATUS_LABELS[r.status], articleType: r.article_type, seoTitle: r.seo_title, h1: r.h1, slug: r.slug,
     metaDescription: r.meta_description, focusKeyword: r.focus_keyword, secondaryKeywords: r.secondary_keywords, excerpt: r.excerpt, faq: r.faq, tags: r.tags, targetCountry: r.target_country, language: r.language,
-    qualityScore: r.quality_score, adsenseRisk: r.adsense_risk, factCheckedAt: r.fact_checked_at, lastUpdatedAt: r.last_updated_at, featuredImageUrl: r.featured_image_url, wordCount: r.word_count,
+    qualityScore: r.quality_score, adsenseRisk: r.adsense_risk, adsenseAccepted: r.adsense_risk === 'review' && r.adsense_accepted_risk === 'review', adsenseAcceptedAt: r.adsense_accepted_at, adsenseAcceptedNote: r.adsense_accepted_note, factCheckedAt: r.fact_checked_at, lastUpdatedAt: r.last_updated_at, featuredImageUrl: r.featured_image_url, wordCount: r.word_count,
     currentVersion: r.current_version, generation: r.generation, manualEdited: r.manual_edited, createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, archivedAt: r.archived_at,
   };
   if (withContent) out.contentHtml = r.content_html;
@@ -177,7 +177,8 @@ async function loadRow(id, c = db) {
 async function get(id) {
   const r = await loadRow(id);
   const sources = (await db.query('SELECT id, url, title, publisher, note, accessed_at FROM article_sources WHERE article_id = $1 ORDER BY accessed_at, id', [id])).rows;
-  return { ...row(r), sources: sources.map((s) => ({ id: s.id, url: s.url, title: s.title, publisher: s.publisher, note: s.note, accessedAt: s.accessed_at })) };
+  const live = (await liveMap([r.id])).get(r.id) || null;
+  return { ...row(r), live, sources: sources.map((s) => ({ id: s.id, url: s.url, title: s.title, publisher: s.publisher, note: s.note, accessedAt: s.accessed_at })) };
 }
 
 const SORTS = { updated: 'a.updated_at', created: 'a.created_at', quality: 'a.quality_score', words: 'a.word_count', title: 'lower(a.h1)', status: 'a.status' };
@@ -198,6 +199,14 @@ function where(q, params) {
   return w.length ? `WHERE ${w.join(' AND ')}` : '';
 }
 
+/** which of these articles are LIVE on WordPress now (a publication that is "published"): Map(articleId -> { url, publishedAt, version, siteName }) */
+async function liveMap(ids) {
+  if (!ids.length) return new Map();
+  const rows = (await db.query(`SELECT DISTINCT ON (p.article_id) p.article_id, p.wp_url, p.published_at, p.article_version, s.name AS site_name FROM publications p LEFT JOIN wp_sites s ON s.id = p.site_id
+    WHERE p.article_id = ANY($1::uuid[]) AND p.status = 'published' ORDER BY p.article_id, p.published_at DESC NULLS LAST`, [ids])).rows;
+  return new Map(rows.map((r) => [r.article_id, { url: r.wp_url, publishedAt: r.published_at, version: r.article_version, siteName: r.site_name }]));
+}
+
 async function list(q = {}) {
   const params = []; const w = where(q, params);
   const sort = SORTS[q.sort] || SORTS.updated; const dir = String(q.dir).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
@@ -205,7 +214,8 @@ async function list(q = {}) {
   const total = (await db.query(`SELECT count(*)::int n FROM articles a ${w}`, params)).rows[0].n;
   const rows = (await db.query(`SELECT a.*, c.name_en AS category_name FROM articles a LEFT JOIN categories c ON c.id = a.category_id ${w}
     ORDER BY ${sort} ${dir} NULLS LAST, a.id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`, [...params, pageSize, (page - 1) * pageSize])).rows;
-  return { total, page, pageSize, items: rows.map((r) => row(r, { withContent: false })) };
+  const live = await liveMap(rows.map((r) => r.id));
+  return { total, page, pageSize, items: rows.map((r) => ({ ...row(r, { withContent: false }), live: live.get(r.id) || null })) };
 }
 
 // ── update, versions ────────────────────────────────────────────────────────────────────────────────────────
@@ -237,7 +247,7 @@ async function update(id, body, { userId = null, by = 'manual', preserveChecks =
       if (by === 'manual') sets.push('manual_edited = true');
       if ((changed.includes('contentHtml') || changed.includes('h1')) && !(preserveChecks && by === 'ai')) {         // (only the engine's own link insertion may keep the checks: the words of the article did not change)
         sets.push('fact_checked_at = NULL');                                                                          // changed facts must be checked again
-        if (cur.created_by === 'ai') { sets.push('quality_score = NULL'); if (!changed.includes('adsenseRisk')) sets.push('adsense_risk = NULL'); }   // so are the AdSense class and the quality score of a written article (unless the person sets the class in the same save)
+        if (cur.created_by === 'ai') { sets.push('quality_score = NULL'); if (!changed.includes('adsenseRisk')) sets.push('adsense_risk = NULL'); sets.push('adsense_accepted_risk = NULL', 'adsense_accepted_at = NULL', 'adsense_accepted_note = NULL'); }   // so are the AdSense class and the quality score of a written article (unless the person sets the class in the same save)
       }
     }
     if (wantsMeaningful) sets.push('last_updated_at = now()');
@@ -335,7 +345,8 @@ async function readiness(id) {
     else add('not_fact_checked', 'Doğruluk kontrolü yapılmadı (zorunlu)');
   }
   if (!a.adsense_risk) add('no_adsense', 'AdSense risk kontrolü yapılmadı (zorunlu)');
-  else if (a.adsense_risk !== 'low') add('adsense_risk', a.adsense_risk === 'blocked' ? 'AdSense açısından yayınlanamaz olarak işaretli' : 'AdSense riski “inceleme gerekli” olarak işaretli; çözüp “düşük” yapın');
+  else if (a.adsense_risk === 'review' && a.adsense_accepted_risk === 'review') add('adsense_accepted', `AdSense incelemesi “inceleme gerekli” dedi; siz kabul ettiniz${a.adsense_accepted_at ? ` (${new Date(a.adsense_accepted_at).toISOString().slice(0, 10)})` : ''}: bu bir kişi kararıdır, AdSense onayı garanti etmez`, false);
+  else if (a.adsense_risk !== 'low') add('adsense_risk', a.adsense_risk === 'blocked' ? 'AdSense açısından yayınlanamaz olarak işaretli' : 'AdSense riski “inceleme gerekli” olarak işaretli; çözüp “düşük” yapın ya da editörde “AdSense uyarısını kabul et”');
   const nSources = (await db.query('SELECT count(*)::int n FROM article_sources WHERE article_id = $1', [a.id])).rows[0].n;
   if (nSources === 0) add('no_sources', NEWS_TYPES.has(a.article_type) ? 'Haber/güncelleme türü makalede kaynak gerekli' : 'Kaynak eklenmedi', NEWS_TYPES.has(a.article_type));
   if (a.created_by === 'ai' && a.quality_score === null) add('no_quality', 'Kalite puanı verilmedi (kontrollerin hepsi çalışmadı); editörde “Kontrolleri çalıştır”');
@@ -350,16 +361,37 @@ async function readiness(id) {
 }
 
 async function setStatus(id, status, { userId = null } = {}) {
-  const target = V.oneOf(status, 'Durum', STATUSES);
+  let target = V.oneOf(status, 'Durum', STATUSES);
   const cur = await loadRow(id);
   if (cur.status === target) return get(id);
-  if (!(TRANSITIONS[cur.status] || []).includes(target)) throw new HttpError(409, `“${STATUS_LABELS[cur.status]}” durumundaki makale elle “${STATUS_LABELS[target]}” yapılamaz${['scheduled', 'published'].includes(target) ? ' (yayın WordPress modülüyle yapılır)' : ''}`);
+  const live = (await liveMap([cur.id])).has(cur.id);
+  if (live && cur.status === 'archived' && target === 'needs_review') target = 'published';                // an archived article that is live comes back as what it is
+  if (live && ['needs_review', 'ready'].includes(target)) throw new HttpError(409, 'Bu makale WordPress’te yayında; “Onay bekliyor” ya da “Yayına hazır” yapılamaz. Güncelleme gerekmiyorsa “Yayımlandı olarak kalsın” deyin; sitede değiştirmek istiyorsanız yeni sürüm yazıp güncelleyin');
+  if (target === 'published') {                                                                           // only a live article that was flagged "needs update" may be put back; everything else about publishing is WordPress's job
+    if (!((cur.status === 'needs_update' || cur.status === 'archived') && live)) throw new HttpError(409, `“${STATUS_LABELS[cur.status]}” durumundaki makale elle “${STATUS_LABELS[target]}” yapılamaz (yayın WordPress modülüyle yapılır)`);
+  } else if (!(TRANSITIONS[cur.status] || []).includes(target)) throw new HttpError(409, `“${STATUS_LABELS[cur.status]}” durumundaki makale elle “${STATUS_LABELS[target]}” yapılamaz${['scheduled', 'published'].includes(target) ? ' (yayın WordPress modülüyle yapılır)' : ''}`);
   if (target === 'ready') {
     const r = await readiness(id);
     if (!r.ready) throw new HttpError(409, `Makale yayına hazır değil: ${r.problems.filter((p) => p.blocking).map((p) => p.message).join('; ')}`, { problems: r.problems });
   }
   await db.query('UPDATE articles SET status = $1, archived_at = $2, updated_at = now() WHERE id = $3', [target, target === 'archived' ? new Date() : null, id]);
   return get(id);
+}
+
+/**
+ * A PERSON accepts the AdSense reviewer's class "inceleme gerekli" for this article (or takes the acceptance back). Nothing about the check is rewritten: the class stays what the reviewer said,
+ * the article only records who accepted it and when, and readiness stops treating it as a blocker. "Yayınlanamaz" cannot be accepted; the acceptance ends when the text changes (the checks reset).
+ * With `approve` the article is also put on "Yayına hazır" (the person's approval): when another blocker remains the acceptance stays and the reason comes back instead of an error.
+ * @returns { article, approved, reason }
+ */
+async function acceptAdsense(id, { accept = true, approve = false, note = 'Editörde kabul edildi' } = {}) {
+  const a = await loadRow(id);
+  if (!accept) { await db.query('UPDATE articles SET adsense_accepted_risk = NULL, adsense_accepted_at = NULL, adsense_accepted_note = NULL, updated_at = now() WHERE id = $1', [a.id]); return { article: await get(a.id), approved: false, reason: null }; }
+  if (a.adsense_risk !== 'review') throw new HttpError(409, a.adsense_risk === 'blocked' ? 'AdSense sınıfı “yayınlanamaz”: bu kabul edilemez' : a.adsense_risk === 'low' ? 'AdSense sınıfı zaten “düşük”: kabul edilecek bir uyarı yok' : 'Makalenin AdSense sınıfı henüz belirlenmedi: önce kontrolleri çalıştırın');
+  await db.query('UPDATE articles SET adsense_accepted_risk = $2, adsense_accepted_at = now(), adsense_accepted_note = $3, updated_at = now() WHERE id = $1', [a.id, 'review', V.str(note, 'Not', { max: 200 }) || 'Editörde kabul edildi']);
+  let approved = false; let reason = null;
+  if (approve && a.status === 'needs_review') { try { await setStatus(a.id, 'ready'); approved = true; } catch (err) { if (!(err instanceof HttpError)) throw err; reason = err.message; } }
+  return { article: await get(a.id), approved, reason };
 }
 
 async function remove(id) {
@@ -374,7 +406,7 @@ async function remove(id) {
 async function bulk({ ids, action, categoryId, status }, ctx = {}) {
   if (!Array.isArray(ids) || ids.length === 0 || ids.length > 200) throw bad('1 ile 200 arasında makale seçin');
   const uniq = [...new Set(ids.map((x) => V.uuid(x, 'Makale')))];
-  const ACTIONS = ['archive', 'restore', 'set_category', 'set_status', 'delete'];
+  const ACTIONS = ['archive', 'restore', 'set_category', 'set_status', 'delete', 'accept_adsense'];
   V.oneOf(action, 'İşlem', ACTIONS);
   const done = []; const failed = [];
   for (const id of uniq) {
@@ -384,6 +416,7 @@ async function bulk({ ids, action, categoryId, status }, ctx = {}) {
       else if (action === 'set_status') await setStatus(id, status, ctx);
       else if (action === 'set_category') await update(id, { categoryId: V.uuid(categoryId, 'Kategori'), reason: 'Toplu kategori değişikliği' }, ctx);
       else if (action === 'delete') await remove(id);
+      else if (action === 'accept_adsense') { const r = await acceptAdsense(id, { accept: true, approve: true }); if (r.reason) throw new HttpError(409, `AdSense uyarısı kabul edildi ama onaylanamadı: ${r.reason}`); }
       done.push(id);
     } catch (err) { failed.push({ id, message: err instanceof HttpError ? err.message : 'Beklenmeyen hata' }); }
   }
@@ -438,4 +471,4 @@ async function counts(projectId = null, { tz = 'Europe/Istanbul', days = 30 } = 
     adsenseRisky: risk.risky, adsenseUnchecked: risk.unchecked, daily: daily.map((d) => ({ day: d.day instanceof Date ? d.day.toISOString().slice(0, 10) : String(d.day), count: d.n })) };
 }
 
-module.exports = { STATUSES, STATUS_LABELS, TYPES, TRANSITIONS, MIN_WORDS, create, createFromAi, get, list, update, listVersions, getVersion, restoreVersion, compareVersions, setSources, markFactChecked, readiness, setStatus, remove, bulk, exportArticles, counts };
+module.exports = { STATUSES, STATUS_LABELS, TYPES, TRANSITIONS, MIN_WORDS, create, createFromAi, get, list, update, listVersions, getVersion, restoreVersion, compareVersions, setSources, markFactChecked, readiness, setStatus, acceptAdsense, liveMap, remove, bulk, exportArticles, counts };

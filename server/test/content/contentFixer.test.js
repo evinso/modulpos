@@ -216,3 +216,16 @@ test('checks that never ran: the bot runs them, finds the subject-level warning,
   assert.equal(m.byRole('fix').length, 0, 'no rewrite was paid for');
   assert.equal((await q1("SELECT used FROM daily_work_usage WHERE work_type = 'article_fix' AND scope = 'global'")).used, 1, 'the check run did use the day\'s place');
 });
+
+test('with automatic approval on, a draft with NO blocker (for example after a person accepted its AdSense warning) is approved by the next pass at no cost; with it off the bot leaves it alone', opts, async () => {
+  const m = fakeModels(); m.st.override.review = SENSITIVE_REVIEW;
+  const { pid, id } = await draft(m);
+  assert.deepEqual((await FX.candidates(pid)).map((c) => c.id), [id], 'blocked by the subject-level AdSense class: the bot sees it (and hands it to a person)');
+  await A.acceptAdsense(id);                                               // the person accepts the reviewer's class
+  assert.deepEqual(await FX.candidates(pid), [], 'manual approval is on: nothing for the bot to do');
+  const cur = (await S.get('quality')).value; await S.set('quality', { ...cur, manualApprovalNewArticles: false }, { scope: 'global' });
+  const found = await FX.candidates(pid); assert.deepEqual(found.map((c) => [c.id, c.problems.length]), [[id, 0]]);
+  const calls = m.calls.length; const pass = await FX.runPass(pid, { fetchImpl: m.fetchImpl, now: NOW });
+  assert.equal(pass.stats.approved, 1); assert.equal(m.calls.length, calls, 'approving a clean draft asks no model'); assert.equal((await q1('SELECT status FROM articles WHERE id = $1', [id])).status, 'ready');
+  assert.equal((await q1("SELECT count(*)::int n FROM daily_work_usage WHERE work_type = 'article_fix'")).n, 0);
+});

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Download, Plus, Search } from 'lucide-react';
+import { Download, ExternalLink, Plus, Search } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { Alert, Async, Badge, Card, Empty, PageHead, Pager, useAction, useApp, useLoad } from '../ui.jsx';
 import { RISK, STATUS, TYPE_LABELS, dt, num } from '../format.js';
@@ -21,6 +21,7 @@ export default function Articles() {
   const toggle = (id) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   const bulk = async (action, extra = {}) => {
+    if (action === 'accept_adsense') { const yes = await confirm({ title: 'AdSense uyarısı kabul edilsin ve makaleler onaylansın mı?', body: `${ids.length} makalenin AdSense değerlendirmesi “inceleme gerekli” dediyse bunu siz kabul etmiş olursunuz ve diğer zorunlu kontrolleri geçenler “Yayına hazır” olur. Kayıtta değerlendirmenin dediği korunur (kimin, ne zaman kabul ettiği yazılır); “yayınlanamaz” olanlar kabul edilemez. Bu bir AdSense onayı ya da gelir garantisi değildir; kararı siz veriyorsunuz.`, confirmText: 'Kabul et ve onayla' }); if (!yes) return; }
     if (action === 'delete') { const yes = await confirm({ title: 'Seçili makaleler silinsin mi?', body: `${ids.length} makale kalıcı olarak silinir (yayımlanmış/zamanlanmış olanlar silinmez).`, confirmText: 'Sil', danger: true }); if (!yes) return; }
     const r = await run(() => api.post('/articles/bulk', { ids, action, ...extra }));
     if (!r) return;
@@ -55,7 +56,7 @@ export default function Articles() {
       </Card>
       {canWrite && ids.length > 0 && (
         <div className="alert info row between"><strong>{ids.length} makale seçili</strong>
-          <div className="row"><button className="btn sm" disabled={busy} onClick={() => bulk('archive')}>Arşivle</button><button className="btn sm" disabled={busy} onClick={() => bulk('restore')}>Arşivden çıkar</button>
+          <div className="row"><button className="btn sm primary" disabled={busy} onClick={() => bulk('accept_adsense')} title="AdSense “inceleme gerekli” uyarısını kabul eder ve diğer kontrolleri geçenleri Yayına hazır yapar">AdSense uyarısını kabul et ve onayla</button><button className="btn sm" disabled={busy} onClick={() => bulk('archive')}>Arşivle</button><button className="btn sm" disabled={busy} onClick={() => bulk('restore')}>Arşivden çıkar</button>
             <select className="input" style={{ width: 'auto' }} defaultValue="" onChange={(e) => { if (e.target.value) { bulk('set_category', { categoryId: e.target.value }); e.target.value = ''; } }} aria-label="Kategori ata"><option value="">Kategori ata…</option>{(cats.data ? cats.data.categories : []).filter((c) => c.status !== 'archived').map((c) => <option key={c.id} value={c.id}>{c.nameEn}</option>)}</select>
             <button className="btn sm danger" disabled={busy} onClick={() => bulk('delete')}>Sil</button><button className="btn sm ghost" onClick={() => setSel(new Set())}>Seçimi temizle</button></div></div>
       )}
@@ -70,9 +71,9 @@ export default function Articles() {
                   {canWrite && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={sel.has(a.id)} onChange={() => toggle(a.id)} aria-label={`${a.h1} seç`} /></td>}
                   <td><strong className="clip" style={{ display: 'block' }}>{a.h1}</strong><span className="faint mono">/{a.slug}</span> {a.createdBy === 'ai' && <Badge kind="info">AI</Badge>} {a.manualEdited && a.createdBy === 'ai' && <Badge>elle düzenlendi</Badge>}</td>
                   <td>{a.categoryName || <span className="faint">—</span>}</td>
-                  <td><Badge kind={STATUS[a.status][1]}>{STATUS[a.status][0]}</Badge></td><td className="num">{num(a.wordCount)}</td>
-                  <td>{a.adsenseRisk ? <Badge kind={RISK[a.adsenseRisk][1]}>{RISK[a.adsenseRisk][0]}</Badge> : <span className="faint">kontrol edilmedi</span>}</td>
-                  <td className="num">{a.currentVersion}</td><td className="faint">{dt(a.updatedAt)}</td></tr>))}</tbody></table></div>
+                  <td><Badge kind={STATUS[a.status][1]}>{STATUS[a.status][0]}</Badge>{a.live && a.status !== 'published' && <> <a href={a.live.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title={`WordPress’te yayında${a.live.version ? ` (sitedeki sürüm v${a.live.version})` : ''}`}><Badge kind="ok">Yayımlandı <ExternalLink size={11} style={{ verticalAlign: '-1px' }} /></Badge></a></>}</td><td className="num">{num(a.wordCount)}</td>
+                  <td>{a.adsenseRisk ? (a.adsenseAccepted ? <Badge kind="ok" title={`Değerlendirici “İnceleme gerekli” dedi; ${a.adsenseAcceptedNote || 'kabul edildi'}`}>Kabul edildi</Badge> : <Badge kind={RISK[a.adsenseRisk][1]}>{RISK[a.adsenseRisk][0]}</Badge>) : <span className="faint">kontrol edilmedi</span>}</td>
+                  <td className="num">{a.currentVersion}{a.live && a.live.version && a.live.version !== a.currentVersion && <small className="faint" style={{ display: 'block' }} title="WordPress’teki yazı bu sürüm değil; güncelleme gönderilmedi">sitede v{a.live.version}</small>}</td><td className="faint">{dt(a.updatedAt)}</td></tr>))}</tbody></table></div>
             <div style={{ marginTop: 12 }}><Pager page={d.page} pageSize={d.pageSize} total={d.total} onPage={(p) => set('page', p)} /></div>
           </Card>
         )

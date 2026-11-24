@@ -183,6 +183,11 @@ function buildRouter(getState) {
   r.put('/articles/:id', mw.need('articles.write'), wrap(async (req, res) => { const a = await articles.update(req.params.id, req.body, { userId: uid(req) }); await A(req, 'article.update', 'article', a.id, null, { version: a.currentVersion, fields: Object.keys(req.body).filter((k) => !['contentHtml', 'expectedVersion'].includes(k)) }); res.json(a); }));
   r.delete('/articles/:id', mw.need('articles.write'), wrap(async (req, res) => { const a = await articles.get(req.params.id); await articles.remove(req.params.id); await A(req, 'article.delete', 'article', req.params.id, { h1: a.h1, status: a.status }); res.json({ ok: true }); }));
   r.post('/articles/:id/status', mw.need('articles.write'), wrap(async (req, res) => { const before = await articles.get(req.params.id); const a = await articles.setStatus(req.params.id, req.body.status, { userId: uid(req) }); await A(req, 'article.status', 'article', a.id, { status: before.status }, { status: a.status }); res.json(a); }));
+  // a person accepts the reviewer's AdSense class "inceleme gerekli" (and, with approve, puts the article on "Yayına hazır"); { accept: false } takes it back
+  r.post('/articles/:id/adsense-accept', mw.need('articles.write'), wrap(async (req, res) => {
+    const accept = req.body.accept !== false; const out = await articles.acceptAdsense(req.params.id, { accept, approve: req.body.approve === true });
+    await A(req, accept ? 'article.adsense_accept' : 'article.adsense_accept_withdraw', 'article', req.params.id, null, { approved: out.approved, reason: out.reason }); res.json(out);
+  }));
   r.get('/articles/:id/readiness', wrap(async (req, res) => res.json(await articles.readiness(req.params.id))));
   r.post('/articles/:id/fact-check', mw.need('articles.write'), wrap(async (req, res) => { const a = await articles.markFactChecked(req.params.id, req.body.checked !== false); await A(req, 'article.factcheck', 'article', a.id, null, { checked: req.body.checked !== false }); res.json(a); }));
   r.put('/articles/:id/sources', mw.need('articles.write'), wrap(async (req, res) => { const n = await articles.setSources(req.params.id, req.body.sources); await A(req, 'article.sources', 'article', req.params.id, null, { count: n }); res.json(await articles.get(req.params.id)); }));

@@ -20,5 +20,5 @@ export const RISK = { low: ['Düşük', 'ok'], review: ['İnceleme gerekli', 'wa
 // what a person may do by hand (mirrors the server's TRANSITIONS; the server decides)
 export const NEXT = {
   topic_discovered: ['archived'], seo_researching: ['archived'], ready_to_generate: ['archived'], needs_review: ['ready', 'needs_update', 'archived'], ready: ['needs_review', 'archived'],
-  needs_update: ['needs_review', 'archived'], failed: ['needs_review', 'archived'], archived: ['needs_review'], published: ['needs_update'],
+  needs_update: ['published', 'needs_review', 'archived'], failed: ['needs_review', 'archived'], archived: ['needs_review'], published: ['needs_update'],
 };

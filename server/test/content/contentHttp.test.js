@@ -354,3 +354,17 @@ test('"run all bots" through HTTP: only the admin (bots.control) can click it, i
   assert.equal((await H.db().query("SELECT count(*)::int n FROM audit_logs WHERE action = 'bots.run_all'")).rows[0].n, 2);
   const list = await viewer.get('/jobs?status=queued'); assert.equal(list.json.jobs.length, 15, 'everybody can see what is waiting');
 });
+
+test('"AdSense uyarısını kabul et" through HTTP: editors and admins only, a refused class is a 409 with the reason, the list says which articles are live', opts, async () => {
+  const admin = await signedIn('admin'); const viewer = await signedIn('viewer');
+  const A = require('../../src/content/services/articles'); const P = require('../../src/content/services/projects');
+  const pid = (await H.db().query('SELECT id FROM content_projects')).rows[0].id; const cats = await P.listCategories(pid);
+  const a = await A.create({ projectId: pid, categoryId: cats[0].id, h1: 'Accept me', contentHtml: `<h2>x</h2><p>${Array.from({ length: 420 }, (_, i) => `w${i}`).join(' ')}</p>`, focusKeyword: 'accept me', seoTitle: 'Accept me please', metaDescription: 'm'.repeat(100) });
+  assert.equal((await viewer.post(`/articles/${a.id}/adsense-accept`, {})).status, 403);
+  assert.equal((await admin.post(`/articles/${a.id}/adsense-accept`, {})).status, 409, 'no class yet');
+  await A.update(a.id, { adsenseRisk: 'review' });
+  const ok = await admin.post(`/articles/${a.id}/adsense-accept`, {}); assert.equal(ok.status, 200, ok.text); assert.deepEqual([ok.json.article.adsenseRisk, ok.json.article.adsenseAccepted, ok.json.approved], ['review', true, false]);
+  const back = await admin.post(`/articles/${a.id}/adsense-accept`, { accept: false }); assert.equal(back.json.article.adsenseAccepted, false);
+  assert.equal((await H.db().query("SELECT count(*)::int n FROM audit_logs WHERE action IN ('article.adsense_accept', 'article.adsense_accept_withdraw')")).rows[0].n, 2);
+  const list = await viewer.get('/articles'); assert.ok(list.json.items.every((x) => 'live' in x), 'every row says whether it is live (null = not)');
+});
