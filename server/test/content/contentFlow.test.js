@@ -106,3 +106,27 @@ test('the flow picture: what was found, how many ideas are eligible, WHY the oth
   assert.deepEqual(g.waves.map((w) => w.eligible), [1, 0, 0, 0, 0]); await L.setProjectLimits(pid, { new_article: 1 }); assert.equal((await FL.overview(pid, { now: NOW })).today.limit, 1);
   await assert.rejects(FL.save(pid, { freshHours: 999 }), /Taze haber penceresi/); assert.equal((await FL.save(pid, { retention: { ideaDays: 20 } })).cleanup.rules.ideaDays, 20);
 });
+
+test('ideas are ready and places are left, yet nothing is written: WHY is told in words (a category\'s own daily limit), by the selection, by the flow picture and by the writer job; a full day says so too', opts, async () => {
+  const pid = (await P.seedDefault()).projectId; const cat = (await P.listCategories(pid))[0];
+  const a = await idea(pid, { age: 5, sources: 3, reliability: 90 }); const b = await idea(pid, { age: 6, sources: 3, reliability: 90 });
+  await O.refresh(pid, { now: NOW, generateKeywords: false });
+  assert.deepEqual([(await opp(a.topicId)).eligible, (await opp(b.topicId)).eligible], [true, true]);
+  const open = await O.selectForGeneration(pid, { now: NOW });
+  assert.deepEqual([open.picked, open.room], [2, 3], 'before the category limit: both are chosen');
+  await L.setCategoryLimits(cat.id, { dailyMax: 1 }); assert.equal((await L.reserve({ workType: 'new_article', projectId: pid, categoryId: cat.id, now: NOW })).ok, true);       // one article of this category was written today
+  const sel = await O.selectForGeneration(pid, { now: NOW });
+  assert.deepEqual([sel.picked, sel.room], [0, 2], 'two places are left and two ideas are ready, but both are in the category whose own limit is used up');
+  assert.deepEqual(sel.held, [{ category: cat.nameEn, count: 2, limit: 1 }]);
+  assert.match(sel.note, /2 yer boş ama yazılamadı/); assert.ok(sel.note.includes(`“${cat.nameEn}” 2 fikir, sınır 1`)); assert.match(sel.note, /Kategori limitleri/);
+  const fl = await FL.overview(pid, { now: NOW });
+  assert.deepEqual([fl.today.remaining, fl.ideas.eligible], [2, 2]); assert.deepEqual(fl.today.held.byCategory, [{ category: cat.nameEn, count: 2, limit: 1 }]); assert.equal(fl.today.held.places, 2); assert.equal(fl.today.held.note, sel.note);
+  await L.setCategoryLimits(cat.id, { dailyMax: null });
+  assert.equal((await FL.overview(pid, { now: NOW })).today.held, null, 'no category limit: nothing is held back, nothing to explain');
+  assert.equal((await O.selectForGeneration(pid, { now: NOW })).note, '');
+  // a day whose places are all used: the note says so (it used to say "no suitable idea")
+  await L.setProjectLimits(pid, { new_article: 1 });
+  const full = await O.selectForGeneration(pid, { now: NOW });
+  assert.deepEqual([full.picked, full.room], [0, 0]); assert.match(full.note, /Bugünkü yeni makale yeri doldu \(1 \/ 1\)/);
+  assert.equal((await FL.overview(pid, { now: NOW })).today.held, null, 'no place left is not "held back"');
+});

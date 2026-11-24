@@ -190,7 +190,7 @@ async function execute(projectId, run, { sourceIds, trigger = 'manual', fetchImp
 
     // the events of the last 3 days, to attach new headlines to
     const clusters = new Map();
-    const open = (await db.query("SELECT id FROM news_clusters WHERE project_id = $1 AND last_seen_at > now() - interval '72 hours'", [projectId])).rows.map((r) => r.id);
+    const open = (await db.query("SELECT id FROM news_clusters WHERE project_id = $1 AND last_seen_at > $2::timestamptz - interval '72 hours'", [projectId, now])).rows.map((r) => r.id);      // (the injected clock, not the server's: they are the same in production; a test with a fixed date must not rot)
     if (open.length) for (const m of (await db.query('SELECT cluster_id, source_name, title FROM news_items WHERE cluster_id = ANY($1)', [open])).rows) {
       if (!clusters.has(m.cluster_id)) clusters.set(m.cluster_id, { id: m.cluster_id, members: [] });
       clusters.get(m.cluster_id).members.push({ sig: signature(m.title), key: key(m.source_name) });
