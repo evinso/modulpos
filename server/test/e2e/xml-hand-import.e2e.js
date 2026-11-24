@@ -32,7 +32,8 @@ const XML = `<?xml version="1.0" encoding="utf-8"?>
     const rd = await call('POST', '/products/xml-import/read', XML, 'text/xml');
     ok('read: three products, the fields the page offers, a token', rd.s === 200 && rd.d.total === 3 && rd.d.items.length === 3 && !!rd.d.token && rd.d.fields.length > 5, `${rd.s} ${JSON.stringify(rd.d).slice(0, 160)}`);
     const it = rd.d.items;
-    ok('read: name, stock code, barcode, category, picture count; the XML\'s price, brand and stock are not in the answer', it[0].title === "Seramik Kupa Set 6'lı" && it[0].sku === 'X-100' && it[0].barcode === '8693330000011' && it[0].imageCount === 2 && /Mutfak/.test(it[0].category) && !JSON.stringify(rd.d).includes('TedarikciMarka') && !JSON.stringify(rd.d).includes('1874'));
+    ok('read: name, stock code, barcode, category, picture count of every product; no product row carries the XML\'s price, brand or stock', it[0].title === "Seramik Kupa Set 6'lı" && it[0].sku === 'X-100' && it[0].barcode === '8693330000011' && it[0].imageCount === 2 && /Mutfak/.test(it[0].category) && !JSON.stringify(it).includes('TedarikciMarka') && !JSON.stringify(it).includes('1874') && it.every((x) => !('price' in x) && !('brand' in x) && !('stock' in x)));
+    ok('read: the field list for the "which field is which" choice only shows a sample of each XML field (that is all it is for; nothing of it is stored)', Array.isArray(rd.d.fields) && rd.d.fields.every((f) => typeof f.path === 'string' && typeof f.sample === 'string') && rd.d.fields.some((f) => f.path === 'URUNADI'));
     ok('read: a product without a picture says so (imageCount 0)', it[2].imageCount === 0 && it[2].firstImage === null);
     ok('read: nothing was written', (await c.query(`select count(*)::int n from app."Product" where "storeId" = $1`, [A.user.stores[0].id])).rows[0].n === before);
 
