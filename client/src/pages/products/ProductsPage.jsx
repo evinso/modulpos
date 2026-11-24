@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Plus, Search, Trash2, Edit, Package, CheckSquare, Square, X, AlertTriangle, RefreshCw,
-  ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Eye, Send, Power, CheckCircle2, Pencil, Undo2,
+  ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Eye, Send, Power, CheckCircle2, Pencil, Undo2, FileUp,
 } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 import { Thumb, Pill, StockPill, StatusPill, MpPills, MP_STATUS, ISSUE_LABELS, parseImages, moneyShort } from './productsUi';
 import ProductDetailDrawer from './ProductDetailDrawer';
 import ProductFormModal from './ProductFormModal';
+import XmlHandImportModal from './XmlHandImportModal';
 import TrendyolLiveView from './TrendyolLiveView';
 import SourceGate from './SourceGate';
 import PriceModal from './PriceModal';
@@ -56,6 +57,7 @@ export default function ProductsPage() {
   const [allPagesSelected, setAllPagesSelected] = useState(false);
   const [detailId, setDetailId] = useState(null);
   const [formProduct, setFormProduct] = useState(undefined); // undefined = closed, null = new, object = edit
+  const [xmlImport, setXmlImport] = useState(false);          // the "XML’den ürün ekle" dialog
   const [deleteTarget, setDeleteTarget] = useState(null);   // product | 'bulk'
   const [bulkBusy, setBulkBusy] = useState(false);
   const [resetTarget, setResetTarget] = useState(null);       // null | 'selected' | 'all': hand-typed prices going back to the template
@@ -316,6 +318,7 @@ export default function ProductsPage() {
           <button className="btn btn-secondary" onClick={syncStatuses} disabled={syncingStatus}>
             <RefreshCw size={16} className={syncingStatus ? 'spinning' : ''} /> {syncingStatus ? 'Sorgulanıyor…' : 'Pazaryeri durumlarını sorgula'}
           </button>
+          <button className="btn btn-secondary" data-testid="open-xml-import" onClick={() => setXmlImport(true)} title="Elinizdeki bir XML dosyasından yalnızca ad, açıklama ve fotoğrafları alarak elle eklenen ürünler oluşturur"><FileUp size={16} /> XML’den ürün ekle</button>
           <button className="btn btn-primary" onClick={() => setFormProduct(null)}><Plus size={16} /> Yeni ürün</button>
         </div>
       </div>
@@ -641,6 +644,10 @@ export default function ProductsPage() {
 
       {priceTarget && priceConnection && (
         <PriceModal product={priceTarget} connection={priceConnection} onClose={() => setPriceTarget(null)} onDone={() => { setPriceTarget(null); refreshAll(); }} />
+      )}
+
+      {xmlImport && (
+        <XmlHandImportModal connection={priceConnection} onClose={() => setXmlImport(false)} onDone={(created) => { setXmlImport(false); if (created) { pickXml('none'); toast('Ürünler “Elle eklenen ürünler” grubunda; fiyat ve stoğu şimdi girebilirsiniz.', { icon: 'ℹ️', duration: 6000 }); } refreshAll(); }} />
       )}
 
       {formProduct !== undefined && (

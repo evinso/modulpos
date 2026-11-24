@@ -778,4 +778,4 @@ function getImagesValue(obj, mappedField, fallbackFields) {
   return collectedImages;
 }
 
-module.exports = { parseXml, analyzeXml, streamProductObjects, withIdleTimeout, createFieldCollector };
+module.exports = { parseXml, analyzeXml, streamProductObjects, withIdleTimeout, createFieldCollector, mapProducts };

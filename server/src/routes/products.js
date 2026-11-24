@@ -4,7 +4,8 @@ const hostedImages = require('../services/hostedImages');
 const TrendyolPage = require('../services/trendyolPage');
 const { getMatcher, normText } = require('../services/categoryMatcher');
 const { auth } = require('../middleware/auth');
-const { checkProductLimit } = require('../utils/quotaHelper');
+const { checkProductLimit, getUserQuota } = require('../utils/quotaHelper');
+const xmlHandImport = require('../services/xmlHandImport');
 const { getReadinessContext } = require('../services/readiness');
 const { loadPricingContext, sellsAtLoss } = require('../services/pricingEngine');
 const productListCache = require('../services/productListCache');
@@ -587,6 +588,65 @@ router.post('/trendyol-import', async (req, res, next) => {
       }
     }
     res.json({ data: { title: data.title, description: data.description, brand: data.brand, images: data.images, price: data.price, attributes: data.attributes, category, contentId: pu ? pu.contentId : null, url: pu ? pu.url : null } });
+  } catch (error) { next(error); }
+});
+
+// ── XML -> products ADDED BY HAND (services/xmlHandImport.js): only name, description, pictures, barcode / stock code and the category text are taken from the file or address ──────────────
+// Step 1: read it. The XML comes as the request body (text/xml: a file the page read) or as { url } (JSON); { mapping } (query for a file) lets the person choose which field is which.
+// Nothing is written. Answer: { token, total, truncated, mapping, fields, noName, duplicatesInFile, items: [{ ref, sku, barcode, title, descriptionPreview, imageCount, firstImage, category, exists }] }
+const xmlReads = new Map();    // userId -> [times]: reading is the heavy step (a download and a parse)
+router.post('/xml-import/read', express.text({ type: ['text/xml', 'application/xml', 'text/plain'], limit: '35mb' }), async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const now = Date.now();
+    const recent = (xmlReads.get(req.user.id) || []).filter((t) => now - t < 3600 * 1000);
+    if (recent.length >= 30) return res.status(429).json({ error: 'Bir saatte en fazla 30 kez XML okunabilir' });
+    xmlReads.set(req.user.id, [...recent, now]);
+
+    const body = req.body;
+    let mapping = {};
+    try { mapping = req.query.mapping ? JSON.parse(String(req.query.mapping)) : (body && typeof body === 'object' && body.mapping) || {}; } catch { return res.status(400).json({ error: 'Alan eşleştirmesi okunamadı' }); }
+    let out;
+    try {
+      if (typeof body === 'string' && body.trim()) out = await xmlHandImport.read({ stream: xmlHandImport.fromText(body), mapping });
+      else {
+        let url = body && typeof body === 'object' ? String(body.url || '').trim() : '';
+        if (!url) return res.status(400).json({ error: 'Bir XML dosyası seçin ya da XML adresini yazın' });
+        if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+        out = await xmlHandImport.read({ url, mapping });
+      }
+    } catch (e) {
+      if (e.status) return res.status(e.status).json({ error: e.message });
+      return res.status(400).json({ error: `XML okunamadı: ${e.message}` });
+    }
+    const have = await xmlHandImport.existing(prisma, store.id, out.items);
+    let token;
+    try { token = xmlHandImport.keep({ userId: req.user.id, storeId: store.id, items: out.items }); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+    res.json({
+      token, total: out.total, truncated: out.truncated, max: xmlHandImport.MAX_ITEMS, mapping: out.mapping, fields: out.fields, noName: out.noName, duplicatesInFile: out.duplicatesInFile,
+      items: out.items.map((it) => ({ ref: it.ref, sku: it.sku, skuGenerated: it.skuGenerated, barcode: it.barcode, title: it.title, descriptionLength: it.description.length, descriptionPreview: it.description.slice(0, 160),
+        imageCount: it.images.length, firstImage: it.images[0] || null, category: it.category, exists: have.get(it.ref) || null })),
+    });
+  } catch (error) { next(error); }
+});
+
+// Step 2: write the chosen rows (at most 500 per call; the page sends batches). Body: { token, refs: [row numbers], options: { vatRate, stock, brand, useBarcode } }
+// Answer: { created, skipped: [{ ref, title, reason: exists | barcode | limit | unknown }], limitReached }. What the store already has (same SKU / barcode) and what the plan's product limit does not allow is skipped, not an error.
+router.post('/xml-import', async (req, res, next) => {
+  try {
+    const store = await getUserStore(req.user.id);
+    if (!store) return res.status(404).json({ error: 'Mağaza bulunamadı' });
+    const { token, refs, options } = req.body || {};
+    if (!Array.isArray(refs) || refs.length === 0 || refs.length > 500) return res.status(400).json({ error: 'Bir seferde 1 ile 500 ürün eklenebilir' });
+    let entry; let opts;
+    try { entry = xmlHandImport.recall(token, { userId: req.user.id, storeId: store.id }); opts = xmlHandImport.readOptions(options); }
+    catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+    const { maxProducts } = await getUserQuota(req.user.id);
+    const room = Math.max(0, maxProducts - await prisma.product.count({ where: { storeId: store.id } }));
+    const out = await xmlHandImport.create({ prisma, storeId: store.id, items: entry.items, refs, options: opts, room });
+    if (out.limitReached) out.limitMessage = `Ürün limitine ulaştınız. Planınız en fazla ${maxProducts} ürün destekler.`;
+    res.status(out.created ? 201 : 200).json(out);
   } catch (error) { next(error); }
 });
 
