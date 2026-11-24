@@ -254,9 +254,20 @@ async function selectForGeneration(projectId, { count, tz = env().defaultTimezon
     if (next.c) next.c.picked++;
     left.splice(left.findIndex((x) => x.id === next.o.id), 1);
   }
-  for (const o of left) { const c = cat.get(o.category_id); skipped.push({ ...shape(o), why: c && c.daily_max !== null && c.used_today + c.picked >= c.daily_max ? `“${c.name_en}” kategorisinin günlük sınırı doldu` : picks.length >= want ? 'Bugünkü yer bitti' : 'Seçilmedi' }); }
-  return { requested: count === undefined ? null : count, room, picked: picks.length, picks, skipped,
-    note: cand.length < (count === undefined ? room : count) ? `Yeterince nitelikli fikir yok (${cand.length}); kota doldurmak için zayıf konu eklenmez.` : '' };
+  const fullCats = new Map();                                    // category name -> how many ready ideas wait because that category's own daily limit is used up
+  for (const o of left) {
+    const c = cat.get(o.category_id); const full = !!(c && c.daily_max !== null && c.used_today + c.picked >= c.daily_max);
+    if (full) fullCats.set(c.name_en, { count: (fullCats.get(c.name_en) || { count: 0 }).count + 1, limit: c.daily_max });
+    skipped.push({ ...shape(o), why: full ? `“${c.name_en}” kategorisinin günlük sınırı doldu` : picks.length >= want ? 'Bugünkü yer bitti' : 'Seçilmedi' });
+  }
+  const held = [...fullCats].map(([category, v]) => ({ category, count: v.count, limit: v.limit }));
+  // WHY nothing (or less than the places) was chosen, in words: the day's places used up, or ready ideas that sit in categories whose own daily limit is used up
+  const heldTotal = held.reduce((n, h) => n + h.count, 0); const wanted = count === undefined ? room : count;
+  let note = '';
+  if (room === 0) note = `Bugünkü yeni makale yeri doldu (${st.project ? st.project.done : st.done} / ${st.project ? Math.min(st.limit, st.project.limit) : st.limit}).`;
+  else if (picks.length < want && heldTotal) note = `${want - picks.length} yer boş ama yazılamadı: kalan ${heldTotal} hazır fikir, kendi günlük kategori sınırı dolan kategorilerde (${held.map((h) => `“${h.category}” ${h.count} fikir, sınır ${h.limit}`).join('; ')}). Sınırı “Otomasyon ve Ayarlar → Günlük limitler → Kategori limitleri”nden artırabilir ya da boş bırakabilirsiniz.${cand.length < wanted ? ` Ayrıca yeterince nitelikli fikir yok (${cand.length}); kota doldurmak için zayıf konu eklenmez.` : ''}`;
+  else if (cand.length < wanted) note = `Yeterince nitelikli fikir yok (${cand.length}); kota doldurmak için zayıf konu eklenmez.`;
+  return { requested: count === undefined ? null : count, room, picked: picks.length, picks, skipped, held, note };
 }
 
 module.exports = { BOT, components, combine, demandScore, keywordTrendScore, createTopics, refresh, rescore, list, get, setStatus, selectForGeneration };

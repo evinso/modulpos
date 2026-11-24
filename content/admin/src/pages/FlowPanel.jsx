@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Eraser } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { api, qs } from '../api.js';
 import { Alert, Async, Badge, Card, Check, Field, useAction, useApp, useLoad } from '../ui.jsx';
 import { dt, num } from '../format.js';
@@ -44,6 +45,14 @@ export default function FlowPanel({ projectId }) {
               <Tile label="Anahtar kelime" value={num(d.found.keywords)} note={`${num(d.found.keywordsWithData)} tanesinin gerçek verisi var`} />
               <Tile label="Makale botu" value={d.writer.enabled ? 'Açık' : 'Kapalı'} note={d.writer.enabled ? (d.writer.nextRunAt ? `sıradaki çalışma: ${dt(d.writer.nextRunAt)}` : `${d.writer.windowStart}–${d.writer.windowEnd} arası çalışır`) : 'Otomasyon seçeneklerinden “Makale yazımı”nı açın'} />
             </div>
+
+            {d.today.held && (
+              <Alert kind="warn" title={`Bugün ${num(d.today.held.places)} yer var ve ${num(d.today.held.ready)} fikir hazır, ama hiçbiri yazılamıyor`}>
+                <span data-testid="flow-held">{d.today.held.note || 'Hazır fikirler bugün seçilemedi.'}</span>
+                {d.today.held.byCategory.length > 0 && <ul style={{ margin: '6px 0 0 18px', padding: 0 }}>{d.today.held.byCategory.map((h) => <li key={h.category}>{h.category}: {num(h.count)} hazır fikir, günlük sınır {h.limit}</li>)}</ul>}
+                {d.today.held.byCategory.length > 0 && <small className="faint" style={{ display: 'block', marginTop: 4 }}>Bu bir hata değil, koyduğunuz kategori sınırının sonucudur. Sınırı artırmak ya da boş bırakmak için <Link to="/automation?tab=limitler">Günlük limitler</Link> sekmesindeki Kategori limitlerine bakın.</small>}
+              </Alert>
+            )}
 
             <div>
               <strong>Zaman dalgası</strong> <small className="faint">açık fikirler, haberinin yaşına göre</small>

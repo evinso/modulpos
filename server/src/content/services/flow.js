@@ -5,6 +5,7 @@ const limits = require('./limits');
 const scheduler = require('./scheduler');
 const projects = require('./projects');
 const cleanup = require('./cleanup');
+const opportunities = require('./opportunities');
 const { env } = require('../env');
 
 /**
@@ -33,13 +34,19 @@ async function overview(projectId, { now = new Date(), tz = env().defaultTimezon
   const writer = sch.get('article_writer');
   const freshHours = seo.value.freshHours || 0;
   const open = BUCKETS.reduce((a, _, i) => a + w[`t${i}`], 0);
+  // places left AND ideas ready, yet nothing would be written: say why (a category's own daily limit is the usual reason), instead of leaving "2 places" and "27 ready" side by side
+  let held = null;
+  if (remaining > 0 && idea.eligible > 0) {
+    const sel = await opportunities.selectForGeneration(pid, { tz, now });
+    if (sel.picked === 0) held = { places: remaining, ready: idea.eligible, note: sel.note, byCategory: sel.held };
+  }
   return {
     now: now.toISOString(),
     found: { newsLast24h: news.rows[0].fresh24, relevantLast24h: news.rows[0].relevant24, eventsLast7d: events.rows[0].n, keywords: kw.rows[0].n, keywordsWithData: kw.rows[0].with_data },
     ideas: { open, eligible: idea.eligible, shortlisted: idea.shortlisted, queued: idea.queued, written: idea.written, rejected: idea.rejected, fromFreshLane: idea.lane },
     blockers: blockers.rows.map((r) => ({ reason: r.reason, count: r.n, example: r.sample })),
     waves: BUCKETS.map(([key, label], i) => ({ key, label, ideas: w[`t${i}`], eligible: w[`e${i}`] })),
-    today: { limit: item.project ? Math.min(item.limit, item.project.limit) : item.limit, done: item.project ? item.project.done : item.done, remaining },
+    today: { limit: item.project ? Math.min(item.limit, item.project.limit) : item.limit, done: item.project ? item.project.done : item.done, remaining, held },
     writer: { enabled: !!writer.enabled, nextRunAt: writer.enabled ? writer.nextRunAt : null, perRun: (writer.options && writer.options.perRun) || 1, windowStart: writer.windowStart, windowEnd: writer.windowEnd },
     fresh: { hours: freshHours, on: freshHours > 0 },
     cleanup: { ...plan, last: last[0] || null },

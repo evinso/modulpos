@@ -731,6 +731,20 @@ ok('the values say what REALLY applies (the narrowest limit), not only the numbe
 const seoRow = async () => (await q1("SELECT value FROM automation_settings WHERE key = 'seo' AND project_id IS NOT NULL")); 
 await setVal(aria('Taze haber penceresi'), '12'); await click(btn('Kaydet', flowCard()), 900);
 ok('the fresh-news window is saved through the ordinary settings (project scope)', (await seoRow()).value.freshHours === 12);
+// ready ideas + places left, yet nothing can be written: the card says WHY (here: a category's own daily limit), instead of "2 places" and "27 ready" side by side
+const heldCat = await q1('SELECT id, name_en FROM categories ORDER BY created_at LIMIT 1');
+const heldTopic = (await q1("INSERT INTO topics (project_id, category_id, title, origin, status) VALUES ($1,$2,'E2E held idea','news','new') RETURNING id", [pid, heldCat.id])).id;
+await S.db.query("INSERT INTO content_opportunities (project_id, topic_id, category_id, title, status, eligible, provisional_score) VALUES ($1,$2,$3,'E2E held idea','new',true,80)", [pid, heldTopic, heldCat.id]);
+const otherReady = (await S.db.query('SELECT id FROM content_opportunities WHERE eligible AND topic_id <> $1', [heldTopic])).rows.map((r) => r.id);       // (ideas of other categories would simply be written: only this one is ready)
+await S.db.query('UPDATE content_opportunities SET eligible = false WHERE id = ANY($1::uuid[])', [otherReady]);
+await S.limits.setProjectLimits(pid, { new_article: 20 }); await S.limits.setCategoryLimits(heldCat.id, { dailyMax: 1 });
+const heldGrant = await S.limits.reserve({ workType: 'new_article', projectId: pid, categoryId: heldCat.id });          // one article of this category was written today
+await goTab('Botlar', 400); await click(nav('Otomasyon ve Ayarlar'), 1000);
+ok('the flow card says there are places and ready ideas but nothing can be written, names the category whose own limit is used up, and where to change it', flowCard().textContent.includes('fikir hazır, ama hiçbiri yazılamıyor') && flowCard().textContent.includes('kendi günlük kategori sınırı dolan') && flowCard().textContent.includes(`${heldCat.name_en}: 1 hazır fikir, günlük sınır 1`) && flowCard().textContent.includes('Bu bir hata değil') && !!flowCard().querySelector('a[href="/automation?tab=limitler"]'), flowCard().textContent.slice(0, 700));
+await S.limits.release({ workType: 'new_article', projectId: pid, categoryId: heldCat.id, amount: 1, day: heldGrant.day });
+await S.limits.setCategoryLimits(heldCat.id, { dailyMax: null }); await S.limits.setProjectLimits(pid, { new_article: 3 });
+await S.db.query('DELETE FROM content_opportunities WHERE topic_id = $1', [heldTopic]); await S.db.query('DELETE FROM topics WHERE id = $1', [heldTopic]);
+await S.db.query('UPDATE content_opportunities SET eligible = true WHERE id = ANY($1::uuid[])', [otherReady]);
 const flowCat = (await q1('SELECT id FROM categories LIMIT 1')).id;
 await S.db.query("INSERT INTO topics (project_id, category_id, title, origin, status, created_at) VALUES ($1,$2,'E2E stale idea','news','new', now() - interval '40 days')", [pid, flowCat]);
 await goTab('Botlar', 500); await click(nav('Otomasyon ve Ayarlar'), 900);
