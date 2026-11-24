@@ -122,7 +122,7 @@ const insertRow = async (a, trigger, o) => (await db.query(`INSERT INTO article_
  * @param o { userId, trigger: 'schedule'|'manual', force (a person asked: the attempt cap and "waiting for a person" do not hold it back), fetchImpl, now }
  * Throws 409 when no model is ready or the day's places / budget are used up (nothing was billed then and the next pass looks again).
  */
-async function fixOne(articleId, { userId = null, trigger = 'schedule', force = false, fetchImpl, now = new Date() } = {}) {
+async function fixOne(articleId, { userId = null, trigger = 'schedule', force = false, notify = true, fetchImpl, now = new Date() } = {}) {
   const a0 = await loadRow(articleId);
   if (a0.status !== 'needs_review') throw new HttpError(409, `Yalnızca “İnceleme bekliyor” durumundaki makale düzeltilir (şu an: ${articles.STATUS_LABELS[a0.status] || a0.status})`);
   if (a0.created_by !== 'ai') throw new HttpError(409, 'Düzeltme botu yalnızca yapay zekânın yazdığı makalelere dokunur; sizin yazdığınız makaleyi siz düzeltirsiniz');
@@ -145,7 +145,7 @@ async function fixOne(articleId, { userId = null, trigger = 'schedule', force = 
   if (person.length) {
     steps.push({ step: 'person', ok: false, note: 'Bir kişinin kararı gerekiyor' });
     const r = await done('needs_person', first.map((p) => ({ code: p.code, message: say(p) })), `Bir kişinin kararı gerekiyor: ${person.map(say).join('; ')}`);
-    await notifyPerson(a0, person.map(say));
+    if (notify) await notifyPerson(a0, person.map(say));
     return r;
   }
   const has = (set) => first.some((p) => set.has(p.code));
@@ -227,7 +227,8 @@ async function fixOne(articleId, { userId = null, trigger = 'schedule', force = 
   if (grant && !calls) await limits.release({ workType: WORK, projectId: a0.project_id, amount: 1, day: grant.day });     // the model was never asked: no place used
   const title = String(a0.h1).slice(0, 80);
   const row = await done(result, remaining, result === 'approved' ? 'Eksikler giderildi ve makale “Yayına hazır” yapıldı' : result === 'fixed' ? 'Eksikler giderildi; onay sizde' : result === 'needs_person' ? `Bir kişinin kararı gerekiyor: ${remaining.map((p) => p.message).join('; ')}` : `Çözülemeyen eksik kaldı: ${remaining.map((p) => p.message).join('; ')}`);
-  if (result === 'needs_person') await notifyPerson(a0, remaining.map((p) => p.message));
+  if (!notify) { /* the production line decides what to tell the owner */ }
+  else if (result === 'needs_person') await notifyPerson(a0, remaining.map((p) => p.message));
   else if (result === 'approved' || result === 'fixed') await notifications.create({ type: 'article_fixed', severity: 'info', title: `${result === 'approved' ? 'Eksikler giderildi, makale hazır' : 'Eksikler giderildi, onayınızı bekliyor'}: ${title}`, body: steps.map((s) => `${s.ok ? '✓' : '✗'} ${s.note}`).join('\n').slice(0, 900), data: { articleId: a0.id, result } });
   else {
     const attempts = stateOf(await loadRow(a0.id), (await rowsFor([a0.id])).get(a0.id)).attempts;

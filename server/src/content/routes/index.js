@@ -200,6 +200,7 @@ function buildRouter(getState) {
   require('./wordpress')(r, { wrap, mw, A, uid });
   require('./refresh')(r, { wrap, mw, A, uid });
   require('./automation')(r, { wrap, mw, A, uid });
+  require('./pipeline')(r, { wrap, mw, A, uid });
   require('./images')(r, { wrap, mw, A, uid });
 
   r.get('/notifications', wrap(async (req, res) => res.json(await notifications.list({ unreadOnly: req.query.unread === '1', severity: req.query.severity || null, limit: parseInt(req.query.limit, 10) || 50, offset: parseInt(req.query.offset, 10) || 0 }))));

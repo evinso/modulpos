@@ -57,6 +57,11 @@ const GROUPS = {
     validate: (v) => ({ auto: V.bool(v.auto, 'Makaleye kapak görseli ekle', false), source: V.oneOf(v.source, 'Görsel kaynağı', ['auto', 'stock', 'openai'], { fallback: 'auto' }), stockType: V.oneOf(v.stockType, 'Ücretsiz görsel türü', ['photo', 'illustration', 'all'], { fallback: 'photo' }), quality: V.oneOf(v.quality, 'Görsel kalitesi', ['low', 'medium', 'high'], { fallback: 'medium' }),
       style: V.str(v.style, 'Görsel stili', { max: 300 }), requireForAutoApprove: V.bool(v.requireForAutoApprove, 'Görselsiz makale kendiliğinden onaylanmasın', true) }),
   },
+  pipeline: {                                                    // the production line (services/pipeline.js): on/off and how often a new cycle starts
+    projectOverride: true,
+    defaults: { enabled: false, everyMinutes: 1440 },
+    validate: (v) => ({ enabled: V.bool(v.enabled, 'Otomatik üretim', false), everyMinutes: V.oneOf(Number(v.everyMinutes), 'Üretim sıklığı', [120, 180, 240, 360, 480, 720, 1440], { fallback: 1440 }) }),
+  },
   retention: {                                                  // how long found-but-unused research stays: nothing piles up for ever (see services/cleanup.js)
     projectOverride: true,
     defaults: { auto: true, ideaDays: 10, writtenDays: 3, keywordDays: 14, researchedKeywordDays: 45, nicheDays: 21 },

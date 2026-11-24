@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { CalendarClock, PauseCircle, PlayCircle, Play, Rocket } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { Alert, Async, Badge, Card, Check, Empty, Field, Modal, useAction, useApp, useLoad } from '../ui.jsx';
@@ -68,6 +69,8 @@ function Queue({ canControl }) {
 export function BotList() {
   const { can, projectId, confirm } = useApp();
   const st = useLoad(() => api.get('/bots'), []);
+  const line = useLoad(() => (projectId ? api.get(`/pipeline${qs({ projectId })}`) : Promise.resolve(null)), [projectId]);       // is the production line on? then it runs some of these bots itself
+  const owned = line.data && line.data.enabled ? new Set(line.data.ownedBots) : new Set();
   const [run, busy] = useAction();
   const [edit, setEdit] = useState(null);
   const [all, setAll] = useState(null);                                  // the answer of the last "Tüm botları tetikle": the steps in order
@@ -102,6 +105,7 @@ export function BotList() {
               {canControl && <button className="btn sm primary" disabled={busy || !projectId} onClick={() => runAll(d)} title={projectId ? 'Tüm botları mantık sırasına göre bir kez çalıştırır' : 'Önce bir proje seçin'}><Rocket size={15} />Tüm botları tetikle</button>}
               {canControl && (d.paused ? <button className="btn sm primary" disabled={busy} onClick={() => pause(false)}><PlayCircle size={15} />Devam ettir</button> : <button className="btn sm" disabled={busy} onClick={() => pause(true)}><PauseCircle size={15} />Botları duraklat</button>)}</div>
           </Alert>
+          {owned.size > 0 && <Alert kind="info" title="Otomatik Üretim açık">{d.items.filter((b) => owned.has(b.key)).map((b) => b.label).join(', ')} botları kendi zamanlamalarıyla çalışmaz: bu işleri üretim hattı tek tek, sırayla yürütür. Bu satırlardaki zamanlama, hat kapatılırsa yeniden geçerli olur. “Şimdi çalıştır” ve “Tüm botları tetikle” yine çalışır. <Link to="/automation">Otomatik Üretim</Link></Alert>}
           {all && (
             <Alert kind="info" title={all.queued ? `${all.queued} adım sıraya alındı${all.alreadyActive ? `, ${all.alreadyActive} adım zaten sırada/çalışıyordu` : ''}` : 'Hepsi zaten sırada ya da çalışıyor; yeni bir şey eklenmedi'}>
               {(() => { const now = d.items.filter((b) => b.running > 0).map((b) => b.label); const wait = d.items.reduce((n, b) => n + b.queued, 0); return <small className="faint" style={{ display: 'block', marginBottom: 6 }}>{watch ? <>Şu an: {now.length ? <strong>{now.join(', ')}</strong> : 'sıradaki adım alınıyor'} · sırada {wait} iş · bu görünüm 5 saniyede bir yenilenir.</> : 'Sıradaki işlerin hepsi bitti; sonuçlar aşağıdaki tabloda ve Görev kuyruğu sekmesinde.'}</small>; })()}
@@ -111,7 +115,7 @@ export function BotList() {
           <Card flat>
               <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Bot</th><th>Ne yapar</th><th>Zamanlama</th><th>Son çalışma</th><th>Sonraki çalışma</th><th className="num">Kuyrukta</th><th className="num">İşlem / hata</th><th className="num">Bugün maliyet</th><th /></tr></thead>
                 <tbody>{d.items.map((b) => (
-                  <tr key={b.key}><td><strong>{b.label}</strong></td><td className="muted">{b.about}</td>
+                  <tr key={b.key}><td><strong>{b.label}</strong>{owned.has(b.key) && <div><Badge kind="info">üretim hattı yönetiyor</Badge></div>}</td><td className="muted">{b.about}</td>
                     <td><Badge kind={b.implemented ? (b.status === 'paused' ? 'warn' : b.status === 'scheduled' ? 'ok' : '') : ''}>{b.statusText}</Badge>{b.schedule && b.schedule.failStreak > 0 && b.schedule.enabled && <div className="faint">{b.schedule.failStreak} art arda hata</div>}{b.schedule && b.schedule.spends && <div className="faint">para harcar</div>}</td>
                     <td className="faint">{b.lastRunAt ? <>{dt(b.lastRunAt)} <Badge kind={b.lastRunStatus === 'ok' ? 'ok' : b.lastRunStatus === 'partial' ? 'warn' : 'bad'}>{b.lastRunStatus}</Badge></> : '—'}</td>
                     <td className="faint">{b.nextRunAt ? dt(b.nextRunAt) : b.scheduled && b.enabled && !d.paused ? 'sıradaki kontrolde' : '—'}</td>

@@ -5,6 +5,7 @@ import { api, qs } from '../api.js';
 import { Alert, Async, Badge, Card, Check, Field, NeedsProject, PageHead, Tabs, useAction, useApp, useLoad } from '../ui.jsx';
 import { num, usd } from '../format.js';
 import FlowPanel from './FlowPanel.jsx';
+import Pipeline from './Pipeline.jsx';
 import { BotList, JobQueue } from './Bots.jsx';
 import { LimitsPanel } from './Limits.jsx';
 import { SettingsGroups, Users, System } from './Settings.jsx';
@@ -247,7 +248,7 @@ function General() {
 }
 
 /** every tab of the single page; the last two are admin only */
-const TABS = [['genel', 'Genel'], ['botlar', 'Botlar'], ['kuyruk', 'Görev kuyruğu'], ['limitler', 'Günlük limitler'], ['ayarlar', 'Ayarlar'], ['kullanicilar', 'Kullanıcılar'], ['sistem', 'Sistem']];
+const TABS = [['uretim', 'Otomatik Üretim'], ['genel', 'Gelişmiş modlar'], ['botlar', 'Botlar'], ['kuyruk', 'Görev kuyruğu'], ['limitler', 'Günlük limitler'], ['ayarlar', 'Ayarlar'], ['kullanicilar', 'Kullanıcılar'], ['sistem', 'Sistem']];
 
 /**
  * ONE page for everything that runs or limits the automation: the modes and quick values (Genel), the bots' schedules, the job queue, the daily limits,
@@ -257,11 +258,12 @@ export default function Automation() {
   const { can } = useApp();
   const [sp, setSp] = useSearchParams();
   const tabs = TABS.filter(([k]) => can('users.manage') || !['kullanicilar', 'sistem'].includes(k));
-  const asked = sp.get('tab'); const tab = tabs.some(([k]) => k === asked) ? asked : 'genel';
+  const asked = sp.get('tab'); const tab = tabs.some(([k]) => k === asked) ? asked : 'uretim';
   return (
     <div className="page">
-      <PageHead title="Otomasyon ve Ayarlar">Otomasyonu çalıştıran ve sınırlayan her şey bu sayfadadır: modlar ve hızlı değerler, botların zamanlaması, görev kuyruğu, günlük limitler ve tüm ayarlar. Sekmeler aynı gerçek anahtarları gösterir; hiçbirinin kendine ait bir kopyası yoktur.</PageHead>
-      <Tabs tabs={tabs} value={tab} onChange={(k) => setSp(k === 'genel' ? {} : { tab: k })} />
+      <PageHead title="Otomasyon ve Ayarlar">Günlük işiniz ilk sekmedir: <strong>Otomatik Üretim</strong> (aç/kapat ve sıklık). Diğer sekmeler gelişmiş ayarlardır: eski modlar, botların zamanlaması, görev kuyruğu, günlük limitler ve tüm ayarlar. Sekmeler aynı gerçek anahtarları gösterir; hiçbirinin kendine ait bir kopyası yoktur.</PageHead>
+      <Tabs tabs={tabs} value={tab} onChange={(k) => setSp(k === 'uretim' ? {} : { tab: k })} />
+      {tab === 'uretim' && <Pipeline />}
       {tab === 'genel' && <General />}
       {tab === 'botlar' && <BotList />}
       {tab === 'kuyruk' && <JobQueue />}
