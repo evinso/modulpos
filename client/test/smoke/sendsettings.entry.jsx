@@ -31,6 +31,17 @@ await setVal(input, 'Çeyrek, Reşat, Külçe');
 await click(btn('Ayarları kaydet'));
 const put = calls.find((c) => c.m === 'PUT' && c.url === '/marketplace/connections/c1/send-settings');
 ok('saving sends the words', put && put.body.settings.removeWords === 'Çeyrek, Reşat, Külçe', put && JSON.stringify(put.body.settings.removeWords));
+ok('"görselsiz gönderme" is sent too (it used to be left out, so the box was never saved)', put && put.body.settings.requireImage === false && put.body.settings.shortenTitle === false, put && JSON.stringify([put.body.settings.requireImage, put.body.settings.shortenTitle]));
+
+// the long-title option: off by default, explained, and saved when ticked
+const shorten = document.querySelector('[data-testid="shorten-title"]');
+ok('"Uzun başlıkları otomatik kısalt" is there, off by default, and says it cuts at a word boundary without changing the product', !!shorten && shorten.checked === false && text().includes('Uzun başlıkları otomatik kısalt') && text().includes('kelime sınırından') && text().includes('100 karakter'));
+await act(async () => { shorten.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }); await wait(30);
+await act(async () => { document.querySelector('[data-testid="remove-words"]').dispatchEvent(new window.Event('input', { bubbles: true })); }); await wait(10);
+calls.length = 0;
+await click(btn('Ayarları kaydet'));
+const put2 = calls.find((c) => c.m === 'PUT' && c.url === '/marketplace/connections/c1/send-settings');
+ok('ticking it and saving sends shortenTitle: true', put2 && put2.body.settings.shortenTitle === true, put2 && JSON.stringify(put2.body.settings.shortenTitle));
 
 console.error = () => {};
 const real = errors.filter((e) => !/not wrapped in act|Warning: An update|ReactDOMTestUtils|act\(/.test(e));

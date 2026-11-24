@@ -6,6 +6,7 @@ import { calls, sendBehaviour } from './apiStub.cjs';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const wait = (ms = 30) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
 const text = () => document.body.textContent;
+const q = (id) => document.querySelector(`[data-testid="${id}"]`);
 let fails = 0; const ok = (n, c, x) => { console.log((c ? 'PASS' : 'FAIL') + '  ' + n + (x ? '  → ' + x : '')); if (!c) fails++; };
 const errors = [];
 console.error = (...a) => { errors.push(a.map(String).join(' ').slice(0, 200)); };
@@ -39,6 +40,16 @@ ok('a hand-added product in "net amount" mode says "elinize kalacak net ₺120",
 ok('a hand-added product with no number yet says so', !!rowWith('SKU-12') && rowWith('SKU-12').textContent.includes('alış fiyatı girilmemiş'));
 ok('an XML product still shows its feed price', !!rowWith('SKU-13') && rowWith('SKU-13').textContent.includes('alış ₺113'), rowWith('SKU-13') && rowWith('SKU-13').textContent.slice(-80));
 ok('"select all" offers the full filtered count, not just the page', !!btn('Filtredeki Tümünü Seç (250)'));
+
+// long titles: one click turns the automatic shortening on for all of them
+ok('3 products are blocked only by a too-long title: the page says so and offers one button for all of them', !!q('long-titles') && q('long-titles').textContent.includes('3 ürünün başlığı 100 karakteri aşıyor') && !!q('shorten-all'));
+calls.length = 0;
+await click(q('shorten-all'), 200);
+const sput = calls.find((c) => c.m === 'PUT' && /c1\/send-settings$/.test(c.url));
+ok('the button turns "shortenTitle" on and keeps the other settings (the words to remove stay)', !!sput && sput.body.settings.shortenTitle === true && Array.isArray(sput.body.settings.removeWords) && sput.body.settings.removeWords.includes('Reşat'), sput && JSON.stringify(sput.body));
+ok('the list is asked again fresh, and the banner is gone when nothing is blocked any more', calls.some((c) => /product-list$/.test(c.url) && String(c.params.fresh) === '1') && !q('long-titles'));
+ok('a product the setting had to cut shows the title that goes out', !!q('short-title-p10') && q('short-title-p10').textContent.includes('Kısaltılmış başlık örneği'), document.body.textContent.includes('kısaltıldı') ? 'has text' : 'no text');
+
 
 calls.length = 0;
 await click(btn('Filtredeki Tümünü Seç'), 120);

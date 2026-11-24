@@ -8,7 +8,7 @@ export const ISSUE_HELP = {
   invalid_price: ['Hesaplanan satış fiyatı geçersiz (sıfır ya da hesaplanamadı).', 'Alış fiyatı 0 geliyor olabilir ya da komisyon + kâr oranı çok yüksektir. XML’de Alış Fiyatı eşleştirmesini ve şablonu kontrol edin.'],
   price_below_cost: ['Satış fiyatı alış fiyatının altında.', 'Elle girdiğiniz fiyatı yükseltin ya da Şablon fiyatına döndürün; alış fiyatı arttıysa şablonu gözden geçirin.'],
   title_empty: ['Ürünün başlığı boş.', 'XML’de Ürün Adı eşleştirmesini kontrol edin.'],
-  title_too_long: ['Başlık, Trendyol’un sınırı olan 100 karakteri aşıyor (gönderim ayarlarındaki ön/son ek dahil).', 'Ürünü düzenleyip başlığı ya da gönderim ayarlarındaki ön/son eki kısaltın.'],
+  title_too_long: ['Başlık, Trendyol’un sınırı olan 100 karakteri aşıyor (gönderim ayarlarındaki ön/son ek dahil).', 'Gönderim ayarlarında “Uzun başlıkları otomatik kısalt”ı açın (sayfadaki “Hepsini otomatik kısalt” düğmesi bunu tek tıkla yapar): başlıklar gönderilirken kelime sınırından kesilir. Ya da ürünü düzenleyip başlığı / ön-son eki kısaltın.'],
   no_description: ['Açıklama boş.', 'XML’de Açıklama alanını eşleştirin ya da ürünü düzenleyip açıklama yazın.'],
   description_too_long: ['Açıklama 30.000 karakteri aşıyor.', 'Açıklamayı kısaltın.'],
   no_image: ['Geçerli bir görsel adresi yok (boş ya da http/https ile başlamıyor).', 'XML’de Görsel URL alanını eşleştirin; kaynakta görsel yoksa ürünü düzenleyip ekleyin.'],

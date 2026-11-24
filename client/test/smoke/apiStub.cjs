@@ -14,6 +14,7 @@ const calls = [];
 const formCfg = { unavailable: false, importMode: 'ok' };   // the new-product form: Trendyol attribute list unreachable? / the link import answers ok | blocked | notfound
 const uploads = [];   // the pictures the product form uploaded
 const xmlSrc = { status: 'active' };   // the one XML source of the stub: the page switches it between active and paused (passive)
+const sendCfg = { shorten: false };   // the "uzun başlıkları otomatik kısalt" send setting: off = 3 products are blocked for a long title
 const handCfg = { scoped: false, mode: null };   // true: every template is limited to the XML source s1, so nothing prices the products added by hand
 // "XML'den ürün ekle": what the read answers (items), a failure to play ({ status, error }), and every write the page sent
 const xmlImp = { items: [], fail: null, written: [], read: [], previews: [], previewExists: {}, previewFail: null };
@@ -72,7 +73,8 @@ const get = async (url, cfg = {}) => {
       // the first rows: added by hand (no feed price): a number the template reads as a purchase price / as a net amount / no number yet
       ...(page === 1 && i === 0 ? { xmlSourceId: null, xmlPrice: 0, price: 80, purchasePrice: 80, netAmount: null } : {}),
       ...(page === 1 && i === 1 ? { xmlSourceId: null, xmlPrice: 0, price: 120, purchasePrice: null, netAmount: 120 } : {}),
-      ...(page === 1 && i === 2 ? { xmlSourceId: null, xmlPrice: 0, price: 0, purchasePrice: null, netAmount: null } : {}) })), pagination: { total, page, limit: 20, totalPages: 13 }, stats: { total, ready: 250, blocked: 0, byIssue: {}, mp: { not_sent: 250, pending: 0, active: 0, rejected: 0, passive: 0 } } } };
+      ...(page === 1 && i === 2 ? { xmlSourceId: null, xmlPrice: 0, price: 0, purchasePrice: null, netAmount: null } : {}),
+      ...(sendCfg.shorten && page === 1 && i === 0 ? { titleShortened: true, sendTitle: 'Kısaltılmış başlık örneği' } : {}) })), pagination: { total, page, limit: 20, totalPages: 13 }, stats: { total, ready: 250, blocked: 0, byIssue: sendCfg.shorten ? {} : { title_too_long: 3 }, mp: { not_sent: 250, pending: 0, active: 0, rejected: 0, passive: 0 } } } };
   }
   if (url === '/marketplace/connections/c1/product-list/ids') return { data: { ids: Array.from({ length: 250 }, (_, i) => 'id' + i), sendable: 250, matching: 250, truncated: false } };
   if (url === '/orders') return { data: { orders: [], pagination: { total: 0, page: 1, totalPages: 1 } } };
@@ -238,7 +240,7 @@ const put = async (url, body) => {
     if (body.price < 120 && body.confirmLoss !== true) { const e = new Error('409'); e.response = { status: 409, data: { error: 'Bu fiyatta zarar edersiniz', loss: true } }; throw e; }
     return { data: { ok: true, pricing: { salePrice: body.price, manual: true } } };
   }
-  if (/send-settings$/.test(url)) return { data: { settings: body.settings, summary: [] } }; return { data: {} }; };
+  if (/send-settings$/.test(url)) { if (body.settings && body.settings.shortenTitle) sendCfg.shorten = true; return { data: { settings: body.settings, summary: [] } }; } return { data: {} }; };
 const del = async (url, cfg) => { calls.push({ m: 'DELETE', url, params: cfg && cfg.params, body: cfg && cfg.data }); { const b = bulkStub.handle('DELETE', url, null, cfg); if (b) return b; } return { data: /sale-price$/.test(url) ? { ok: true, removed: 1 } : (/product-categories$/.test(url) ? { removed: (cfg.data.productIds || []).length } : {}) }; };
-module.exports = { get, post, put, delete: del, calls, uploads, xmlImp, hand, handCfg, formCfg, xmlSrc, wa, sendBehaviour, pc, profitTax, conv, bulk: bulkStub.bulk };
+module.exports = { get, post, put, delete: del, calls, uploads, xmlImp, hand, handCfg, sendCfg, formCfg, xmlSrc, wa, sendBehaviour, pc, profitTax, conv, bulk: bulkStub.bulk };
 module.exports.default = module.exports;

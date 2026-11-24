@@ -13,6 +13,7 @@ export const SELLING = [
             ['Görseli olmayan ürünleri gönderme', 'İşaretliyse görselsiz ürünler elenir.'],
             ['Başlık başına ekle / sonuna ekle', 'Her başlığa ön ek / son ek ekler (Trendyol başlığı en çok 100 karakter olduğundan uzunluğa dikkat).'],
             ['Harf düzeni', 'Olduğu gibi · BÜYÜK HARF · küçük harf · Her Kelime Büyük.'],
+            ['Uzun başlıkları otomatik kısalt', 'Ön / son ek dahil 100 karakteri aşan başlık, gönderilirken **kelime sınırından** kesilir: sonu atılır, baştaki marka ve ürün adı kalır (“ve”, “ile”, virgül gibi yarım kalan uçlar da silinir). Ürününüz sistemde değişmez, XML eşitlemesi bunu bozmaz. “Başlık çok uzun” diye bloke olan ürünler varsa sayfada çıkan [[Hepsini otomatik kısalt]] düğmesi bu ayarı tek tıkla açar; kısaltılan ürünün altında Trendyol’a giden başlık görünür.'],
             ['En fazla görsel', 'Ürün başına gidecek görsel sayısını sınırlar.'],
             ['Başlık ve açıklamadan çıkarılacak kelimeler', 'Trendyol “yasaklı kelime” diyerek ürünü reddettiyse o kelimeyi (virgülle) yazın; gönderirken başlık ve açıklamadan silinir. Yalnızca **yeni gönderimler** için geçerlidir; Trendyol’da zaten olan ürünü panelinden düzeltmelisiniz.'],
           ] },

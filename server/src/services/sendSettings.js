@@ -9,7 +9,11 @@
  *   titlePrefix / titleSuffix / titleCase   applied to the title that goes out
  *   maxImages          number of images sent
  *   removeWords        words/phrases taken out of the title AND description that go out (e.g. words the marketplace flags as forbidden)
+ *   shortenTitle       a title that would still be longer than the marketplace allows (100 characters, prefix and suffix included) is cut at
+ *                      a word boundary on the way out (`fitTitle`); the stored title is never changed, so an XML sync cannot undo it
  */
+
+const TITLE_MAX = 100;       // Trendyol rejects longer titles (readiness.LIMITS.TITLE_MAX is this number)
 
 const CASES = ['none', 'upper', 'lower', 'title'];
 
@@ -29,6 +33,7 @@ function normalizeSendSettings(raw) {
     titleCase: CASES.includes(o.titleCase) ? o.titleCase : 'none',
     maxImages: maxImages !== null && maxImages >= 1 ? Math.floor(maxImages) : null,
     removeWords: wordList(o.removeWords),
+    shortenTitle: !!o.shortenTitle,
   };
 }
 
@@ -109,6 +114,34 @@ function titleCase(t) {
   return t.toLocaleLowerCase('tr').replace(/(^|[\s\-/(])(\p{L})/gu, (_, sep, ch) => sep + ch.toLocaleUpperCase('tr'));
 }
 
+// Words that must not be the last word of a cut title ("... Takım ve", "... Kolye için")
+const DANGLING = new Set(['ve', 'ile', 'için', 'icin', 'veya', 'ya', 'da', 'de', 'ki', 'bir', 'the', 'and', 'for', 'with', '&', '-', '–', '/', '|', '+']);
+
+/**
+ * `title` cut to at most `max` characters, at a word boundary: the beginning (brand, product kind) is what matters most, so the tail goes.
+ * Spaces are collapsed; what the cut leaves hanging (a comma, a dash, "ve", an unclosed bracket) is taken off too. A title that already
+ * fits is returned as it is (only the spaces tidied). One endless word without spaces is cut hard at `max`.
+ */
+function fitTitle(title, max = TITLE_MAX) {
+  const t = String(title || '').replace(/[\s\u00a0]+/g, ' ').trim();
+  if (t.length <= max || !(max > 0)) return t;
+  let cut = t.slice(0, max);
+  if (t[max] !== ' ') {                                    // the cut falls inside a word: go back to the space before it
+    const sp = cut.lastIndexOf(' ');
+    if (sp > 0) cut = cut.slice(0, sp);
+  }
+  for (let guard = 0; guard < 20; guard++) {
+    const before = cut;
+    cut = cut.replace(/[\s,;:.\-–|/&+]+$/u, '');
+    const open = cut.lastIndexOf('(') > cut.lastIndexOf(')') ? cut.lastIndexOf('(') : (cut.lastIndexOf('[') > cut.lastIndexOf(']') ? cut.lastIndexOf('[') : -1);
+    if (open > 0) cut = cut.slice(0, open);               // "Kolye (Altın Kaplama" -> "Kolye"
+    const last = cut.slice(cut.lastIndexOf(' ') + 1);
+    if (cut.includes(' ') && DANGLING.has(last.toLocaleLowerCase('tr'))) cut = cut.slice(0, cut.lastIndexOf(' '));
+    if (cut === before) break;
+  }
+  return cut.trim();
+}
+
 /** The title as it will appear on the marketplace. */
 function shapeTitle(title, s) {
   if (!title) return title;
@@ -116,6 +149,10 @@ function shapeTitle(title, s) {
   if (s.titleCase === 'upper') t = t.toLocaleUpperCase('tr');
   else if (s.titleCase === 'lower') t = t.toLocaleLowerCase('tr');
   else if (s.titleCase === 'title') t = titleCase(t);
+  if (s.shortenTitle) {
+    const room = TITLE_MAX - String(s.titlePrefix || '').length - String(s.titleSuffix || '').length;
+    if (room >= 10) t = fitTitle(t, room);               // with no room left (a huge prefix / suffix) nothing sensible can be cut: the title stays long and is reported
+  }
   return `${s.titlePrefix}${t}${s.titleSuffix}`.trim();
 }
 
@@ -141,7 +178,8 @@ function describeSettings(s) {
   if (s.titlePrefix || s.titleSuffix || s.titleCase !== 'none') out.push('başlık düzeni');
   if (s.maxImages) out.push(`en fazla ${s.maxImages} görsel`);
   if (s.removeWords && s.removeWords.length) out.push(`${s.removeWords.length} kelime çıkarılır`);
+  if (s.shortenTitle) out.push(`${TITLE_MAX} karakteri aşan başlıklar kısaltılır`);
   return out;
 }
 
-module.exports = { normalizeSendSettings, excludedReasons, shapeTitle, shapeDescription, removeWordsFrom, shapeImages, sendStock, describeSettings, parseImageList };
+module.exports = { TITLE_MAX, fitTitle, normalizeSendSettings, excludedReasons, shapeTitle, shapeDescription, removeWordsFrom, shapeImages, sendStock, describeSettings, parseImageList };

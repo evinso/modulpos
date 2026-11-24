@@ -9,7 +9,7 @@ import toast from 'react-hot-toast';
  */
 const EMPTY = {
   minStock: '', maxStock: '', requireImage: false,
-  titlePrefix: '', titleSuffix: '', titleCase: 'none', maxImages: '', removeWords: '',
+  titlePrefix: '', titleSuffix: '', titleCase: 'none', maxImages: '', removeWords: '', shortenTitle: false,
 };
 const toForm = (s = {}) => {
   const f = { ...EMPTY };
@@ -24,6 +24,8 @@ const toBody = (f) => {
   const num = (v) => (v === '' || v === null || Number.isNaN(Number(v)) ? null : Number(v));
   return {
     minStock: num(f.minStock), maxStock: num(f.maxStock),
+    requireImage: !!f.requireImage,          // (this was missing: the box was never saved)
+    shortenTitle: !!f.shortenTitle,
     titlePrefix: f.titlePrefix, titleSuffix: f.titleSuffix, titleCase: f.titleCase, maxImages: num(f.maxImages),
     removeWords: f.removeWords,
   };
@@ -109,6 +111,12 @@ export default function SendSettingsPanel({ connectionId, onSaved }) {
             </Row>
             <Row label="En fazla görsel"><input type="number" min="1" className="form-input" placeholder="ör: 8" value={form.maxImages} onChange={set('maxImages')} /></Row>
           </div>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 13, marginBottom: 14 }}>
+            <input type="checkbox" data-testid="shorten-title" style={{ marginTop: 3 }} checked={form.shortenTitle} onChange={set('shortenTitle')} />
+            <span>Uzun başlıkları otomatik kısalt
+              <small style={{ display: 'block', color: 'var(--text-muted)', fontSize: 11 }}>Trendyol 100 karakterden uzun başlığı kabul etmez. Açıksa, ön / son ek dahil 100’ü aşan başlık gönderilirken <strong>kelime sınırından</strong> kesilir (sonu atılır, baştaki marka ve ürün adı kalır). Ürününüz sistemde değişmez; XML eşitlemesi de bunu bozmaz. Yalnızca yeni gönderimlerde geçerlidir.</small>
+            </span>
+          </label>
           <div style={{ marginBottom: 14 }}>
             <Row label="Başlık ve açıklamadan çıkarılacak kelimeler"
               hint="Trendyol “yasaklı kelime” diyerek revize isterse o kelimeyi buraya yazın (virgülle). Gönderirken başlıktan ve açıklamadan silinir; ürününüz sistemde değişmez. Yalnızca yeni gönderimlerde geçerlidir, Trendyol’da zaten olan ürünleri panelden düzeltmelisiniz.">

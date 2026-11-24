@@ -57,6 +57,8 @@ export default function TrendyolSendPage() {
   const [listLoading, setListLoading] = useState(false);
   const [pagination, setPagination] = useState({ total: 0, page: 1, totalPages: 1 });
   const [stats, setStats] = useState(null);
+  const [settingsKey, setSettingsKey] = useState(0);       // remounts the settings panel when this page changed a setting (so it never saves a stale form over it)
+  const [shortening, setShortening] = useState(false);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -128,6 +130,20 @@ export default function TrendyolSendPage() {
 
   // One request returns the page, the filtered total and the stats – the server does filtering,
   // validation and price calculation, the browser only renders.
+  // Turn the "uzun başlıkları otomatik kısalt" send setting on, keeping every other setting as it is
+  const shortenAllTitles = async () => {
+    if (!selectedConn || shortening) return;
+    setShortening(true);
+    try {
+      const cur = (await api.get(`/marketplace/connections/${selectedConn.id}/send-settings`)).data.settings || {};
+      await api.put(`/marketplace/connections/${selectedConn.id}/send-settings`, { settings: { ...cur, shortenTitle: true } });
+      toast.success('Uzun başlıklar artık gönderilirken otomatik kısaltılacak');
+      setSettingsKey((k) => k + 1);
+      await fetchProducts(true);
+    } catch (e) { toast.error(e.response?.data?.error || 'Ayar açılamadı'); }
+    finally { setShortening(false); }
+  };
+
   const fetchProducts = async (fresh = false) => {
     const my = ++requestSeq.current;
     setListLoading(true);
@@ -475,7 +491,18 @@ export default function TrendyolSendPage() {
         </div>
       )}
 
-      {selectedConn && <SendSettingsPanel connectionId={selectedConn.id} onSaved={() => fetchProducts(true)} />}
+      {selectedConn && <SendSettingsPanel key={settingsKey} connectionId={selectedConn.id} onSaved={() => fetchProducts(true)} />}
+
+      {/* products blocked only because the title is over Trendyol's 100 characters: one click turns the automatic shortening on for all of them */}
+      {(stats?.byIssue?.title_too_long || 0) > 0 && selectedConn && (
+        <div data-testid="long-titles" style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 10, padding: '12px 18px', marginBottom: 14, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 240, fontSize: 13 }}>
+            <strong>{stats.byIssue.title_too_long} ürünün başlığı 100 karakteri aşıyor</strong> ve bu yüzden gönderilemiyor.
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>Otomatik kısaltma açılırsa başlıklar gönderilirken kelime sınırından kesilir; ürünleriniz sistemde değişmez ve hepsi tek seferde düzelir. Hangi başlığın nasıl gittiği listede görünür.</div>
+          </div>
+          <button type="button" className="btn btn-primary" data-testid="shorten-all" disabled={shortening} onClick={shortenAllTitles}>{shortening ? 'Açılıyor…' : 'Hepsini otomatik kısalt'}</button>
+        </div>
+      )}
 
       {/* Why products are blocked (server validator) */}
       {issueEntries.length > 0 && (
@@ -596,6 +623,7 @@ export default function TrendyolSendPage() {
                         </div>
                         <div>
                           <div style={{ fontWeight: 500, fontSize: 13, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</div>
+                          {p.titleShortened && p.sendTitle && <div data-testid={`short-title-${p.id}`} title={`Trendyol’a giden başlık: ${p.sendTitle}`} style={{ fontSize: 10.5, color: 'var(--warning)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>kısaltıldı: {p.sendTitle}</div>}
                           <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{p.sku}</div>
                         </div>
                       </div>
