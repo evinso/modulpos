@@ -231,7 +231,7 @@ export default function XmlHandImportModal({ connection, onClose, onDone }) {
               <div style={{ fontSize: 14 }}><strong>{result.created}</strong> ürün eklendi.</div>
               {result.skipped.length > 0 && <div style={{ fontSize: 13, color: 'var(--warning)' }}>Atlananlar ({result.skipped.length}): {Object.entries(reasons).map(([r, n]) => `${n} × ${REASON[r] || r}`).join(', ')}.{result.limitMessage ? ` ${result.limitMessage}` : ''}</div>}
               <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
-                Sıradaki adımlar: ürünler <strong>“Elle eklenen ürünler”</strong> grubunda. Her ürün için <strong>“Elime kalacak net tutar”</strong>ı ve gerçek stoğu girin (şimdilik 0), Trendyol kategorisini <Link to="/category-mapping?tab=products" onClick={onClose}>Ürün bazlı kategori</Link> sekmesinden seçin.
+                Sıradaki adımlar: ürünler <strong>“Elle eklenen ürünler”</strong> grubunda. Her ürün için fiyatı (fiyat şablonunuza göre <strong>alış fiyatı</strong> ya da <strong>“Elime kalacak net tutar”</strong>) ve gerçek stoğu girin (şimdilik 0), Trendyol kategorisini <Link to="/category-mapping?tab=products" onClick={onClose}>Ürün bazlı kategori</Link> sekmesinden seçin.
                 Fiyatın hesaplanması için “Elle eklenen ürünler” kapsamlı bir <Link to="/pricing" onClick={onClose}>fiyat şablonu</Link> gerekir.
               </div>
             </div>

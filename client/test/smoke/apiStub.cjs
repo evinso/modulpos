@@ -14,7 +14,7 @@ const calls = [];
 const formCfg = { unavailable: false, importMode: 'ok' };   // the new-product form: Trendyol attribute list unreachable? / the link import answers ok | blocked | notfound
 const uploads = [];   // the pictures the product form uploaded
 const xmlSrc = { status: 'active' };   // the one XML source of the stub: the page switches it between active and paused (passive)
-const handCfg = { scoped: false };   // true: every template is limited to the XML source s1, so nothing prices the products added by hand
+const handCfg = { scoped: false, mode: null };   // true: every template is limited to the XML source s1, so nothing prices the products added by hand
 // "XML'den ürün ekle": what the read answers (items), a failure to play ({ status, error }), and every write the page sent
 const xmlImp = { items: [], fail: null, written: [], read: [], previews: [], previewExists: {}, previewFail: null };
 // "Elle eklenen ürünler" workspace: the rows the list answers (and what the page asked / wrote)
@@ -57,7 +57,8 @@ const get = async (url, cfg = {}) => {
   if (url === '/pricing') { const rules = [
     { id: 'r1', name: 'Genel fiyat', value: 30, type: 'percentage', applyTo: 'price_template', isActive: true, priority: 0, conditions: JSON.stringify({ connectionId: null, xmlSourceIds: [], shippingCost: 60, packagingCost: 10, commissionPct: 23, commissionBasis: 'gross', profitMode: 'fixed', roundingMode: 'ending', roundingEnding: 0.9, profitTiers: [] }) },
     { id: 'r2', name: 'Eski taslak', value: 10, type: 'percentage', applyTo: 'price_template', isActive: false, priority: 0, conditions: JSON.stringify({ shippingTiers: [{ upTo: 199.99, cost: 48.33 }, { upTo: null, cost: 88.96 }], shippingTiersExVat: true, profitMode: 'margin_on_gross', commissionPct: 22.37, packagingCost: 16.39, commissionBasis: 'gross', minPurchasePrice: 10, maxPurchasePrice: 500 }) },
-  ]; return { data: handCfg.scoped ? rules.map((r) => ({ ...r, conditions: JSON.stringify({ ...JSON.parse(r.conditions), xmlSourceIds: ['s1'] }) })) : rules }; }
+  ]; if (handCfg.mode) return { data: rules.map((r) => ({ ...r, conditions: JSON.stringify({ ...JSON.parse(r.conditions), xmlSourceIds: ['none'], netMode: handCfg.mode }) })) };   // the template made for hand-added products, read as purchase + profit (or purchase)
+    return { data: handCfg.scoped ? rules.map((r) => ({ ...r, conditions: JSON.stringify({ ...JSON.parse(r.conditions), xmlSourceIds: ['s1'] }) })) : rules }; }
   if (url === '/pricing/summaries') return { data: { total: 0, rules: {} } };
   if (url === '/marketplace/connections/c1/buybox-auto-log') return { data: [
     { id: 'l1', kind: 'auto', status: 'ok', createdAt: '2026-11-09T19:00:00Z', note: 'Otomatik fiyat: 2 ürünün fiyatı düşürüldü (BuyBox fiyatına eşit). 1 ürün zarara düşeceği için atlandı. 0,2 kredi kullanıldı.', updated: 2, skippedNotLower: 0, skippedLoss: 1, skippedOther: 0, items: [{ barcode: 'bx1', title: 'Gümüş Yüzük', oldPrice: 120, newPrice: 110.5 }, { barcode: 'bx2', title: 'Çelik Kolye', oldPrice: 99, newPrice: 95 }] },

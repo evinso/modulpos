@@ -102,7 +102,8 @@ const API = process.env.API_URL || 'https://api.modulpos.com/api';
 
     // ── netMode "profit": the amount is a PURCHASE price and the template's profit is added, like an XML product ──
     const badMode = await a('PUT', `/pricing/${t.d.id}`, { conditions: { ...conds, netMode: 'weird' } }); ok('a net mode that does not exist is still refused (400), and the message names the new one', badMode.s === 400 && /profit/.test((badMode.d && badMode.d.error) || ''), `${badMode.s} ${badMode.d && badMode.d.error}`);
-    const pconds = { ...conds, profitMode: 'percent_of_purchase', netMode: 'profit' };
+    // a fixed VAT rate in the template: the calculator takes no product, so it could not know the VAT of the product row (the template's own rate wins over the product's)
+    const pconds = { ...conds, profitMode: 'percent_of_purchase', netMode: 'profit', vatRate: 20 };
     const up = await a('PUT', `/pricing/${t.d.id}`, { value: 30, conditions: pconds }); ok('the template is saved with "alış fiyatı + kâr" (30%)', up.s === 200, `${up.s} ${up.d && up.d.error}`);
     const calc = await a('POST', '/pricing/calculate', { purchasePrice: 80, value: 30, conditions: pconds });
     const calcX = await a('POST', '/pricing/calculate', { purchasePrice: 80, value: 30, conditions: { ...pconds, xmlSourceIds: [] } });

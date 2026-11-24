@@ -258,6 +258,23 @@ const assign = calls.filter((c) => c.m === 'PUT' && c.url === '/marketplace/conn
 ok('and the chosen Trendyol category is assigned to the new product in the same step', assign && assign.body.assignments.length === 1 && assign.body.assignments[0].productId === 'new1' && assign.body.assignments[0].categoryId === '10' && assign.body.assignments[0].source === 'manual', JSON.stringify(assign && assign.body));
 handCfg.scoped = false;
 
+// the template reads the number as a PURCHASE price (+ profit): the form must not call it "net amount"
+handCfg.mode = 'profit';
+await click(btn('Yeni ürün'));
+await wait(100);
+ok('with a "purchase + profit" template the form asks for the purchase price, not a net amount', !!field('Alış fiyatı') && !field('Elime kalacak net tutar') && q('hand-note').textContent.includes('ürünün alış fiyatıdır') && q('hand-note').textContent.includes('kâr ile birlikte') && !q('hand-note').textContent.includes('net tutardır'), q('hand-note') && q('hand-note').textContent.slice(0, 160));
+ok('and its hint says the same', q('price-hint').textContent.includes('alış fiyatı') && !q('price-hint').textContent.includes('elinize geçmesini'));
+await put(field('SKU'), 'EL-9'); await put(field('Barkod'), '869'); await put(field('Ürün adı'), 'Kupa'); await put(q('image-urls'), 'https://example.com/a.jpg'); await put(field('Alış fiyatı'), '0'); await put(field('Marka'), 'Atölye'); await put(field('Açıklama'), 'Kupa');   // an empty box is stopped by the browser itself (required), a 0 reaches our message
+await click(btn('Kaydet'));
+ok('with a 0 price it asks for the purchase price in words', toasts[toasts.length - 1] === 'Alış fiyatını yazın', toasts.slice(-2).join(' | '));
+await click(btn('İptal'));
+handCfg.mode = 'purchase';
+await click(btn('Yeni ürün'));
+await wait(100);
+ok('"purchase" mode: purchase price too, no mention of the template profit', !!field('Alış fiyatı') && !q('hand-note').textContent.includes('kâr ile birlikte'));
+await click(btn('İptal'));
+handCfg.mode = null;
+
 console.error = origErr;
 const real = errors.filter((e) => !/not wrapped in act|Warning: An update|ReactDOMTestUtils|act\(/.test(e));
 ok('no React errors/warnings while rendering', real.length === 0, real.slice(0, 3).join(' | '));

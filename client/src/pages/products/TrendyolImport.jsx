@@ -34,7 +34,7 @@ export default function TrendyolImport({ onImported }) {
     <div data-testid="trendyol-import" style={{ background: 'rgba(249,115,22,0.07)', border: '1px solid rgba(249,115,22,0.25)', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: 13, marginBottom: 4 }}><Link2 size={15} style={{ color: '#f97316' }} /> Trendyol linkinden doldur <span style={{ ...muted, fontWeight: 400 }}>(isteğe bağlı)</span></div>
       <div style={{ ...muted, marginBottom: 8, lineHeight: 1.6 }}>
-        Bir Trendyol ürün linki yapıştırın; başlık, açıklama, görseller, marka, kategori ve özellikler forma gelir. <strong>Hepsini düzenleyebilirsiniz</strong>; barkod, stok ve net tutarı siz yazarsınız.
+        Bir Trendyol ürün linki yapıştırın; başlık, açıklama, görseller, marka, kategori ve özellikler forma gelir. <strong>Hepsini düzenleyebilirsiniz</strong>; barkod, stok ve fiyatı (alış fiyatı ya da elinize kalacak net tutar, şablonunuza göre) siz yazarsınız.
         Yalnızca kendi ürünleriniz ya da kullanım izniniz olan ürünler için kullanın (görsel ve metin hakları).
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
