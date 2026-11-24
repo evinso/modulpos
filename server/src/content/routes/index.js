@@ -89,7 +89,7 @@ function buildRouter(getState) {
   r.get('/dashboard', wrap(async (req, res) => res.json(await dashboard.build({ projectId: req.query.projectId || null, days: parseInt(req.query.days, 10) || 30 }))));
 
   // ── projects, niche, categories, excluded topics ─────────────────────────────────────────────────────────
-  r.get('/projects', wrap(async (_req, res) => res.json({ projects: await projects.listProjects() })));
+  r.get('/projects', wrap(async (_req, res) => { const list = await projects.listProjects(); const on = await Promise.all(list.map((p) => require('../services/pipeline').isOn(p.id).catch(() => false))); res.json({ projects: list.map((p, i) => ({ ...p, pipelineOn: on[i] })) }); }));
   r.post('/projects', mw.need('projects.write'), wrap(async (req, res) => { const p = await projects.createProject(req.body, { userId: uid(req) }); await A(req, 'project.create', 'project', p.id, null, p); res.status(201).json(p); }));
   r.get('/projects/:id', wrap(async (req, res) => res.json(await projects.getProject(req.params.id))));
   r.put('/projects/:id', mw.need('projects.write'), wrap(async (req, res) => { const before = await projects.getProject(req.params.id); const p = await projects.updateProject(req.params.id, req.body); await A(req, 'project.update', 'project', p.id, before, p); res.json(p); }));

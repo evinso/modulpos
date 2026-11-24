@@ -14,6 +14,7 @@ const L = require('../../src/content/services/limits');
 const S = require('../../src/content/services/settings');
 const SI = require('../../src/content/services/sites');
 const SC = require('../../src/content/services/scheduler');
+const AU = require('../../src/content/services/automation');
 const PL = require('../../src/content/services/pipeline');
 const { FetchError } = require('../../src/content/lib/safeFetch');
 
@@ -42,7 +43,7 @@ const q = (sql, p = []) => H.db().query(sql, p).then((r) => r.rows);
 const q1 = async (sql, p = []) => (await q(sql, p))[0];
 
 /** a project with every service connected and the news of `items` scanned by the line itself (nothing is done by hand but the switch) */
-async function world({ noVolume = /^$/, items = ITEMS } = {}) {
+async function world({ noVolume = /^$/, items = ITEMS, freshHours = 0 } = {}) {
   const pid = (await P.seedDefault()).projectId;
   await PR.save('anthropic', { secret: 'sk-ant-test-key-0123456789', extra: { inputPricePerM: '3', outputPricePerM: '15' } });
   await PR.save('openai', { secret: 'sk-test-key-0123456789abcdef', extra: { model: 'gpt-test', inputPricePerM: '1', outputPricePerM: '4' } });
@@ -50,7 +51,7 @@ async function world({ noVolume = /^$/, items = ITEMS } = {}) {
   const site = await SI.create(pid, { name: 'Tech Blog', apiUrl: wp.url, username: 'editor', password: 'abcd efgh ijkl mnop' }); assert.equal((await SI.test(site.id)).ok, true);
   await N.createSource(pid, { name: 'Outlet A', kind: 'rss', url: 'https://a.example/feed', reliability: 80 }); await N.createSource(pid, { name: 'Outlet B', kind: 'rss', url: 'https://b.example/feed', reliability: 70 });
   await H.db().query('UPDATE niche_profiles SET min_opportunity_score = 30 WHERE project_id = $1', [pid]); await H.db().query('UPDATE categories SET min_opportunity_score = NULL');
-  await S.set('quality', { ...(await S.get('quality')).value, minScore: 50 }, { scope: 'global' }); await S.set('seo', { ...(await S.get('seo')).value, freshHours: 0 }, { scope: 'global' });
+  await S.set('quality', { ...(await S.get('quality')).value, minScore: 50 }, { scope: 'global' }); await S.set('seo', { ...(await S.get('seo')).value, freshHours }, { scope: 'global' });
   const volumes = new Proxy({}, { get: (_, k) => (typeof k !== 'string' ? undefined : (noVolume.test(k) ? { none: true } : { volume: 5400, cpc: 1.2, comp: 0.4, kd: 35 })), has: () => true });
   const apify = fakeApify({ volumes }); const serper = fakeSerper({ '*': ['smallblog.example', 'nichesite.example', 'tinydocs.example', 'devnotes.example', 'forum.example'] });
   const m = fakeModels();
@@ -183,6 +184,55 @@ test('a WordPress login that is refused stops the cycle (no other idea could hel
   await run(w, D0);
   const r = await PL.openRun(pid); assert.equal(r.status, 'stopped', r.note); assert.equal(r.step, 'publish'); assert.match(r.note, /WordPress/);
   assert.equal((await q1("SELECT count(*)::int n FROM notifications WHERE type = 'pipeline_stopped'")).n, 1); assert.equal(wp.posts.size, 0);
+});
+
+test('an idea that did not make it is taken out of the research pages AT ONCE, with its keywords, volumes and SERP data (nothing piles up while the line works); its topic is closed so it does not come back', opts, async () => {
+  const w = await world({ noVolume: /.*/ }); const { pid } = w;                                                  // no keyword has data: every idea fails at the keyword step
+  await turnOn(pid); await run(w, D0);
+  const r = await PL.openRun(pid); assert.equal(r.status, 'waiting'); assert.match(r.note, /Hiçbir kategoride uygun fikir yok/); assert.ok(r.attempt > 1, 'several ideas were tried');
+  assert.deepEqual((await q('SELECT title FROM content_opportunities')).map((x) => x.title.split(' ')[0]), ['Hackers'], 'every TRIED idea is gone (not left as "rejected"); only the headline without a name, which was never tried, waits for the clean-up');
+  assert.equal((await q1("SELECT count(*)::int n FROM keywords k JOIN topics t ON t.id = k.topic_id WHERE t.status = 'used'")).n, 0, 'no keyword of a closed topic is left'); assert.equal((await q1('SELECT count(*)::int n FROM keyword_metrics')).n, 0);
+  assert.equal((await q1("SELECT count(*)::int n FROM topics WHERE status <> 'used'")).n, 1, 'the tried ideas\' topics are closed (only the never-tried one is still open)');
+  await O.refresh(pid, { now: plus(D0, 5) }); assert.equal((await q1('SELECT count(*)::int n FROM content_opportunities')).n, 1, 'a re-scoring does not bring the tried ones back');
+});
+
+test('the fresh-news lane marks even a FULLY scored idea: such an idea must still pass the suitability step (it was wrongly thrown away on the first live run: score 73-76 against a minimum of 70)', opts, async () => {
+  const w = await world({ freshHours: 36 }); const { pid } = w;
+  await turnOn(pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text)));
+  assert.ok(d.trail.some((t) => /^Uygun: fırsat puanı \d+/.test(t.text)), 'the suitability step said yes with a real score'); assert.equal(wp.posts.size, 1);
+});
+
+test('Apify\'s free plan gives 5 runs a day: when the actor answers with nothing and its log says so, the cycle WAITS for the reset (00:05 UTC) - it neither burns ideas nor retries - and goes on after it', opts, async () => {
+  const w = await world(); const { pid } = w; w.apify.state.freeLimit = true;
+  await turnOn(pid); await run(w, D0);
+  const r = await PL.openRun(pid); assert.equal(r.status, 'waiting', r.note); assert.equal(r.step, 'keyword'); assert.match(r.note, /ücretsiz planında günlük 5 çalıştırma/); assert.equal(r.attempt, 1, 'no idea was thrown away for it');
+  assert.equal(new Date(r.waitUntil).toISOString(), '2026-11-24T00:05:00.000Z', 'the next 00:05 UTC');
+  assert.equal(w.apify.asked().length, 1, 'ONE call was spent finding out');
+  await run(w, plus(D0, 600)); assert.equal(w.apify.asked().length, 1, 'nothing is asked again before the reset');
+  w.apify.state.freeLimit = false;
+  await run(w, new Date('2026-11-24T00:10:00Z')); assert.equal((await q1('SELECT status FROM pipeline_runs')).status, 'done'); assert.equal(wp.posts.size, 1);
+});
+
+test('keywords the platform would pay for must hold a NAME of the headline; a generic word ("leaked") is not asked for, and an idea with no such keyword is skipped without being counted as a try', opts, async () => {
+  assert.equal(PL.sane('staples canada', 'Staples Canada says customer information accessed in data breach'), true);
+  assert.equal(PL.sane('leaked', 'Phoebe confirms patient information leaked in former third-party vendor data breach'), false);
+  assert.equal(PL.sane('how to', 'How to fix iPhone WiFi not working'), false); assert.equal(PL.sane('windows 11', 'Windows 11 update causes problems'), true); assert.equal(PL.sane('gemini 3', 'Gemini 3 launches with new features'), true);
+  const w = await world({ items: [['Hackers leak data of millions after breach at major retailer', 7], ['Gemini 3 launches with new features for Google AI users', 6]] }); const { pid } = w;
+  await turnOn(pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(d.attempt, 1, 'the headline without a name was never tried');
+  assert.match((await q1('SELECT h1 FROM articles')).h1, /gemini/i);
+});
+
+test('while the line is on the old modes page is PASSIVE: the server refuses to apply a mode or the checkboxes (they would switch the batch bots the line runs), and it works again when the line is off', opts, async () => {
+  const w = await world(); const { pid } = w; void w;
+  assert.equal((await AU.overview(pid)).pipelineOn, false);
+  await turnOn(pid);
+  assert.equal((await AU.overview(pid)).pipelineOn, true, 'the page learns it from the overview');
+  await assert.rejects(AU.apply({ projectId: pid, mode: 'manual' }), (e) => e.status === 409 && /pasif/.test(e.message));
+  await assert.rejects(AU.apply({ projectId: pid, mode: 'custom', options: { news: false } }), (e) => e.status === 409);
+  await PL.setConfig(pid, { enabled: false });
+  const ok = await AU.apply({ projectId: pid, mode: 'custom', options: { news: false } }); assert.equal(ok.options.find((o) => o.key === 'news').on, false);
 });
 
 test('turning it on: missing connections are named; limits only go UP for the pace; the old batch bots stop queueing for this project while the line is on, and come back when it is off', opts, async () => {

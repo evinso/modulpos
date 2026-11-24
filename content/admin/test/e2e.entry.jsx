@@ -819,6 +819,9 @@ ok('turning it ON asks first, in words, because articles go public without a per
 await click(btn('Evet, aç', $('.modal')), 1500);
 const pset = async () => (await q1("SELECT value FROM automation_settings WHERE key = 'pipeline' AND project_id IS NOT NULL")).value;
 ok('after the yes it is ON, saved on the server, automatic approval is on (the line needs it) and the page says what else it changed', (await pset()).enabled === true && (await q1("SELECT value FROM automation_settings WHERE key = 'quality'")).value.manualApprovalNewArticles === false && txt().includes('AÇIK') && txt().includes('Son değişiklik') && txt().includes('Şu anki iş'));
+ok('while the line is on the menu hides the pages of the day\'s research data (ideas, keywords, SERP, trends, niche suggestions) and keeps the strategy page and the news page', !nav('İçerik Fırsatları') && !nav('Anahtar Kelime Araştırması') && !nav('SEO Rekabet Analizi') && !nav('Trend Analizi') && !nav('Niş Keşif Merkezi') && !!nav('Site Nişi ve İçerik Stratejisi') && !!nav('Dünya Gündemi'));
+await goTab('Gelişmiş modlar', 1200);
+ok('while the line is on, "Gelişmiş modlar" is PASSIVE: it says so, every mode button and every option box is off, and nothing can be saved', txt().includes('bu sayfa pasif') && ['Elle', 'Yarı otomatik'].every((m) => !btn(`${m} modunu uygula`) || btn(`${m} modunu uygula`).disabled) && $$('label.check input').every((i) => i.disabled) && !btn('Seçimi uygula') || (btn('Seçimi uygula') && btn('Seçimi uygula').disabled === true));
 await goTab('Botlar', 1000);
 ok('while the line is on, the Botlar tab says which bots the line runs itself (and they carry a badge)', txt().includes('Otomatik Üretim açık') && txt().includes('News Discovery Bot') && $$('.badge').filter((b) => b.textContent === 'üretim hattı yönetiyor').length === 7);
 await click(nav('Otomasyon ve Ayarlar'), 1200);
@@ -835,6 +838,7 @@ await setVal($('select[aria-label="İç bağlantı ekleme: ne sıklıkla"]'), '1
 ok('an upkeep bot\'s pace is its real schedule: internal links once a week now', (await q1("SELECT interval_minutes FROM schedule_settings WHERE bot_key = 'internal_linking'")).interval_minutes === 10080);
 await click(exact('Kapat'), 1200);
 ok('switching it OFF says KAPALI and is saved (the old schedules apply again)', (await pset()).enabled === false && txt().includes('KAPALI'));
+ok('and the research pages are in the menu again', !!nav('İçerik Fırsatları') && !!nav('Anahtar Kelime Araştırması') && !!nav('SEO Rekabet Analizi'));
 await goTab('Botlar', 1000);
 ok('and the Botlar tab no longer claims any bot', !txt().includes('Otomatik Üretim açık') && !$$('.badge').some((b) => b.textContent === 'üretim hattı yönetiyor'));
 await act(async () => { root.render(<MemoryRouter key="back" initialEntries={['/']}><App /></MemoryRouter>); }); await wait(700);

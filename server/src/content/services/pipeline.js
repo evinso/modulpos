@@ -230,10 +230,23 @@ async function scan(run, ctx, now) {
   } catch (err) { say(run, 'idea', false, `Haber taraması tamamlanamadı (eldeki fikirlerle devam): ${String(err.message).slice(0, 160)}`); }
 }
 
+const GENERIC = new Set(['the', 'new', 'how', 'what', 'why', 'this', 'that', 'says', 'after', 'over', 'with', 'from', 'about', 'into', 'now', 'its', 'for', 'and']);
+/**
+ * Does this keyword look like something worth paying to look up and write an article around? It must contain a NAME of the headline: a word that is written with a capital letter (or a digit)
+ * in the title (or inside a word: iPhone, eBay, macOS). A generic word the candidate builder picked out of a sentence ("leaked") has volume but no article behind it. The platform's own candidate builder is free, the lookup is not.
+ */
+function sane(keyword, title) {
+  const names = new Set(String(title || '').split(/\s+/).map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')).filter((w) => (/^[\p{Lu}\p{N}]/u.test(w) || /\p{Ll}.*\p{Lu}/u.test(w)) && w.length >= 2).map((w) => w.toLowerCase()).filter((w) => !GENERIC.has(w)));
+  return String(keyword || '').toLowerCase().split(/\s+/).some((t) => names.has(t));
+}
+
+/** the best idea of the category that has at least one keyword worth asking for; ideas without one are skipped (they are not tried, not counted, and the clean-up takes them away) */
 async function bestCandidate(projectId, categoryId) {
-  return (await db.query(`SELECT o.id, o.title, o.provisional_score FROM content_opportunities o JOIN topics t ON t.id = o.topic_id
+  const rows = (await db.query(`SELECT o.id, o.title, o.provisional_score, o.topic_id, (SELECT COALESCE(array_agg(k.keyword), '{}') FROM keywords k WHERE k.topic_id = o.topic_id) AS kws
+    FROM content_opportunities o JOIN topics t ON t.id = o.topic_id
     WHERE o.project_id = $1 AND o.category_id = $2 AND o.status IN ('new', 'shortlisted') AND t.status = 'new' AND o.provisional_score IS NOT NULL AND COALESCE(o.ineligible_reason, '') !~ $3
-    ORDER BY o.provisional_score DESC, o.updated_at DESC LIMIT 1`, [projectId, categoryId, HARD.source])).rows[0] || null;
+    ORDER BY o.provisional_score DESC, o.updated_at DESC LIMIT 40`, [projectId, categoryId, HARD.source])).rows;
+  return rows.find((r) => r.kws.some((k) => sane(k, r.title))) || null;
 }
 
 /** every category has been looked at and none had anything: wait, then scan the news again and look at all of them again */
@@ -266,17 +279,43 @@ async function stepIdea(run, ctx, now) {
   return dry(run, now);
 }
 
+const utcNextMidnight = (now) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 5));
+/**
+ * Apify's free plan lets the keyword actor run 5 times a day (it resets at 00:00 UTC = 03:00 in Turkey) and, past that, still ends "SUCCEEDED" with an EMPTY dataset and a line in its log:
+ * "today's 5 free runs are used ... Nothing was looked up or charged". The platform only sees "no record for any keyword", so when that happens the last run's log is read (free, read only).
+ * @returns { until, reason } when the log says so, else null
+ */
+async function apifyFreeLimit(ctx, now) {
+  try {
+    const token = await providers.secretFor('apify'); if (!token) return null;
+    const actor = ((await providers.get('apify')).extra || {}).actor || 'gaelasao/keyword-research-api';
+    const f = ctx.fetchImpl || globalThis.fetch; const H = { headers: { Authorization: `Bearer ${token}` } };
+    const runs = await (await f(`https://api.apify.com/v2/acts/${encodeURIComponent(actor.replace('/', '~'))}/runs?limit=1&desc=1`, H)).json();
+    const id = runs && runs.data && runs.data.items && runs.data.items[0] && runs.data.items[0].id; if (!id) return null;
+    const log = await (await f(`https://api.apify.com/v2/actor-runs/${id}/log`, H)).text();
+    if (!/free runs are used|free plan/i.test(log)) return null;
+    return { until: utcNextMidnight(now), reason: 'Apify ücretsiz planında günlük 5 çalıştırma hakkı bitti (sayaç 00:00 UTC’de, Türkiye saatiyle 03:00’te yenilenir). Hiçbir anahtar kelime sorgulanmadı; hat o zaman devam eder. Beklememek için Apify’ın ücretli planına geçebilirsiniz.' };
+  } catch { return null; }
+}
+
 async function stepKeyword(run, ctx, now) {
   const pid = run.projectId; const o = await idea(run.opportunityId);
   if (!o) return reject('Fikir bulunamadı (silinmiş)');
   if (!(await providers.get('apify')).configured) return stop('Apify bağlı değil: anahtar kelime verisi alınamaz');
-  let kws = (await db.query('SELECT id FROM keywords WHERE topic_id = $1', [o.topic_id])).rows.map((r) => r.id);
-  if (!kws.length) { await keywords.generateForTopic(o.topic_id); kws = (await db.query('SELECT id FROM keywords WHERE topic_id = $1', [o.topic_id])).rows.map((r) => r.id); }
-  if (!kws.length) return reject('Bu konu için aranabilir bir anahtar kelime çıkmadı');
+  const own = async () => (await db.query('SELECT id, keyword FROM keywords WHERE topic_id = $1', [o.topic_id])).rows;
+  let all = await own();
+  if (!all.length) { await keywords.generateForTopic(o.topic_id); all = await own(); }
+  const kws = all.filter((k) => sane(k.keyword, o.topic_title || o.title)).map((k) => k.id);
+  if (!kws.length) return reject('Bu konu için aranmaya değer bir anahtar kelime çıkmadı (başlıkta özel ad yok)');
   const out = await keywords.fetchMetrics(pid, { ids: kws, manual: false, trigger: 'schedule', userId: null, fetchImpl: ctx.fetchImpl, now });
   run.costUsd = Math.round((run.costUsd + Number(out.costUsd || 0)) * 1e6) / 1e6; run.unknownCost += out.unknownCost || 0;
   if (out.stopped && !out.fetched && out.requested > 0) return wait(tomorrow(now), out.stopped);
-  if (out.noAnswer && !out.fetched) return retryLater('Veri sağlayıcısı cevap vermedi');
+  if (out.noAnswer && !out.fetched) {
+    // nothing came back for ANY keyword: on Apify's free plan that is the daily run limit (the actor answers "today's 5 free runs are used" and looks nothing up); otherwise these keywords have no data
+    const limit = await apifyFreeLimit(ctx, now);
+    if (limit) return wait(limit.until, limit.reason);
+    return reject('Veri sağlayıcısı bu anahtar kelimeler için hiç veri döndürmedi');
+  }
   const r = await opportunities.rescore(run.opportunityId, { now });
   if (!r.keywordId || (r.explain && (r.explain.missing || []).includes('demand'))) return reject(`Anahtar kelime verisi bulunamadı (${out.found || 0}/${out.fetched || 0} kelimede veri var)`);
   say(run, 'keyword', true, `Anahtar kelime: “${r.keyword || ''}”, aranma verisi bulundu`);
@@ -300,7 +339,7 @@ async function stepCheck(run, ctx, now) {
   const r = await opportunities.rescore(run.opportunityId, { now });
   const why = [];
   if (r.status === 'rejected') why.push('Reddedilmiş');
-  if (r.total === null || r.total === undefined || r.partial || (r.explain && r.explain.lane)) why.push('Tam puan çıkmadı (eksik veri ya da kısmi puan geçerli sayılmaz)');
+  if (r.total === null || r.total === undefined || (r.explain && (r.explain.missing || []).length)) why.push('Tam puan çıkmadı (eksik veri ya da kısmi puan geçerli sayılmaz)');
   else if (!r.eligible) why.push(r.ineligibleReason || 'Fırsat puanı yetersiz');
   if (!why.length) {
     const scope = await projects.checkTopic(run.projectId, `${r.title} ${r.keyword || ''}`, r.categoryId);
@@ -449,16 +488,22 @@ const STEP_FN = { idea: stepIdea, keyword: stepKeyword, serp: stepSerp, check: s
 /** the steps in which a failure belongs to the IDEA (the next idea may work); the others are about the article or the services around it */
 const IDEA_LEVEL = new Set(['idea', 'keyword', 'serp', 'check', 'write', 'fix']);
 
-/** throws the current idea away: it is marked rejected (never picked again), its draft (if any) is archived, and the cycle goes back to the first step with the next idea */
+/**
+ * Takes the idea (and what its research cost: the keywords the system found for it, their volumes and SERP analyses) out of the research pages AT ONCE, and closes its topic ("used": a topic left
+ * "rejected" would be turned into a new idea row by the next re-scoring). Used for an idea that did not make it; the one that did is taken away by the clean-up after publishing.
+ */
+async function dropIdea(o) {
+  await db.tx(async (c) => {
+    await c.query("DELETE FROM keywords k WHERE k.topic_id = $1 AND k.origin <> 'manual' AND NOT EXISTS (SELECT 1 FROM content_opportunities x WHERE x.keyword_id = k.id AND x.id <> $2)", [o.topic_id, o.id]);
+    await c.query('DELETE FROM content_opportunities WHERE id = $1', [o.id]);
+    await c.query("UPDATE topics SET status = 'used' WHERE id = $1", [o.topic_id]);
+  });
+}
+
+/** throws the current idea away: the idea and its research are deleted from the research pages, its draft (if any) is archived, and the cycle goes back to the first step with the next idea */
 async function rejectIdea(run, reason, now) {
   say(run, run.step, false, `Fikir elendi: ${reason}`);
-  if (run.opportunityId) {
-    const o = await idea(run.opportunityId);
-    if (o) {
-      await db.query("UPDATE content_opportunities SET status = 'rejected', eligible = false, ineligible_reason = $2, updated_at = now() WHERE id = $1 AND status <> 'written'", [o.id, `Üretim hattı: ${String(reason).slice(0, 200)}`]);
-      await db.query("UPDATE topics SET status = 'rejected' WHERE id = $1", [o.topic_id]);
-    }
-  }
+  if (run.opportunityId) { const o = await idea(run.opportunityId); if (o) await dropIdea(o); }
   run.opportunityId = null; run.articleId = null; run.publicationId = null; run.attempt += 1; moveTo(run, 'idea', now);
 }
 
@@ -618,5 +663,5 @@ async function overview(projectId, { now = new Date() } = {}) {
     schedulerRunning: !!require('./scheduler').status().running, ownedBots: [...require('./scheduler').PIPELINE_OWNED] };
 }
 
-module.exports = { BOT, STEPS, LABEL, FREQUENCIES, JOB_MS, HARD, config, isOn, prerequisites, setConfig, ensureRoom, nextCategory, tomorrow, classify, cleanLeftovers, tick, work, start, cancel, overview, get, openRun };
+module.exports = { BOT, STEPS, LABEL, FREQUENCIES, JOB_MS, HARD, sane, apifyFreeLimit, config, isOn, prerequisites, setConfig, ensureRoom, nextCategory, tomorrow, classify, cleanLeftovers, tick, work, start, cancel, overview, get, openRun };
 void bad;

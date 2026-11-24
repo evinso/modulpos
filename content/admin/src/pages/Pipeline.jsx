@@ -65,7 +65,7 @@ function Upkeep({ canEdit }) {
 
 /** "Otomatik Üretim": one switch, one pace, one piece of work at a time (the default tab of "Otomasyon ve Ayarlar") */
 export default function Pipeline() {
-  const { projectId, can, confirm } = useApp();
+  const { projectId, can, confirm, reloadProjects } = useApp();
   const canEdit = can('bots.control');
   const st = useLoad(() => (projectId ? api.get(`/pipeline${qs({ projectId })}`) : Promise.resolve(null)), [projectId]);
   const [run, busy] = useAction();
@@ -93,7 +93,7 @@ export default function Pipeline() {
       }
     }, okText);
     if (out && out.changes) setChanges(out.changes);
-    st.reload();
+    st.reload(); reloadProjects().catch(() => {});                 // the menu hides the research pages while the line is on
   };
   const startNow = async () => { if (await run(() => api.post('/pipeline/start', { projectId }), 'Döngü başlatıldı')) st.reload(); };
   const cancel = async () => {

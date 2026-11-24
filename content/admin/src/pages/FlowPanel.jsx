@@ -17,8 +17,8 @@ const Bar = ({ n, max }) => <div style={{ background: 'var(--panel-2)', borderRa
 const Tile = ({ label, value, note }) => <div className="card flat" style={{ padding: 12 }}><div className="faint" style={{ fontSize: 12 }}>{label}</div><div style={{ fontSize: 24, fontWeight: 700 }}>{value}</div>{note && <small className="faint">{note}</small>}</div>;
 
 /** How what the system finds becomes articles, the waves of fresh news (open ideas by the age of their news), and the housekeeping that keeps nothing for ever. One simple card. */
-export default function FlowPanel({ projectId }) {
-  const { can, confirm, toast } = useApp(); const canEdit = can('bots.control');
+export default function FlowPanel({ projectId, passive = false }) {
+  const { can, confirm, toast } = useApp(); const canEdit = can('bots.control') && !passive;
   const st = useLoad(() => api.get(`/automation/flow${qs({ projectId })}`), [projectId]);
   const [run, busy] = useAction();
   const [fresh, setFresh] = useState(''); const [ret, setRet] = useState(null);

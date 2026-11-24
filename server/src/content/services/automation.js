@@ -10,6 +10,7 @@ const scheduler = require('./scheduler');
 const projects = require('./projects');
 const images = require('./images');
 const telegram = require('./telegram');
+const pipeline = require('./pipeline');
 
 /**
  * "Otomasyon Modu": ONE page that turns the platform's own switches into three understandable modes and a list of checkboxes.
@@ -169,7 +170,7 @@ async function overview(projectId) {
   // the publishing bot has its OWN hours (the Botlar tab); the hours above are the publishing settings: when they differ the bot follows its own
   const pbs = st.sch.get('content_publishing');
   if (st.on.publishing && pbs && (pbs.windowStart !== st.pub.windowStart || pbs.windowEnd !== st.pub.windowEnd || !!pbs.weekdaysOnly === !!st.pub.weekends)) warnings.push({ kind: 'warn', text: `WordPress yayın botunun kendi çalışma saatleri (${pbs.windowStart ? `${pbs.windowStart}–${pbs.windowEnd}` : 'SINIR YOK: her saat'}${pbs.weekdaysOnly ? ', hafta sonu yok' : ', hafta sonu da'}) buradaki yayın saatlerinden (${st.pub.windowStart}–${st.pub.windowEnd}${st.pub.weekends ? ', hafta sonu da' : ', hafta sonu yok'}) farklı: bot kendi saatlerine göre çalışır. “Değerleri kaydet” ikisini eşitler.`, to: '/automation?tab=botlar' });
-  return { projectId: pid, mode, summary, modeLabel: mode === 'custom' ? 'Özel' : MODES[mode].label, modes, groups: GROUPS, options, values, effective, recommended: RECOMMENDED, max: { dailyArticles: limits.WORK_TYPES.new_article.max, dailyPublish: limits.WORK_TYPES.publish.max }, warnings, checklist, readyBacklog: backlog, paused: !!botState.paused,
+  return { projectId: pid, pipelineOn: await pipeline.isOn(pid), mode, summary, modeLabel: mode === 'custom' ? 'Özel' : MODES[mode].label, modes, groups: GROUPS, options, values, effective, recommended: RECOMMENDED, max: { dailyArticles: limits.WORK_TYPES.new_article.max, dailyPublish: limits.WORK_TYPES.publish.max }, warnings, checklist, readyBacklog: backlog, paused: !!botState.paused,
     schedulerRunning: !!scheduler.status().running, thresholds: { minScore: st.q.minScore } };
 }
 
@@ -204,6 +205,8 @@ function cleanValues(v, base) {
  */
 async function apply(body, { userId = null } = {}) {
   const pid = V.uuid(body.projectId, 'Proje'); await projects.getProject(pid);
+  // while the production line is on, the old modes and checkboxes are passive: they would switch the batch bots the line runs itself (the line has its own switch)
+  if (await pipeline.isOn(pid)) throw new HttpError(409, 'Otomatik Üretim açık: eski modlar ve seçenekler pasif. Değiştirmek için önce Otomatik Üretim’i kapatın.');
   const mode = V.oneOf(body.mode, 'Mod', ['manual', 'semi', 'full', 'custom']);
   const g = await gather(pid); const st = await readOn(pid); const curValues = await readValues(pid, st);
   const label = (k) => OPTIONS.find((o) => o.key === k).label;

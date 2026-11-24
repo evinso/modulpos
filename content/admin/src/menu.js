@@ -1,5 +1,6 @@
 import { Zap, LayoutDashboard, Target, Globe2, TrendingUp, Compass, Search, BarChart3, Lightbulb, Sparkles, Archive, CalendarDays, HeartPulse, RefreshCw, Link2, ShieldCheck, Server, Send, LineChart, Coins, Bell, FileText, History } from 'lucide-react';
 
+/** `research: true` = a page of the day's research DATA (ideas, keywords, SERP ...): while "Otomatik Üretim" is on the line uses and deletes that data itself, so the menu hides these pages (the addresses still open). */
 /** The side menu, grouped by the way the work flows: research -> content -> publishing -> upkeep -> automation. `to` = the page it opens; a group without `title` is shown without a heading. */
 export const GROUPS = [
   { title: null, items: [
@@ -9,11 +10,11 @@ export const GROUPS = [
   { title: 'Strateji ve araştırma', items: [
     { label: 'Site Nişi ve İçerik Stratejisi', to: '/strategy', icon: Target },
     { label: 'Dünya Gündemi', to: '/news', icon: Globe2 },
-    { label: 'Trend Analizi', to: '/trends', icon: TrendingUp },
-    { label: 'Niş Keşif Merkezi', to: '/niche', icon: Compass },
-    { label: 'Anahtar Kelime Araştırması', to: '/keywords', icon: Search },
-    { label: 'SEO Rekabet Analizi', to: '/serp', icon: BarChart3 },
-    { label: 'İçerik Fırsatları', to: '/opportunities', icon: Lightbulb },
+    { label: 'Trend Analizi', to: '/trends', icon: TrendingUp, research: true },
+    { label: 'Niş Keşif Merkezi', to: '/niche', icon: Compass, research: true },
+    { label: 'Anahtar Kelime Araştırması', to: '/keywords', icon: Search, research: true },
+    { label: 'SEO Rekabet Analizi', to: '/serp', icon: BarChart3, research: true },
+    { label: 'İçerik Fırsatları', to: '/opportunities', icon: Lightbulb, research: true },
   ] },
   { title: 'İçerik', items: [
     { label: 'AI Makale Üretimi', to: '/writer', icon: Sparkles },

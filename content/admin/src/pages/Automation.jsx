@@ -116,8 +116,9 @@ function Effective({ e, typed, what }) {
 
 function General() {
   const { projectId, can, confirm } = useApp();
-  const canEdit = can('bots.control');
   const st = useLoad(() => (projectId ? api.get(`/automation${qs({ projectId })}`) : Promise.resolve(null)), [projectId]);
+  const passive = !!(st.data && st.data.pipelineOn);                 // the production line is on: this page only shows, it changes nothing
+  const canEdit = can('bots.control') && !passive;
   const [sel, setSel] = useState({}); const [f, setF] = useState(null); const [touched, setTouched] = useState(new Set()); const [result, setResult] = useState(null);
   const [run, busy] = useAction();
   useEffect(() => {
@@ -165,12 +166,13 @@ function General() {
       <p className="muted">Sistemin ne kadarının kendi kendine çalışacağını buradan seçersiniz. Aşağıdaki seçenekler ve değerler, diğer sekmelerdeki (Botlar, Günlük limitler, Ayarlar) gerçek anahtarları açıp kapatır; bir yerde yaptığınız değişiklik her yerde görünür. Zorunlu kontroller (doğruluk, AdSense riski, tekrar, kalite) hiçbir modda kapanmaz.</p>
       <Async state={st}>{(d) => d && f && (
         <div className="stack">
-          {!canEdit && <Alert kind="info">Bu sayfayı yalnızca yönetici (admin) değiştirebilir; siz görüntüleyebilirsiniz.</Alert>}
+          {passive && <Alert kind="warn" title="Otomatik Üretim açık: bu sayfa pasif">Eski modlar ve seçenekler yalnızca görüntülenir; üretimi artık <Link to="/automation">Otomatik Üretim</Link> yürütür. Burayı değiştirmek için önce Otomatik Üretim’i kapatın. Günlük limitler, bütçe ve diğer ayarlar kendi sekmelerinden (Günlük limitler, Ayarlar) değiştirilebilir.</Alert>}
+          {!passive && !canEdit && <Alert kind="info">Bu sayfayı yalnızca yönetici (admin) değiştirebilir; siz görüntüleyebilirsiniz.</Alert>}
           <Alert kind={d.mode === 'full' ? 'warn' : 'info'} title={`Şu anki mod: ${d.modeLabel}`}>{d.summary}</Alert>
           {d.warnings.map((w) => <Alert key={w.text} kind={w.kind === 'bad' ? 'bad' : w.kind === 'warn' ? 'warn' : 'info'}>{w.text}{w.to && <> <Link to={w.to}>Aç</Link></>}</Alert>)}
 
           <LiveStatus projectId={projectId} />
-          <FlowPanel projectId={projectId} />
+          <FlowPanel projectId={projectId} passive={passive} />
 
           <div className="grid g3">
             {d.modes.map((m) => {
