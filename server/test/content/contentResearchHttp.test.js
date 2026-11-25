@@ -190,7 +190,7 @@ test('free mode over HTTP: Serper key, SERP from Serper, a volume file imported 
 test('writing over HTTP: vendors, the write start (admin only, background run), the checks (free ones for editors, model ones for admins), sources never leave in full', opts, async () => {
   const c = await signedIn(); const editor = await signedIn('editor'); const viewer = await signedIn('viewer'); const pid = (await c.get('/projects')).json.projects[0].id;
   models.calls.length = 0;
-  const st0 = (await c.get(`/writer/status?projectId=${pid}`)).json; assert.deepEqual([st0.ready, st0.vendors.map((v) => v.key), st0.vendors.every((v) => !v.ready)], [false, ['anthropic', 'openai', 'gemini'], true]);
+  const st0 = (await c.get(`/writer/status?projectId=${pid}`)).json; assert.deepEqual([st0.ready, st0.vendors.map((v) => v.key), st0.vendors.every((v) => !v.ready)], [false, ['anthropic', 'openai', 'gemini', 'groq'], true]);
   assert.equal((await editor.put('/providers/anthropic', { secret: 'sk-ant-http-key-0123456789' })).status, 403);
   assert.equal((await c.put('/providers/anthropic', { secret: 'sk-ant-http-key-0123456789' })).status, 200);
   const st1 = (await c.get(`/writer/status?projectId=${pid}`)).json; assert.deepEqual([st1.ready, st1.picks.writer, st1.picks.checker, st1.picks.independent, st1.vendors[0].model], [true, 'anthropic', 'anthropic', false, 'claude-sonnet-5-5']);

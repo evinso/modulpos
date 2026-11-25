@@ -1,8 +1,9 @@
+const db = require('../db');
 const providers = require('./providers');
 const { HttpError } = require('../lib/http');
 
 /**
- * One way to ask a language model, whichever vendor the owner chose (Anthropic Claude, OpenAI, Google Gemini). The article writer, the fact checker and the reviewer only
+ * One way to ask a language model, whichever vendor the owner chose (Anthropic Claude, OpenAI, Google Gemini, Groq). The article writer, the fact checker and the reviewer only
  * know `complete()`; nothing else in the platform talks to a model.
  *  - the key and the model come from the provider's saved settings (the panel's API page); a model the owner did not name is refused for OpenAI / Gemini (their names change
  *    too often to guess), Claude defaults to claude-sonnet-5-5
@@ -12,8 +13,8 @@ const { HttpError } = require('../lib/http');
  *  - what a model answers is DATA: json answers are parsed defensively, and callers validate the fields they use
  * Written from the vendors' public API documentation; not run against a real key (no key available): the tests use a fake fetch with the documented answer shapes.
  */
-const DEFAULT_MODEL = { anthropic: 'claude-sonnet-5-5' };
-const VENDORS = ['anthropic', 'openai', 'gemini'];
+const DEFAULT_MODEL = { anthropic: 'claude-sonnet-5-5', groq: 'llama-3.3-70b-versatile' };
+const VENDORS = ['anthropic', 'openai', 'gemini', 'groq'];
 
 class LlmError extends Error {
   constructor(code, message, extra = {}) { super(message); this.name = 'LlmError'; this.code = code; Object.assign(this, extra); }
@@ -24,6 +25,7 @@ function explain(label, status, raw) {
   const text = String(raw || '').slice(0, 200);
   if (/credit balance|billing|insufficient[_ ]quota|exceeded your current quota|payment/i.test(text) || status === 402) return new LlmError('funds', `${label} hesabının kredisi/bakiyesi yetersiz: ${label} panelinden kredi yükleyin`, { fatal: true, status });
   if (status === 401 || status === 403 || /invalid x-api-key|authentication|api key not valid|invalid_api_key|permission/i.test(text)) return new LlmError('auth', `${label} API anahtarı reddedildi (${status || '?'}): anahtarı ve model adını kontrol edin`, { fatal: true, status });
+  if (status === 413) return new LlmError('too_large', `${label} isteği çok büyük bulundu (dakikalık token sınırı): hesabınızın planını yükseltin ya da daha yüksek sınırlı bir model seçin`, { status });
   if (status === 404) return new LlmError('model', `${label} bu model adını bulamadı: model adını API Kullanımı sayfasında kontrol edin`, { fatal: true, status });
   if (status === 429) return new LlmError('rate_limit', `${label} istek sınırına takıldı; biraz sonra tekrar deneyin`, { status, retryable: true });
   if (status === 529 || status >= 500) return new LlmError('overloaded', `${label} şu an yoğun ya da yanıt vermiyor; biraz sonra tekrar deneyin`, { status, retryable: true });
@@ -56,6 +58,19 @@ const adapters = {
     return { text: choice && choice.message && typeof choice.message.content === 'string' ? choice.message.content : '', input: j && j.usage && j.usage.prompt_tokens, output: j && j.usage && j.usage.completion_tokens,
       truncated: !!choice && choice.finish_reason === 'length', refused: !!(choice && choice.message && choice.message.refusal) };
   },
+  /** Groq (https://console.groq.com): fast open models behind an OpenAI-compatible chat API. Same request and answer shapes as OpenAI's, another address and key. */
+  async groq({ secret, model, system, user, maxTokens, json, fetchImpl, timeoutMs }) {
+    let res;
+    try {
+      res = await fetchImpl('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(timeoutMs),
+        body: JSON.stringify({ model, messages: [{ role: 'system', content: system }, { role: 'user', content: user }], max_completion_tokens: maxTokens, ...(json ? { response_format: { type: 'json_object' } } : {}) }) });
+    } catch (err) { throw new LlmError(err && err.name === 'TimeoutError' ? 'timeout' : 'network', err && err.name === 'TimeoutError' ? `Groq ${Math.round(timeoutMs / 1000)} saniyede cevap vermedi` : 'Groq’a ulaşılamadı (ağ hatası)', { maybeBilled: true }); }
+    const j = await res.json().catch(() => null);
+    if (!res.ok) throw explain('Groq', res.status, j && j.error && (j.error.message || j.error.code));
+    const choice = j && Array.isArray(j.choices) ? j.choices[0] : null;
+    return { text: choice && choice.message && typeof choice.message.content === 'string' ? choice.message.content : '', input: j && j.usage && j.usage.prompt_tokens, output: j && j.usage && j.usage.completion_tokens,
+      truncated: !!choice && choice.finish_reason === 'length', refused: false };
+  },
   async gemini({ secret, model, system, user, maxTokens, json, fetchImpl, timeoutMs }) {
     let res;
     try {
@@ -82,13 +97,15 @@ function extractJson(text) {
 const price = (extra, k) => { const n = Number(extra[k]); return extra[k] !== undefined && extra[k] !== '' && Number.isFinite(n) && n >= 0 ? n : null; };
 
 /** which vendors are ready to be used: { key, label, model, ready, reason } (the panel's pickers) */
-async function available() {
+async function available({ now = new Date() } = {}) {
   const list = await providers.list();
+  // a vendor whose LAST call in the past 3 hours was refused for want of credit is not "ready": "Otomatik" must not keep choosing a service the owner cannot fund (it tries again after the 3 hours)
+  const dry = new Set((await db.query("SELECT DISTINCT ON (provider) provider, result, meta->>'code' AS code FROM api_usage WHERE provider = ANY($1) AND created_at > $2::timestamptz - interval '3 hours' AND result IN ('ok', 'error') ORDER BY provider, created_at DESC", [VENDORS, now])).rows.filter((r) => r.result === 'error' && r.code === 'funds').map((r) => r.provider));
   return VENDORS.map((k) => {
     const p = list.find((x) => x.key === k);
     const model = (p.extra && p.extra.model) || DEFAULT_MODEL[k] || '';
-    const ready = p.configured && !!model;
-    return { key: k, label: p.label, model, ready, reason: ready ? '' : (!p.configured ? 'API anahtarı yok' : 'Model adı yazılmamış'), pricesKnown: price(p.extra || {}, 'inputPricePerM') !== null && price(p.extra || {}, 'outputPricePerM') !== null };
+    const ready = p.configured && !!model && !dry.has(k);
+    return { key: k, label: p.label, model, ready, reason: ready ? '' : (!p.configured ? 'API anahtarı yok' : dry.has(k) ? 'Kredisi/bakiyesi bitmiş (son çağrı reddedildi; 3 saat sonra yeniden denenir)' : 'Model adı yazılmamış'), pricesKnown: price(p.extra || {}, 'inputPricePerM') !== null && price(p.extra || {}, 'outputPricePerM') !== null };
   });
 }
 

@@ -43,7 +43,7 @@ function Provider({ p, canEdit, onChanged }) {
         {test && test.models && test.models.length > 0 && canEdit && (
           <Alert kind="info" title="Bu anahtarla kullanılabilen modeller">
             <div className="stack">
-              {test.suggested && <div className="row"><span>Öneri: <strong>{test.suggested}</strong> <span className="faint">(kararlı “flash” ailesi; genelde daha hızlı ve daha ucuzdur. Fiyatı Google’ın fiyat sayfasından kontrol edin.)</span></span><button className="btn sm primary" disabled={busy} onClick={() => useModel(test.suggested)}>Bunu kullan</button></div>}
+              {test.suggested && <div className="row"><span>Öneri: <strong>{test.suggested}</strong> <span className="faint">{p.key === 'groq' ? '(güçlü ve hızlı açık model; fiyatı ve dakikalık token sınırını Groq’un sayfasından kontrol edin.)' : '(kararlı “flash” ailesi; genelde daha hızlı ve daha ucuzdur. Fiyatı Google’ın fiyat sayfasından kontrol edin.)'}</span></span><button className="btn sm primary" disabled={busy} onClick={() => useModel(test.suggested)}>Bunu kullan</button></div>}
               <div className="row"><select className="input" style={{ width: 'auto', maxWidth: '100%' }} value={picked} onChange={(e) => setPicked(e.target.value)} aria-label={`${p.label} modeli`}><option value="">— başka bir model seç —</option>{test.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
                 <button className="btn sm" disabled={busy || !picked} onClick={() => useModel(picked)}>Seç ve kaydet</button></div>
             </div></Alert>)}

@@ -22,7 +22,7 @@ const { FetchError } = require('../../src/content/lib/safeFetch');
  */
 const opts = { skip: H.skip };
 const NOW = new Date('2026-11-21T12:00:00Z');
-const KEY = { anthropic: 'sk-ant-test-key-0123456789', openai: 'sk-test-key-0123456789abcdef', gemini: 'AIzaSyTestKey0123456789abcdef' };
+const KEY = { anthropic: 'sk-ant-test-key-0123456789', openai: 'sk-test-key-0123456789abcdef', gemini: 'AIzaSyTestKey0123456789abcdef', groq: 'gsk_testkey0123456789abcdef0123' };
 const done = async (pid, workType) => (await L.status({ projectId: pid, now: NOW })).items.find((i) => i.workType === workType).done;
 
 test.before(async () => { if (!H.skip) await H.freshDatabase(); });
@@ -52,7 +52,7 @@ const go = (id, m, o = {}) => W.start(id, { fetchImpl: m.fetchImpl, fetcher: pag
 test('vendors: each one gets its documented request and returns text + tokens; every call is a usage row, with a cost only when the owner typed the prices', opts, async () => {
   await P.seedDefault(); const m = fakeModels(); m.st.override.other = { ok: true };
   await PR.save('anthropic', { secret: KEY.anthropic });
-  assert.deepEqual((await llm.available()).map((x) => [x.key, x.ready, x.model, x.pricesKnown]), [['anthropic', true, 'claude-sonnet-5-5', false], ['openai', false, '', false], ['gemini', false, '', false]], 'Claude has a default model; the others need one typed');
+  assert.deepEqual((await llm.available()).map((x) => [x.key, x.ready, x.model, x.pricesKnown]), [['anthropic', true, 'claude-sonnet-5-5', false], ['openai', false, '', false], ['gemini', false, '', false], ['groq', false, 'llama-3.3-70b-versatile', false]], 'Claude and Groq have a default model; the others need one typed');
   const c1 = await llm.complete({ provider: 'anthropic', system: 'You are a test', user: 'hi', json: true, fetchImpl: m.fetchImpl, operation: 't' });
   assert.deepEqual([c1.data, c1.model, c1.inputTokens, c1.outputTokens, c1.costUsd], [{ ok: true }, 'claude-sonnet-5-5', 1500, 900, null]);
   assert.deepEqual([m.calls[0].body.model, m.calls[0].body.max_tokens, m.calls[0].key], ['claude-sonnet-5-5', 6000, KEY.anthropic]);
@@ -68,6 +68,11 @@ test('vendors: each one gets its documented request and returns text + tokens; e
   await PR.save('gemini', { secret: KEY.gemini, extra: { model: 'models/gemini-test' } }); const c3 = await llm.complete({ provider: 'gemini', system: 'sys', user: 'usr', json: true, fetchImpl: m.fetchImpl });
   assert.deepEqual([c3.data, c3.inputTokens], [{ ok: true }, 1500]); const gc = m.calls.at(-1);
   assert.deepEqual([gc.url, gc.key, gc.body.generationConfig.responseMimeType, gc.body.systemInstruction.parts[0].text], ['https://generativelanguage.googleapis.com/v1beta/models/gemini-test:generateContent', KEY.gemini, 'application/json', 'sys']);
+  await PR.save('groq', { secret: KEY.groq }); assert.equal((await llm.available()).find((x) => x.key === 'groq').ready, true, 'a Groq key alone is enough (default model)');
+  const c4 = await llm.complete({ provider: 'groq', system: 'sys', user: 'usr', json: true, maxTokens: 555, fetchImpl: m.fetchImpl }); const qc = m.calls.at(-1);
+  assert.deepEqual([c4.data, c4.model, c4.inputTokens, qc.url, qc.body.model, qc.body.max_completion_tokens, qc.body.response_format, qc.key], [{ ok: true }, 'llama-3.3-70b-versatile', 1500, 'https://api.groq.com/openai/v1/chat/completions', 'llama-3.3-70b-versatile', 555, { type: 'json_object' }, `Bearer ${KEY.groq}`]);
+  const tg = await PR.test('groq', { fetchImpl: m.fetchImpl }); assert.equal(tg.ok, true); assert.deepEqual(tg.models.map((x) => x.id), ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b'], 'only text models are offered'); assert.equal(tg.suggested, 'llama-3.3-70b-versatile');
+  m.st.fail.groq = { status: 413, message: 'Request too large for model llama-3.3-70b-versatile: tokens per minute (TPM): Limit 12000, Requested 20000' }; await assert.rejects(llm.complete({ provider: 'groq', system: 's', user: 'u', fetchImpl: m.fetchImpl }), (e) => e.code === 'too_large' && /dakikalık token sınırı/.test(e.message)); delete m.st.fail.groq;
   await assert.rejects(llm.complete({ provider: 'nope', system: 's', user: 'u' }), (e) => e.status === 400);
   // budget: refused BEFORE the call
   const before = m.calls.length; await PR.save('anthropic', { dailyBudgetUsd: 0.001 });

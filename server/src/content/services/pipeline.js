@@ -345,6 +345,8 @@ async function stepKeyword(run, ctx, now) {
   const own = async () => (await db.query('SELECT id, keyword FROM keywords WHERE topic_id = $1', [o.topic_id])).rows;
   let all = await own();
   if (!all.length) { await keywords.generateForTopic(o.topic_id); all = await own(); }
+  const phrase = namePhrase(o.topic_title || o.title);
+  if (phrase && !all.some((k) => k.keyword === phrase)) { await keywords.add(pid, [phrase], { origin: 'news', country: (seo.countries && seo.countries[0]) || 'US', topicId: o.topic_id, categoryId: o.category_id }).catch(() => null); all = await own(); }
   if (all.some((k) => sane(k.keyword, o.topic_title || o.title))) { await enrichKeywords(run, ctx, o, now, all); all = await own(); }
   const mineIds = all.filter((k) => sane(k.keyword, o.topic_title || o.title)).map((k) => k.id);
   if (!mineIds.length) return reject('Bu konu için aranmaya değer bir anahtar kelime çıkmadı (başlıkta özel ad yok)');
@@ -397,6 +399,22 @@ async function stepSerp(run, ctx, now) {
   return { go: 'check', quiet: true };
 }
 
+/** the names of a headline in the order they appear (lower case): "Google unveils Gemini 4 Hydrogen, its new AI model" -> google, gemini, 4, hydrogen, ai; a number only counts right after a name (Gemini 4, iOS 27) */
+const TITLE_NOISE = new Set(['customers', 'people', 'claim', 'claims', 'news', 'things', 'everything', 'hours', 'says', 'after', 'over', 'with', 'from', 'this', 'that', 'will', 'could', 'first', 'more', 'your', 'their', 'here', 'know', 'best', 'latest', 'just', 'update', 'updates', 'price', 'prices', 'data', 'breach', 'launch', 'launches', 'release', 'report', 'reports', 'users', 'free', 'plan', 'plans', 'year', 'week', 'today', 'guide', 'explained', 'comes', 'gets', 'adds', 'raises', 'unveils', 'sues', 'about', 'into', 'than', 'have', 'been', 'when', 'where', 'while', 'which', 'would', 'should']);
+function nameTokens(title) {
+  const out = []; let prevName = false;
+  for (const w0 of String(title || '').split(/\s+/)) {
+    const w = w0.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').replace(/['’]s$/i, ''); if (!w) { prevName = false; continue; }
+    const lower = w.toLowerCase(); const cap = /^\p{Lu}/u.test(w) || /\p{Ll}.*\p{Lu}/u.test(w);
+    if (cap && w.length >= 2 && !GENERIC.has(lower) && !TITLE_NOISE.has(lower)) { out.push(lower); prevName = true; }
+    else if (/^\d{1,4}(\.\d+)?$/.test(w) && prevName) { out.push(lower); prevName = false; }
+    else prevName = false;
+  }
+  return out;
+}
+/** the phrase people really type for this headline: its first (up to) 4 names, e.g. "google gemini 4 hydrogen"; null when the headline has fewer than two */
+function namePhrase(title) { const t = nameTokens(title).slice(0, 4); return t.length >= 2 && t.join(' ').length <= 50 ? t.join(' ') : null; }
+
 const BONUS = { 1: 0, 2: 22, 3: 30, 4: 28, 5: 22, 6: 14 };
 /** the focus keyword of the article: a phrase that holds a NAME of the headline, with several words (people search "staples canada data breach", not "staples"), real volume when there is some, no apostrophe oddities, not already an article's focus */
 async function chooseFocus(run, o, now) {
@@ -404,9 +422,12 @@ async function chooseFocus(run, o, now) {
     LEFT JOIN LATERAL (SELECT found, search_volume FROM keyword_metrics x WHERE x.keyword_id = k.id ORDER BY fetched_at DESC LIMIT 1) m ON true WHERE k.topic_id = $1`, [o.topic_id])).rows;
   const taken = new Set((await db.query("SELECT focus_keyword FROM articles WHERE project_id = $1 AND status NOT IN ('archived', 'failed') AND focus_keyword <> ''", [run.projectId])).rows.map((r) => r.focus_keyword));
   const title = o.topic_title || o.title;
+  const names = new Set(nameTokens(title));
   const scored = rows.filter((k) => sane(k.keyword, title) && !taken.has(k.keyword)).map((k) => {
     const n = k.keyword.split(' ').length; const vol = k.found && Number(k.search_volume) > 0 ? Math.log10(Number(k.search_volume) + 1) * 8 : 0;
-    return { ...k, score: (BONUS[n] ?? 10) + vol - (/['’]/.test(k.keyword) ? 30 : 0) };
+    // a phrase must be ABOUT this headline: a Google suggestion that shares only one name with it ("california pizza kitchen" for a story about California and OpenAI) is not
+    const shared = k.keyword.split(' ').filter((w) => names.has(w)).length; const about = names.size >= 2 ? (shared >= 2 ? 15 : shared === 1 ? -25 : -45) : 0;
+    return { ...k, score: (BONUS[n] ?? 10) + vol + about - (/['’]/.test(k.keyword) ? 30 : 0) };
   }).sort((a, b) => b.score - a.score);
   const best = scored[0]; if (!best || best.id === o.keyword_id) return;
   await db.query('UPDATE content_opportunities SET keyword_id = $2, updated_at = now() WHERE id = $1', [o.id, best.id]);
@@ -842,5 +863,5 @@ async function overview(projectId, { now = new Date() } = {}) {
     schedulerRunning: !!require('./scheduler').status().running, ownedBots: [...require('./scheduler').PIPELINE_OWNED] };
 }
 
-module.exports = { BOT, STEPS, LABEL, FREQUENCIES, JOB_MS, HARD, sane, apifyFreeLimit, config, isOn, prerequisites, setConfig, ensureRoom, nextCategory, tomorrow, classify, cleanLeftovers, tick, work, start, cancel, overview, get, openRun };
+module.exports = { BOT, STEPS, LABEL, FREQUENCIES, JOB_MS, HARD, sane, nameTokens, namePhrase, apifyFreeLimit, config, isOn, prerequisites, setConfig, ensureRoom, nextCategory, tomorrow, classify, cleanLeftovers, tick, work, start, cancel, overview, get, openRun };
 void bad;

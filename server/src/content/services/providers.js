@@ -34,6 +34,12 @@ const PROVIDERS = {
       inputPricePerM: { label: 'Giriş fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true }, outputPricePerM: { label: 'Çıkış fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true } },
     help: 'aistudio.google.com → Get API key. Anahtarı kaydedip “Bağlantıyı test et”e basın: anahtarınızla kullanılabilen modeller listelenir, birini tek tıkla seçersiniz (model adı seçilmeden anahtar makale yazımında kullanılamaz). Fiyatları girerseniz maliyet hesaplanır, girmezseniz “Bilinmiyor” yazılır.',
   },
+  groq: {
+    label: 'Groq (hızlı LLM)', secretLabel: 'API anahtarı', secretPattern: /^gsk_[A-Za-z0-9_\-]{16,}$/, paid: true,
+    extra: { model: { label: 'Makale modeli (boş = llama-3.3-70b-versatile)', max: 80, def: '' },
+      inputPricePerM: { label: 'Giriş fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true }, outputPricePerM: { label: 'Çıkış fiyatı (USD / 1 milyon token, isteğe bağlı)', max: 12, def: '', numeric: true } },
+    help: 'console.groq.com → API Keys (anahtar “gsk_” ile başlar). Groq, açık modelleri (Llama, GPT-OSS, Qwen …) çok hızlı çalıştırır; OpenAI uyumlu bir arayüzü vardır. Ücretsiz planın dakikalık token sınırı küçüktür (uzun makale istemleri “istek çok büyük” diye reddedilebilir): sık üretim için Groq’un geliştirici (Developer) planı gerekir. Bağlantıyı test edince anahtarınızla kullanılabilen modeller listelenir, birini tek tıkla seçersiniz; boş bırakırsanız llama-3.3-70b-versatile kullanılır. Fiyatları girerseniz maliyet hesaplanır, girmezseniz “Bilinmiyor” yazılır.',
+  },
   apify: {
     label: 'Apify (Google anahtar kelime verisi)', secretLabel: 'Apify API belirteci (token)', secretPattern: /^[A-Za-z0-9_.-]{20,200}$/, paid: false,
     extra: { actor: { label: 'Aktör (kullanıcı/ad)', max: 120, def: 'gaelasao/keyword-research-api' },
@@ -152,6 +158,18 @@ const TESTS = {
     const models = ids.filter((id) => /^(gpt-|o\d)/i.test(id) && !/embed|audio|image|tts|whisper|realtime|moderation|transcribe|search|codex|instruct|vision-preview|dall|sora/i.test(id)).sort().map((id) => ({ id, label: id }));
     const imgs = require('../lib/imageModels'); const imageModels = imgs.imageModels(ids); const suggestedImage = imgs.pickImageModel(ids);
     return { ok: true, message: `OpenAI bağlantısı çalışıyor (${Array.isArray(j.data) ? j.data.length : '?'} model görünüyor).${models.length ? ' Makale için bir model seçin.' : ''}${imageModels.length ? ` Kapak görseli için ${imageModels.length} görsel modeli de görünüyor.` : ' Hesabınızda görsel modeli görünmüyor (OpenAI görsel modelleri için kuruluş doğrulaması isteyebilir).'}`, models, imageModels, suggestedImage };
+  },
+  async groq({ secret, extra, fetchImpl }) {
+    const res = await fetchImpl('https://api.groq.com/openai/v1/models', { headers: { Authorization: `Bearer ${secret}` }, signal: AbortSignal.timeout(12000) });
+    if (res.status === 401 || res.status === 403) return { ok: false, message: `Groq anahtarı reddedildi (${res.status}). Anahtarı kontrol edin: console.groq.com → API Keys.` };
+    if (res.status === 429) return { ok: false, message: 'Groq isteği sınırladı (429); biraz sonra tekrar deneyin.' };
+    if (!res.ok) return { ok: false, message: `Groq beklenmedik cevap verdi (${res.status}).` };
+    const j = await res.json().catch(() => ({}));
+    const all = Array.isArray(j.data) ? j.data : [];
+    const models = all.map((m) => String(m && m.id || '')).filter((id) => id && !/whisper|tts|guard|embed|vision-preview|distil-whisper|playai|orpheus|safeguard/i.test(id)).sort().map((id) => ({ id, label: id }));
+    const suggested = (models.find((m) => m.id === 'llama-3.3-70b-versatile') || models.find((m) => /70b|120b|gpt-oss|kimi|qwen/i.test(m.id)) || models[0] || {}).id;
+    const has = extra && extra.model;
+    return { ok: true, message: `Groq bağlantısı çalışıyor (${all.length} model görünüyor, ${models.length} tanesi metin yazabilir).${has ? ` Seçili model: ${extra.model}.` : ` Model seçmezseniz llama-3.3-70b-versatile kullanılır${suggested ? '' : ' (hesabınızda görünmüyorsa bir model seçin)'}.`}`, models, suggested: suggested || null };
   },
   async apify({ secret, extra, fetchImpl }) {
     const apify = require('./apify');
