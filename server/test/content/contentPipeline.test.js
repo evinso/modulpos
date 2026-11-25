@@ -112,7 +112,7 @@ test('with the owner\'s switch OFF an article the checks cannot clear and only a
   await run(w, D0);
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note); assert.equal(d.attempt, 2);
   assert.ok(d.trail.some((t) => /Fikir elendi: Bir kişinin kararı gerekiyor/.test(t.text)), JSON.stringify(d.trail.map((t) => t.text)));
-  const arts = await q('SELECT status FROM articles ORDER BY created_at'); assert.deepEqual(arts.map((a) => a.status), ['archived', 'published'], 'the draft that could not be cleared is archived (a person can still take it back), the next one went live');
+  const arts = await q('SELECT status FROM articles ORDER BY created_at'); assert.deepEqual(arts.map((a) => a.status), ['published'], 'the draft that could not be cleared is DELETED (nothing piles up in the archive), the next one went live');
   assert.equal(wp.posts.size, 1);
 });
 
@@ -153,24 +153,33 @@ test('when even the bot\'s 4 rounds cannot clear the draft the line tries ONCE m
   const w = await world(); const { pid } = w; blockedFor(w.m, 6);                                    // writer check + 4 bot re-checks blocked; the second draft is judged by the default reviewer
   await turnOn(pid); await run(w, D0); await dbg('redo');
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + ' ' + JSON.stringify(d.trail.map((t) => t.text).slice(-6))); assert.equal(d.attempt, 1, 'the SAME idea was written again');
-  assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['archived', 'published']);
+  assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['published'], 'the failed first draft is deleted, no archive pile');
   const writes = w.m.byRole('write'); assert.equal(writes.length, 2); assert.notEqual(writes[0].vendor, writes[1].vendor, 'another writer for the second draft'); assert.match(writes[1].user, /A PREVIOUS DRAFT OF THIS ARTICLE WAS REJECTED/); assert.doesNotMatch(writes[0].user, /PREVIOUS DRAFT/);
   assert.ok(d.trail.some((t) => /Fikir elenmeden önce yeniden deneniyor/.test(t.text)));
 });
 
-test('... only ONCE per idea: when the second draft fails too the idea is thrown away and the next idea goes on', opts, async () => {
+test('... only as many drafts per idea as the owner chose: when the last draft fails too the idea is thrown away and the next idea goes on', opts, async () => {
   const w = await world(); const { pid } = w; blockedFor(w.m, 11);                                   // both drafts of the first idea (1 + 4, 1 + 4 checks) are blocked
-  await turnOn(pid); await run(w, D0);
+  await turnOn(pid, { maxDrafts: 2 }); await run(w, D0);
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(d.attempt, 2);
-  assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['archived', 'archived', 'published']); assert.equal(w.m.byRole('write').length, 3);
+  assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['published'], 'both failed drafts are deleted'); assert.equal(w.m.byRole('write').length, 3);
+});
+
+test('the line does not give up on the idea it found (owner): with 5 drafts allowed the 4th draft of the SAME idea is published, every failed draft is told to the next writer and deleted, nothing piles up', opts, async () => {
+  const w = await world(); const { pid } = w; blockedFor(w.m, 15);                                   // drafts 1-3 (1 + 4 checks each) are blocked, the 4th is judged fine
+  await turnOn(pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + ' ' + JSON.stringify(d.trail.map((t) => t.text).slice(-8))); assert.equal(d.attempt, 1, 'the SAME idea all the way');
+  assert.deepEqual((await q('SELECT status FROM articles')).map((x) => x.status), ['published'], 'no archive pile'); const writes = w.m.byRole('write'); assert.equal(writes.length, 4);
+  assert.match(writes[3].user, /EARLIER DRAFTS FAILED ON/, 'the later writers hear about the earlier failures'); assert.notEqual(writes[2].vendor, writes[3].vendor, 'the writers take turns');
+  assert.equal(await usedOf('new_article', 'global'), 1, 'and only the shared article is counted'); assert.equal(wp.posts.size, 1);
 });
 
 const usedOf = async (type, scope) => (await q1("SELECT coalesce(sum(used), 0)::int n FROM daily_work_usage WHERE work_type = $1 AND scope = $2 AND day = '2026-11-23'", [type, scope])).n;
 
 test('the day\'s counts grow only for what is SHARED (owner): drafts the line throws away give their new-article place and their fixing rounds back, so a day of failed drafts never fills the limit', opts, async () => {
   const w = await world(); const { pid } = w; blockedFor(w.m, 11);                                   // both drafts of the first idea are thrown away, the next idea is published
-  await turnOn(pid); await run(w, D0);
-  assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['archived', 'archived', 'published']); assert.equal(w.m.byRole('write').length, 3, 'three drafts were written');
+  await turnOn(pid, { maxDrafts: 2 }); await run(w, D0);
+  assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['published']); assert.equal(w.m.byRole('write').length, 3, 'three drafts were written');
   for (const scope of ['global', 'project', 'category']) assert.equal(await usedOf('new_article', scope), 1, `new_article (${scope}): one place for the ONE shared article`);
   const own = (await q1("SELECT count(*)::int n FROM article_fixes f JOIN articles a ON a.id = f.article_id WHERE f.calls > 0 AND a.status = 'published'")).n;
   assert.equal(await usedOf('article_fix', 'project'), own, 'only the rounds of the shared article stay counted');
@@ -187,6 +196,17 @@ test('migration 0025 brings the day\'s counts down to the articles that exist (a
   const own = (await q1("SELECT count(*)::int n FROM article_fixes f JOIN articles a ON a.id = f.article_id WHERE f.calls > 0 AND a.status = 'published'")).n;
   assert.equal(await usedOf('article_fix', 'project'), Math.min(10, own)); assert.equal(await usedOf('serp_queries', 'global'), 7, 'other kinds are not touched');
   await db.query(sql.replace(/now\(\) AT TIME ZONE 'Europe\/Istanbul'/g, "'2026-11-23T12:00:00Z'::timestamptz AT TIME ZONE 'Europe/Istanbul'").replace(/now\(\) - interval '3 days'/g, "'2026-11-01'::timestamptz")); assert.equal(await usedOf('new_article', 'global'), 1, 'a second run changes nothing');
+});
+
+test('migration 0026 removes the drafts the line archived before (AI-written, made after the line first ran, never sent) and nothing else', opts, async () => {
+  const w = await world(); await turnOn(w.pid); await run(w, D0); const db = H.db();
+  const copy = async (status, extra = {}) => { const n = (await q1('SELECT count(*)::int n FROM articles')).n; await db.query(`INSERT INTO articles SELECT (jsonb_populate_record(NULL::articles, to_jsonb(a) || $1::jsonb)).* FROM articles a WHERE a.status = 'published' LIMIT 1`, [JSON.stringify({ id: require('node:crypto').randomUUID(), status, slug: `copy-${n}`, h1: `Copy ${n}`, focus_keyword: `copy keyword ${n}`, ...extra })]); return (await q1('SELECT id FROM articles WHERE h1 = $1', [`Copy ${n}`])).id; };
+  const gone = await copy('archived'); const human = await copy('archived', { created_by: 'manual' }); const old = await copy('archived', { created_at: '2026-01-01T00:00:00Z' }); const sent = await copy('archived');
+  await db.query("INSERT INTO publications SELECT (jsonb_populate_record(NULL::publications, to_jsonb(p) || $1::jsonb)).* FROM publications p WHERE p.status = 'published' LIMIT 1", [JSON.stringify({ id: require('node:crypto').randomUUID(), article_id: sent, wp_post_id: 999 })]);
+  const sql = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../src/content/migrations/0026_clear_archived_drafts.sql'), 'utf8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+  await db.query(sql); const left = new Set((await q('SELECT id FROM articles')).map((r) => r.id));
+  assert.ok(!left.has(gone), 'the line\'s archived draft is gone'); assert.ok(left.has(human), 'one written by a person stays'); assert.ok(left.has(old), 'older than the line stays');
+  assert.equal((await q1("SELECT count(*)::int n FROM articles WHERE status = 'published'")).n, 1, 'the published article stays'); assert.ok(left.has(sent), 'one that was sent to WordPress stays');
 });
 
 test('... and not for what no new draft can cure: a person-only problem of the IDEA (here the owner keeps the subject-level warning for a person) is dropped at once, one draft per idea', opts, async () => {
@@ -378,7 +398,7 @@ test('the minimum length (950 words): the writer is told, a shorter draft is blo
   const w = await world(); const { pid } = w; w.m.st.long = false;                                          // the fake writer's drafts have ~570 words
   await turnOn(pid); await run(w, D0);
   assert.match(w.m.byRole('write')[0].system, /AT LEAST 950 words/, 'the writer prompt carries the minimum');
-  assert.equal(wp.posts.size, 0, 'a 570-word draft is not published'); const art = await q('SELECT word_count, status FROM articles'); assert.ok(art.length > 0 && art.every((x) => x.word_count < 950));
+  assert.equal(wp.posts.size, 0, 'a 570-word draft is not published'); const art = await q('SELECT word_count, status FROM articles'); assert.ok(art.every((x) => x.word_count < 950 && x.status !== 'archived'), 'no draft of 950+ words, and nothing archived');
   assert.ok((await q1('SELECT trail FROM pipeline_runs')).trail.some((t) => /en az 950 gerekli/.test(t.text)), 'the reason is told in words');
   await H.clean(); await wp.close(); wp = await startFakeWp();
   const w2 = await world(); w2.m.st.long = false; await turnOn(w2.pid, { minWords: 500 }); await run(w2, D0);

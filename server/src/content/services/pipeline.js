@@ -157,7 +157,8 @@ async function setConfig(projectId, body, { userId = null } = {}) {
     everyMinutes: body.everyMinutes !== undefined ? V.oneOf(Number(body.everyMinutes), 'Üretim sıklığı', FREQUENCIES.map((f) => f[0])) : cur.everyMinutes,
     newsFallback: body.newsFallback !== undefined ? V.bool(body.newsFallback, 'Taze haber hattı') : cur.newsFallback,
     acceptSubjectWarning: body.acceptSubjectWarning !== undefined ? V.bool(body.acceptSubjectWarning, 'Konu kaynaklı uyarıyı hat kabul etsin') : cur.acceptSubjectWarning,
-    minWords: body.minWords !== undefined ? V.int(body.minWords, 'Makale en az kelime', { min: 300, max: 3000 }) : cur.minWords };
+    minWords: body.minWords !== undefined ? V.int(body.minWords, 'Makale en az kelime', { min: 300, max: 3000 }) : cur.minWords,
+    maxDrafts: body.maxDrafts !== undefined ? V.int(body.maxDrafts, 'Bir fikir için en çok taslak', { min: 1, max: 10 }) : cur.maxDrafts };
   const changes = [];
   if (next.enabled) {
     const pre = await prerequisites(pid);
@@ -178,6 +179,7 @@ async function setConfig(projectId, body, { userId = null } = {}) {
   if (next.enabled !== cur.enabled) changes.unshift(next.enabled ? 'Otomatik üretim AÇILDI (eski toplu botlar artık kendiliğinden çalışmaz: üretimi hat yürütür)' : 'Otomatik üretim kapatıldı (eski bot zamanlamaları yeniden geçerli)');
   if (next.everyMinutes !== cur.everyMinutes) changes.push(`Sıklık: ${FREQUENCIES.find((f) => f[0] === next.everyMinutes)[1]}`);
   if (next.minWords !== cur.minWords) changes.push(`Makale en az kelime: ${cur.minWords} → ${next.minWords}`);
+  if (next.maxDrafts !== cur.maxDrafts) changes.push(`Bir fikir için en çok taslak: ${cur.maxDrafts} → ${next.maxDrafts}`);
   if (next.newsFallback !== cur.newsFallback) changes.push(next.newsFallback ? 'Apify hakkı bitince taze haber hattıyla devam AÇILDI' : 'Apify hakkı bitince taze haber hattıyla devam kapatıldı (hat bekler)');
   if (next.acceptSubjectWarning !== cur.acceptSubjectWarning) changes.push(next.acceptSubjectWarning ? 'Konu kaynaklı AdSense uyarısını hat kendisi kabul etsin AÇILDI' : 'Konu kaynaklı AdSense uyarısı yine bir kişiye bırakılıyor (fikir elenir)');
   return { ...(await overview(pid)), changes };
@@ -501,17 +503,20 @@ async function stepWrite(run, ctx, now) {
 }
 
 /**
- * Archives the cycle's draft. The day's counts (a new article, an AdSense fix round) are meant to grow only for what is SHARED (owner): the places the draft used - one new-article place, one fixing place per round
- * that asked the model - go back to the day they were taken on. The status guard makes it happen once per draft.
+ * Takes the cycle's draft away. Nothing may pile up in the archive (owner): the draft is DELETED (an article that was sent to WordPress cannot be, then it is archived as before). The day's counts (a new article,
+ * an AdSense fix round) grow only for what is SHARED: the places the draft used - one new-article place, one fixing place per round that asked the model - go back to the day they were taken on.
+ * The status guard makes it happen once per draft.
  */
 async function archiveDraft(run) {
   if (!run.articleId) return false;
-  const a = (await db.query("UPDATE articles SET status = 'archived', archived_at = now(), updated_at = now() WHERE id = $1 AND status IN ('needs_review', 'fact_checking', 'ready') RETURNING project_id, created_at", [run.articleId])).rows[0];
+  const a = (await db.query("SELECT project_id, created_at FROM articles WHERE id = $1 AND status IN ('needs_review', 'fact_checking', 'ready')", [run.articleId])).rows[0];
   if (!a) return false;
   const cat = run.opportunityId ? (await db.query('SELECT category_id FROM content_opportunities WHERE id = $1', [run.opportunityId])).rows[0] : null;
   const day = (run.hints && run.hints.placeDay) || dayKey(a.created_at, tz());               // the day the places were taken on (the day the draft was written)
-  await limits.release({ workType: 'new_article', projectId: a.project_id, categoryId: (cat && cat.category_id) || null, amount: 1, day });
   const rounds = (await db.query('SELECT count(*)::int n FROM article_fixes WHERE article_id = $1 AND calls > 0', [run.articleId])).rows[0].n;
+  try { await articles.remove(run.articleId); }
+  catch { await db.query("UPDATE articles SET status = 'archived', archived_at = now(), updated_at = now() WHERE id = $1 AND status IN ('needs_review', 'fact_checking', 'ready')", [run.articleId]); }
+  await limits.release({ workType: 'new_article', projectId: a.project_id, categoryId: (cat && cat.category_id) || null, amount: 1, day });
   if (rounds) await limits.release({ workType: 'article_fix', projectId: a.project_id, amount: rounds, day });
   return true;
 }
@@ -519,25 +524,28 @@ async function archiveDraft(run) {
 async function discardArticle(run, reason) {
   if (!run.articleId) return;
   await archiveDraft(run);
-  say(run, 'fix', false, `Taslak arşive alındı: ${reason}`);
+  say(run, 'fix', false, `Taslak silindi: ${reason}`);
 }
 
 /**
- * Before an idea is thrown away (or a draft archived) the line tries ONCE more on the same idea: the failed draft is archived, a FRESH one is written, by another writer when there is one,
- * and told why the first one failed. Not for what no draft can cure (a topic the site excludes, a duplicate, no sources) and never twice for one idea.
- * @returns { redo: 'write' } or null (no place left today: the caller throws the idea away as before)
+ * The line does not give up on the idea it found (owner: "bulduğun fikir yayınlanana kadar zorla"): before an idea is thrown away the line writes a FRESH draft of the SAME idea, by the other writer when there is one,
+ * told what went wrong with every draft before (up to `maxDrafts` drafts per idea, the owner's number). The failed draft is deleted (nothing piles up). Not for what no draft can cure (a topic the site excludes,
+ * a duplicate, no sources) and not past the number of drafts.
+ * @returns { redo: 'write' } or null (no draft left for this idea / no place left today: the caller throws the idea away)
  */
 async function redo(run, why, notes, now, { noArticle = false } = {}) {
-  if (run.rewrites >= 1) return null;
+  const cfg = await config(run.projectId);
+  if (run.rewrites >= cfg.maxDrafts - 1) return null;
   const room = await roomFor(run.projectId, 'new_article', now); if (room.left <= 0) return null;
   const a = run.articleId ? (await db.query('SELECT generation FROM articles WHERE id = $1', [run.articleId])).rows[0] : null;
-  const first = a && a.generation && a.generation.provider;
+  const first = (a && a.generation && a.generation.provider) || (run.hints && run.hints.provider) || null;
   const ready = (await llm.available()).filter((v) => v.ready).map((v) => v.key);
   const alt = ready.find((k) => k !== first) || null;
+  const earlier = (run.hints && run.hints.notes) || '';
   await archiveDraft(run);
   await db.query("UPDATE content_opportunities SET status = 'new', article_id = NULL, updated_at = now() WHERE id = $1", [run.opportunityId]);
-  run.rewrites += 1; run.articleId = null; run.hints = { provider: alt, notes: `${why}${notes ? `; ${notes}` : ''}`.slice(0, 1200) };
-  say(run, run.step, null, `${noArticle ? 'Taslak çıkmadı' : 'İlk taslak kontrollerden geçemedi'} (${String(why).slice(0, 160)}). Fikir elenmeden önce yeniden deneniyor: ${alt ? `farklı yazar (${alt}), ` : ''}${noArticle ? '' : 'sorunlar yazım talimatına eklendi'}`);
+  run.rewrites += 1; run.articleId = null; run.hints = { ...keepOut(run, now), provider: alt, notes: `${why}${notes ? `; ${notes}` : ''}${earlier ? ` || EARLIER DRAFTS FAILED ON: ${earlier}` : ''}`.slice(0, 1600) };
+  say(run, run.step, null, `${noArticle ? 'Taslak çıkmadı' : `${run.rewrites}. taslak kontrollerden geçemedi`} (${String(why).slice(0, 160)}). Fikir elenmeden önce yeniden deneniyor (${run.rewrites + 1}/${cfg.maxDrafts}. taslak): ${alt ? `farklı yazar (${alt}), ` : ''}${noArticle ? '' : 'sorunlar yazım talimatına eklendi'}`);
   return { redo: 'write' };
 }
 
@@ -561,7 +569,7 @@ async function approveOutcome(run, aid) {
 async function stepFix(run, ctx, now) {
   const aid = run.articleId;
   const a0 = (await db.query('SELECT id, status FROM articles WHERE id = $1', [aid])).rows[0];
-  if (!a0 || a0.status === 'archived') return reject('Makale arşive alınmış');
+  if (!a0 || a0.status === 'archived') return reject('Makale bulunamadı ya da arşive alınmış');
   if (['ready', 'published', 'scheduled'].includes(a0.status)) return go('publish');
   const blocking = async () => (await articles.readiness(aid)).problems.filter((p) => p.blocking);
   let left = await blocking();
@@ -829,7 +837,7 @@ async function overview(projectId, { now = new Date() } = {}) {
   if ((await settings.get('bots')).value.paused) warnings.push({ kind: 'bad', text: 'Botlar duraklatılmış durumda; hiçbir otomatik iş (bu hat dahil) çalışmaz.', to: '/automation?tab=botlar' });
   if (cfg.enabled && cycles >= 4) warnings.push({ kind: 'warn', text: `Günde ${cycles} makale yeni bir alan adı için hızlı bir tempo: Google ve AdSense az sayıda iyi yazıyı çok sayıda yazıdan daha olumlu değerlendirir. Günde 1-2 önerilir.` });
   if (cfg.enabled && item('new_article').limit < cycles) warnings.push({ kind: 'warn', text: `Günlük yeni makale sınırı (${item('new_article').limit}) bu tempodan düşük; hat sınır dolunca ertesi güne bekler.` });
-  return { projectId: pid, enabled: cfg.enabled, everyMinutes: cfg.everyMinutes, newsFallback: cfg.newsFallback, acceptSubjectWarning: cfg.acceptSubjectWarning, minWords: cfg.minWords, frequencies: FREQUENCIES.map(([minutes, label]) => ({ minutes, label })), cyclesPerDay: cycles, prerequisites: { ok: pre.ok, items: pre.items },
+  return { projectId: pid, enabled: cfg.enabled, everyMinutes: cfg.everyMinutes, newsFallback: cfg.newsFallback, acceptSubjectWarning: cfg.acceptSubjectWarning, minWords: cfg.minWords, maxDrafts: cfg.maxDrafts, frequencies: FREQUENCIES.map(([minutes, label]) => ({ minutes, label })), cyclesPerDay: cycles, prerequisites: { ok: pre.ok, items: pre.items },
     current: cur, next, recent, today: { published: today.n, costUsd: Number(today.usd), articles: { done: item('new_article').done, limit: item('new_article').limit }, publishes: { done: item('publish').done, limit: item('publish').limit } },
     lastCleanup: cleanedLast.rows[0] ? { counts: cleanedLast.rows[0].counts, ranAt: cleanedLast.rows[0].ran_at } : null, warnings, steps: STEPS.map((k) => ({ key: k, label: LABEL[k] })),
     schedulerRunning: !!require('./scheduler').status().running, ownedBots: [...require('./scheduler').PIPELINE_OWNED] };
