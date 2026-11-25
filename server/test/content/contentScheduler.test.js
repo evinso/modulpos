@@ -77,14 +77,14 @@ test('queue: failures are retried with growing pauses, a hopeless error or the l
 
 test('tick: defaults (free bots on, paid bots off), one job per bot and project, no pile-up after a sleep, nothing while paused, gates and working hours obeyed', opts, async () => {
   const pid = await setup();
-  const t1 = await SC.tick({ now: MON }); assert.deepEqual(t1.enqueued.map((e) => e.bot).sort(), ['adsense_compliance', 'content_health', 'content_opportunity', 'internal_linking', 'news_discovery', 'niche_discovery'], 'paid bots start OFF (the weekly AdSense site audit is free and on)');
+  const t1 = await SC.tick({ now: MON }); assert.deepEqual(t1.enqueued.map((e) => e.bot).sort(), ['adsense_compliance', 'content_health', 'content_opportunity', 'internal_linking', 'news_discovery', 'niche_discovery', 'sensitive_scanner'], 'paid bots start OFF (the weekly AdSense site audit is free and on)');
   assert.deepEqual((await SC.tick({ now: plus(MON, 1) })).enqueued, [], 'nothing is due a minute later'); assert.deepEqual((await SC.tick({ now: plus(MON, 119) })).enqueued, []);
   const s = await SC.getSchedule('news_discovery'); assert.equal(new Date(s.nextRunAt).getTime(), plus(MON, 120).getTime());
   const t2 = await SC.tick({ now: plus(MON, 121) }); assert.deepEqual(t2.enqueued, [], 'the earlier jobs are still waiting: no second copy of the same job');
   for (const j of await jobsOf('queued')) await H.db().query("UPDATE jobs SET status = 'done' WHERE id = $1", [j.id]);
-  const t3 = await SC.tick({ now: plus(MON, 12 * 60) }); assert.deepEqual(t3.enqueued.map((e) => e.bot).sort(), ['content_opportunity', 'news_discovery'], 'after a long sleep ONE job per bot, not one per missed interval (the daily bots - niche, link health (now daily too) - are not due yet)');
+  const t3 = await SC.tick({ now: plus(MON, 12 * 60) }); assert.deepEqual(t3.enqueued.map((e) => e.bot).sort(), ['content_opportunity', 'news_discovery', 'sensitive_scanner'], 'after a long sleep ONE job per bot, not one per missed interval (the daily bots - niche, link health (now daily too) - are not due yet; the sensitive scan is every 6 hours)');
   for (const j of await jobsOf('queued')) await H.db().query("UPDATE jobs SET status = 'done' WHERE id = $1", [j.id]);
-  assert.deepEqual((await SC.tick({ now: plus(MON, 25 * 60) })).enqueued.map((e) => e.bot).sort(), ['content_health', 'content_opportunity', 'internal_linking', 'news_discovery', 'niche_discovery'], 'a day later the daily bots are due (the upkeep bots run once a day by default)');
+  assert.deepEqual((await SC.tick({ now: plus(MON, 25 * 60) })).enqueued.map((e) => e.bot).sort(), ['content_health', 'content_opportunity', 'internal_linking', 'news_discovery', 'niche_discovery', 'sensitive_scanner'], 'a day later the daily bots are due (the upkeep bots run once a day by default)');
   assert.equal((await SC.getSchedule('news_discovery')).failStreak, 0);
   // paused: nothing
   for (const j of await jobsOf('queued')) await H.db().query("UPDATE jobs SET status = 'done' WHERE id = $1", [j.id]);
@@ -124,7 +124,7 @@ test('worker: the news bot runs through the queue (a scheduled run record, the o
   const first = await SC.workOnce({ now: MON, ctx }); assert.deepEqual([first.botKey, first.outcome], ['news_discovery', 'done']); assert.match(first.result.message, /\d+ yeni haber/);
   const run = (await R.list({ botKey: 'news_discovery', projectId: pid }))[0]; assert.deepEqual([run.trigger, run.status], ['schedule', 'ok']);
   const second = await SC.workOnce({ now: MON, ctx }); assert.equal(second.botKey, 'content_opportunity'); assert.equal(second.outcome, 'done'); assert.ok(second.result.stats.topicsCreated >= 1, 'the idea of the scanned event exists');
-  const third = await SC.workOnce({ now: MON, ctx }); assert.equal(third.botKey, 'niche_discovery'); const fourth = await SC.workOnce({ now: MON, ctx }); assert.deepEqual([fourth.botKey, fourth.outcome], ['content_health', 'skipped']); const fifth = await SC.workOnce({ now: MON, ctx }); assert.deepEqual([fifth.botKey, fifth.outcome], ['adsense_compliance', 'skipped'], 'no site to audit'); const sixth = await SC.workOnce({ now: MON, ctx }); assert.deepEqual([sixth.botKey, sixth.outcome], ['internal_linking', 'done']); assert.equal(await SC.workOnce({ now: MON, ctx }), null, 'queue empty');
+  const third = await SC.workOnce({ now: MON, ctx }); assert.equal(third.botKey, 'niche_discovery'); const fourth = await SC.workOnce({ now: MON, ctx }); assert.deepEqual([fourth.botKey, fourth.outcome], ['content_health', 'skipped']); const fifth = await SC.workOnce({ now: MON, ctx }); assert.deepEqual([fifth.botKey, fifth.outcome], ['adsense_compliance', 'skipped'], 'no site to audit'); const sixth = await SC.workOnce({ now: MON, ctx }); assert.deepEqual([sixth.botKey, sixth.outcome], ['internal_linking', 'done']); const seventh = await SC.workOnce({ now: MON, ctx }); assert.deepEqual([seventh.botKey, seventh.outcome], ['sensitive_scanner', 'skipped'], 'no article to scan'); assert.equal(await SC.workOnce({ now: MON, ctx }), null, 'queue empty');
   let now = plus(MON, 24 * 60);
   // a scan where every source fails is still a finished scan ("partial"/ok with errors), so force real failures: the handler throws
   // (a scan in which every source fails is still a finished scan, so real job failures are forced: the handler throws)
@@ -221,18 +221,18 @@ test('the loops: started, they take a queued job without anyone calling them, an
 test('run all: ONE click queues every scheduled bot once, in the order the work depends on itself; the worker takes them one after the other in exactly that order; a second click queues nothing that is still active', opts, async () => {
   const pid = await setup(); await sources(pid);
   const out = await SC.runAll(pid, { now: MON });
-  assert.equal(out.steps.length, SC.RUN_ORDER.length); assert.deepEqual([out.queued, out.alreadyActive], [15, 0]);
+  assert.equal(out.steps.length, SC.RUN_ORDER.length); assert.deepEqual([out.queued, out.alreadyActive], [16, 0]);
   assert.deepEqual(SC.SCHEDULABLE.filter((b) => !out.steps.some((x) => x.bot === b)), [], 'every scheduled bot is in the sequence');
   const order = out.steps.map((s) => s.bot);
   assert.deepEqual(order.slice(0, 3), ['news_discovery', 'content_opportunity', 'niche_discovery'], 'find, then score, then suggest');
   assert.ok(order.indexOf('keyword_research') < order.lastIndexOf('content_opportunity') && order.indexOf('seo_competition') < order.lastIndexOf('content_opportunity'), 'ideas are scored AGAIN after their numbers arrive');
   assert.ok(order.lastIndexOf('content_opportunity') < order.indexOf('article_writer') && order.indexOf('article_writer') < order.indexOf('article_fixer') && order.indexOf('article_fixer') < order.indexOf('content_publishing'), 'score before write, write before repair, repair before publish');
   assert.ok(order.indexOf('content_publishing') < order.indexOf('content_health') && order.indexOf('content_health') < order.indexOf('content_refresh') && order[order.length - 1] === 'reporting', 'upkeep after publishing, the report last');
-  const rows = await jobsOf('queued'); assert.equal(rows.length, 15); assert.ok(rows.every((j) => j.trigger === 'manual' && j.project_id === pid));
+  const rows = await jobsOf('queued'); assert.equal(rows.length, 16); assert.ok(rows.every((j) => j.trigger === 'manual' && j.project_id === pid));
   assert.deepEqual(rows.map((j) => j.bot_key), order, 'queued in that order (ids rise with it)');
   assert.deepEqual(rows.filter((j) => ['keyword_research', 'seo_competition', 'article_writer', 'article_fixer', 'content_refresh'].includes(j.bot_key)).map((j) => j.max_attempts), [1, 1, 1, 1, 1], 'paid work is never retried on its own');
   assert.deepEqual(out.steps.filter((s) => s.spends).map((s) => s.bot), ['keyword_research', 'seo_competition', 'article_writer', 'article_fixer', 'content_refresh']);
-  const again = await SC.runAll(pid, { now: MON }); assert.deepEqual([again.queued, again.alreadyActive], [0, 15], 'a second click does not queue the same work twice');
+  const again = await SC.runAll(pid, { now: MON }); assert.deepEqual([again.queued, again.alreadyActive], [0, 16], 'a second click does not queue the same work twice');
   const ctx = { newsFetch: feeds(FEEDS), gapMs: 0, fetchImpl: async () => { throw new Error('no network in tests'); }, probe: async () => ({ status: 200 }) };
   const ran = []; for (;;) { const j = await SC.workOnce({ now: MON, ctx }); if (!j) break; ran.push(j.botKey); }
   assert.deepEqual(ran.slice(0, 6), ['news_discovery', 'content_opportunity', 'niche_discovery', 'keyword_research', 'seo_competition', 'content_opportunity'], 'the first six steps, in order');

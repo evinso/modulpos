@@ -5,6 +5,7 @@ const { env } = require('../env');
 const { dayKey, startOfLocalDay } = require('../lib/time');
 const settings = require('./settings');
 const limits = require('./limits');
+const sensitive = require('./sensitive');
 const providers = require('./providers');
 const queue = require('./queue');
 const notifications = require('./notifications');
@@ -499,6 +500,7 @@ async function stepWrite(run, ctx, now) {
     return (await redo(run, `makale yazılamadı: ${text}`, '', now, { noArticle: true })) || reject(`Makale yazılamadı: ${text}`);
   }
   run.articleId = after.article_id; run.hints = { ...(run.hints || {}), placeDay: dayKey(now, tz()) };
+  await sensitive.scanArticle(run.articleId).then((r) => { if (r && r.kinds.length) say(run, 'write', null, `Sensitive Content Bot: ${r.kinds.map((k) => k.label).join(', ')} bulundu (yayını engellemez)`); }).catch(() => {});
   const a = (await db.query('SELECT h1, word_count, quality_score, adsense_risk, status FROM articles WHERE id = $1', [run.articleId])).rows[0];
   say(run, 'write', true, `Makale yazıldı: “${a.h1}” (${a.word_count} kelime, kalite ${a.quality_score === null ? 'ölçülemedi' : a.quality_score}, AdSense riski ${a.adsense_risk || 'ölçülemedi'})`);
   return go('fix');
@@ -605,6 +607,7 @@ async function stepFix(run, ctx, now) {
 }
 
 async function stepPublish(run, ctx, now) {
+  if (run.articleId) await sensitive.scanArticle(run.articleId).catch(() => {});                  // the text the fix bot ended with (a no-op when nothing changed since the scan after the write)
   const site = await pickSite(run.projectId);
   if (!site) return stop('Yayın için etkin bir WordPress sitesi yok');
   const a = (await db.query('SELECT id, status, h1, word_count, quality_score FROM articles WHERE id = $1', [run.articleId])).rows[0];
@@ -824,8 +827,10 @@ async function overview(projectId, { now = new Date() } = {}) {
     if (cur.articleId) { const a = (await db.query('SELECT id, h1, status, word_count, quality_score FROM articles WHERE id = $1', [cur.articleId])).rows[0]; if (a) cur.article = { id: a.id, title: a.h1, status: a.status, words: a.word_count, quality: a.quality_score }; }
   }
   const recent = (await db.query("SELECT * FROM pipeline_runs WHERE project_id = $1 AND status IN ('done', 'cancelled') ORDER BY started_at DESC LIMIT 8", [pid])).rows.map(shape).map((r) => ({
-    id: r.id, status: r.status, title: r.result && r.result.title, url: r.result && r.result.url, categoryName: r.result && r.result.categoryName, attempts: r.attempt, costUsd: r.costUsd, unknownCost: r.unknownCost,
+    id: r.id, articleId: r.articleId || null, status: r.status, title: r.result && r.result.title, url: r.result && r.result.url, categoryName: r.result && r.result.categoryName, attempts: r.attempt, costUsd: r.costUsd, unknownCost: r.unknownCost,
     startedAt: r.startedAt, finishedAt: r.finishedAt, seconds: seconds(r.startedAt, r.finishedAt), trigger: r.trigger }));
+  const flags = await sensitive.labelsFor(recent.map((r) => r.articleId).filter(Boolean));
+  for (const r of recent) r.sensitive = (r.articleId && flags.get(r.articleId)) || [];                // what the Sensitive Content Bot found in the article (shown as a badge, never a stop)
   let next = null;
   if (cfg.enabled && !run) {
     const at = last ? new Date(Math.max(new Date(last.startedAt).getTime() + cfg.everyMinutes * 60000, now.getTime())) : now;

@@ -352,6 +352,8 @@ async function readiness(id) {
   else if (!a.adsense_risk) add('no_adsense', 'AdSense risk kontrolü yapılmadı (zorunlu)');
   else if (a.adsense_risk === 'review' && a.adsense_accepted_risk === 'review') add('adsense_accepted', `AdSense incelemesi “inceleme gerekli” dedi; siz kabul ettiniz${a.adsense_accepted_at ? ` (${new Date(a.adsense_accepted_at).toISOString().slice(0, 10)})` : ''}: bu bir kişi kararıdır, AdSense onayı garanti etmez`, false);
   else if (a.adsense_risk !== 'low') add('adsense_risk', a.adsense_risk === 'blocked' ? 'AdSense açısından yayınlanamaz olarak işaretli' : 'AdSense riski “inceleme gerekli” olarak işaretli; çözüp “düşük” yapın ya da editörde “AdSense uyarısını kabul et”');
+  const sens = (await db.query("SELECT kinds FROM sensitive_findings WHERE article_id = $1 AND article_version = $2 AND severity <> 'none'", [a.id, a.current_version])).rows[0];          // the Sensitive Content Bot's finding: shown, never blocking
+  if (sens) add('sensitive_info', `Hassas konu bulundu: ${sens.kinds.map((k) => k.label).join(', ')} (Sensitive Content Bot; yayını engellemez, ayrıntı “Bildirimler”de)`, false);
   const nSources = (await db.query('SELECT count(*)::int n FROM article_sources WHERE article_id = $1', [a.id])).rows[0].n;
   if (nSources === 0) add('no_sources', NEWS_TYPES.has(a.article_type) ? 'Haber/güncelleme türü makalede kaynak gerekli' : 'Kaynak eklenmedi', NEWS_TYPES.has(a.article_type));
   if (a.created_by === 'ai' && a.quality_score === null) add('no_quality', 'Kalite puanı verilmedi (kontrollerin hepsi çalışmadı); editörde “Kontrolleri çalıştır”');

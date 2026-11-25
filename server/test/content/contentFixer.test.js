@@ -170,7 +170,7 @@ test('the daily "article_fix" limit and the budget stop it before any model is a
 test('the scheduled pass: only drafts with blocking problems, oldest first, perRun at most; nothing to do is a calm "skipped"; the bot is registered OFF and spends (so it is never switched on silently)', opts, async () => {
   const m = fakeModels(); const { pid, id } = await draft(m);
   assert.equal(SC.DEFAULTS.article_fixer.enabled, false); assert.equal(SC.DEFAULTS.article_fixer.spends, true);
-  assert.equal((await BO.list()).items.length, 17); assert.equal((await BO.list()).items.find((b) => b.key === 'article_fixer').implemented, true);
+  assert.equal((await BO.list()).items.length, 18); assert.equal((await BO.list()).items.find((b) => b.key === 'article_fixer').implemented, true);
   const none = await FX.runPass(pid, { fetchImpl: m.fetchImpl, now: NOW });
   assert.equal(none.status, 'skipped', 'a clean draft is not the bot\'s business (approval is the writer\'s gate and the owner\'s)');
   await q('UPDATE articles SET fact_checked_at = NULL, quality_score = NULL, adsense_risk = NULL WHERE id = $1', [id]); await q('DELETE FROM article_checks WHERE article_id = $1', [id]);

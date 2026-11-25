@@ -8,7 +8,7 @@ const { env } = require('../env');
 const { startOfDay } = require('../lib/time');
 
 /**
- * The 17 bots of the platform. This registry is the truth about what exists: `implemented` is true only for a bot whose code runs (all 16 do now).
+ * The 18 bots of the platform. This registry is the truth about what exists: `implemented` is true only for a bot whose code runs (all of them do now).
  * A bot that had no code would be listed as "Henüz çalışmıyor" with no last-run numbers (never invented ones). The global pause switch stops all of them.
  */
 const BOTS = [
@@ -23,6 +23,7 @@ const BOTS = [
   { key: 'adsense_compliance', label: 'AdSense Compliance Bot', about: 'Makalelerin AdSense politika riskini denetler (yazarken) ve haftada bir WordPress sitelerinin AdSense hazırlığını denetler.' },
   { key: 'article_fixer', label: 'Article Fixer Bot', about: 'Yayına hazır olmayan yapay zekâ makalelerinin eksiklerini giderir (kontrolleri yeniden çalıştırır, görsel/kategori ekler, metni kaynaklara göre düzeltir) ve temiz geçerse onay kapısına sunar.' },
   { key: 'adsense_fixer', label: 'AdSense Fix Bot', about: 'Otomatik Üretim hattının parçası: AdSense incelemesinde, doğruluk kontrolünde, kalitede ya da uzunlukta takılan taslağı en çok 4 turda hedefli yeniden yazarak geçirmeye çalışır (kontrolleri gevşetmez; “yayınlanamaz” sınıfını kabul etmez).' },
+  { key: 'sensitive_scanner', label: 'Sensitive Content Bot', about: 'Makalelerdeki hassas ayrıntıları bulur (veri ihlali, fidye yazılımı, kimlik avı, metindeki kişisel veri, sağlık, çocuklar, şiddet, hukuki/finansal tavsiye) ve nerede geçtiğini söyler. Makaleyi yayından ENGELLEMEZ, metne dokunmaz; yalnızca gösterir ve bildirir.' },
   { key: 'content_publishing', label: 'Content Publishing Bot', about: 'Hazır makaleleri WordPress sitelerine gönderir.' },
   { key: 'content_refresh', label: 'Content Refresh Bot', about: 'Yayımlanmış makaleleri anlamlı değişiklik varsa günceller.' },
   { key: 'content_health', label: 'Content Health Bot', about: 'Eski makalelerin sağlığını düzenli kontrol eder.' },
@@ -31,7 +32,7 @@ const BOTS = [
   { key: 'reporting', label: 'Reporting Bot', about: 'Her sabah önceki günün, pazartesileri önceki haftanın raporunu üretir ve bildirir.' },
 ];
 /** keys of bots whose code exists and runs. Six of them are scheduled by services/scheduler.js (the others run as part of the writer or on demand). */
-const IMPLEMENTED = new Set(['adsense_fixer', 'news_discovery', 'trend_analysis', 'niche_discovery', 'keyword_research', 'seo_competition', 'content_opportunity', 'article_writer', 'article_fixer', 'fact_checking', 'adsense_compliance', 'content_publishing', 'content_health', 'content_refresh', 'seo_performance', 'internal_linking', 'reporting']);
+const IMPLEMENTED = new Set(['sensitive_scanner', 'adsense_fixer', 'news_discovery', 'trend_analysis', 'niche_discovery', 'keyword_research', 'seo_competition', 'content_opportunity', 'article_writer', 'article_fixer', 'fact_checking', 'adsense_compliance', 'content_publishing', 'content_health', 'content_refresh', 'seo_performance', 'internal_linking', 'reporting']);
 const MANUAL_NOTE = { adsense_fixer: 'Otomatik Üretim hattının içinde çalışır (Otomatik Üretim sekmesi)', trend_analysis: 'Haber verisinden anlık hesaplanır (ayrı çalıştırma gerekmez)', fact_checking: 'Makale yazılırken ve “Tüm kontroller” ile çalışır', adsense_compliance: 'Makale yazılırken ve “Tüm kontroller” ile çalışır' };
 
 async function state() { return (await settings.get('bots')).value; }

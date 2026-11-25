@@ -26,6 +26,7 @@ const adsenseAudit = require('./adsenseAudit');
 const reports = require('./reports');
 const fixer = require('./fixer');
 const pipeline = require('./pipeline');
+const sensitive = require('./sensitive');
 
 /**
  * The scheduler and the background worker (phase 4). No n8n, no external cron: one in-process loop pair that only needs the content database.
@@ -49,13 +50,14 @@ const DEFAULTS = {
   adsense_compliance:  { enabled: true,  intervalMinutes: 10080, windowStart: null,   windowEnd: null,    weekdaysOnly: false, options: {}, spends: false, label: 'AdSense site denetimi' },
   reporting:           { enabled: true,  intervalMinutes: 1440,  windowStart: '06:00', windowEnd: '12:00', weekdaysOnly: false, options: {}, spends: false, label: 'Günlük/haftalık rapor' },
   internal_linking:    { enabled: true,  intervalMinutes: 1440, windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: {}, spends: false, label: 'İç bağlantı önerileri' },
+  sensitive_scanner:   { enabled: true,  intervalMinutes: 360,  windowStart: null,    windowEnd: null,    weekdaysOnly: false, options: {}, spends: false, label: 'Hassas içerik taraması' },
   content_publishing:  { enabled: false, intervalMinutes: 60,   windowStart: '09:00', windowEnd: '21:00', weekdaysOnly: false, options: { perRun: 2 }, spends: false, label: 'WordPress yayını' },
 };
 const SCHEDULABLE = Object.keys(DEFAULTS);
 /** the bots of the PRODUCTION LINE (services/pipeline.js): while the line is on for a project the line runs these steps itself, one idea at a time, so their own schedules do not queue them for that project */
 const PIPELINE_OWNED = new Set(['news_discovery', 'content_opportunity', 'niche_discovery', 'keyword_research', 'seo_competition', 'article_writer', 'article_fixer']);
 /** the upkeep bots the panel shows apart from the line (each with its own "how often" choice) */
-const UPKEEP = ['content_health', 'content_refresh', 'internal_linking', 'seo_performance', 'adsense_compliance', 'reporting', 'content_publishing'];
+const UPKEEP = ['content_health', 'content_refresh', 'internal_linking', 'seo_performance', 'adsense_compliance', 'sensitive_scanner', 'reporting', 'content_publishing'];
 const FAIL_LIMIT = 5;                                                  // consecutive failed scheduled jobs before a bot is switched off
 const GATES = { news_discovery: 'news', keyword_research: 'seo', seo_competition: 'seo', content_opportunity: 'seo', niche_discovery: 'seo' };   // the per-project "bot active" switches of the settings page
 
@@ -169,6 +171,13 @@ HANDLERS.article_fixer = { idempotent: false, async run(job, ctx) {
   if (pl.articleId) { const r = await fixer.fixOne(pl.articleId, { userId: job.userId, trigger: 'manual', force: true, fetchImpl: ctx.fetchImpl, now: ctx.now }); return { status: r.result === 'error' || r.result === 'unresolved' || r.result === 'needs_person' ? 'partial' : 'ok', stats: { result: r.result }, message: r.message }; }
   const perRun = (await getSchedule('article_fixer')).options.perRun || 2;
   return fixer.runPass(job.projectId, { perRun, trigger: manual ? 'manual' : 'schedule', userId: job.userId, fetchImpl: ctx.fetchImpl, now: ctx.now });
+} };
+
+/** the sensitive content bot: reads the articles whose current text it has not scanned (free, no model); it never holds an article back and never edits one */
+HANDLERS.sensitive_scanner = { idempotent: true, async run(job) {
+  const stats = await sensitive.scanProject(job.projectId);
+  if (!stats.scanned) return { status: 'skipped', message: 'Taranacak yeni ya da değişmiş makale yok' };
+  return { status: 'ok', stats, message: `${stats.scanned} makale tarandı, ${stats.withFindings} tanesinde hassas konu bulundu` };
 } };
 
 /** the health bot: links and new developments for the articles whose turn it is (free; limited by the day's "old article check" limit) */
@@ -325,7 +334,7 @@ async function runNow(bot, projectId, { userId = null, now = new Date() } = {}) 
 const RUN_ORDER = [
   ['news_discovery', null, 'Haber kaynakları taranır'], ['content_opportunity', null, 'Haberlerden fikirler çıkarılır ve puanlanır'], ['niche_discovery', null, 'Niş önerileri hesaplanır'],
   ['keyword_research', null, 'Fikirlerin aranma hacmi alınır'], ['seo_competition', null, 'Fikirlerin Google rekabeti incelenir'], ['content_opportunity', 'again', 'Yeni verilerle fikirler yeniden puanlanır'],
-  ['article_writer', null, 'Uygun fikirlerden makale yazılır'], ['article_fixer', null, 'Yayına hazır olmayan taslakların eksikleri giderilir'], ['content_publishing', null, 'Hazır makaleler WordPress’e gönderilir, durumlar okunur'],
+  ['article_writer', null, 'Uygun fikirlerden makale yazılır'], ['article_fixer', null, 'Yayına hazır olmayan taslakların eksikleri giderilir'], ['content_publishing', null, 'Hazır makaleler WordPress’e gönderilir, durumlar okunur'], ['sensitive_scanner', null, 'Makalelerdeki hassas ayrıntılar bulunur (yayını engellemez)'],
   ['content_health', null, 'Yayındaki makalelerin bağlantıları ve yeni gelişmeler kontrol edilir'], ['content_refresh', null, 'Güncelleme bekleyen makaleler için taslak hazırlanır'], ['internal_linking', null, 'İç bağlantı önerileri çıkarılır'],
   ['seo_performance', null, 'Search Console verisi alınır'], ['adsense_compliance', null, 'Sitenin AdSense hazırlığı denetlenir'], ['reporting', null, 'Günlük/haftalık rapor hazırlanır'],
 ];

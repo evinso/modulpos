@@ -76,7 +76,7 @@ async function broadcast(text, o = {}) {
 }
 
 // ── notifications → Telegram ────────────────────────────────────────────────────────────────────────────────────
-const GROUP_OF = { article_ready: 'newArticle', article_fixed: 'newArticle', article_fix_failed: 'botError', critical_correction: 'critical', budget_full: 'budget', budget_warning: 'budget', report_ready: 'report', publish_failed: 'publishError', adsense_risk: 'adsense', adsense_site: 'adsense', bot_disabled: 'botError', job_failed: 'botError', pipeline_published: 'newArticle', pipeline_stopped: 'botError' };
+const GROUP_OF = { article_ready: 'newArticle', article_fixed: 'newArticle', article_fix_failed: 'botError', critical_correction: 'critical', budget_full: 'budget', budget_warning: 'budget', report_ready: 'report', publish_failed: 'publishError', adsense_risk: 'adsense', sensitive_found: 'adsense', adsense_site: 'adsense', bot_disabled: 'botError', job_failed: 'botError', pipeline_published: 'newArticle', pipeline_stopped: 'botError' };
 const ICON = { info: 'ℹ️', warning: '⚠️', critical: '🔴' };
 
 /** Called by notifications.create for every new notification. Never throws; sends only what the owner asked for. @returns what happened (for tests) */
