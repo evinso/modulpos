@@ -177,6 +177,8 @@ HANDLERS.article_fixer = { idempotent: false, async run(job, ctx) {
 HANDLERS.sensitive_scanner = { idempotent: true, async run(job) {
   const stats = await sensitive.scanProject(job.projectId);
   if (!stats.scanned) return { status: 'skipped', message: 'Taranacak yeni ya da değişmiş makale yok' };
+  const run = await runs.start(sensitive.BOT, { projectId: job.projectId, trigger: job.trigger === 'manual' ? 'manual' : 'schedule', userId: job.userId });        // the Botlar page shows its last real run (a pass that found nothing to scan leaves no record)
+  await runs.finish(run.id, { status: 'ok', stats });
   return { status: 'ok', stats, message: `${stats.scanned} makale tarandı, ${stats.withFindings} tanesinde hassas konu bulundu` };
 } };
 

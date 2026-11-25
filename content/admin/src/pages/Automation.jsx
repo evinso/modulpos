@@ -1,33 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Zap, Hand, UserCheck, Bot as BotIcon, CheckCircle2, CircleAlert, Wand2, Loader2, RefreshCw } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import { api, qs } from '../api.js';
-import { Alert, Async, Badge, Card, Check, Field, NeedsProject, PageHead, Tabs, useAction, useApp, useLoad } from '../ui.jsx';
-import { num, usd } from '../format.js';
-import FlowPanel from './FlowPanel.jsx';
+import { Alert, Badge, Card, NeedsProject, PageHead, Tabs, useApp } from '../ui.jsx';
+import { num } from '../format.js';
 import Pipeline from './Pipeline.jsx';
 import { BotList, JobQueue } from './Bots.jsx';
 import { LimitsPanel } from './Limits.jsx';
 import { SettingsGroups, Users, System } from './Settings.jsx';
-
-const MODE_ICON = { manual: Hand, semi: UserCheck, full: BotIcon };
-const FIELDS = ['dailyArticles', 'dailyPublish', 'writerFrom', 'writerTo', 'publishFrom', 'publishTo', 'weekends', 'minQuality', 'dailyBudgetUsd'];
-
-/** The values as the server wants them (numbers as numbers, an empty budget = no limit) */
-function bodyValues(f, keys) {
-  const out = {};
-  for (const k of keys) {
-    if (k === 'dailyBudgetUsd') out[k] = f[k] === '' || f[k] === null ? null : Number(f[k]);
-    else if (['dailyArticles', 'dailyPublish', 'minQuality'].includes(k)) out[k] = Number(f[k]);
-    else out[k] = f[k];
-  }
-  return out;
-}
-
-function Missing({ list }) {
-  if (!list || !list.length) return null;
-  return <div className="faint" style={{ fontSize: 12 }}>Gerekli: {list.map((m, i) => <span key={m.text}>{i > 0 && ' · '}<Link to={m.to}>{m.text}</Link></span>)}</div>;
-}
 
 const STATE = { running: ['Çalışıyor', 'info'], queued: ['Sırada', 'info'], retry: ['Yeniden denenecek', 'warn'], waiting: ['Bekliyor', 'ok'], paused: ['Duraklatıldı', 'warn'], stopped: ['Hatalar nedeniyle durdu', 'bad'], off: ['Kapalı', ''] };
 const OUT = { ok: ['Tamam', 'ok'], partial: ['Kısmen', 'warn'], error: ['Hata', 'bad'], skipped: ['Atlandı', ''], cancelled: ['İptal', ''] };
@@ -98,166 +78,15 @@ function LiveStatus({ projectId }) {
   );
 }
 
-/** Otomasyon Modu: three modes, the checkboxes behind them and the values that keep a new site on a sane path. It only edits settings that already exist elsewhere. */
-/** what really applies: the narrowest of the platform limit, the project limit (and the site's own limit); says so when the number typed is not what will happen */
-function Effective({ e, typed, what }) {
-  const t = Number(typed); const cap = (s) => e.caps.find((c) => c.scope === s);
-  const names = e.caps.map((c) => `${c.label} ${c.limit}`).join(' · ');
-  const platform = cap('platform'); const site = cap('site');
-  const lifted = Number.isFinite(t) && platform && t > platform.limit; const siteTight = Number.isFinite(t) && site && t > site.limit;
-  return (
-    <span style={{ display: 'block', marginTop: 2 }}>
-      <strong>Fiilen geçerli: günde en çok {e.value} {what}</strong> <small>({names}; en dar olan geçerlidir)</small>
-      {lifted && <small style={{ display: 'block', color: 'var(--warn)' }}>Yazdığınız {t}, genel sınırdan ({platform.limit}) büyük: “Değerleri kaydet” genel sınırı da {t} yapar; yoksa günde {platform.limit}’ten fazlası olmaz.</small>}
-      {siteTight && <small style={{ display: 'block', color: 'var(--warn)' }}>{site.label} {site.limit}: yazdığınız {t} bundan büyük. Bu sınırı Web Sitelerim sayfasından değiştirirsiniz; buradaki düğme ona dokunmaz.</small>}
-    </span>
-  );
-}
-
-function General() {
-  const { projectId, can, confirm } = useApp();
-  const st = useLoad(() => (projectId ? api.get(`/automation${qs({ projectId })}`) : Promise.resolve(null)), [projectId]);
-  const passive = !!(st.data && st.data.pipelineOn);                 // the production line is on: this page only shows, it changes nothing
-  const canEdit = can('bots.control') && !passive;
-  const [sel, setSel] = useState({}); const [f, setF] = useState(null); const [touched, setTouched] = useState(new Set()); const [result, setResult] = useState(null);
-  const [run, busy] = useAction();
-  useEffect(() => {
-    const d = st.data; if (!d) return;
-    setSel(Object.fromEntries(d.options.map((o) => [o.key, o.on])));
-    setF({ ...d.values, writerFrom: d.values.writerFrom || '', writerTo: d.values.writerTo || '', dailyBudgetUsd: d.values.dailyBudgetUsd === null ? '' : d.values.dailyBudgetUsd }); setTouched(new Set());
-  }, [st.data]);
-  const dirty = useMemo(() => !!(st.data && st.data.options.some((o) => !!sel[o.key] !== o.on)), [st.data, sel]);
-  // numbers / hours typed in the "Değerler" card that are not saved yet (so its own button, and "Seçimi uygula", wake up)
-  const valuesDirty = useMemo(() => !!(st.data && f && FIELDS.some((k) => String(f[k] ?? '') !== String(st.data.values[k] ?? ''))), [st.data, f]);
-  if (!projectId) return <NeedsProject />;
-  const set = (k) => (e) => { const v = e && e.target ? (e.target.type === 'checkbox' ? e.target.checked : e.target.value) : e; setF((x) => ({ ...x, [k]: v })); setTouched((t) => new Set([...t, k])); };
-
-  const toggle = (o, on) => setSel((x) => {
-    const n = { ...x, [o.key]: on };
-    if (o.key === 'publishLive' && on) n.publishing = true;                 // "publish live" is a way of sending: it needs sending
-    if (o.key === 'publishing' && !on) n.publishLive = false;
-    return n;
-  });
-
-  /** sends the change; a refusal that asks for a yes is shown in words and, if given, sent again with confirm */
-  const send = async (body, okText) => {
-    const out = await run(async () => {
-      try { return await api.put('/automation', { projectId, ...body }); }
-      catch (e) {
-        if (e.status === 409 && e.data && e.data.requiresConfirmation) {
-          const yes = await confirm({ title: 'Siz bakmadan yayına çıkacak', body: e.message, confirmText: 'Evet, devam et', danger: true });
-          if (!yes) throw new Error('Onaylanmadı; hiçbir şey değiştirilmedi');
-          return api.put('/automation', { projectId, ...body, confirm: true });
-        }
-        throw e;
-      }
-    }, okText);
-    if (out && out.applied) { setResult(out.applied); st.reload(); }
-  };
-  const differs = (keys) => keys.filter((k) => String(f[k] ?? '') !== String(st.data.values[k] ?? ''));        // only what the person really changed is sent: the rest is left exactly as it is
-  const applyMode = (mode) => send({ mode, values: mode === 'manual' ? undefined : bodyValues(f, [...touched]) }, 'Otomasyon modu uygulandı');
-  const saveOptions = () => send({ mode: 'custom', options: sel, values: bodyValues(f, differs(FIELDS)) }, 'Seçimler uygulandı');
-  // only the numbers and hours: the switches stay exactly as they are saved (an unsaved tick in "Seçenekler" does not ride along)
-  const saveValues = () => send({ mode: 'custom', options: Object.fromEntries(st.data.options.map((o) => [o.key, o.on])), values: bodyValues(f, differs(FIELDS)) }, 'Değerler kaydedildi');
-  const fillRecommended = () => { const r = st.data.recommended; setF({ ...r, dailyBudgetUsd: r.dailyBudgetUsd === null ? '' : r.dailyBudgetUsd }); setTouched(new Set(FIELDS)); };
-
-  return (
-    <div className="stack">
-      <p className="muted">Sistemin ne kadarının kendi kendine çalışacağını buradan seçersiniz. Aşağıdaki seçenekler ve değerler, diğer sekmelerdeki (Botlar, Günlük limitler, Ayarlar) gerçek anahtarları açıp kapatır; bir yerde yaptığınız değişiklik her yerde görünür. Zorunlu kontroller (doğruluk, AdSense riski, tekrar, kalite) hiçbir modda kapanmaz.</p>
-      <Async state={st}>{(d) => d && f && (
-        <div className="stack">
-          {passive && <Alert kind="warn" title="Otomatik Üretim açık: bu sayfa pasif">Eski modlar ve seçenekler yalnızca görüntülenir; üretimi artık <Link to="/automation">Otomatik Üretim</Link> yürütür. Burayı değiştirmek için önce Otomatik Üretim’i kapatın. Günlük limitler, bütçe ve diğer ayarlar kendi sekmelerinden (Günlük limitler, Ayarlar) değiştirilebilir.</Alert>}
-          {!passive && !canEdit && <Alert kind="info">Bu sayfayı yalnızca yönetici (admin) değiştirebilir; siz görüntüleyebilirsiniz.</Alert>}
-          <Alert kind={d.mode === 'full' ? 'warn' : 'info'} title={`Şu anki mod: ${d.modeLabel}`}>{d.summary}</Alert>
-          {d.warnings.map((w) => <Alert key={w.text} kind={w.kind === 'bad' ? 'bad' : w.kind === 'warn' ? 'warn' : 'info'}>{w.text}{w.to && <> <Link to={w.to}>Aç</Link></>}</Alert>)}
-
-          <LiveStatus projectId={projectId} />
-          <FlowPanel projectId={projectId} passive={passive} />
-
-          <div className="grid g3">
-            {d.modes.map((m) => {
-              const Icon = MODE_ICON[m.key] || Zap; const current = d.mode === m.key;
-              return (
-                <Card key={m.key} title={<span className="row" style={{ gap: 8 }}><Icon size={17} />{m.label}{current && <Badge kind="ok">şu an bu</Badge>}</span>}>
-                  <div className="stack">
-                    <p>{m.about}</p>
-                    {m.blockedBy.length > 0 && !m.applicable && <Alert kind="warn" title="Bu mod için eksikler var">{m.blockedBy.map((x) => <div key={x.text}><Link to={x.to}>{x.text}</Link></div>)}</Alert>}
-                    {m.applicable && m.skips.length > 0 && <small className="faint">Bağlı olmadığı için açılmayacaklar: {m.skips.map((s) => s.label).join(', ')}.</small>}
-                    <button className={`btn ${m.key === 'full' ? 'danger' : 'primary'}`} disabled={!canEdit || busy || !m.applicable || current} onClick={() => applyMode(m.key)}>{current ? 'Uygulandı' : `${m.label} modunu uygula`}</button>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-
-          {result && (
-            <Alert kind="ok" title="Son uygulama">
-              {result.changes.length === 0 ? 'Zaten bu durumdaydı: hiçbir şey değişmedi.' : <ul style={{ margin: '4px 0 0 18px' }}>{result.changes.map((c) => <li key={c}>{c}</li>)}</ul>}
-              {result.skipped.length > 0 && <div style={{ marginTop: 6 }}>Açılamayanlar (eksik bağlantı): {result.skipped.map((s) => `${s.label} (${s.missing.map((m) => m.text).join(', ')})`).join('; ')}</div>}
-            </Alert>
-          )}
-
-          <Card title="Seçenekler" actions={canEdit && <button className="btn primary" disabled={busy || !(dirty || valuesDirty)} onClick={saveOptions}>Seçimi uygula</button>}>
-            <div className="stack">
-              {d.groups.map((g) => (
-                <div key={g.key} className="stack">
-                  <strong>{g.label}</strong>
-                  {d.options.filter((o) => o.group === g.key).map((o) => (
-                    <div key={o.key} className="stack" style={{ gap: 2, paddingLeft: 4 }}>
-                      <Check checked={!!sel[o.key]} disabled={!canEdit || busy || (!o.ready && !o.on)} onChange={(v) => toggle(o, v)}>
-                        <span>{o.label}{o.spends && <> <Badge kind="info" title="Yapay zekâ ya da veri kredisi harcar">ücretli</Badge></>}{o.risk && <> <Badge kind="warn" title="Sizi onay sürecinden çıkarır">dikkat</Badge></>}</span>
-                      </Check>
-                      <small className="faint" style={{ marginLeft: 24 }}>{o.help}</small>
-                      {!o.ready && <div style={{ marginLeft: 24 }}><Missing list={o.missing} /></div>}
-                    </div>
-                  ))}
-                </div>
-              ))}
-              <small className="faint">“Seçimi uygula” bu kutuların tam olarak işaretlendiği hâli kaydeder (mod “Özel” olabilir); aşağıdaki değerlerde yazdığınız bir değişiklik varsa onu da kaydeder. Hazır olmayan bir seçenek, gerekli bağlantı kurulana kadar işaretlenemez.</small>
-            </div>
-          </Card>
-
-          <Card title="Değerler" actions={canEdit && <div className="row"><button className="btn" disabled={busy} onClick={fillRecommended}><Wand2 size={15} />Önerilen değerleri yaz</button><button className="btn primary" disabled={busy || !valuesDirty} onClick={saveValues}>Değerleri kaydet</button></div>}>
-            <div className="stack">
-              <p className="muted">Yeni bir alan adı için günde birkaç iyi yazı, çok sayıda zayıf yazıdan daha sağlıklıdır. Bir mod düğmesine bastığınızda, <strong>kendi yazdığınız</strong> sayılar korunur; hâlâ fabrika değerinde duran limitler önerilene çekilir (kalite puanı yalnızca yükseltilir, tanımlı bir bütçe korunur). Sağ üstteki <strong>“Değerleri kaydet”</strong> burada yazdığınız sayıları ve saatleri olduğu gibi kaydeder; açık/kapalı seçeneklere dokunmaz. Yazdıktan sonra basmazsanız hiçbir şey değişmez.</p>
-              <div className="grid g3">
-                <Field label="Günlük yeni makale" hint={<>{`Önerilen ${d.recommended.dailyArticles}. Bu sınır aşılamaz. `}<Effective e={d.effective.dailyArticles} typed={f.dailyArticles} what="makale" /></>}><input className="input num" type="number" min={1} max={d.max.dailyArticles} value={f.dailyArticles} onChange={set('dailyArticles')} disabled={!canEdit} aria-label="Günlük yeni makale" /></Field>
-                <Field label="Günlük WordPress yayını" hint={<>{`Önerilen ${d.recommended.dailyPublish}. `}<Effective e={d.effective.dailyPublish} typed={f.dailyPublish} what="yazı" /></>}><input className="input num" type="number" min={1} max={d.max.dailyPublish} value={f.dailyPublish} onChange={set('dailyPublish')} disabled={!canEdit} aria-label="Günlük WordPress yayını" /></Field>
-                <Field label="En düşük kalite puanı" hint={`Önerilen ${d.recommended.minQuality}. Altındaki makale hazır sayılmaz.`}><input className="input num" type="number" min={50} max={100} value={f.minQuality} onChange={set('minQuality')} disabled={!canEdit} aria-label="En düşük kalite puanı" /></Field>
-                <Field label="Yazım saatleri" hint={f.writerFrom ? 'Makale botunun çalıştığı saat aralığı' : 'Şu an sınır YOK: bot gece dahil her saat çalışır. Saat aralığını yazıp sağ üstteki “Değerleri kaydet”e basın.'}><div className="row"><input className="input" type="time" value={f.writerFrom} onChange={set('writerFrom')} disabled={!canEdit} aria-label="Yazım başlangıcı" /><span>–</span><input className="input" type="time" value={f.writerTo} onChange={set('writerTo')} disabled={!canEdit} aria-label="Yazım bitişi" /></div></Field>
-                <Field label="Yayın saatleri" hint="WordPress’e gönderim bu saatler içinde"><div className="row"><input className="input" type="time" value={f.publishFrom} onChange={set('publishFrom')} disabled={!canEdit} aria-label="Yayın başlangıcı" /><span>–</span><input className="input" type="time" value={f.publishTo} onChange={set('publishTo')} disabled={!canEdit} aria-label="Yayın bitişi" /></div></Field>
-                <Field label="Günlük toplam bütçe (USD)" hint={`Boş = sınır yok. Önerilen ${usd(d.recommended.dailyBudgetUsd)}. Yalnızca fiyatı bilinen harcamayı sayar.`}><input className="input num" type="number" min={0} step="0.5" value={f.dailyBudgetUsd} onChange={set('dailyBudgetUsd')} disabled={!canEdit} placeholder="sınırsız" aria-label="Günlük toplam bütçe" /></Field>
-              </div>
-              <Check checked={!!f.weekends} onChange={set('weekends')} disabled={!canEdit}>Hafta sonu da yayınla</Check>
-            </div>
-          </Card>
-
-          <Card title="Başlamadan önce kontrol listesi">
-            <div className="stack">
-              {d.checklist.map((c) => (
-                <div key={c.key} className="row" style={{ gap: 8, flexWrap: 'nowrap', alignItems: 'flex-start' }}>
-                  {c.ok ? <CheckCircle2 size={17} style={{ color: 'var(--ok)', flex: 'none' }} /> : <CircleAlert size={17} style={{ color: 'var(--warn)', flex: 'none' }} />}
-                  <div><strong>{c.label}</strong>: {c.detail} {!c.ok && <Link to={c.to}>Düzelt</Link>}</div>
-                </div>
-              ))}
-              {d.readyBacklog > 0 && <small className="faint">Şu an “Yayına hazır” durumunda, henüz hiçbir siteye gönderilmemiş {d.readyBacklog} makale var; gönderim açılırsa günlük yayın limiti kadarı gider.</small>}
-            </div>
-          </Card>
-        </div>
-      )}</Async>
-    </div>
-  );
-}
-
 /** every tab of the single page; the last two are admin only */
-const TABS = [['uretim', 'Otomatik Üretim'], ['genel', 'Gelişmiş modlar'], ['botlar', 'Botlar'], ['kuyruk', 'Görev kuyruğu'], ['limitler', 'Günlük limitler'], ['ayarlar', 'Ayarlar'], ['kullanicilar', 'Kullanıcılar'], ['sistem', 'Sistem']];
+const TABS = [['uretim', 'Otomatik Üretim'], ['botlar', 'Botlar'], ['kuyruk', 'Görev kuyruğu'], ['limitler', 'Günlük limitler'], ['ayarlar', 'Ayarlar'], ['kullanicilar', 'Kullanıcılar'], ['sistem', 'Sistem']];
 
 /**
- * ONE page for everything that runs or limits the automation: the modes and quick values (Genel), the bots' schedules, the job queue, the daily limits,
+ * ONE page for everything that runs or limits the automation: the production line (Otomatik Üretim: ALL production happens there), the bots (live status and schedules), the job queue, the daily limits,
  * the settings groups and (admin) users and server facts. The tab lives in the address (?tab=) so the old addresses /bots, /limits and /settings can lead here.
  */
 export default function Automation() {
-  const { can } = useApp();
+  const { can, projectId } = useApp();
   const [sp, setSp] = useSearchParams();
   const tabs = TABS.filter(([k]) => can('users.manage') || !['kullanicilar', 'sistem'].includes(k));
   const asked = sp.get('tab'); const tab = tabs.some(([k]) => k === asked) ? asked : 'uretim';
@@ -266,8 +95,7 @@ export default function Automation() {
       <PageHead title="Otomasyon ve Ayarlar">Günlük işiniz ilk sekmedir: <strong>Otomatik Üretim</strong> (aç/kapat ve sıklık). Diğer sekmeler gelişmiş ayarlardır: eski modlar, botların zamanlaması, görev kuyruğu, günlük limitler ve tüm ayarlar. Sekmeler aynı gerçek anahtarları gösterir; hiçbirinin kendine ait bir kopyası yoktur.</PageHead>
       <Tabs tabs={tabs} value={tab} onChange={(k) => setSp(k === 'uretim' ? {} : { tab: k })} />
       {tab === 'uretim' && <Pipeline />}
-      {tab === 'genel' && <General />}
-      {tab === 'botlar' && <BotList />}
+      {tab === 'botlar' && <>{projectId ? <LiveStatus projectId={projectId} /> : <NeedsProject />}<BotList /></>}
       {tab === 'kuyruk' && <JobQueue />}
       {tab === 'limitler' && <LimitsPanel />}
       {tab === 'ayarlar' && <SettingsGroups />}
