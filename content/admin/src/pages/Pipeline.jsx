@@ -142,10 +142,6 @@ export default function Pipeline() {
                   <span>Konu kaynaklı AdSense uyarısını (hassas içerik) hat kendisi çözsün
                     <small className="faint" style={{ display: 'block' }}>Önce metni bir kez nötrleştirir (sansasyonel anlatım, kişisel veri, zarar verebilecek ayrıntı çıkarılır). Uyarı konunun kendisinden geliyorsa ve başka eksik yoksa uyarıyı <strong>sizin adınıza kabul edip</strong> makaleyi onaylar ve yayımlar; kabul kaydında “Otomatik Üretim” yazar. “Yayınlanamaz” sınıfı ve kapsam dışı konu, tekrar, kaynaksızlık hiçbir zaman kabul edilmez. Kapalıyken bu fikir elenir. AdSense’in kendi kararını değiştirmez: hassas içerikli sayfalarda reklam kısıtlanabilir.</small></span>
                 </Check>}
-                <Check checked={!!d.newsFallback} disabled={!canEdit || busy} onChange={(v) => send({ newsFallback: v }, v ? 'Açıldı' : 'Kapatıldı')}>
-                  <span>Anahtar kelime hakkı bitince beklemeyip taze haber hattıyla devam et
-                    <small className="faint" style={{ display: 'block' }}>Apify ücretsiz planında günde 5 çalıştırma var (her çalıştırmada sıradaki birkaç fikrin kelimeleri birlikte sorulur, bu yüzden genelde yeter). Hak yine de biterse hat beklemez: fikrin aranma verisi zaten varsa onunla devam eder; yoksa verisi hazır başka bir fikre geçer (eldeki fikir silinmez). Anahtar açıksa <strong>taze</strong> bir haber fikri de aranma hacmi olmadan ama gerçek SERP rekabeti ölçülerek yazılır. Hiçbiri olmazsa yenilenmeyi bekler.</small></span>
-                </Check>
               </div>
               {d.enabled && <small className="faint">Açıkken eski toplu botlar (haber taraması, fırsat puanlama, anahtar kelime, SERP, makale yazımı, düzeltme) kendi zamanlamalarıyla çalışmaz: bu işleri hat tek tek yürütür. Kapatırsanız eski zamanlamalar geri gelir.</small>}
               {changes && changes.length > 0 && <Alert kind="ok" title="Son değişiklik"><ul style={{ margin: '4px 0 0 18px' }}>{changes.map((c) => <li key={c}>{c}</li>)}</ul></Alert>}

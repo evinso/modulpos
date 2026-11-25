@@ -43,11 +43,11 @@ const q = (sql, p = []) => H.db().query(sql, p).then((r) => r.rows);
 const q1 = async (sql, p = []) => (await q(sql, p))[0];
 
 /** a project with every service connected and the news of `items` scanned by the line itself (nothing is done by hand but the switch) */
-async function world({ noVolume = /^$/, items = ITEMS, freshHours = 0, suggest = {} } = {}) {
+async function world({ noVolume = /^$/, items = ITEMS, freshHours = 0, suggest = {}, noApify = false } = {}) {
   const pid = (await P.seedDefault()).projectId;
   await PR.save('anthropic', { secret: 'sk-ant-test-key-0123456789', extra: { inputPricePerM: '3', outputPricePerM: '15' } });
   await PR.save('openai', { secret: 'sk-test-key-0123456789abcdef', extra: { model: 'gpt-test', inputPricePerM: '1', outputPricePerM: '4' } });
-  await PR.save('apify', { secret: 'apify_api_testtoken0123456789' }); await PR.save('serper', { secret: 'serper-test-key-0123456789' });
+  if (!noApify) await PR.save('apify', { secret: 'apify_api_testtoken0123456789' }); await PR.save('serper', { secret: 'serper-test-key-0123456789' });
   const site = await SI.create(pid, { name: 'Tech Blog', apiUrl: wp.url, username: 'editor', password: 'abcd efgh ijkl mnop' }); assert.equal((await SI.test(site.id)).ok, true);
   await N.createSource(pid, { name: 'Outlet A', kind: 'rss', url: 'https://a.example/feed', reliability: 80 }); await N.createSource(pid, { name: 'Outlet B', kind: 'rss', url: 'https://b.example/feed', reliability: 70 });
   await H.db().query('UPDATE niche_profiles SET min_opportunity_score = 30 WHERE project_id = $1', [pid]); await H.db().query('UPDATE categories SET min_opportunity_score = NULL');
@@ -94,14 +94,13 @@ test('the whole cycle: the line starts by itself, walks every step, publishes ON
   await run(w, plus(D0, 600)); assert.equal((await q1('SELECT count(*)::int n FROM pipeline_runs')).n, 1); assert.equal(wp.posts.size, 1);
 });
 
-test('the gate rule: an idea whose keyword has NO volume data is thrown away at that step (no SERP money spent on it) and the next idea of the same category is used', opts, async () => {
+test('an idea whose keyword has NO volume data goes on all the same (owner: the volume number is a bonus, Apify is never required): it is judged on the parts that are real, written and published, nothing is thrown away', opts, async () => {
   const w = await world({ noVolume: /chatgpt|openai/ }); const { pid } = w;
   await turnOn(pid); await run(w, D0);
-  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done'); assert.equal(d.attempt, 2, 'the first idea was dropped, the second one was written');
-  const dropped = d.trail.filter((t) => /Fikir elendi/.test(t.text)); assert.equal(dropped.length, 1); assert.equal(dropped[0].step, 'keyword'); assert.match(dropped[0].text, /Anahtar kelime verisi bulunamadı/);
-  assert.equal(w.serper.calls.filter((c) => /\/search$/.test(c.url)).length, 2, 'only the idea that passed the keyword step got Google searches: the SERP analysis and the writer\'s own research of the chosen focus keyword (the suggestions are separate calls)');
-  const art = await q1('SELECT h1 FROM articles'); assert.match(art.h1, /gemini/i, 'the second idea (Gemini) is the one that became the article');
-  assert.equal(wp.posts.size, 1);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-4))); assert.equal(d.attempt, 1, 'the first idea itself was written');
+  assert.ok(d.trail.some((t) => /Aranma hacmi verisi yok.*zorunlu değil/.test(t.text)), JSON.stringify(d.trail.map((t) => t.text)));
+  assert.ok(!d.trail.some((t) => /Fikir elendi/.test(t.text)), 'nothing was thrown away'); assert.equal(w.apify.asked().length, 1, 'ONE actor run asked for the keywords of the first ideas');
+  assert.match((await q1('SELECT h1 FROM articles')).h1, /openai|chatgpt/i, 'the article is about the idea that had no volume data'); assert.equal(wp.posts.size, 1);
 });
 
 test('with the owner\'s switch OFF an article the checks cannot clear and only a person could decide (a sensitive subject) is archived, its idea is thrown away, and the cycle starts again with the next idea and publishes THAT', opts, async () => {
@@ -298,6 +297,18 @@ test('the line still PUBLISHES an article with a sensitive detail (the bot only 
   const ov = await PL.overview(pid); assert.ok(ov.recent[0].sensitive.includes('Fidye yazılımı') && ov.recent[0].sensitive.includes('Veri ihlali'), JSON.stringify(ov.recent[0]));
 });
 
+test('migration 0029 gives up a cycle that was waiting for Apify (nothing to wait for any more) and leaves every other waiting cycle alone; the next tick starts a fresh one', opts, async () => {
+  const w = await world(); const { pid } = w; await turnOn(pid, { everyMinutes: 480 }); const db = H.db();
+  const sql = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../src/content/migrations/0029_apify_wait_ends.sql'), 'utf8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+  await db.query("INSERT INTO pipeline_runs (project_id, trigger, status, step, attempt, note, wait_until, started_at) VALUES ($1, 'schedule', 'waiting', 'idea', 29, 'Apify ücretsiz planında günlük 5 çalıştırma hakkı bitti', now() + interval '15 hours', $2)", [pid, plus(D0, -600)]);
+  assert.equal((await q("SELECT 1 FROM pipeline_runs WHERE status = 'waiting'")).length, 1); await db.query(sql);
+  const r = await q1('SELECT status, note FROM pipeline_runs'); assert.equal(r.status, 'cancelled'); assert.match(r.note, /Apify artık zorunlu değil/);
+  const t = await PL.tick({ now: D0 }); assert.equal(t.started.length, 1, 'a fresh cycle starts at once (the pace is long past)');
+  await db.query("UPDATE pipeline_runs SET status = 'cancelled', finished_at = now() WHERE status <> 'cancelled'");
+  await db.query("INSERT INTO pipeline_runs (project_id, trigger, status, step, note, wait_until) VALUES ($1, 'schedule', 'waiting', 'idea', 'Günlük yeni makale sınırı doldu (3/3); yarın devam edilecek', now() + interval '5 hours')", [pid]); await db.query(sql);
+  assert.equal((await q1("SELECT status FROM pipeline_runs WHERE status <> 'cancelled'")).status, 'waiting', 'a wait for something else stays');
+});
+
 test('migration 0027 raises the saved minimum length to 1200 words and never lowers a higher one', opts, async () => {
   const pid = (await P.seedDefault()).projectId; const db = H.db();
   const sql = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../src/content/migrations/0027_min_words_1200.sql'), 'utf8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
@@ -321,17 +332,14 @@ test('a writer that fails WITHOUT a draft (unreadable answers) gets a second try
   assert.ok(d.trail.some((t) => /Taslak çıkmadı/.test(t.text))); assert.equal(wp.posts.size, 1);
 });
 
-test('Apify\'s daily run limit no longer means waiting for hours: ONE run serves the first ideas of the category, and when the limit is hit anyway a FRESH news idea goes on by the news lane (real SERP, no volume); with the switch off the line waits', opts, async () => {
-  const w = await world({ noVolume: /chatgpt|openai/ }); await turnOn(w.pid); await run(w, D0);
-  assert.equal(w.apify.asked().length, 1, 'ONE actor run asked for the keywords of both ideas (the first has no data, the second does): the second idea cost no run of its own');
-  assert.equal((await q1('SELECT attempt FROM pipeline_runs')).attempt, 2);
+test('Apify\'s daily run limit is no obstacle (owner: never mandatory): the cycle neither waits nor drops the idea, it goes on with the real parts - a fresh news idea or not - and publishes; the limit is remembered so the next idea does not ask again', opts, async () => {
+  const w = await world(); w.apify.state.freeLimit = true; await turnOn(w.pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-4))); assert.equal(d.attempt, 1); assert.equal(wp.posts.size, 1);
+  assert.ok(d.trail.some((t) => /ücretsiz planında günlük 5 çalıştırma.*zorunlu değil/.test(t.text)), JSON.stringify(d.trail.map((t) => t.text))); assert.ok(!d.trail.some((t) => /Bekleniyor/.test(t.text)), 'no waiting at all');
+  assert.equal(w.apify.asked().length, 1, 'ONE call was spent finding out');
   await H.clean(); await wp.close(); wp = await startFakeWp();
   const w2 = await world({ freshHours: 36 }); w2.apify.state.freeLimit = true; await turnOn(w2.pid); await run(w2, D0);
-  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text)));
-  assert.ok(d.trail.some((t) => /taze haber hattıyla devam ediliyor/.test(t.text)) && d.trail.some((t) => /^Uygun \(hacim verisi olmadan/.test(t.text))); assert.equal(wp.posts.size, 1);
-  await H.clean(); await wp.close(); wp = await startFakeWp();
-  const w3 = await world({ freshHours: 36 }); w3.apify.state.freeLimit = true; await turnOn(w3.pid); await PL.setConfig(w3.pid, { newsFallback: false }); await run(w3, D0);
-  const r = await PL.openRun(w3.pid); assert.equal(r.status, 'waiting'); assert.match(r.note, /ücretsiz planında günlük 5 çalıştırma/); assert.equal(wp.posts.size, 0);
+  const d2 = await q1('SELECT * FROM pipeline_runs'); assert.equal(d2.status, 'done', JSON.stringify(d2.trail.map((t) => t.text).slice(-4))); assert.equal(wp.posts.size, 1);
 });
 
 test('categories are used in turns: the next cycle starts in the category after the one that produced the last article; a category with nothing is skipped', opts, async () => {
@@ -405,7 +413,7 @@ test('a WordPress login that is refused stops the cycle (no other idea could hel
 });
 
 test('an idea that did not make it is taken out of the research pages AT ONCE, with its keywords, volumes and SERP data (nothing piles up while the line works); its topic is closed so it does not come back', opts, async () => {
-  const w = await world({ noVolume: /.*/ }); const { pid } = w;                                                  // no keyword has data: every idea fails at the keyword step
+  const w = await world(); const { pid } = w; await H.db().query('UPDATE niche_profiles SET min_opportunity_score = 90');       // the bar is higher than any idea's real parts reach: every idea fails at the suitability step
   await turnOn(pid); await run(w, D0);
   const r = await PL.openRun(pid); assert.equal(r.status, 'waiting'); assert.match(r.note, /Hiçbir kategoride uygun fikir yok/); assert.ok(r.attempt > 1, 'several ideas were tried');
   assert.deepEqual((await q('SELECT title FROM content_opportunities')).map((x) => x.title.split(' ')[0]), ['Hackers'], 'every TRIED idea is gone (not left as "rejected"); only the headline without a name, which was never tried, waits for the clean-up');
@@ -421,15 +429,11 @@ test('the fresh-news lane marks even a FULLY scored idea: such an idea must stil
   assert.ok(d.trail.some((t) => /^Uygun \(tam puan\): fırsat puanı \d+/.test(t.text)), 'the suitability step said yes with a real score'); assert.equal(wp.posts.size, 1);
 });
 
-test('Apify\'s free plan gives 5 runs a day: when the actor answers with nothing and its log says so, the cycle WAITS for the reset (00:05 UTC) - it neither burns ideas nor retries - and goes on after it', opts, async () => {
-  const w = await world(); const { pid } = w; w.apify.state.freeLimit = true;
-  await turnOn(pid); await run(w, D0);
-  const r = await PL.openRun(pid); assert.equal(r.status, 'waiting', r.note); assert.equal(r.step, 'idea', 'nothing could go on: every idea waits for the data (put aside, none thrown away)'); assert.match(r.note, /ücretsiz planında günlük 5 çalıştırma/); assert.equal(r.attempt, 1, 'no idea was thrown away for it');
-  assert.equal(new Date(r.waitUntil).toISOString(), '2026-11-24T00:05:00.000Z', 'the next 00:05 UTC');
-  assert.equal(w.apify.asked().length, 1, 'ONE call was spent finding out');
-  await run(w, plus(D0, 600)); assert.equal(w.apify.asked().length, 1, 'nothing is asked again before the reset');
-  w.apify.state.freeLimit = false;
-  await run(w, new Date('2026-11-24T00:10:00Z')); assert.equal((await q1('SELECT status FROM pipeline_runs')).status, 'done'); assert.equal(wp.posts.size, 1);
+test('Apify is not even connected: the line can be switched on without it, asks it nothing, says so in words and publishes', opts, async () => {
+  const w = await world({ noApify: true }); const { pid } = w;
+  const pre = await PL.prerequisites(pid); assert.equal(pre.ok, true, JSON.stringify(pre.items.map((i) => [i.key, i.ok]))); assert.ok(pre.items.find((i) => i.key === 'apify').optional);
+  await turnOn(pid); await run(w, D0); const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-4)));
+  assert.ok(d.trail.some((t) => /Apify bağlı değil.*zorunlu değil/.test(t.text)), JSON.stringify(d.trail.map((t) => t.text))); assert.equal(w.apify.asked().length, 0, 'it was never asked'); assert.equal(wp.posts.size, 1);
 });
 
 /** the old way of working, before the line: the news scanned and the keywords asked for by hand (what a pile of earlier research looks like); `skip` keeps some ideas without data */
@@ -441,20 +445,13 @@ async function preseed(w, skip = /^$/) {
   return ids.length;
 }
 
-test('Apify\'s limit never stops an idea that ALREADY has volume data: the new Google keywords just have no volume, the line goes on with the data it has (no waiting until 03:00)', opts, async () => {
+test('Apify\'s limit does not touch an idea that ALREADY has volume data: the new Google keywords just have no volume, the line goes on with the data it has', opts, async () => {
   const w = await world({ suggest: { '*': ['openai pricing plans 2026', 'openai chatgpt plus price increase'] } }); assert.ok(await preseed(w) > 3); w.apify.state.freeLimit = true;
   await turnOn(w.pid); await run(w, D0);
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(wp.posts.size, 1);
-  assert.ok(d.trail.some((t) => /aranma verisi zaten var, onunla devam ediliyor/.test(t.text)), JSON.stringify(d.trail.map((t) => t.text)));
+  assert.ok(d.trail.some((t) => /aranma verisi bulundu/.test(t.text)), JSON.stringify(d.trail.map((t) => t.text)));
 });
 
-test('Apify\'s limit with an idea that has NO volume data: the idea is put aside (not thrown away) and the cycle takes the next idea that already has its data; it waits for the reset only when none can go on', opts, async () => {
-  const w = await world(); await preseed(w, /openai|chatgpt/i); w.apify.state.freeLimit = true;
-  await turnOn(w.pid); await run(w, D0);
-  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(wp.posts.size, 1);
-  assert.ok(d.trail.some((t) => /fikir kuyrukta bırakıldı, verisi hazır başka fikre geçiliyor/.test(t.text)), JSON.stringify(d.trail.map((t) => t.text)));
-  assert.equal(d.attempt, 1, 'putting an idea aside is not a failed try'); assert.ok(!/openai|chatgpt/i.test(d.result.title), `the article is about an idea with data: ${d.result.title}`);
-});
 
 test('keywords the platform would pay for must hold a NAME of the headline; a generic word ("leaked") is not asked for, and an idea with no such keyword is skipped without being counted as a try', opts, async () => {
   assert.equal(PL.sane('staples canada', 'Staples Canada says customer information accessed in data breach'), true);
