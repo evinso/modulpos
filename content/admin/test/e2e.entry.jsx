@@ -836,6 +836,11 @@ ok('the minimum length is a number on the card, 950 by default', !!minW && minW.
 await setVal(minW, '1000'); await act(async () => { minW.dispatchEvent(new window.Event('focusout', { bubbles: true })); }); await wait(1200);
 ok('changing it is saved on the server', (await pset()).minWords === 1000);
 await setVal($('input[aria-label="En az kelime"]'), '950'); await act(async () => { $('input[aria-label="En az kelime"]').dispatchEvent(new window.Event('focusout', { bubbles: true })); }); await wait(1000);
+const maxD = $('input[aria-label="En çok taslak"]');
+ok('the number of drafts per idea is on the card, 5 by default, and the failed ones are said to be deleted', !!maxD && maxD.value === '5' && txt().includes('Atılan taslak silinir'));
+await setVal(maxD, '7'); await act(async () => { maxD.dispatchEvent(new window.Event('focusout', { bubbles: true })); }); await wait(1200);
+ok('changing it is saved on the server', (await pset()).maxDrafts === 7);
+await setVal($('input[aria-label="En çok taslak"]'), '5'); await act(async () => { $('input[aria-label="En çok taslak"]').dispatchEvent(new window.Event('focusout', { bubbles: true })); }); await wait(1000);
 await setVal(paceSel(), '720'); await wait(1200);
 ok('the pace is saved: twice a day', (await pset()).everyMinutes === 720 && txt().includes('2 döngü / gün'));
 await click(btn('Şimdi başlat'), 1300);
