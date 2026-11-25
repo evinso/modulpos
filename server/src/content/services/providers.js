@@ -315,4 +315,19 @@ async function usageReport({ days = 30, tz = env().defaultTimezone, now = new Da
   };
 }
 
-module.exports = { PROVIDERS, KEYS, list, get, save, secretFor, test, recordUsage, guard, usageReport, spent };
+/**
+ * Is every budget (the platform's and each provider's, day and month) comfortably open? Read only (nothing is recorded, nobody is told). Used by the production line to stop waiting for "tomorrow"
+ * the moment the owner raises or removes a budget; "comfortably" = below 90% so a budget that is a hair under its limit does not make the line knock on the door every minute.
+ */
+async function budgetsOpen({ tz = env().defaultTimezone, now = new Date() } = {}) {
+  const plat = (await settings.get('budget')).value; const dayStart = startOfDay(now, tz); const monthStart = startOfMonth(now, tz);
+  const rows = (await db.query('SELECT key, daily_budget_micros, monthly_budget_micros FROM api_providers')).rows;
+  const defs = [[toMicros(plat.dailyTotalUsd), dayStart, null], [toMicros(plat.monthlyTotalUsd), monthStart, null], ...rows.flatMap((r) => [[r.daily_budget_micros, dayStart, r.key], [r.monthly_budget_micros, monthStart, r.key]])];
+  for (const [limit, since, provider] of defs) {
+    if (limit === null || limit === undefined) continue;
+    if ((await spent({ provider, since })).micros >= Number(limit) * 0.9) return false;
+  }
+  return true;
+}
+
+module.exports = { PROVIDERS, KEYS, list, get, save, secretFor, test, recordUsage, guard, usageReport, spent, budgetsOpen };
