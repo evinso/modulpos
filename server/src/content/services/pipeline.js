@@ -487,21 +487,38 @@ async function stepWrite(run, ctx, now) {
   const after = await idea(o.id);
   if (wr.stats && wr.stats.outOfScope) return reject(`Kapsam dışı konu çıktı (${(wr.stats.outOfScope || []).join(', ')}); makale arşivlendi`);
   if (!after.article_id) {
+    if (wr.stats && Number(wr.stats.calls) > 0) await limits.release({ workType: 'new_article', projectId: run.projectId, categoryId: o.category_id || null, amount: 1, day: dayKey(now, tz()) });      // paid, but no draft came out: no new article
     const code = wr.stats && wr.stats.code; const text = wr.error || 'Makale yazılamadı';
     if (['funds', 'auth', 'model'].includes(code)) return stop(text);
     if (['budget'].includes(code) || /bütçe/i.test(text)) return wait(tomorrow(now), text);
     if (['rate_limit', 'overloaded', 'timeout', 'network'].includes(code)) { if (run.retries >= WRITE_TRIES) return (await redo(run, `yazım ${WRITE_TRIES + 1} denemede tamamlanamadı: ${text}`, '', now, { noArticle: true })) || reject(`Yazım ${WRITE_TRIES + 1} denemede tamamlanamadı: ${text}`); return retryLater(text); }
     return (await redo(run, `makale yazılamadı: ${text}`, '', now, { noArticle: true })) || reject(`Makale yazılamadı: ${text}`);
   }
-  run.articleId = after.article_id;
+  run.articleId = after.article_id; run.hints = { ...(run.hints || {}), placeDay: dayKey(now, tz()) };
   const a = (await db.query('SELECT h1, word_count, quality_score, adsense_risk, status FROM articles WHERE id = $1', [run.articleId])).rows[0];
   say(run, 'write', true, `Makale yazıldı: “${a.h1}” (${a.word_count} kelime, kalite ${a.quality_score === null ? 'ölçülemedi' : a.quality_score}, AdSense riski ${a.adsense_risk || 'ölçülemedi'})`);
   return go('fix');
 }
 
+/**
+ * Archives the cycle's draft. The day's counts (a new article, an AdSense fix round) are meant to grow only for what is SHARED (owner): the places the draft used - one new-article place, one fixing place per round
+ * that asked the model - go back to the day they were taken on. The status guard makes it happen once per draft.
+ */
+async function archiveDraft(run) {
+  if (!run.articleId) return false;
+  const a = (await db.query("UPDATE articles SET status = 'archived', archived_at = now(), updated_at = now() WHERE id = $1 AND status IN ('needs_review', 'fact_checking', 'ready') RETURNING project_id, created_at", [run.articleId])).rows[0];
+  if (!a) return false;
+  const cat = run.opportunityId ? (await db.query('SELECT category_id FROM content_opportunities WHERE id = $1', [run.opportunityId])).rows[0] : null;
+  const day = (run.hints && run.hints.placeDay) || dayKey(a.created_at, tz());               // the day the places were taken on (the day the draft was written)
+  await limits.release({ workType: 'new_article', projectId: a.project_id, categoryId: (cat && cat.category_id) || null, amount: 1, day });
+  const rounds = (await db.query('SELECT count(*)::int n FROM article_fixes WHERE article_id = $1 AND calls > 0', [run.articleId])).rows[0].n;
+  if (rounds) await limits.release({ workType: 'article_fix', projectId: a.project_id, amount: rounds, day });
+  return true;
+}
+
 async function discardArticle(run, reason) {
   if (!run.articleId) return;
-  await db.query("UPDATE articles SET status = 'archived', archived_at = now(), updated_at = now() WHERE id = $1 AND status IN ('needs_review', 'fact_checking', 'ready')", [run.articleId]);
+  await archiveDraft(run);
   say(run, 'fix', false, `Taslak arşive alındı: ${reason}`);
 }
 
@@ -517,7 +534,7 @@ async function redo(run, why, notes, now, { noArticle = false } = {}) {
   const first = a && a.generation && a.generation.provider;
   const ready = (await llm.available()).filter((v) => v.ready).map((v) => v.key);
   const alt = ready.find((k) => k !== first) || null;
-  if (run.articleId) await db.query("UPDATE articles SET status = 'archived', archived_at = now(), updated_at = now() WHERE id = $1 AND status IN ('needs_review', 'fact_checking', 'ready')", [run.articleId]);
+  await archiveDraft(run);
   await db.query("UPDATE content_opportunities SET status = 'new', article_id = NULL, updated_at = now() WHERE id = $1", [run.opportunityId]);
   run.rewrites += 1; run.articleId = null; run.hints = { provider: alt, notes: `${why}${notes ? `; ${notes}` : ''}`.slice(0, 1200) };
   say(run, run.step, null, `${noArticle ? 'Taslak çıkmadı' : 'İlk taslak kontrollerden geçemedi'} (${String(why).slice(0, 160)}). Fikir elenmeden önce yeniden deneniyor: ${alt ? `farklı yazar (${alt}), ` : ''}${noArticle ? '' : 'sorunlar yazım talimatına eklendi'}`);

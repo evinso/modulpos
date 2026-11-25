@@ -165,6 +165,30 @@ test('... only ONCE per idea: when the second draft fails too the idea is thrown
   assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['archived', 'archived', 'published']); assert.equal(w.m.byRole('write').length, 3);
 });
 
+const usedOf = async (type, scope) => (await q1("SELECT coalesce(sum(used), 0)::int n FROM daily_work_usage WHERE work_type = $1 AND scope = $2 AND day = '2026-11-23'", [type, scope])).n;
+
+test('the day\'s counts grow only for what is SHARED (owner): drafts the line throws away give their new-article place and their fixing rounds back, so a day of failed drafts never fills the limit', opts, async () => {
+  const w = await world(); const { pid } = w; blockedFor(w.m, 11);                                   // both drafts of the first idea are thrown away, the next idea is published
+  await turnOn(pid); await run(w, D0);
+  assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['archived', 'archived', 'published']); assert.equal(w.m.byRole('write').length, 3, 'three drafts were written');
+  for (const scope of ['global', 'project', 'category']) assert.equal(await usedOf('new_article', scope), 1, `new_article (${scope}): one place for the ONE shared article`);
+  const own = (await q1("SELECT count(*)::int n FROM article_fixes f JOIN articles a ON a.id = f.article_id WHERE f.calls > 0 AND a.status = 'published'")).n;
+  assert.equal(await usedOf('article_fix', 'project'), own, 'only the rounds of the shared article stay counted');
+});
+
+test('migration 0025 brings the day\'s counts down to the articles that exist (a number that is too high is lowered, a true number is never raised), and leaves other work kinds alone', opts, async () => {
+  const w = await world(); const { pid } = w; blockedFor(w.m, 11); await turnOn(pid); await run(w, D0);
+  const db = H.db(); await db.query("UPDATE articles SET created_at = '2026-11-23T10:30:00Z'"); await db.query("UPDATE article_fixes SET created_at = '2026-11-23T10:30:00Z'");      // the test clock is the 23rd, the database's own is not
+  await db.query("UPDATE daily_work_usage SET used = 10 WHERE work_type IN ('new_article', 'article_fix') AND day = '2026-11-23'");
+  await db.query("INSERT INTO daily_work_usage (day, work_type, scope, used) VALUES ('2026-11-23', 'serp_queries', 'global', 7) ON CONFLICT DO NOTHING"); await db.query("UPDATE daily_work_usage SET used = 7 WHERE work_type = 'serp_queries' AND day = '2026-11-23'");
+  const sql = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../src/content/migrations/0025_places_follow_shared.sql'), 'utf8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+  await db.query(sql.replace(/now\(\) AT TIME ZONE 'Europe\/Istanbul'/g, "'2026-11-23T12:00:00Z'::timestamptz AT TIME ZONE 'Europe/Istanbul'").replace(/now\(\) - interval '3 days'/g, "'2026-11-01'::timestamptz"));
+  for (const scope of ['global', 'project', 'category']) assert.equal(await usedOf('new_article', scope), 1, `new_article (${scope})`);
+  const own = (await q1("SELECT count(*)::int n FROM article_fixes f JOIN articles a ON a.id = f.article_id WHERE f.calls > 0 AND a.status = 'published'")).n;
+  assert.equal(await usedOf('article_fix', 'project'), Math.min(10, own)); assert.equal(await usedOf('serp_queries', 'global'), 7, 'other kinds are not touched');
+  await db.query(sql.replace(/now\(\) AT TIME ZONE 'Europe\/Istanbul'/g, "'2026-11-23T12:00:00Z'::timestamptz AT TIME ZONE 'Europe/Istanbul'").replace(/now\(\) - interval '3 days'/g, "'2026-11-01'::timestamptz")); assert.equal(await usedOf('new_article', 'global'), 1, 'a second run changes nothing');
+});
+
 test('... and not for what no new draft can cure: a person-only problem of the IDEA (here the owner keeps the subject-level warning for a person) is dropped at once, one draft per idea', opts, async () => {
   const w = await world(); const { pid } = w; let n = 0; w.m.st.override.review = () => { n++; if (n === 1) return SENSITIVE; delete w.m.st.override.review; return undefined; };
   await turnOn(pid); await PL.setConfig(pid, { acceptSubjectWarning: false }); await run(w, D0);
