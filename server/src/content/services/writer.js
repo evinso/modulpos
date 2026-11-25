@@ -156,11 +156,14 @@ function polishSeo(fields, imageHint, focus) {
   const fk = slugify(focus); let slug = slugify(fields.slug);
   if (fk && (slug.length > 60 || !slug.includes(fk))) slug = cutAtWord(fk, 60);
   fields.slug = slug || cutAtWord(slugify(fields.h1), 60);
-  if (imageHint && focus && !normText(imageHint.alt).includes(normText(focus))) {
-    const cap = String(focus).charAt(0).toUpperCase() + String(focus).slice(1);
-    const full = imageHint.alt ? `${cap}: ${imageHint.alt}` : cap; imageHint.alt = full.length <= 125 ? full : full.slice(0, 125).replace(/\s+\S*$/, '');
-  }
+  if (imageHint && focus) imageHint.alt = altWithKeyword(imageHint.alt, focus);
   return fields;
+}
+/** the alt text of the cover picture always holds the exact focus keyword (Rank Math: "an image with your focus keyword as alt text"); a photo's own description follows it */
+function altWithKeyword(alt, focus) {
+  if (!focus || normText(alt).includes(normText(focus))) return alt;
+  const cap = String(focus).charAt(0).toUpperCase() + String(focus).slice(1);
+  const full = alt ? `${cap}: ${alt}` : cap; return full.length <= 125 ? full : full.slice(0, 125).replace(/\s+\S*$/, '');
 }
 
 const TITLE_STOP = new Set(['after', 'hours', 'what', 'says', 'over', 'with', 'from', 'this', 'that', 'will', 'could', 'first', 'more', 'your', 'their', 'here', 'everything', 'know', 'best', 'latest', 'just', 'new', 'update', 'updates', 'price', 'prices', 'data', 'breach', 'launch', 'launches', 'release', 'releases', 'report', 'reports', 'users', 'free', 'apps', 'app', 'plan', 'plans', 'users', 'year', 'week', 'today', 'guide', 'explained', 'comes', 'gets', 'adds', 'raises', 'about', 'into', 'than', 'have', 'been', 'when', 'where', 'while', 'which', 'would', 'should', 'against', 'before', 'between', 'during', 'without']);
@@ -258,6 +261,7 @@ async function pipeline(o, run, { who, grant, cfg, fetchImpl, fetcher, now, user
     const pic = await images.autoForArticle(article.id, o.project_id, imageHint, { fetchImpl, now });
     if (pic.status === 'ok') add({ costUsd: pic.costUsd }); else if (pic.billed) add({ costUsd: pic.costUsd });
     if (pic.status !== 'off') { stats.image = pic.status; if (pic.error) stats.imageError = pic.error; }
+    if (pic.status === 'ok') { const cover = await images.forArticle(article.id).catch(() => null); if (cover && o.keyword && !normText(cover.alt).includes(normText(o.keyword))) await images.setAlt(article.id, altWithKeyword(cover.alt, o.keyword)).catch(() => {}); }          // a stock photo's own tags rarely hold the keyword
     await note({ step: 'checking', articleId: article.id, words: article.wordCount });
     const res = await checks.runAll(article.id, { mode: 'all', checkerProvider: who.checker, fetchImpl, now });
     for (const u of res.usage) add(u);
@@ -294,4 +298,4 @@ async function closeStale() {
   return a + b + c;
 }
 
-module.exports = { BOT, PROMPT_VERSION, SYSTEM, userPrompt, normalizeOutput, limitLinks, pickProviders, loadIdea, start, wait, closeStale };
+module.exports = { BOT, PROMPT_VERSION, SYSTEM, userPrompt, normalizeOutput, limitLinks, pickProviders, loadIdea, start, wait, closeStale, altWithKeyword, polishSeo };

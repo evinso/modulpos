@@ -43,10 +43,11 @@ const q = (sql, p = []) => H.db().query(sql, p).then((r) => r.rows);
 const q1 = async (sql, p = []) => (await q(sql, p))[0];
 
 /** a project with every service connected and the news of `items` scanned by the line itself (nothing is done by hand but the switch) */
-async function world({ noVolume = /^$/, items = ITEMS, freshHours = 0, suggest = {}, noApify = false } = {}) {
+async function world({ noVolume = /^$/, items = ITEMS, freshHours = 0, suggest = {}, noApify = false, onlyGroq = false } = {}) {
   const pid = (await P.seedDefault()).projectId;
-  await PR.save('anthropic', { secret: 'sk-ant-test-key-0123456789', extra: { inputPricePerM: '3', outputPricePerM: '15' } });
-  await PR.save('openai', { secret: 'sk-test-key-0123456789abcdef', extra: { model: 'gpt-test', inputPricePerM: '1', outputPricePerM: '4' } });
+  if (!onlyGroq) { await PR.save('anthropic', { secret: 'sk-ant-test-key-0123456789', extra: { inputPricePerM: '3', outputPricePerM: '15' } });
+    await PR.save('openai', { secret: 'sk-test-key-0123456789abcdef', extra: { model: 'gpt-test', inputPricePerM: '1', outputPricePerM: '4' } }); }
+  else await PR.save('groq', { secret: 'gsk_testkey0123456789abcdef0123', extra: { inputPricePerM: '0.59', outputPricePerM: '0.79' } });
   if (!noApify) await PR.save('apify', { secret: 'apify_api_testtoken0123456789' }); await PR.save('serper', { secret: 'serper-test-key-0123456789' });
   const site = await SI.create(pid, { name: 'Tech Blog', apiUrl: wp.url, username: 'editor', password: 'abcd efgh ijkl mnop' }); assert.equal((await SI.test(site.id)).ok, true);
   await N.createSource(pid, { name: 'Outlet A', kind: 'rss', url: 'https://a.example/feed', reliability: 80 }); await N.createSource(pid, { name: 'Outlet B', kind: 'rss', url: 'https://b.example/feed', reliability: 70 });
@@ -310,6 +311,40 @@ test('a wait for a BUDGET ends the moment the owner raises or removes it (the cy
   await run(w, plus(D0, 3)); assert.equal((await PL.openRun(pid)).status, 'waiting', 'still waiting while the budget is full'); assert.equal(wp.posts.size, 0);
   await S.set('budget', { dailyTotalUsd: null, monthlyTotalUsd: null }, { scope: 'global' }); await run(w, plus(D0, 6));
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-4))); assert.equal(wp.posts.size, 1); assert.ok(d.trail.some((t) => /Bütçe artık uygun/.test(t.text)));
+});
+
+test('the focus keyword is ABOUT the headline: it is built from the headline\'s names ("california openai"), the Google suggestions are asked for that phrase, and a suggestion that shares only one name ("california pizza kitchen") never wins', opts, async () => {
+  assert.equal(PL.namePhrase('Google unveils Gemini 4 Hydrogen, its new AI model built for speed'), 'google gemini 4 hydrogen'); assert.equal(PL.namePhrase('California sues OpenAI over model security, public safety'), 'california openai');
+  assert.equal(PL.namePhrase('WhatsApp scheduled messages feature rolling out for chats and groups'), null, 'one name is not a phrase'); assert.equal(PL.namePhrase('Staples Canada Data Breach: What Customers Should Know'), 'staples canada');
+  const items = [['California sues OpenAI over ChatGPT model security', 1], ['Windows 11 KB5132057 update causes problems for some users', 3]];
+  const w = await world({ items, suggest: { '*': ['california pizza kitchen menu', 'california pizza kitchen near me', 'california openai lawsuit what to know'] } }); const { pid } = w; await turnOn(pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-4)));
+  const fk = (await q1('SELECT focus_keyword FROM articles')).focus_keyword; assert.ok(/openai/.test(fk) && /california/.test(fk) && !/pizza/.test(fk), `focus keyword: "${fk}"`);
+  assert.ok(w.serper.calls.some((c) => /autocomplete$/.test(c.url) && /california openai/.test(c.body.q)), 'the suggestions were asked for the headline\'s phrase: ' + JSON.stringify(w.serper.calls.filter((c) => /autocomplete$/.test(c.url)).map((c) => c.body.q)));
+});
+
+test('the cover picture\'s alt text always holds the focus keyword (a stock photo\'s own tags do not)', opts, async () => {
+  const WR = require('../../src/content/services/writer');
+  assert.equal(WR.altWithKeyword('Photo of coffee, winter, cafe', 'google gemini 4 hydrogen'), 'Google gemini 4 hydrogen: Photo of coffee, winter, cafe');
+  assert.equal(WR.altWithKeyword('A desk with the google gemini 4 hydrogen model on a screen', 'google gemini 4 hydrogen'), 'A desk with the google gemini 4 hydrogen model on a screen', 'already holds it');
+  assert.ok(WR.altWithKeyword('x'.repeat(300), 'staples canada').length <= 125);
+});
+
+test('Groq instead of Claude and OpenAI (owner: no credit for them): with ONLY a Groq key the line writes, checks, fixes and publishes - the one vendor does every job', opts, async () => {
+  const w = await world({ onlyGroq: true }); const { pid } = w; const pre = await PL.prerequisites(pid); assert.equal(pre.ok, true, JSON.stringify(pre.items.map((i) => [i.key, i.ok])));
+  await turnOn(pid); await run(w, D0); const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-4))); assert.equal(wp.posts.size, 1);
+  assert.ok(w.m.calls.length >= 3 && w.m.calls.every((c) => !c.vendor || c.vendor === 'groq' || c.role === 'models'), `every model call went to Groq: ${[...new Set(w.m.calls.map((c) => c.vendor))]}`);
+  const a = await q1('SELECT generation FROM articles'); assert.equal(a.generation.provider, 'groq'); assert.equal(a.generation.independentChecker, false, 'one vendor: the check is not independent (said in the record)');
+});
+
+test('a vendor whose credit ran out is skipped by "Otomatik" for 3 hours: the line does not keep choosing a service the owner cannot fund, it goes on with the next ready one', opts, async () => {
+  const w = await world(); const { pid } = w; await PR.save('groq', { secret: 'gsk_testkey0123456789abcdef0123' });
+  w.m.st.fail.anthropic = { status: 400, type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API' };
+  await turnOn(pid); await run(w, D0); const r1 = await PL.openRun(pid); assert.equal(r1.status, 'stopped', r1.note); assert.match(r1.note, /kredisi\/bakiyesi yetersiz/);
+  const av = await require('../../src/content/services/llm').available({ now: plus(D0, 5) }); assert.equal(av.find((x) => x.key === 'anthropic').ready, false); assert.match(av.find((x) => x.key === 'anthropic').reason, /Kredisi/);
+  await run(w, plus(D0, 40)); const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-4))); assert.equal(wp.posts.size, 1);
+  assert.notEqual((await q1('SELECT generation FROM articles')).generation.provider, 'anthropic', 'the dry vendor did not write');
+  assert.equal((await require('../../src/content/services/llm').available({ now: new Date(Date.now() + 4 * 3600e3) })).find((x) => x.key === 'anthropic').ready, true, 'after 3 hours it is tried again (the usage rows carry the database clock)');
 });
 
 test('migration 0029 gives up a cycle that was waiting for Apify (nothing to wait for any more) and leaves every other waiting cycle alone; the next tick starts a fresh one', opts, async () => {

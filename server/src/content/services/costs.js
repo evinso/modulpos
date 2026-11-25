@@ -10,7 +10,7 @@ const settings = require('./settings');
  * the blind comparison and by reading the drafts, not by this page).
  */
 const MICROS = 1e6;
-const LLM = ['openai', 'anthropic', 'gemini'];
+const LLM = ['openai', 'anthropic', 'gemini', 'groq'];
 const usd = (v) => `$${Number(v).toFixed(2)}`;
 
 async function analysis({ days = 30, now = new Date(), tz = env().defaultTimezone } = {}) {

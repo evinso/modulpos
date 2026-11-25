@@ -49,6 +49,7 @@ function fakeModels() {
   const fetchImpl = async (url, o) => {
     const u = String(url); let vendor; let system; let user; let body;
     if (u === 'https://api.openai.com/v1/models') { calls.push({ vendor: 'openai', role: 'models', url: u }); return json(200, { object: 'list', data: st.openaiModels.map((id) => ({ id, object: 'model' })) }); }
+    if (u === 'https://api.groq.com/openai/v1/models') { calls.push({ vendor: 'groq', role: 'models', url: u }); return json(200, { object: 'list', data: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b', 'whisper-large-v3', 'llama-guard-4-12b'].map((id) => ({ id, object: 'model' })) }); }
     if (u === 'https://api.openai.com/v1/images/generations') {                                          // the cover picture, in OpenAI's documented shape (b64_json + usage)
       body = JSON.parse(o.body); calls.push({ vendor: 'openai', role: 'image', url: u, body, key: header(o.headers, 'authorization') });
       const f = st.fail.image; if (f) return json(f.status, { error: { message: f.message || 'failed', code: f.type } });
@@ -56,6 +57,7 @@ function fakeModels() {
     }
     if (u.startsWith('https://api.anthropic.com/v1/messages')) { vendor = 'anthropic'; body = JSON.parse(o.body); system = body.system; user = body.messages[0].content; }
     else if (u.startsWith('https://api.openai.com/v1/chat/completions')) { vendor = 'openai'; body = JSON.parse(o.body); system = body.messages[0].content; user = body.messages[1].content; }
+    else if (u.startsWith('https://api.groq.com/openai/v1/chat/completions')) { vendor = 'groq'; body = JSON.parse(o.body); system = body.messages[0].content; user = body.messages[1].content; }
     else if (u.includes('generativelanguage.googleapis.com') && u.includes(':generateContent')) { vendor = 'gemini'; body = JSON.parse(o.body); system = body.systemInstruction.parts[0].text; user = body.contents[0].parts[0].text; }
     else throw new Error(`unexpected model url ${u}`);
     const role = roleOf(system); calls.push({ vendor, role, url: u, system, user, body, headers: o.headers, key: header(o.headers, 'x-api-key') || header(o.headers, 'authorization') || header(o.headers, 'x-goog-api-key') });
@@ -67,7 +69,7 @@ function fakeModels() {
     const ov = st.override[role]; const a = ov !== undefined ? (typeof ov === 'function' ? ov(user, calls.length) : ov) : defaults[role](user);
     const text = typeof a === 'string' ? a : JSON.stringify(a); const fin = st.finish[role]; const { in: i, out: n } = st.tokens;
     if (vendor === 'anthropic') return json(200, { id: 'msg_1', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text }], stop_reason: fin || 'end_turn', stop_sequence: null, usage: { input_tokens: i, output_tokens: n } });
-    if (vendor === 'openai') return json(200, { id: 'c1', model: body.model, choices: [{ index: 0, message: { role: 'assistant', content: text, ...(fin === 'refusal' ? { refusal: 'no' } : {}) }, finish_reason: fin === 'length' ? 'length' : 'stop' }], usage: { prompt_tokens: i, completion_tokens: n, total_tokens: i + n } });
+    if (vendor === 'openai' || vendor === 'groq') return json(200, { id: 'c1', model: body.model, choices: [{ index: 0, message: { role: 'assistant', content: text, ...(fin === 'refusal' ? { refusal: 'no' } : {}) }, finish_reason: fin === 'length' ? 'length' : 'stop' }], usage: { prompt_tokens: i, completion_tokens: n, total_tokens: i + n } });
     return json(200, { candidates: [{ content: { role: 'model', parts: [{ text }] }, finishReason: fin === 'length' ? 'MAX_TOKENS' : fin === 'refusal' ? 'SAFETY' : 'STOP' }], usageMetadata: { promptTokenCount: i, candidatesTokenCount: n, totalTokenCount: i + n } });
   };
   return { fetchImpl, calls, st, defaults, byRole: (r) => calls.filter((c) => c.role === r) };

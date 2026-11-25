@@ -37,7 +37,7 @@ const GROUPS = {
       lengthPref: V.oneOf(v.lengthPref, 'Makale uzunluğu', ['short', 'standard', 'long'], { fallback: 'standard' }),
       tone: V.str(v.tone, 'Yazım tonu', { max: 300 }), language: V.str(v.language || 'en-US', 'Varsayılan dil', { required: true, max: 10 }),
       manualApprovalNewArticles: V.bool(v.manualApprovalNewArticles, 'Yeni makaleler için manuel yayın onayı', true),
-      writerProvider: V.oneOf(v.writerProvider, 'Makale yazarı', ['auto', 'anthropic', 'openai', 'gemini'], { fallback: 'auto' }), checkerProvider: V.oneOf(v.checkerProvider, 'Kontrol modeli', ['auto', 'anthropic', 'openai', 'gemini'], { fallback: 'auto' }),
+      writerProvider: V.oneOf(v.writerProvider, 'Makale yazarı', ['auto', 'anthropic', 'openai', 'gemini', 'groq'], { fallback: 'auto' }), checkerProvider: V.oneOf(v.checkerProvider, 'Kontrol modeli', ['auto', 'anthropic', 'openai', 'gemini', 'groq'], { fallback: 'auto' }),
     }),
   },
   publishing: {
