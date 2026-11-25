@@ -267,6 +267,37 @@ test('Rank Math\'s mechanical tests are put right in code: a 91-character link i
   assert.ok(CK.ruleReport({ ...base, slug: 'x'.repeat(91), seoTitle: 'a' }).items.some((i) => i.key === 'slug_length'));
 });
 
+const SN = require('../../src/content/services/sensitive');
+
+test('Sensitive Content Bot: it finds a data breach, ransomware, personal data in the text, a scam, minors, health data; says what and where; plain text gives nothing', opts, async () => {
+  const t = SN.scanText('Hackers stole customer records in a data breach at the retailer. The ransomware gang sent a ransom note and demanded a payment. Call 555-123-4567 or write john@example.com. Children data was exposed in the leak. Patients were told to watch for phishing. A quiet paragraph about camera batteries.');
+  const kinds = t.map((x) => x.kind); for (const k of ['data_breach', 'ransomware', 'personal_data', 'minors', 'health', 'phishing_scam']) assert.ok(kinds.includes(k), `${k} found in ${kinds}`);
+  assert.equal(t[0].severity, 'high', 'the serious ones come first'); assert.match(t.find((x) => x.kind === 'ransomware').snippet, /ransom/i); assert.ok(t.find((x) => x.kind === 'personal_data').what.includes('e-posta adresi'));
+  assert.deepEqual(SN.scanText('A plain article about a new phone camera, its battery life and the price. Nothing risky is said here.'), []); assert.equal(SN.scanText('Card 4111 1111 1111 1111 was shown').find((x) => x.kind === 'personal_data').count, 1, 'a card-shaped number that passes the check digit test');
+  assert.deepEqual(SN.scanText('Order number 1234 5678 9012 3456 was shipped'), [], 'a long number that is not a card number is not personal data');
+});
+
+test('Sensitive Content Bot: one scan per text version, a new version is scanned again, the owner is told ONCE per kind (a quiet rescan says nothing), the editor list shows it as information that never blocks, and the scheduled bot finds unscanned articles', opts, async () => {
+  const w = await world(); const { pid } = w; await turnOn(pid); await run(w, D0); const aid = (await q1('SELECT id FROM articles')).id; await H.db().query('DELETE FROM sensitive_findings'); await H.db().query('DELETE FROM notifications');
+  const A = require('../../src/content/services/articles'); const db = H.db();
+  assert.equal((await SN.scanArticle(aid)).kinds.length, 0, 'the fake article is plain'); assert.equal((await SN.scanArticle(aid)).scanned, false, 'the same version is not scanned twice');
+  await db.query("UPDATE articles SET content_html = content_html || '<p>The retailer confirmed a ransomware attack and a data breach that exposed customer data.</p>', current_version = current_version + 1 WHERE id = $1", [aid]);
+  const r = await SN.scanArticle(aid); assert.equal(r.scanned, true); assert.deepEqual(r.notified.sort(), ['data_breach', 'ransomware']); assert.equal((await q("SELECT 1 FROM notifications WHERE type = 'sensitive_found'")).length, 1);
+  await db.query("UPDATE articles SET content_html = content_html || '<p>More words.</p>', current_version = current_version + 1 WHERE id = $1", [aid]); assert.deepEqual((await SN.scanArticle(aid)).notified, [], 'a rescan of the same kinds does not speak again'); assert.equal((await q("SELECT 1 FROM notifications WHERE type = 'sensitive_found'")).length, 1);
+  const ready = await A.readiness(aid); const info = ready.problems.find((p) => p.code === 'sensitive_info'); assert.ok(info && info.blocking === false && /Veri ihlali/.test(info.message) && /Fidye yazılımı/.test(info.message), JSON.stringify(ready.problems.map((p) => p.code)));
+  await db.query('DELETE FROM sensitive_findings'); const st = await SN.scanProject(pid); assert.deepEqual([st.scanned, st.withFindings], [1, 1]); assert.deepEqual(await SN.scanProject(pid), { scanned: 0, withFindings: 0, kinds: {} });
+  const job = await SC.runNow('sensitive_scanner', pid, { now: D0 }); assert.ok(job); await db.query('DELETE FROM sensitive_findings'); const done = await SC.workOnce({ now: D0, ctx: w.ctx }); assert.deepEqual([done.botKey, done.outcome], ['sensitive_scanner', 'done']);
+});
+
+test('the line still PUBLISHES an article with a sensitive detail (the bot only shows it): the finding is made before publishing, the cycle says so, the card gets a badge, the owner a notification', opts, async () => {
+  const w = await world(); const { pid } = w; await turnOn(pid);
+  w.m.st.override.write = (user) => { const base = w.m.defaults.write(user); base.contentHtml += '<h2>What the company said</h2><p>The company confirmed a ransomware attack and a data breach that exposed customer records, and said an investigation is under way.</p>'; return base; };
+  await run(w, D0); const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-4))); assert.equal(wp.posts.size, 1, 'published all the same');
+  assert.ok(d.trail.some((t) => /Sensitive Content Bot: .*Fidye yazılımı.* bulundu \(yayını engellemez\)/.test(t.text)), JSON.stringify(d.trail.map((t) => t.text)));
+  const f = await q1('SELECT kinds, severity FROM sensitive_findings'); assert.ok(f.kinds.some((k) => k.kind === 'ransomware') && f.kinds.some((k) => k.kind === 'data_breach')); assert.equal((await q("SELECT 1 FROM notifications WHERE type = 'sensitive_found'")).length, 1);
+  const ov = await PL.overview(pid); assert.ok(ov.recent[0].sensitive.includes('Fidye yazılımı') && ov.recent[0].sensitive.includes('Veri ihlali'), JSON.stringify(ov.recent[0]));
+});
+
 test('migration 0027 raises the saved minimum length to 1200 words and never lowers a higher one', opts, async () => {
   const pid = (await P.seedDefault()).projectId; const db = H.db();
   const sql = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../src/content/migrations/0027_min_words_1200.sql'), 'utf8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');

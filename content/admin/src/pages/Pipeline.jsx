@@ -194,7 +194,7 @@ export default function Pipeline() {
             <Card title="Son sonuçlar">
               {d.recent.length === 0 ? <Empty title="Henüz tamamlanan döngü yok" /> : (
                 <div className="tbl-wrap"><table className="tbl" aria-label="Son sonuçlar"><thead><tr><th>Makale</th><th>Kategori</th><th className="num">Fikir</th><th className="num">Süre</th><th className="num">Harcama</th></tr></thead>
-                  <tbody>{d.recent.map((r) => <tr key={r.id}><td>{r.status === 'cancelled' ? <span className="faint">bırakıldı</span> : (r.url ? <a href={r.url} target="_blank" rel="noreferrer">{r.title}</a> : r.title)}</td><td className="faint">{r.categoryName || '—'}</td><td className="num">{r.attempts}</td><td className="num">{r.seconds ? span(r.seconds) : '—'}</td><td className="num">{r.costUsd ? usd(r.costUsd, 4) : '—'}{r.unknownCost ? ` +${r.unknownCost}?` : ''}</td></tr>)}</tbody></table></div>
+                  <tbody>{d.recent.map((r) => <tr key={r.id}><td>{r.status === 'cancelled' ? <span className="faint">bırakıldı</span> : (r.url ? <a href={r.url} target="_blank" rel="noreferrer">{r.title}</a> : r.title)}{r.sensitive && r.sensitive.length > 0 && <small style={{ display: 'block' }}><Badge kind="warn">Hassas konu</Badge> <span className="faint">{r.sensitive.join(', ')} (Sensitive Content Bot; yayını engellemedi)</span></small>}</td><td className="faint">{r.categoryName || '—'}</td><td className="num">{r.attempts}</td><td className="num">{r.seconds ? span(r.seconds) : '—'}</td><td className="num">{r.costUsd ? usd(r.costUsd, 4) : '—'}{r.unknownCost ? ` +${r.unknownCost}?` : ''}</td></tr>)}</tbody></table></div>
               )}
             </Card>
           </div>

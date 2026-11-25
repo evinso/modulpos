@@ -148,7 +148,7 @@ ok('cost tiles say "Bilinmiyor" never an invented number when empty (no calls ye
 
 // ── bots, settings, logs, notifications ───────────────────────────────────────────────────────────
 await goTab('Botlar', 500);
-ok('17 bots (the 16 of the specification + the AdSense fix bot of the production line): every bot is ready now and shows its real last runs; none is "coming in a later phase"', $$('tbody tr').length === 17 && txt().includes('17 / 17 bot hazır') && !/Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
+ok('18 bots (the 16 of the specification + the AdSense fix bot of the production line + the Sensitive Content Bot): every bot is ready now and shows its real last runs; none is "coming in a later phase"', $$('tbody tr').length === 18 && txt().includes('18 / 18 bot hazır') && !/Aşama \d’te gelecek/.test(txt()) && txt().includes('Otomatik: 2 saatte bir') && txt().includes('Otomatik kapalı; elle çalıştırılır') && txt().includes('bu sunucuda kapalı'));
 await goTab('Ayarlar', 500);
 ok('the Ayarlar tab keeps no second copy of what the flow card edits (no "Birikim temizliği" card, no fresh-news field) and still has the other groups', !$$('section.card h2').find((h) => h.textContent === 'Birikim temizliği') && !txt().includes('Taze haber penceresi') && !!$$('section.card h2').find((h) => h.textContent === 'SEO araştırması') && !!$$('section.card h2').find((h) => h.textContent === 'Platform bütçesi'));
 ok('automation settings load; the three mandatory checks are locked', txt().includes('Kalite ve zorunlu kontroller') && $$('.badge').filter((b) => b.textContent === 'kilitli').length === 3);
@@ -356,7 +356,7 @@ ok('the writer page lists the vendors (who writes, who checks) and the history o
 
 // ── PHASE 4: bot management, schedule editor, persistent queue ───────────────────────────────────────────────────────────
 await goTab('Botlar', 700);
-ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 14);
+ok('the bots page shows the schedule of each bot, that paid bots start off, and the scheduler state', txt().includes('kalıcı görev kuyruğu') && txt().includes('Otomatik: 2 saatte bir') && txt().includes('para harcar') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 15);
 // "Tüm botları tetikle": one click, a question that names the order and the bots that can spend, then one queued job per step in dependency order
 const maxJob = (await q1('SELECT coalesce(max(id), 0)::int n FROM jobs')).n;
 await click(btn('Tüm botları tetikle'), 600);
@@ -365,9 +365,9 @@ await click(btn('Vazgeç', $('.modal')), 400);
 ok('declining queues nothing', (await q1('SELECT count(*)::int n FROM jobs WHERE id > $1', [maxJob])).n === 0);
 await click(btn('Tüm botları tetikle'), 600); await click(btn('Hepsini başlat', $('.modal')), 1300);
 const ranOrder = (await S.db.query('SELECT bot_key, trigger FROM jobs WHERE id > $1 ORDER BY id', [maxJob])).rows;
-ok('confirming queues ONE job per step in the order the work depends on itself, all as a person\'s click, and the page lists the steps in that order', ranOrder.length === 15 && ranOrder.every((r) => r.trigger === 'manual') && ranOrder[0].bot_key === 'news_discovery' && ranOrder[1].bot_key === 'content_opportunity' && ranOrder.findIndex((r) => r.bot_key === 'article_writer') < ranOrder.findIndex((r) => r.bot_key === 'article_fixer') && ranOrder[14].bot_key === 'reporting' && txt().includes('15 adım sıraya alındı') && txt().indexOf('Haber kaynakları taranır') < txt().indexOf('Uygun fikirlerden makale yazılır') && txt().indexOf('Uygun fikirlerden makale yazılır') < txt().indexOf('Günlük/haftalık rapor hazırlanır'));
+ok('confirming queues ONE job per step in the order the work depends on itself, all as a person\'s click, and the page lists the steps in that order', ranOrder.length === 16 && ranOrder.every((r) => r.trigger === 'manual') && ranOrder[0].bot_key === 'news_discovery' && ranOrder[1].bot_key === 'content_opportunity' && ranOrder.findIndex((r) => r.bot_key === 'article_writer') < ranOrder.findIndex((r) => r.bot_key === 'article_fixer') && ranOrder[15].bot_key === 'reporting' && txt().includes('16 adım sıraya alındı') && txt().indexOf('Haber kaynakları taranır') < txt().indexOf('Uygun fikirlerden makale yazılır') && txt().indexOf('Uygun fikirlerden makale yazılır') < txt().indexOf('Günlük/haftalık rapor hazırlanır'));
 await click(btn('Tüm botları tetikle'), 600); await click(btn('Hepsini başlat', $('.modal')), 1300);
-ok('a second click adds nothing that is still waiting and says so', (await q1('SELECT count(*)::int n FROM jobs WHERE id > $1', [maxJob])).n === 15 && txt().includes('Hepsi zaten sırada'));
+ok('a second click adds nothing that is still waiting and says so', (await q1('SELECT count(*)::int n FROM jobs WHERE id > $1', [maxJob])).n === 16 && txt().includes('Hepsi zaten sırada'));
 await S.db.query('DELETE FROM jobs WHERE id > $1', [maxJob]);                     // the later scenarios start from the queue they know
 const wrow = $$('tbody tr').find((r) => r.textContent.includes('AI Article Writer'));
 await click($$('button', wrow).find((b) => b.textContent.includes('Zamanlama')), 500);
@@ -451,7 +451,7 @@ ok('the places of the days were taken by the scheduled posts (the limit of each 
 await click(nav('İçerik Takvimi'), 800);
 ok('the calendar shows the scheduled posts on their days with their state', txt().includes('E2E router guide 0') && txt().includes('Zamanlandı') && txt().includes('3 yayın') || (txt().includes('E2E router guide 0') && txt().includes('Zamanlandı')));
 await goTab('Botlar', 700);
-ok('the WordPress bot is listed (auto-publish is off by default)', txt().includes('Content Publishing Bot') && txt().includes('Otomatik kapalı; elle çalıştırılır') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 14);
+ok('the WordPress bot is listed (auto-publish is off by default)', txt().includes('Content Publishing Bot') && txt().includes('Otomatik kapalı; elle çalıştırılır') && $$('button').filter((b) => b.textContent.includes('Şimdi çalıştır')).length === 15);
 void made;
 
 // ── PHASE 6a: content health, update drafts (refresh engine), version comparison ────────────────────────────────────────────────────
@@ -682,7 +682,7 @@ await openGeneral(900);
 ok('the page shows the current mode, three mode cards, the 17 options in 4 groups, the values and the checklist', txt().includes('Şu anki mod:') && ['Elle', 'Yarı otomatik', 'Tam otomatik'].every((m) => !!btn(`${m} modunu uygula`) || txt().includes(m)) && $$('label.check').length >= 17 + 1 && ['Araştırma', 'Yazım ve onay', 'Yayın', 'Bakım, izleme ve raporlar'].every((g) => txt().includes(g)) && txt().includes('Günlük yeni makale') && txt().includes('Başlamadan önce kontrol listesi'));
 ok('Otomasyon ve Ayarlar is ONE page: tabs Otomatik Üretim, Gelişmiş modlar, Botlar, Görev kuyruğu, Günlük limitler, Ayarlar and (admin) Kullanıcılar, Sistem; "Gelişmiş modlar" is the one open here', JSON.stringify($$('button.tab').map((b) => b.textContent)) === JSON.stringify(['Otomatik Üretim', 'Gelişmiş modlar', 'Botlar', 'Görev kuyruğu', 'Günlük limitler', 'Ayarlar', 'Kullanıcılar', 'Sistem']) && tab('Gelişmiş modlar').getAttribute('aria-selected') === 'true');
 const liveRows = () => $$('table[aria-label="Botların anlık durumu"] tbody tr');
-ok('the "Anlık durum" card lists all 14 bots with a state each, the day\'s numbers and the honest note that no scheduler runs on this test server', !!$$('section.card h2').find((h) => h.textContent === 'Anlık durum') && liveRows().length === 14 && liveRows().every((r) => /Çalışıyor|Sırada|Yeniden denenecek|Bekliyor|Duraklatıldı|Hatalar nedeniyle durdu|Kapalı/.test(r.textContent)) && txt().includes('Bugün yazılan') && txt().includes('Zamanlayıcı bu sunucuda çalışmıyor') && txt().includes('● canlı'));
+ok('the "Anlık durum" card lists all 15 bots with a state each, the day\'s numbers and the honest note that no scheduler runs on this test server', !!$$('section.card h2').find((h) => h.textContent === 'Anlık durum') && liveRows().length === 15 && liveRows().every((r) => /Çalışıyor|Sırada|Yeniden denenecek|Bekliyor|Duraklatıldı|Hatalar nedeniyle durdu|Kapalı/.test(r.textContent)) && txt().includes('Bugün yazılan') && txt().includes('Zamanlayıcı bu sunucuda çalışmıyor') && txt().includes('● canlı'));
 const pid0 = (await q1('SELECT id FROM content_projects ORDER BY created_at LIMIT 1')).id;
 await S.db.query("INSERT INTO jobs (bot_key, project_id, payload, trigger, dedupe_key, status, started_at, locked_by, locked_until, attempts) VALUES ('news_discovery', $1, '{}', 'schedule', 'e2e-live-1', 'running', now() - interval '42 seconds', 'e2e', now() + interval '10 minutes', 1)", [pid0]);
 await S.db.query("INSERT INTO jobs (bot_key, project_id, payload, trigger, dedupe_key, status, started_at, finished_at, last_error, attempts, max_attempts) VALUES ('seo_performance', $1, '{}', 'schedule', 'e2e-live-2', 'failed', now() - interval '20 seconds', now() - interval '10 seconds', 'Search Console anahtarı reddedildi', 1, 1)", [pid0]);

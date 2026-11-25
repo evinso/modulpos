@@ -149,7 +149,7 @@ const botOf = (l, k) => l.bots.find((b) => b.key === k);
 test('live: what works right now and on what, what waits, what is off or stopped and why, what finished lately - read only, nothing invented', opts, async () => {
   const pid = await setup(); await SC.updateSchedule('article_writer', { enabled: true, windowStart: '09:00', windowEnd: '23:00' }); void NOWL;
   let l = await LV.live(pid, { now: NOWL });
-  assert.equal(l.bots.length, 14); assert.deepEqual([l.summary.running, l.summary.queued], [0, 0]); assert.equal(l.paused, false);
+  assert.equal(l.bots.length, 15); assert.deepEqual([l.summary.running, l.summary.queued], [0, 0]); assert.equal(l.paused, false);
   assert.deepEqual([botOf(l, 'news_discovery').state, botOf(l, 'keyword_research').state, botOf(l, 'news_discovery').last], ['waiting', 'off', null], 'no run yet: no invented "last run"');
   assert.deepEqual(l.events, []); assert.deepEqual([l.pipeline.needsReview, l.pipeline.ready], [0, 0]); assert.deepEqual(l.today.articles, { done: 0, limit: 3 });
 

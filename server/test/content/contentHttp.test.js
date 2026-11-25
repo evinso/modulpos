@@ -206,13 +206,13 @@ test('dashboard: real numbers, organic traffic says why it has no data instead o
   const m = Object.fromEntries(d.metrics.map((x) => [x.key, x]));
   assert.equal(m.awaiting.value, 1); assert.deepEqual([m.news_found.available, m.news_found.value, m.keywords.value, m.seo_analyzed.value], [true, 0, 0, 0], 'phase 2 numbers are real counts now (nothing researched yet = a real 0)');
   assert.deepEqual(d.metrics.filter((x) => !x.available).length, 0); assert.equal(d.charts.organicTraffic.available, false); assert.match(d.charts.organicTraffic.note, /Henüz bağlı bir web sitesi yok/); assert.equal('phase' in d.charts.organicTraffic, false, 'no phase wording: the reason is stated instead');
-  assert.equal(m.cost_today.value, 0); assert.equal(m.active_bots.value, 17); assert.match(m.active_bots.note, /17’i hazır; 7’i otomatik çalışıyor/);
+  assert.equal(m.cost_today.value, 0); assert.equal(m.active_bots.value, 18); assert.match(m.active_bots.note, /18’i hazır; 8’i otomatik çalışıyor/);
   assert.equal(d.charts.dailyProduction.length, 14); assert.equal(d.charts.dailyProduction.at(-1).value, 1); assert.equal(d.charts.categoryShare.length, 5);
   assert.equal(d.empty, false); assert.equal(d.charts.seoOpportunities.available, true); assert.equal(d.charts.searchVolume.buckets.length, 4);
   assert.equal(d.limitsToday.find((x) => x.workType === 'new_article').limit, 3);
   assert.equal((await c.get('/dashboard?projectId=00000000-0000-0000-0000-000000000001')).status, 404);
   const bots = (await c.get('/bots')).json;
-  assert.equal(bots.items.length, 17); assert.equal(bots.items.filter((b) => b.implemented).length, 17, 'the six phase-2 bots, the three phase-3 bots, the WordPress bot, the four phase-6 bots (health, refresh, Search Console, internal links), the reporting bot and the article fixer exist: all 16'); assert.ok(bots.items.every((b) => b.lastRunAt === null), 'none has run yet: no invented last-run data');
+  assert.equal(bots.items.length, 18); assert.equal(bots.items.filter((b) => b.implemented).length, 18, 'the six phase-2 bots, the three phase-3 bots, the WordPress bot, the four phase-6 bots (health, refresh, Search Console, internal links), the reporting bot and the article fixer exist: all 16'); assert.ok(bots.items.every((b) => b.lastRunAt === null), 'none has run yet: no invented last-run data');
   assert.match(bots.items[0].statusText, /Otomatik: 2 saatte bir/); assert.match(bots.items.find((b) => b.key === 'article_writer').statusText, /Otomatik kapalı; elle çalıştırılır/, 'bots that spend money start switched off'); assert.equal(bots.items.filter((b) => !b.implemented).length, 0, 'no bot is "coming in a later phase" any more');
 });
 
@@ -267,7 +267,7 @@ test('automation mode through HTTP: everybody signed in can read it, only the ad
   assert.equal((await admin.put('/automation', { projectId: project.id, mode: 'custom', options: { writer: true } })).status, 409, 'no model connected: refused with the reason');
   const bad = await admin.put('/automation', { projectId: project.id, mode: 'custom', options: { news: 'ja' } }); assert.equal(bad.status, 400);
   const on = await admin.put('/automation', { projectId: project.id, mode: 'custom', options: { news: true, opportunities: true } }); assert.equal(on.status, 200); assert.equal(on.json.options.find((x) => x.key === 'news').on, true);
-  const lv = await viewer.get(`/automation/live?projectId=${project.id}`); assert.equal(lv.status, 200); assert.equal(lv.json.bots.length, 14); assert.deepEqual([lv.json.summary.running, lv.json.paused], [0, false]); assert.ok(lv.json.bots.some((b) => b.key === 'news_discovery' && b.state === 'waiting'));
+  const lv = await viewer.get(`/automation/live?projectId=${project.id}`); assert.equal(lv.status, 200); assert.equal(lv.json.bots.length, 15); assert.deepEqual([lv.json.summary.running, lv.json.paused], [0, false]); assert.ok(lv.json.bots.some((b) => b.key === 'news_discovery' && b.state === 'waiting'));
   assert.equal((await viewer.get('/automation/live')).status, 400); assert.equal((await viewer.get('/automation/live?projectId=00000000-0000-0000-0000-000000000001')).status, 404); assert.equal((await client().get(`/automation/live?projectId=${project.id}`)).status, 401, 'signed-in users only');
   const audit = (await admin.get('/audit?action=automation')).json.items; assert.ok(audit.length >= 2); assert.equal(audit[0].action, 'automation.apply');
 });
@@ -347,12 +347,12 @@ test('"run all bots" through HTTP: only the admin (bots.control) can click it, i
   assert.equal((await viewer.post('/bots/run-all', { projectId: pid })).status, 403);
   assert.equal((await admin.post('/bots/run-all', {})).status, 400, 'the project is needed');
   const r = await admin.post('/bots/run-all', { projectId: pid }); assert.equal(r.status, 202, r.text);
-  assert.deepEqual([r.json.steps.length, r.json.queued, r.json.alreadyActive], [15, 15, 0]);
+  assert.deepEqual([r.json.steps.length, r.json.queued, r.json.alreadyActive], [16, 16, 0]);
   assert.deepEqual(r.json.steps.slice(0, 2).map((x) => x.bot), ['news_discovery', 'content_opportunity']); assert.equal(r.json.steps[r.json.steps.length - 1].bot, 'reporting');
   assert.ok(r.json.steps.every((x) => x.label && x.what && typeof x.spends === 'boolean' && x.jobId));
-  const again = await admin.post('/bots/run-all', { projectId: pid }); assert.deepEqual([again.json.queued, again.json.alreadyActive], [0, 15]);
+  const again = await admin.post('/bots/run-all', { projectId: pid }); assert.deepEqual([again.json.queued, again.json.alreadyActive], [0, 16]);
   assert.equal((await H.db().query("SELECT count(*)::int n FROM audit_logs WHERE action = 'bots.run_all'")).rows[0].n, 2);
-  const list = await viewer.get('/jobs?status=queued'); assert.equal(list.json.jobs.length, 15, 'everybody can see what is waiting');
+  const list = await viewer.get('/jobs?status=queued'); assert.equal(list.json.jobs.length, 16, 'everybody can see what is waiting');
 });
 
 test('"AdSense uyarısını kabul et" through HTTP: editors and admins only, a refused class is a 409 with the reason, the list says which articles are live', opts, async () => {
