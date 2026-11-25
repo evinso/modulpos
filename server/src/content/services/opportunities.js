@@ -90,7 +90,7 @@ async function createTopics(projectId, { days = 7, limit = 60, generateKeywords 
  */
 /** the lane judges a young event on three of the five parts (trend, niche fit, source trust): a milder bar than the full 70, because 55% of the weight (volume, competition) is exactly what news does not have yet */
 const FRESH_MIN = 60;
-async function scoreMany(projectId, topics, { weights, now, minRelevance, partialWithApproval = false, freshHours = 0 }) {
+async function scoreMany(projectId, topics, { weights, now, minRelevance, partialWithApproval = false, freshHours = 0, optionalDemand = false }) {
   if (!topics.length) return [];
   const clusterIds = topics.map((t) => t.cluster_id).filter(Boolean); const topicIds = topics.map((t) => t.id);
   const cl = new Map((await db.query(`SELECT c.id, c.source_count, c.relevance, c.reliability, c.status, c.last_seen_at,
@@ -115,14 +115,16 @@ async function scoreMany(projectId, topics, { weights, now, minRelevance, partia
     // history yet, so waiting for a volume number or a SERP analysis would let it go stale. No approval step; the same minimum score and the same mandatory checks apply.
     const ageH = c ? (now.getTime() - new Date(c.last_seen_at).getTime()) / 3600000 : Infinity;
     const laneBase = freshHours > 0 && !!c && ageH <= freshHours && (cluster.sourceCount >= 2 || cluster.reliability >= 85);
-    const candidate = !best && (partialWithApproval || laneBase) && kws.length ? (kws.find((k) => k.serp_competition !== null && k.serp_competition !== undefined) || [...kws].sort((a, b) => b.keyword.split(' ').length - a.keyword.split(' ').length)[0]) : null;
+    const candidate = !best && (partialWithApproval || laneBase || optionalDemand) && kws.length ? (kws.find((k) => k.serp_competition !== null && k.serp_competition !== undefined) || [...kws].sort((a, b) => b.keyword.split(' ').length - a.keyword.split(' ').length)[0]) : null;
     const target = best || candidate;
     const metrics = best ? { found: true, searchVolume: best.search_volume, trendPct: best.trend_pct === null ? null : Number(best.trend_pct) } : (kws[0] && kws[0].found === false ? { found: false } : null);
     const comps = components({ cluster, metrics, serp: target ? { competition: target.serp_competition } : null, now });
     const { total, provisional, missing } = combine(comps, weights);
     const own1 = catMin.get(t.category_id); const minScore = own1 !== null && own1 !== undefined ? own1 : (niche ? niche.min_opportunity_score : 70);
     const lane = laneBase && !!target && missing.every((m) => m === 'demand' || m === 'competition');
-    const partial = !lane && !best && !!candidate && missing.length === 1 && missing[0] === 'demand';       // every part but the search volume is real
+    // the production line never needs a volume number (owner: Apify is never mandatory): an idea without one is judged on the parts that ARE real, with the same milder bar as the news lane
+    const noVolume = optionalDemand && !lane && !best && !!target && missing.every((m) => m === 'demand' || m === 'competition');
+    const partial = !lane && !noVolume && !best && !!candidate && missing.length === 1 && missing[0] === 'demand';       // every part but the search volume is real
     let reason = '';
     if (t.status === 'rejected') reason = 'Reddedildi';
     else if (cluster.status === 'excluded') reason = 'Kapsam dışı konu';
@@ -130,6 +132,7 @@ async function scoreMany(projectId, topics, { weights, now, minRelevance, partia
     else if (!kws.length) reason = 'Henüz anahtar kelime yok';
     else if (!target) reason = kws.every((k) => k.found === null) ? 'Anahtar kelime verisi henüz çekilmedi' : 'Hiçbir anahtar kelime için veri bulunamadı';
     else if (lane) { if (provisional < Math.min(minScore, FRESH_MIN)) reason = `Taze haber puanı ${provisional}, en az ${Math.min(minScore, FRESH_MIN)} gerekli`; }
+    else if (noVolume) { if (provisional < Math.min(minScore, FRESH_MIN)) reason = `Hacim verisi olmadan puan ${provisional}, en az ${Math.min(minScore, FRESH_MIN)} gerekli`; }
     else if (candidate && missing.includes('competition')) reason = 'SERP analizi yapılmadı: “SERP” düğmesiyle bu fikrin organik rekabetini ölçün';
     else if (partial) {
       if (approval.get(t.id) !== 'shortlisted') reason = 'Aranma hacmi verisi yok: kısmi puanla üretime almak için fikri “Kısa liste”ye alın (onay sizin)';
@@ -141,7 +144,7 @@ async function scoreMany(projectId, topics, { weights, now, minRelevance, partia
     const eligible = reason === '';
     out.push({ eligible, total, partial });
     rows.push({ topic_id: t.id, category_id: t.category_id, keyword_id: target ? target.id : null, title: t.title, trend: comps.trend.score, competition: comps.competition.score, demand: comps.demand.score, relevance: comps.relevance.score, source: comps.source.score, total, provisional, eligible, reason,
-      explain: { components: comps, missing, minScore, keyword: target ? target.keyword : null, keywordsTried: kws.length, partial: partial || lane, lane, note: lane ? `TAZE HABER HATTI: olay ${Math.round(ageH)} saat önce son görüldü, ${cluster.sourceCount} kaynak; haberde zaman önemli olduğu için aranma hacmi / rekabet verisi beklenmedi. Puan yalnızca eldeki bileşenlerden (trend, nişe uygunluk, kaynak güveni${comps.competition.score === null ? '' : ', rekabet'}) hesaplandı; aynı en düşük puan ve aynı zorunlu kontroller geçerli.` : partial ? 'KISMİ PUAN: aranma hacmi verisi olmadığı için yalnızca dört bileşenin (trend, rekabet fırsatı, nişe uygunluk, kaynak güveni) ağırlıklı ortalaması; toplam puan verilmedi. Üretime yalnızca sizin onayınızla (Kısa liste) girer.' : total === null ? 'Tüm bileşenler gerçek veriye dayanmadığı için toplam puan verilmedi; “geçici” puan yalnızca eldeki bileşenlerin ağırlıklı ortalamasıdır.' : '' } });
+      explain: { components: comps, missing, minScore, keyword: target ? target.keyword : null, keywordsTried: kws.length, partial: partial || lane || noVolume, lane, noVolume, note: lane ? `TAZE HABER HATTI: olay ${Math.round(ageH)} saat önce son görüldü, ${cluster.sourceCount} kaynak; haberde zaman önemli olduğu için aranma hacmi / rekabet verisi beklenmedi. Puan yalnızca eldeki bileşenlerden (trend, nişe uygunluk, kaynak güveni${comps.competition.score === null ? '' : ', rekabet'}) hesaplandı; aynı en düşük puan ve aynı zorunlu kontroller geçerli.` : partial ? 'KISMİ PUAN: aranma hacmi verisi olmadığı için yalnızca dört bileşenin (trend, rekabet fırsatı, nişe uygunluk, kaynak güveni) ağırlıklı ortalaması; toplam puan verilmedi. Üretime yalnızca sizin onayınızla (Kısa liste) girer.' : total === null ? 'Tüm bileşenler gerçek veriye dayanmadığı için toplam puan verilmedi; “geçici” puan yalnızca eldeki bileşenlerin ağırlıklı ortalamasıdır.' : '' } });
   }
   for (let i = 0; i < rows.length; i += 150) {
     await db.query(`INSERT INTO content_opportunities (project_id, topic_id, keyword_id, category_id, title, trend_score, competition_score, demand_score, relevance_score, source_score, total_score, provisional_score, eligible, ineligible_reason, weights, explain, computed_at, updated_at)
@@ -163,7 +166,8 @@ async function refresh(projectId, { now = new Date(), userId = null, trigger = '
     const seoCfg = (await settings.get('seo', projectId)).value; const partialWithApproval = seoCfg.partialWithApproval; const freshHours = seoCfg.freshHours || 0;
     const made = await createTopics(projectId, { generateKeywords, now });
     const open = (await db.query("SELECT * FROM topics WHERE project_id = $1 AND status IN ('new', 'rejected') ORDER BY created_at DESC LIMIT 2000", [projectId])).rows;
-    const res = await scoreMany(projectId, open, { weights, now, minRelevance: cfg.minRelevance, partialWithApproval, freshHours });
+    const optionalDemand = !!(await settings.get('pipeline', projectId)).value.enabled;
+    const res = await scoreMany(projectId, open, { weights, now, minRelevance: cfg.minRelevance, partialWithApproval, freshHours, optionalDemand });
     const stats = { topicsCreated: made.created, keywordsAdded: made.keywordsAdded, topics: open.length, scored: res.filter((r) => r.total !== null).length, partial: res.filter((r) => r.partial).length, eligible: res.filter((r) => r.eligible).length };
     await runs.finish(run.id, { status: 'ok', stats });
     return stats;
@@ -175,7 +179,7 @@ async function rescore(id, { now = new Date() } = {}) {
   const o = (await db.query('SELECT topic_id FROM content_opportunities WHERE id = $1', [id])).rows[0];
   if (!o) throw new HttpError(404, 'Fırsat bulunamadı');
   const t = (await db.query('SELECT * FROM topics WHERE id = $1', [o.topic_id])).rows[0];
-  await scoreMany(t.project_id, [t], { weights: (await settings.get('scoring', t.project_id)).value, now, minRelevance: (await settings.get('news', t.project_id)).value.minRelevance, partialWithApproval: (await settings.get('seo', t.project_id)).value.partialWithApproval, freshHours: (await settings.get('seo', t.project_id)).value.freshHours || 0 });
+  await scoreMany(t.project_id, [t], { weights: (await settings.get('scoring', t.project_id)).value, now, minRelevance: (await settings.get('news', t.project_id)).value.minRelevance, partialWithApproval: (await settings.get('seo', t.project_id)).value.partialWithApproval, freshHours: (await settings.get('seo', t.project_id)).value.freshHours || 0, optionalDemand: !!(await settings.get('pipeline', t.project_id)).value.enabled });
   return get(id);
 }
 
