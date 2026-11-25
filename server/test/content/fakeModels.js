@@ -22,7 +22,7 @@ const sectionHtml = (kw) => {
 
 /** a tiny valid-looking JPEG (recognised by its first bytes) for the picture tests */
 /** more sections for the tests of a minimum length (st.long): about 500 more words made of the same kind of own-words explanation */
-const EXTRA = (kw) => { const p = (i) => `<p>${ORIGINAL[i % ORIGINAL.length]}</p>`; return `<h2>Questions readers ask about ${kw}</h2>${p(0)}${p(2)}${p(4)}<h2>What to check before you decide</h2>${p(1)}${p(3)}${p(0)}<h2>How this fits the bigger picture</h2>${p(2)}${p(4)}${p(1)}<h2>A short checklist</h2>${p(3)}${p(0)}${p(2)}`; };
+const EXTRA = (kw) => { const p = (i) => `<p>${ORIGINAL[i % ORIGINAL.length]}</p>`; return `<h2>Questions readers ask about ${kw}</h2>${p(0)}${p(2)}${p(4)}<h2>What to check before you decide</h2>${p(1)}${p(3)}${p(0)}<h2>How this fits the bigger picture</h2>${p(2)}${p(4)}${p(1)}<h2>A short checklist</h2>${p(3)}${p(0)}${p(2)}<h2>What changes for different readers</h2>${p(4)}${p(1)}${p(3)}${p(0)}<h2>Common mistakes to avoid</h2>${p(0)}${p(2)}${p(4)}${p(1)}<h2>Where to read more</h2>${p(1)}${p(3)}${p(2)}${p(4)}`; };
 
 const PICTURE = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('JFIF fake cover picture '.repeat(60)), Buffer.from([0xff, 0xd9])]);
 const header = (h, n) => { if (!h) return undefined; if (typeof h.get === 'function') return h.get(n); const k = Object.keys(h).find((x) => x.toLowerCase() === n.toLowerCase()); return k ? h[k] : undefined; };
@@ -70,7 +70,7 @@ function fakeModels() {
     if (vendor === 'openai') return json(200, { id: 'c1', model: body.model, choices: [{ index: 0, message: { role: 'assistant', content: text, ...(fin === 'refusal' ? { refusal: 'no' } : {}) }, finish_reason: fin === 'length' ? 'length' : 'stop' }], usage: { prompt_tokens: i, completion_tokens: n, total_tokens: i + n } });
     return json(200, { candidates: [{ content: { role: 'model', parts: [{ text }] }, finishReason: fin === 'length' ? 'MAX_TOKENS' : fin === 'refusal' ? 'SAFETY' : 'STOP' }], usageMetadata: { promptTokenCount: i, candidatesTokenCount: n, totalTokenCount: i + n } });
   };
-  return { fetchImpl, calls, st, byRole: (r) => calls.filter((c) => c.role === r) };
+  return { fetchImpl, calls, st, defaults, byRole: (r) => calls.filter((c) => c.role === r) };
 }
 
 module.exports = { SRC, PAGE, ORIGINAL, sectionHtml, fakeModels, json, PICTURE };

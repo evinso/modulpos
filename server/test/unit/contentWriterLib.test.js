@@ -152,7 +152,7 @@ test('writer: a link the model made up never reaches the article (unwrapped, its
   assert.deepEqual(r.removed, ['https://made-up.example/x', 'mailto:a@b.c']); assert.ok(r.html.includes('a made up source') && !r.html.includes('made-up.example') && r.html.includes('rel="noopener"') && r.html.includes('OpenAI</a>'));
   const l = writer.limitLinks(html, srcs, related); assert.deepEqual(l.removed.length, 2); assert.ok(l.html.includes('https://techupdatebrief.com/chatgpt-plus-vs-free'));
   const sys = writer.SYSTEM({ siteName: 'Tech', niche: 'AI news', tone: 'Clear', language: 'en-US', length: 'standard', types: ['latest_update'] });
-  for (const re of [/SEARCH INTENT FIRST/, /FIRST paragraph/, /never skip a level/, /<h4> only inside an <h3>/, /2-4 sentences/, /EXACT URL from the sources/, /RELATED ARTICLES ON THIS SITE/, /focus keyword near the start/, /no ALL CAPS/, /No <h1>/]) assert.match(sys, re);
+  for (const re of [/SEARCH INTENT FIRST/, /FIRST paragraph/, /never skip a level/, /<h4> only inside an <h3>/, /2-4 sentences/, /EXACT URL from the sources/, /RELATED ARTICLES ON THIS SITE/, /STARTS with the focus keyword/, /no ALL CAPS/, /No <h1>/]) assert.match(sys, re);
   const user = writer.userPrompt({ title: 'T', keyword: 'chatgpt plus' }, [{ n: 1, url: 'https://openai.com/x', publisher: 'OpenAI', text: 'x', readOk: true }], ['a'], related);
   assert.match(user, /RELATED ARTICLES ON THIS SITE[^\n]*\n- Free vs Plus \| https:\/\/techupdatebrief\.com\/chatgpt-plus-vs-free\//); assert.match(writer.userPrompt({ title: 'T', keyword: 'k' }, [], []), /none yet/);
 });

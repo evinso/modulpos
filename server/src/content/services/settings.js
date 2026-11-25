@@ -59,11 +59,12 @@ const GROUPS = {
   },
   pipeline: {                                                    // the production line (services/pipeline.js): on/off and how often a new cycle starts
     projectOverride: true,
-    defaults: { enabled: false, everyMinutes: 1440, newsFallback: true, acceptSubjectWarning: true, minWords: 950, maxDrafts: 5 },
+    defaults: { enabled: false, everyMinutes: 1440, newsFallback: true, acceptSubjectWarning: true, minWords: 1200, maxDrafts: 5, adsenseCheck: false },
     validate: (v) => ({ enabled: V.bool(v.enabled, 'Otomatik üretim', false), everyMinutes: V.oneOf(Number(v.everyMinutes), 'Üretim sıklığı', [120, 180, 240, 360, 480, 720, 1440], { fallback: 1440 }),
       newsFallback: V.bool(v.newsFallback, 'Hacim verisi alınamazsa taze haber hattı', true), acceptSubjectWarning: V.bool(v.acceptSubjectWarning, 'Konu kaynaklı AdSense uyarısını hat kabul etsin', true),
-      minWords: V.int(v.minWords === undefined ? 950 : v.minWords, 'Makale en az kelime', { min: 300, max: 3000 }),
-      maxDrafts: V.int(v.maxDrafts === undefined ? 5 : v.maxDrafts, 'Bir fikir için en çok taslak', { min: 1, max: 10 }) }),
+      minWords: V.int(v.minWords === undefined ? 1200 : v.minWords, 'Makale en az kelime', { min: 300, max: 3000 }),
+      maxDrafts: V.int(v.maxDrafts === undefined ? 5 : v.maxDrafts, 'Bir fikir için en çok taslak', { min: 1, max: 10 }),
+      adsenseCheck: V.bool(v.adsenseCheck, 'AdSense kontrolü yayını engellesin', false) }),
   },
   retention: {                                                  // how long found-but-unused research stays: nothing piles up for ever (see services/cleanup.js)
     projectOverride: true,

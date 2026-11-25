@@ -47,7 +47,7 @@ const BOT = 'daily_pipeline';
 const STEPS = ['idea', 'keyword', 'serp', 'check', 'write', 'fix', 'publish', 'cleanup'];
 const LABEL = {
   idea: 'Fikir bulunuyor', keyword: 'Anahtar kelime araştırması', serp: 'SERP rekabet analizi (isteğe bağlı)', check: 'Uygunluk kontrolü', write: 'Makale yazılıyor ve zorunlu kontroller yapılıyor',
-  fix: 'AdSense Düzeltme Botu: eksikler giderilip onaylanıyor', publish: 'WordPress’e yayımlanıyor', cleanup: 'Araştırma artıkları temizleniyor',
+  fix: 'Düzeltme Botu: eksikler giderilip onaylanıyor', publish: 'WordPress’e yayımlanıyor', cleanup: 'Araştırma artıkları temizleniyor',
 };
 const FREQUENCIES = [[1440, 'Günde 1'], [720, 'Günde 2'], [480, 'Günde 3'], [360, '6 saatte 1'], [240, '4 saatte 1'], [180, '3 saatte 1'], [120, '2 saatte 1']];
 const JOB_MS = 9 * 60000;
@@ -158,7 +158,8 @@ async function setConfig(projectId, body, { userId = null } = {}) {
     newsFallback: body.newsFallback !== undefined ? V.bool(body.newsFallback, 'Taze haber hattı') : cur.newsFallback,
     acceptSubjectWarning: body.acceptSubjectWarning !== undefined ? V.bool(body.acceptSubjectWarning, 'Konu kaynaklı uyarıyı hat kabul etsin') : cur.acceptSubjectWarning,
     minWords: body.minWords !== undefined ? V.int(body.minWords, 'Makale en az kelime', { min: 300, max: 3000 }) : cur.minWords,
-    maxDrafts: body.maxDrafts !== undefined ? V.int(body.maxDrafts, 'Bir fikir için en çok taslak', { min: 1, max: 10 }) : cur.maxDrafts };
+    maxDrafts: body.maxDrafts !== undefined ? V.int(body.maxDrafts, 'Bir fikir için en çok taslak', { min: 1, max: 10 }) : cur.maxDrafts,
+    adsenseCheck: body.adsenseCheck !== undefined ? V.bool(body.adsenseCheck, 'AdSense kontrolü yayını engellesin') : cur.adsenseCheck };
   const changes = [];
   if (next.enabled) {
     const pre = await prerequisites(pid);
@@ -180,6 +181,7 @@ async function setConfig(projectId, body, { userId = null } = {}) {
   if (next.everyMinutes !== cur.everyMinutes) changes.push(`Sıklık: ${FREQUENCIES.find((f) => f[0] === next.everyMinutes)[1]}`);
   if (next.minWords !== cur.minWords) changes.push(`Makale en az kelime: ${cur.minWords} → ${next.minWords}`);
   if (next.maxDrafts !== cur.maxDrafts) changes.push(`Bir fikir için en çok taslak: ${cur.maxDrafts} → ${next.maxDrafts}`);
+  if (next.adsenseCheck !== cur.adsenseCheck) changes.push(`AdSense kontrolü yayını engellesin: ${cur.adsenseCheck ? 'açık' : 'kapalı'} → ${next.adsenseCheck ? 'açık' : 'kapalı'}`);
   if (next.newsFallback !== cur.newsFallback) changes.push(next.newsFallback ? 'Apify hakkı bitince taze haber hattıyla devam AÇILDI' : 'Apify hakkı bitince taze haber hattıyla devam kapatıldı (hat bekler)');
   if (next.acceptSubjectWarning !== cur.acceptSubjectWarning) changes.push(next.acceptSubjectWarning ? 'Konu kaynaklı AdSense uyarısını hat kendisi kabul etsin AÇILDI' : 'Konu kaynaklı AdSense uyarısı yine bir kişiye bırakılıyor (fikir elenir)');
   return { ...(await overview(pid)), changes };
@@ -575,7 +577,7 @@ async function stepFix(run, ctx, now) {
   let left = await blocking();
   if (!left.length) return approveOutcome(run, aid);
   const cfg = await config(run.projectId);
-  say(run, 'fix', null, `Eksik var (${left.map((p) => p.message).join('; ')}); AdSense Düzeltme Botu devrede (en çok ${adsenseBot.ROUNDS} tur)`);
+  say(run, 'fix', null, `Eksik var (${left.map((p) => p.message).join('; ')}); Düzeltme Botu devrede (en çok ${adsenseBot.ROUNDS} tur)`);
   const bot = await adsenseBot.clear(aid, { projectId: run.projectId, editSubject: cfg.acceptSubjectWarning, fetchImpl: ctx.fetchImpl, now });
   run.costUsd = Math.round((run.costUsd + bot.costUsd) * 1e6) / 1e6; run.unknownCost += bot.unknownCost;
   const r = bot.last;
@@ -596,8 +598,8 @@ async function stepFix(run, ctx, now) {
   }
   if (r && r.result === 'skipped') { const again = await redo(run, r.message, '', now); if (again) return again; await discardArticle(run, r.message); return reject(r.message); }
   left = await blocking();
-  if (!left.length) { say(run, 'fix', true, `AdSense Düzeltme Botu ${bot.rounds} turda eksikleri giderdi`); return approveOutcome(run, aid); }
-  const why = `AdSense Düzeltme Botu ${bot.rounds} turdan sonra eksik kaldı: ${left.map((p) => p.message).join('; ')}`;
+  if (!left.length) { say(run, 'fix', true, `Düzeltme Botu ${bot.rounds} turda eksikleri giderdi`); return approveOutcome(run, aid); }
+  const why = `Düzeltme Botu ${bot.rounds} turdan sonra eksik kaldı: ${left.map((p) => p.message).join('; ')}`;
   const again = await redo(run, why, '', now); if (again) return again;
   await discardArticle(run, left[0].message); return reject(why);
 }
@@ -837,7 +839,7 @@ async function overview(projectId, { now = new Date() } = {}) {
   if ((await settings.get('bots')).value.paused) warnings.push({ kind: 'bad', text: 'Botlar duraklatılmış durumda; hiçbir otomatik iş (bu hat dahil) çalışmaz.', to: '/automation?tab=botlar' });
   if (cfg.enabled && cycles >= 4) warnings.push({ kind: 'warn', text: `Günde ${cycles} makale yeni bir alan adı için hızlı bir tempo: Google ve AdSense az sayıda iyi yazıyı çok sayıda yazıdan daha olumlu değerlendirir. Günde 1-2 önerilir.` });
   if (cfg.enabled && item('new_article').limit < cycles) warnings.push({ kind: 'warn', text: `Günlük yeni makale sınırı (${item('new_article').limit}) bu tempodan düşük; hat sınır dolunca ertesi güne bekler.` });
-  return { projectId: pid, enabled: cfg.enabled, everyMinutes: cfg.everyMinutes, newsFallback: cfg.newsFallback, acceptSubjectWarning: cfg.acceptSubjectWarning, minWords: cfg.minWords, maxDrafts: cfg.maxDrafts, frequencies: FREQUENCIES.map(([minutes, label]) => ({ minutes, label })), cyclesPerDay: cycles, prerequisites: { ok: pre.ok, items: pre.items },
+  return { projectId: pid, enabled: cfg.enabled, everyMinutes: cfg.everyMinutes, newsFallback: cfg.newsFallback, acceptSubjectWarning: cfg.acceptSubjectWarning, minWords: cfg.minWords, maxDrafts: cfg.maxDrafts, adsenseCheck: cfg.adsenseCheck, frequencies: FREQUENCIES.map(([minutes, label]) => ({ minutes, label })), cyclesPerDay: cycles, prerequisites: { ok: pre.ok, items: pre.items },
     current: cur, next, recent, today: { published: today.n, costUsd: Number(today.usd), articles: { done: item('new_article').done, limit: item('new_article').limit }, publishes: { done: item('publish').done, limit: item('publish').limit } },
     lastCleanup: cleanedLast.rows[0] ? { counts: cleanedLast.rows[0].counts, ranAt: cleanedLast.rows[0].ran_at } : null, warnings, steps: STEPS.map((k) => ({ key: k, label: LABEL[k] })),
     schedulerRunning: !!require('./scheduler').status().running, ownedBots: [...require('./scheduler').PIPELINE_OWNED] };

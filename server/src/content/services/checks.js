@@ -44,6 +44,7 @@ function ruleReport(a, { sources: srcs = [], others = [], lengthPref = 'standard
   const paras = (String(a.contentHtml).match(/<p\b[^>]*>[\s\S]*?<\/p>/gi) || []).map((p) => H.htmlToText(p).split(/\s+/).filter(Boolean).length).filter(Boolean);
   const avgPara = paras.length ? Math.round(paras.reduce((x, y) => x + y, 0) / paras.length) : 0;
   const kw = String(a.focusKeyword || '').trim(); const ks = T.keywordStats(text, kw); const rd = T.readability(text);
+  ks.densityPct = wc ? Math.round((ks.count / wc) * 1000) / 10 : 0;                                     // Rank Math's way: how many times the phrase appears, per 100 words (a 4-word phrase used 12 times in 1200 words is 1%)
   const inTitle = kw && T.norm(a.seoTitle).includes(T.norm(kw)); const inH1 = kw && T.norm(a.h1).includes(T.norm(kw)); const inMeta = kw && T.norm(a.metaDescription).includes(T.norm(kw));
 
   add('length', 'Uzunluk', wc < 300 ? 'fail' : wc < lo * 0.7 ? 'warn' : 'ok', `${wc} kelime (hedef en az ~${lo}; 300 altı ince içeriktir)`);
@@ -56,7 +57,18 @@ function ruleReport(a, { sources: srcs = [], others = [], lengthPref = 'standard
     add('focus_h1', 'Odak kelime H1’de', inH1 ? 'ok' : 'warn', inH1 ? 'Var' : `“${kw}” ana başlıkta geçmiyor`);
     add('focus_intro', 'Odak kelime ilk 150 kelimede', ks.inFirst150 ? 'ok' : 'warn', ks.inFirst150 ? 'Var' : 'Girişte geçmiyor');
     add('focus_meta', 'Odak kelime meta açıklamada', inMeta ? 'ok' : 'warn', inMeta ? 'Var' : 'Meta açıklamada geçmiyor');
-    add('density', 'Anahtar kelime yoğunluğu', ks.densityPct > 4 ? 'fail' : ks.densityPct > 2.5 ? 'warn' : 'ok', `%${ks.densityPct} (${ks.count} kez; %4 üstü doldurma sayılır)`);
+    // Rank Math's on-page tests that were not here yet: the focus keyword in the URL and in a sub-heading (only judged when the article has a slug / sub-headings at all)
+    if (a.slug !== undefined && a.slug !== null && String(a.slug).trim()) { const inSlug = T.norm(String(a.slug).replace(/-/g, ' ')).includes(T.norm(kw)); add('focus_slug', 'Odak kelime bağlantıda (slug)', inSlug ? 'ok' : 'warn', inSlug ? 'Var' : 'Odak kelime bağlantıda (slug) geçmiyor'); }
+    const subs = SS.structure(a.contentHtml).headings.filter((h) => h.level === 2 || h.level === 3);
+    if (subs.length) { const inSub = subs.some((h) => T.norm(h.text).includes(T.norm(kw))); add('focus_subheading', 'Odak kelime bir alt başlıkta', inSub ? 'ok' : 'warn', inSub ? 'Var' : 'Odak kelime hiçbir H2/H3 başlığında geçmiyor'); }
+    // Rank Math's title tests: the focus keyword at the BEGINNING of the SEO title, a number and a power word in it
+    if (a.seoTitle) {
+      const startsWith = T.norm(a.seoTitle).startsWith(T.norm(kw)); add('title_start', 'Odak kelime SEO başlığının başında', startsWith ? 'ok' : 'warn', startsWith ? 'Başta' : 'SEO başlığı odak kelimeyle başlamıyor');
+      add('title_number', 'SEO başlığında sayı', /\d/.test(a.seoTitle) ? 'ok' : 'warn', /\d/.test(a.seoTitle) ? 'Var' : 'SEO başlığında sayı yok (yıl, adet, sürüm: doğruysa eklenir)');
+      add('title_power', 'SEO başlığında güçlü kelime', POWER.test(a.seoTitle) ? 'ok' : 'warn', POWER.test(a.seoTitle) ? 'Var' : 'SEO başlığında güçlü kelime yok (rehber, açıklama, resmî, güncel, eksiksiz vb.)');
+    }
+    if (a.slug && String(a.slug).length > 75) add('slug_length', 'Bağlantı uzunluğu', 'warn', `Bağlantı ${String(a.slug).length} karakter (en çok ~75 önerilir)`);
+    add('density', 'Anahtar kelime yoğunluğu', ks.densityPct > 4 ? 'fail' : (ks.densityPct > 2.5 || (wc >= 300 && ks.densityPct < 0.5)) ? 'warn' : 'ok', `%${ks.densityPct} (${ks.count} kez; %4 üstü doldurma sayılır, %0,5 altı düşüktür, hedef ~%1)`);
   }
   add('readability', 'Okunabilirlik', rd.ease === null ? 'warn' : (rd.ease < 30 || rd.avgSentenceWords > 28) ? 'warn' : 'ok', rd.ease === null ? 'Ölçülemedi' : `Okunabilirlik ${rd.ease}/100 (yüksek = kolay), ortalama cümle ${rd.avgSentenceWords} kelime`);
   add('paragraphs', 'Paragraf uzunluğu', avgPara > 110 ? 'warn' : 'ok', `Ortalama ${avgPara} kelime`);
@@ -97,9 +109,11 @@ function ruleReport(a, { sources: srcs = [], others = [], lengthPref = 'standard
 
   const failBy = (k) => items.find((i) => i.key === k && i.status === 'fail');
   let seo = 100;
-  if (!kw) seo -= 40; else { if (!inTitle) seo -= 15; if (!inH1) seo -= 10; if (!ks.inFirst150) seo -= 10; if (!inMeta) seo -= 5; if (ks.densityPct > 4) seo -= 25; else if (ks.densityPct > 2.5) seo -= 10; }
+  if (!kw) seo -= 40; else { if (!inTitle) seo -= 15; if (!inH1) seo -= 10; if (!ks.inFirst150) seo -= 10; if (!inMeta) seo -= 5; if (ks.densityPct > 4) seo -= 25; else if (ks.densityPct > 2.5) seo -= 10; else if (wc >= 300 && ks.densityPct < 0.5) seo -= 4; }
   if (!a.seoTitle) seo -= 20; else if (a.seoTitle.length > 65) seo -= 5; if (!a.metaDescription) seo -= 15; else if (a.metaDescription.length < 70 || a.metaDescription.length > 160) seo -= 5;
   if (h2 < 3) seo -= 10; if (wc < 300) seo -= 25; else if (wc < lo * 0.7) seo -= 10; if (failBy('artifacts')) seo -= 30;
+  if (items.some((i) => i.key === 'title_start' && i.status === 'warn')) seo -= 2; if (items.some((i) => i.key === 'title_number' && i.status === 'warn')) seo -= 1; if (items.some((i) => i.key === 'title_power' && i.status === 'warn')) seo -= 1;
+  if (kw && items.some((i) => i.key === 'focus_slug' && i.status === 'warn')) seo -= 3; if (kw && items.some((i) => i.key === 'focus_subheading' && i.status === 'warn')) seo -= 3;
   if (outline.length) seo -= 5; if (!introOk) seo -= 3; if (srcUrls.size && external.length === 0) seo -= 5; if (missingAlt) seo -= 5; if (unknown.length) seo -= 5;
   const read = clamp(rd.ease === null ? 50 : (rd.ease >= 55 && rd.ease <= 85 ? 100 : rd.ease >= 40 ? 85 : rd.ease >= 30 ? 70 : 50) - (rd.avgSentenceWords > 28 ? 15 : 0) - (avgPara > 110 ? 10 : 0) - (longParas ? 5 : 0));
   return { status: worst(items.map((i) => i.status)), items,
@@ -170,7 +184,8 @@ async function loadArticle(id) {
   if (!a) throw new HttpError(404, 'Makale bulunamadı');
   return a;
 }
-const asArticle = (r) => ({ id: r.id, projectId: r.project_id, seoTitle: r.seo_title, h1: r.h1, metaDescription: r.meta_description, focusKeyword: r.focus_keyword, contentHtml: r.content_html, articleType: r.article_type, version: r.current_version });
+const POWER = /\b(guide|explained|complete|latest|official|confirmed|essential|key|ultimate|proven|exclusive|critical|urgent|revealed|simple|easy|fast|free|best|top|new|must|secret|major|big|warning|breaking)\b/i;          // Rank Math's "power word" test, truthful words only
+const asArticle = (r) => ({ id: r.id, projectId: r.project_id, slug: r.slug, seoTitle: r.seo_title, h1: r.h1, metaDescription: r.meta_description, focusKeyword: r.focus_keyword, contentHtml: r.content_html, articleType: r.article_type, version: r.current_version });
 
 async function store(articleId, version, kind, status, result, { provider = null, model = null, costUsd = null } = {}) {
   const r = (await db.query('INSERT INTO article_checks (article_id, article_version, kind, status, result, provider, model, cost_micros) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, created_at',
