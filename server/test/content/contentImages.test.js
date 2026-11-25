@@ -148,7 +148,7 @@ test('writer: the picture is drawn right after the article is saved, from the wr
   const m = fakeModels(); withScene(m); const im = fakeImages();
   const r = await pipeline(pid, m, im);
   assert.equal(r.run.stats.step, 'done'); assert.equal(r.run.stats.image, 'ok'); assert.ok(!r.run.stats.imageError); assert.match(m.byRole('write')[0].system, /"image":\{"prompt":"","alt":"","query":""\}/); assert.match(m.byRole('write')[0].system, /"image\.alt" is 8-16 words/);
-  const cover = await IM.forArticle(r.art.id); assert.deepEqual([cover.alt, cover.model, cover.provider], ['A glowing price tag floating above an open laptop', 'gpt-image-2', 'openai']); assert.match(im.images()[0].body.prompt, /^A glowing price tag floating over an open laptop on a dark desk\nStyle:/);
+  const cover = await IM.forArticle(r.art.id); assert.deepEqual([cover.alt.replace(/^[^:]+: /, ''), cover.model, cover.provider], ['A glowing price tag floating above an open laptop', 'gpt-image-2', 'openai']); assert.match(cover.alt, /^[A-Z][^:]+: A glowing price tag/, 'the alt text starts with the focus keyword (Rank Math: image with the focus keyword as alt)'); assert.match(im.images()[0].body.prompt, /^A glowing price tag floating over an open laptop on a dark desk\nStyle:/);
   assert.equal(r.art.status, 'needs_review'); assert.deepEqual([r.run.stats.calls, r.run.stats.unknownCost], [4, 4], 'the picture is a call of its own (4 calls: write, fact check, review, picture); no prices were typed, so all four costs are unknown and counted as such, never as 0');
   assert.equal((await A.readiness(r.art.id)).problems.some((p) => p.code === 'no_image'), false);
   // the picture fails (OpenAI wants a verified organization): the article is there, checked, waiting - with the reason in the run

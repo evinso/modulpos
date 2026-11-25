@@ -346,7 +346,10 @@ async function readiness(id) {
     else if (fc) add('fact_check_failed', `Doğruluk kontrolü sorun buldu: ${fc.result.counts.majorProblems} önemli iddia kaynaklarla doğrulanamadı ya da çelişiyor (editördeki “Kontroller”e bakın; yayımlanamaz)`);
     else add('not_fact_checked', 'Doğruluk kontrolü yapılmadı (zorunlu)');
   }
-  if (!a.adsense_risk) add('no_adsense', 'AdSense risk kontrolü yapılmadı (zorunlu)');
+  // the production line's owner took the AdSense check out of the way to publishing (the check still runs and its class is shown; only "blocking" is dropped), unless he switched it back on
+  const adsenseGate = !line.enabled || line.adsenseCheck === true;
+  if (!adsenseGate) { if (a.adsense_risk && a.adsense_risk !== 'low') add('adsense_info', `AdSense sınıfı “${a.adsense_risk === 'blocked' ? 'yayınlanamaz' : 'inceleme gerekli'}” (Otomatik Üretim’de AdSense kontrolü yayını engellemez; bilgi olarak gösterilir)`, false); }
+  else if (!a.adsense_risk) add('no_adsense', 'AdSense risk kontrolü yapılmadı (zorunlu)');
   else if (a.adsense_risk === 'review' && a.adsense_accepted_risk === 'review') add('adsense_accepted', `AdSense incelemesi “inceleme gerekli” dedi; siz kabul ettiniz${a.adsense_accepted_at ? ` (${new Date(a.adsense_accepted_at).toISOString().slice(0, 10)})` : ''}: bu bir kişi kararıdır, AdSense onayı garanti etmez`, false);
   else if (a.adsense_risk !== 'low') add('adsense_risk', a.adsense_risk === 'blocked' ? 'AdSense açısından yayınlanamaz olarak işaretli' : 'AdSense riski “inceleme gerekli” olarak işaretli; çözüp “düşük” yapın ya da editörde “AdSense uyarısını kabul et”');
   const nSources = (await db.query('SELECT count(*)::int n FROM article_sources WHERE article_id = $1', [a.id])).rows[0].n;

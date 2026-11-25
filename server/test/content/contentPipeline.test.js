@@ -54,7 +54,7 @@ async function world({ noVolume = /^$/, items = ITEMS, freshHours = 0, suggest =
   await S.set('quality', { ...(await S.get('quality')).value, minScore: 50 }, { scope: 'global' }); await S.set('seo', { ...(await S.get('seo')).value, freshHours }, { scope: 'global' });
   const volumes = new Proxy({}, { get: (_, k) => (typeof k !== 'string' ? undefined : (noVolume.test(k) ? { none: true } : { volume: 5400, cpc: 1.2, comp: 0.4, kd: 35 })), has: () => true });
   const apify = fakeApify({ volumes }); const serper = fakeSerper({ '*': ['smallblog.example', 'nichesite.example', 'tinydocs.example', 'devnotes.example', 'forum.example'] }, suggest);
-  const m = fakeModels(); m.st.long = true;                                                       // drafts of more than 950 words: the line's minimum length
+  const m = fakeModels(); m.st.long = true;                                                       // drafts of more than 1200 words: the line's minimum length
   const route = async (url, o) => { const u = String(url); if (u.includes('api.apify.com')) return apify.fetchImpl(url, o); if (u.includes('serper.dev')) return serper.fetchImpl(url, o); return m.fetchImpl(url, o); };
   const feed = { items, pub: undefined }; const ctx = { fetchImpl: route, fetcher: pageFetcher, get newsFetch() { return feedsOf(feed.items, feed.pub); }, gapMs: 0, probe: probeOk };
   return { pid, site, apify, serper, m, ctx, feed };
@@ -99,7 +99,7 @@ test('the gate rule: an idea whose keyword has NO volume data is thrown away at 
   await turnOn(pid); await run(w, D0);
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done'); assert.equal(d.attempt, 2, 'the first idea was dropped, the second one was written');
   const dropped = d.trail.filter((t) => /Fikir elendi/.test(t.text)); assert.equal(dropped.length, 1); assert.equal(dropped[0].step, 'keyword'); assert.match(dropped[0].text, /Anahtar kelime verisi bulunamadı/);
-  assert.equal(w.serper.calls.filter((c) => /\/search$/.test(c.url)).length, 1, 'only the idea that passed the keyword step got a SERP analysis (the Google suggestions for the keywords are separate calls)');
+  assert.equal(w.serper.calls.filter((c) => /\/search$/.test(c.url)).length, 2, 'only the idea that passed the keyword step got Google searches: the SERP analysis and the writer\'s own research of the chosen focus keyword (the suggestions are separate calls)');
   const art = await q1('SELECT h1 FROM articles'); assert.match(art.h1, /gemini/i, 'the second idea (Gemini) is the one that became the article');
   assert.equal(wp.posts.size, 1);
 });
@@ -108,7 +108,7 @@ test('with the owner\'s switch OFF an article the checks cannot clear and only a
   const w = await world(); const { pid } = w; let reviews = 0;
   const sensitive = { categories: Object.fromEntries(['originality', 'user_value', 'source_accuracy', 'hallucination', 'copyright', 'keyword_stuffing', 'misleading_title', 'spam', 'low_value_auto', 'sensitive', 'ad_restrictions', 'image_rights', 'integrity'].map((k) => [k, k === 'sensitive' ? { status: 'warn', note: 'A data-breach story needs careful sourcing.' } : { status: 'pass', note: '' }])), risk: 'review', ratings: { originality: 82, usefulness: 80, editorial: 84 }, improvements: [], summary: 'Fine, but sensitive.' };
   w.m.st.override.review = () => { reviews++; if (reviews === 1) return sensitive; delete w.m.st.override.review; return undefined; };          // sensitive for the first article, the default (low) reviewer from then on
-  await turnOn(pid); await PL.setConfig(pid, { acceptSubjectWarning: false });                              // the owner's switch OFF: such a warning stays a person's decision
+  await turnOn(pid, { adsenseCheck: true }); await PL.setConfig(pid, { acceptSubjectWarning: false });                              // the owner's switch OFF: such a warning stays a person's decision
   await run(w, D0);
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note); assert.equal(d.attempt, 2);
   assert.ok(d.trail.some((t) => /Fikir elendi: Bir kişinin kararı gerekiyor/.test(t.text)), JSON.stringify(d.trail.map((t) => t.text)));
@@ -120,7 +120,7 @@ const SENSITIVE = { categories: Object.fromEntries(['originality', 'user_value',
 
 test('a SUBJECT-level AdSense warning is no longer left to a person (the owner\'s decision): the line rewrites the text neutrally ONCE, then accepts the warning itself, approves and publishes; the class is not rewritten and the acceptance says who did it', opts, async () => {
   const w = await world(); const { pid } = w; w.m.st.override.review = SENSITIVE;                          // the reviewer keeps flagging the subject, whatever the wording
-  await turnOn(pid); await run(w, D0);
+  await turnOn(pid, { adsenseCheck: true }); await run(w, D0);
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(d.attempt, 1, 'no idea was thrown away for it');
   const a = await q1('SELECT status, adsense_risk, adsense_accepted_risk, adsense_accepted_note FROM articles');
   assert.equal(a.status, 'published'); assert.equal(a.adsense_risk, 'review', 'the reviewer\'s class stays what it said'); assert.equal(a.adsense_accepted_risk, 'review'); assert.match(a.adsense_accepted_note, /Otomatik Üretim: sahibinin izniyle/);
@@ -131,7 +131,7 @@ test('a SUBJECT-level AdSense warning is no longer left to a person (the owner\'
 
 test('... and when the rewrite is enough the warning is simply gone: nothing is accepted', opts, async () => {
   const w = await world(); const { pid } = w; let n = 0; w.m.st.override.review = () => { n++; if (n === 1) return SENSITIVE; delete w.m.st.override.review; return undefined; };
-  await turnOn(pid); await run(w, D0);
+  await turnOn(pid, { adsenseCheck: true }); await run(w, D0);
   await dbg('rewrite-is-enough'); assert.equal((await q1('SELECT status FROM pipeline_runs')).status, 'done'); const a = await q1('SELECT status, adsense_risk, adsense_accepted_at FROM articles');
   assert.deepEqual([a.status, a.adsense_risk, a.adsense_accepted_at], ['published', 'low', null]);
 });
@@ -142,16 +142,16 @@ const blockedFor = (m, k) => { let n = 0; m.st.override.review = () => { n++; if
 
 test('the AdSense FIX BOT works a draft the reviewer called "blocked" over (a text-level class is cured by a new text, never accepted): the idea is NOT lost', opts, async () => {
   const w = await world(); const { pid } = w; blockedFor(w.m, 2);                                    // the writer\'s check says blocked, the first re-check (after the bot\'s rewrite) says fine
-  await turnOn(pid); await run(w, D0);
+  await turnOn(pid, { adsenseCheck: true }); await run(w, D0);
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(d.attempt, 1);
   assert.deepEqual((await q('SELECT status FROM articles')).map((x) => x.status), ['published']); assert.ok(w.m.byRole('fix').length >= 1, 'the bot rewrote the text');
-  assert.ok(d.trail.some((t) => /AdSense Düzeltme Botu devrede/.test(t.text))); assert.equal((await q1("SELECT count(*)::int n FROM articles WHERE adsense_accepted_at IS NOT NULL")).n, 0, 'a blocked class was not accepted');
+  assert.ok(d.trail.some((t) => /Düzeltme Botu devrede/.test(t.text))); assert.equal((await q1("SELECT count(*)::int n FROM articles WHERE adsense_accepted_at IS NOT NULL")).n, 0, 'a blocked class was not accepted');
   assert.equal((await q1("SELECT count(*)::int n FROM automation_runs WHERE bot_key = 'adsense_fixer'")).n, 1, 'the bot has its own run record');
 });
 
 test('when even the bot\'s 4 rounds cannot clear the draft the line tries ONCE more: a FRESH draft by the OTHER writer, told why the first one failed; only then the first one is archived', opts, async () => {
   const w = await world(); const { pid } = w; blockedFor(w.m, 6);                                    // writer check + 4 bot re-checks blocked; the second draft is judged by the default reviewer
-  await turnOn(pid); await run(w, D0); await dbg('redo');
+  await turnOn(pid, { adsenseCheck: true }); await run(w, D0); await dbg('redo');
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + ' ' + JSON.stringify(d.trail.map((t) => t.text).slice(-6))); assert.equal(d.attempt, 1, 'the SAME idea was written again');
   assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['published'], 'the failed first draft is deleted, no archive pile');
   const writes = w.m.byRole('write'); assert.equal(writes.length, 2); assert.notEqual(writes[0].vendor, writes[1].vendor, 'another writer for the second draft'); assert.match(writes[1].user, /A PREVIOUS DRAFT OF THIS ARTICLE WAS REJECTED/); assert.doesNotMatch(writes[0].user, /PREVIOUS DRAFT/);
@@ -160,14 +160,14 @@ test('when even the bot\'s 4 rounds cannot clear the draft the line tries ONCE m
 
 test('... only as many drafts per idea as the owner chose: when the last draft fails too the idea is thrown away and the next idea goes on', opts, async () => {
   const w = await world(); const { pid } = w; blockedFor(w.m, 11);                                   // both drafts of the first idea (1 + 4, 1 + 4 checks) are blocked
-  await turnOn(pid, { maxDrafts: 2 }); await run(w, D0);
+  await turnOn(pid, { maxDrafts: 2, adsenseCheck: true }); await run(w, D0);
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text))); assert.equal(d.attempt, 2);
   assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['published'], 'both failed drafts are deleted'); assert.equal(w.m.byRole('write').length, 3);
 });
 
 test('the line does not give up on the idea it found (owner): with 5 drafts allowed the 4th draft of the SAME idea is published, every failed draft is told to the next writer and deleted, nothing piles up', opts, async () => {
   const w = await world(); const { pid } = w; blockedFor(w.m, 15);                                   // drafts 1-3 (1 + 4 checks each) are blocked, the 4th is judged fine
-  await turnOn(pid); await run(w, D0);
+  await turnOn(pid, { adsenseCheck: true }); await run(w, D0);
   const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + ' ' + JSON.stringify(d.trail.map((t) => t.text).slice(-8))); assert.equal(d.attempt, 1, 'the SAME idea all the way');
   assert.deepEqual((await q('SELECT status FROM articles')).map((x) => x.status), ['published'], 'no archive pile'); const writes = w.m.byRole('write'); assert.equal(writes.length, 4);
   assert.match(writes[3].user, /EARLIER DRAFTS FAILED ON/, 'the later writers hear about the earlier failures'); assert.notEqual(writes[2].vendor, writes[3].vendor, 'the writers take turns');
@@ -178,7 +178,7 @@ const usedOf = async (type, scope) => (await q1("SELECT coalesce(sum(used), 0)::
 
 test('the day\'s counts grow only for what is SHARED (owner): drafts the line throws away give their new-article place and their fixing rounds back, so a day of failed drafts never fills the limit', opts, async () => {
   const w = await world(); const { pid } = w; blockedFor(w.m, 11);                                   // both drafts of the first idea are thrown away, the next idea is published
-  await turnOn(pid, { maxDrafts: 2 }); await run(w, D0);
+  await turnOn(pid, { maxDrafts: 2, adsenseCheck: true }); await run(w, D0);
   assert.deepEqual((await q('SELECT status FROM articles ORDER BY created_at')).map((x) => x.status), ['published']); assert.equal(w.m.byRole('write').length, 3, 'three drafts were written');
   for (const scope of ['global', 'project', 'category']) assert.equal(await usedOf('new_article', scope), 1, `new_article (${scope}): one place for the ONE shared article`);
   const own = (await q1("SELECT count(*)::int n FROM article_fixes f JOIN articles a ON a.id = f.article_id WHERE f.calls > 0 AND a.status = 'published'")).n;
@@ -209,9 +209,77 @@ test('migration 0026 removes the drafts the line archived before (AI-written, ma
   assert.equal((await q1("SELECT count(*)::int n FROM articles WHERE status = 'published'")).n, 1, 'the published article stays'); assert.ok(left.has(sent), 'one that was sent to WordPress stays');
 });
 
+const CK = require('../../src/content/services/checks');
+const SENSITIVE_R = () => ({ ratings: { originality: 80, usefulness: 80, editorial: 80 }, adsenseRisk: 'review', adsense: { risk: 'review', reasons: ['Hassas içerik'] } });
+
+test('AdSense does not stand in the way of publishing (owner): a sensitive or "blocked" class from the reviewer is only shown, the line publishes the first draft, nothing is accepted on anyone\'s behalf', opts, async () => {
+  const w = await world(); const { pid } = w; blockedFor(w.m, 99);                                   // the reviewer says "blocked" on EVERY check
+  await turnOn(pid); assert.equal((await S.get('pipeline', pid)).value.adsenseCheck, false, 'the check is off by default');
+  await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + ' ' + JSON.stringify(d.trail.map((t) => t.text).slice(-6))); assert.equal(d.attempt, 1); assert.equal(wp.posts.size, 1);
+  const a = await q1('SELECT status, adsense_risk, adsense_accepted_risk FROM articles'); assert.equal(a.status, 'published'); assert.equal(a.adsense_risk, 'blocked', 'the class is still recorded and shown'); assert.equal(a.adsense_accepted_risk, null, 'nobody "accepted" it');
+  const r = await require('../../src/content/services/articles').readiness((await q1('SELECT id FROM articles')).id); assert.ok(r.problems.some((p) => p.code === 'adsense_info' && p.blocking === false), 'shown as information');
+  assert.equal((await q('SELECT 1 FROM audit_logs WHERE action = $1', ['article.adsense_accept_auto'])).length, 0);
+});
+
+test('with the owner\'s switch ON ("AdSense kontrolü yayını engellesin") the old gate is back; the old flows (fix bot, redo, accepting the subject warning) work as before', opts, async () => {
+  const w = await world(); const { pid } = w; blockedFor(w.m, 2);
+  await turnOn(pid, { adsenseCheck: true }); assert.equal((await S.get('pipeline', pid)).value.adsenseCheck, true);
+  await run(w, D0); const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', JSON.stringify(d.trail.map((t) => t.text).slice(-6)));
+  assert.ok(d.trail.some((t) => /Düzeltme Botu devrede/.test(t.text)), 'the bot worked on the blocked class');
+});
+
+test('the writer does its OWN research while the line is on: Google\'s questions and related searches go into the prompt, the pages of other publishers join the sources (the fact check can rest on them), the prompt carries E-E-A-T and Rank Math rules and the minimum length', opts, async () => {
+  const w = await world(); const { pid } = w; await turnOn(pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note); const wr = w.m.byRole('write')[0];
+  assert.match(wr.system, /E-E-A-T/); assert.match(wr.system, /Rank Math checklist/); assert.match(wr.system, /AT LEAST 1200 words/); assert.match(wr.user, /YOUR OWN RESEARCH/); assert.match(wr.user, /PEOPLE ALSO ASK[^\n]*Is it worth it\?/); assert.match(wr.user, /RELATED SEARCHES[^\n]*chatgpt plus cost/);
+  const srcs = await q('SELECT publisher FROM article_sources'); assert.ok(srcs.some((s) => /\.example$/.test(s.publisher) && /smallblog|nichesite|tinydocs|devnotes/.test(s.publisher)), `research pages joined the sources: ${srcs.map((s) => s.publisher).join(', ')}`);
+  assert.equal((await q1('SELECT generation->>\'promptVersion\' v FROM articles')).v, 'w6');
+});
+
+test('Rank Math\'s remaining on-page tests are in the free rules: the focus keyword in the slug and in a sub-heading', opts, async () => {
+  const base = { focusKeyword: 'staples canada data breach', seoTitle: 'Staples Canada Data Breach: What to Know', h1: 'Staples Canada Data Breach', metaDescription: 'x'.repeat(100), contentHtml: '<p>Staples Canada data breach news.</p><h2>What happened</h2><p>Text here.</p><h2>What to do</h2><p>More.</p>' };
+  const good = CK.ruleReport({ ...base, slug: 'staples-canada-data-breach-what-to-know', contentHtml: base.contentHtml.replace('What happened', 'The Staples Canada data breach explained') });
+  assert.equal(good.items.find((i) => i.key === 'focus_slug').status, 'ok'); assert.equal(good.items.find((i) => i.key === 'focus_subheading').status, 'ok');
+  const bad = CK.ruleReport({ ...base, slug: 'retailer-news' });
+  assert.equal(bad.items.find((i) => i.key === 'focus_slug').status, 'warn'); assert.equal(bad.items.find((i) => i.key === 'focus_subheading').status, 'warn'); assert.ok(bad.scores.seo < good.scores.seo);
+  assert.ok(!CK.ruleReport(base).items.some((i) => i.key === 'focus_slug'), 'an article object without a slug is not judged on it');
+});
+
+test('other ideas found the same day that share two names with the main idea are blended in as extra sections (their own pages become sources); an unrelated idea is never added', opts, async () => {
+  const items = [['OpenAI raises ChatGPT Plus price for subscribers', 1], ['ChatGPT free users get new OpenAI voice limits this week', 2], ['Windows 11 KB5132057 update causes problems for some users', 3]];
+  const w = await world({ items }); const { pid } = w; await turnOn(pid); await run(w, D0);
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-5)));
+  const wr = w.m.byRole('write')[0]; assert.match(wr.user, /RELATED STORIES FROM TODAY'S RESEARCH/); assert.match(wr.user, /voice limits/i, 'the related story is offered'); assert.doesNotMatch(wr.user, /RELATED STORIES[\s\S]*Windows 11/, 'an idea that shares no two names is not offered');
+  assert.match(wr.system, /Related stories/); const n = (await q1('SELECT count(*)::int n FROM article_sources')).n; assert.ok(n >= 3, `the related story\'s pages joined the sources (${n})`);
+});
+
+test('Rank Math\'s mechanical tests are put right in code: a 91-character link is cut to the focus keyword, and the cover picture\'s alt text always holds the exact focus keyword; the title tests (keyword first, number, strong word) and a low density are in the free rules', opts, async () => {
+  const w = await world(); const { pid } = w; await turnOn(pid);
+  w.m.st.override.write = (user) => { const base = w.m.defaults.write(user); base.slug = 'a-very-long-slug-that-goes-on-and-on-about-the-subscription-price-change-of-the-chatgpt-plus-plan-in-detail'; base.image = { prompt: 'a calm scene', alt: 'A calm desk with a laptop and a coffee cup', query: 'desk' }; return base; };
+  await run(w, D0); const a = await q1('SELECT slug, focus_keyword FROM articles WHERE status = \'published\'');
+  assert.ok(a && a.slug.length <= 60 && a.slug.includes(a.focus_keyword.replace(/[^a-z0-9]+/gi, '-').toLowerCase().replace(/^-|-$/g, '')), `slug: ${a && a.slug}`);
+  const alt = (await q1('SELECT alt FROM article_images LIMIT 1')); if (alt) assert.match(alt.alt.toLowerCase(), new RegExp(a.focus_keyword.toLowerCase().split(' ')[0]), `alt: ${alt.alt}`);
+  const base = { focusKeyword: 'staples canada data breach', metaDescription: 'x'.repeat(100), h1: 'Staples Canada Data Breach', slug: 'staples-canada-data-breach', contentHtml: `<p>${'Words about something else entirely. '.repeat(120)}Staples Canada data breach.</p><h2>The Staples Canada data breach</h2><p>More.</p>` };
+  const good = CK.ruleReport({ ...base, seoTitle: 'Staples Canada Data Breach: 5 Key Facts, Explained' }); const bad = CK.ruleReport({ ...base, seoTitle: 'What happened at the retailer' });
+  for (const k of ['title_start', 'title_number', 'title_power']) { assert.equal(good.items.find((i) => i.key === k).status, 'ok', k); assert.equal(bad.items.find((i) => i.key === k).status, 'warn', k); }
+  assert.equal(good.items.find((i) => i.key === 'density').status, 'warn', 'two mentions in 600+ words is below 0.5%'); assert.ok(bad.scores.seo < good.scores.seo + 1);
+  assert.ok(CK.ruleReport({ ...base, slug: 'x'.repeat(91), seoTitle: 'a' }).items.some((i) => i.key === 'slug_length'));
+});
+
+test('migration 0027 raises the saved minimum length to 1200 words and never lowers a higher one', opts, async () => {
+  const pid = (await P.seedDefault()).projectId; const db = H.db();
+  const sql = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../src/content/migrations/0027_min_words_1200.sql'), 'utf8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+  const put = (v) => db.query("INSERT INTO automation_settings (scope, project_id, key, value) VALUES ('project', $1, 'pipeline', $2::jsonb) ON CONFLICT (scope, COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid), key) DO UPDATE SET value = $2::jsonb", [pid, JSON.stringify(v)]);
+  const get = async () => (await q1("SELECT (value->>'minWords')::int n FROM automation_settings WHERE key = 'pipeline'")).n;
+  await put({ enabled: true, minWords: 1050 }); await db.query(sql); assert.equal(await get(), 1200);
+  await put({ enabled: true }); await db.query(sql); assert.equal(await get(), 1200, 'a row without the number gets it');
+  await put({ enabled: true, minWords: 1500 }); await db.query(sql); assert.equal(await get(), 1500, 'a higher number of the owner stays');
+});
+
 test('... and not for what no new draft can cure: a person-only problem of the IDEA (here the owner keeps the subject-level warning for a person) is dropped at once, one draft per idea', opts, async () => {
   const w = await world(); const { pid } = w; let n = 0; w.m.st.override.review = () => { n++; if (n === 1) return SENSITIVE; delete w.m.st.override.review; return undefined; };
-  await turnOn(pid); await PL.setConfig(pid, { acceptSubjectWarning: false }); await run(w, D0);
+  await turnOn(pid, { adsenseCheck: true }); await PL.setConfig(pid, { acceptSubjectWarning: false }); await run(w, D0);
   assert.equal(w.m.byRole('write').length, 2, 'one draft for the first idea (no second try), one for the next idea'); assert.equal((await q1('SELECT attempt FROM pipeline_runs')).attempt, 2);
 });
 
@@ -394,12 +462,12 @@ test('the SERP analysis is NOT required: when Serper fails (or its limit is used
   assert.ok(d.trail.some((t) => /^Uygun \(SERP verisi olmadan/.test(t.text))); assert.equal(wp.posts.size, 1);
 });
 
-test('the minimum length (950 words): the writer is told, a shorter draft is blocked by readiness (and worked on by the fix bot), and the number is the owner\'s to change', opts, async () => {
+test('the minimum length (1200 words): the writer is told, a shorter draft is blocked by readiness (and worked on by the fix bot), and the number is the owner\'s to change', opts, async () => {
   const w = await world(); const { pid } = w; w.m.st.long = false;                                          // the fake writer's drafts have ~570 words
   await turnOn(pid); await run(w, D0);
-  assert.match(w.m.byRole('write')[0].system, /AT LEAST 950 words/, 'the writer prompt carries the minimum');
-  assert.equal(wp.posts.size, 0, 'a 570-word draft is not published'); const art = await q('SELECT word_count, status FROM articles'); assert.ok(art.every((x) => x.word_count < 950 && x.status !== 'archived'), 'no draft of 950+ words, and nothing archived');
-  assert.ok((await q1('SELECT trail FROM pipeline_runs')).trail.some((t) => /en az 950 gerekli/.test(t.text)), 'the reason is told in words');
+  assert.match(w.m.byRole('write')[0].system, /AT LEAST 1200 words/, 'the writer prompt carries the minimum');
+  assert.equal(wp.posts.size, 0, 'a 570-word draft is not published'); const art = await q('SELECT word_count, status FROM articles'); assert.ok(art.every((x) => x.word_count < 1200 && x.status !== 'archived'), 'no draft of 1200+ words, and nothing archived');
+  assert.ok((await q1('SELECT trail FROM pipeline_runs')).trail.some((t) => /en az 1200 gerekli/.test(t.text)), 'the reason is told in words');
   await H.clean(); await wp.close(); wp = await startFakeWp();
   const w2 = await world(); w2.m.st.long = false; await turnOn(w2.pid, { minWords: 500 }); await run(w2, D0);
   assert.equal(wp.posts.size, 1, 'with the minimum at 500 the same draft goes out'); assert.equal((await S.get('pipeline', w2.pid)).value.minWords, 500);

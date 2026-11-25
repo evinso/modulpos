@@ -134,10 +134,14 @@ export default function Pipeline() {
                 </Alert>
               )}
               <div className="stack" style={{ gap: 6 }}>
-                <Check checked={!!d.acceptSubjectWarning} disabled={!canEdit || busy} onChange={(v) => send({ acceptSubjectWarning: v }, v ? 'Açıldı' : 'Kapatıldı')}>
+                <Check checked={!!d.adsenseCheck} disabled={!canEdit || busy} onChange={(v) => send({ adsenseCheck: v }, v ? 'Açıldı' : 'Kapatıldı')}>
+                  <span>AdSense kontrolü yayını engellesin
+                    <small className="faint" style={{ display: 'block' }}>Kapalıyken (varsayılan) hat AdSense riskine bakmadan yayımlar; sınıf yine hesaplanır ve makalede bilgi olarak görünür. Yazıcı Google E-E-A-T, Rank Math ve AdSense’e uygun (özgün, değerli, ince içerik olmayan) yazması için yönlendirilir. Açarsanız eski kapı geri gelir: Düzeltme Botu ve yeniden yazım devreye girer. AdSense’in kendi kararını bu ayar değiştirmez.</small></span>
+                </Check>
+                {d.adsenseCheck && <Check checked={!!d.acceptSubjectWarning} disabled={!canEdit || busy} onChange={(v) => send({ acceptSubjectWarning: v }, v ? 'Açıldı' : 'Kapatıldı')}>
                   <span>Konu kaynaklı AdSense uyarısını (hassas içerik) hat kendisi çözsün
                     <small className="faint" style={{ display: 'block' }}>Önce metni bir kez nötrleştirir (sansasyonel anlatım, kişisel veri, zarar verebilecek ayrıntı çıkarılır). Uyarı konunun kendisinden geliyorsa ve başka eksik yoksa uyarıyı <strong>sizin adınıza kabul edip</strong> makaleyi onaylar ve yayımlar; kabul kaydında “Otomatik Üretim” yazar. “Yayınlanamaz” sınıfı ve kapsam dışı konu, tekrar, kaynaksızlık hiçbir zaman kabul edilmez. Kapalıyken bu fikir elenir. AdSense’in kendi kararını değiştirmez: hassas içerikli sayfalarda reklam kısıtlanabilir.</small></span>
-                </Check>
+                </Check>}
                 <Check checked={!!d.newsFallback} disabled={!canEdit || busy} onChange={(v) => send({ newsFallback: v }, v ? 'Açıldı' : 'Kapatıldı')}>
                   <span>Anahtar kelime hakkı bitince beklemeyip taze haber hattıyla devam et
                     <small className="faint" style={{ display: 'block' }}>Apify ücretsiz planında günde 5 çalıştırma var (her çalıştırmada sıradaki birkaç fikrin kelimeleri birlikte sorulur, bu yüzden genelde yeter). Hak yine de biterse hat beklemez: fikrin aranma verisi zaten varsa onunla devam eder; yoksa verisi hazır başka bir fikre geçer (eldeki fikir silinmez). Anahtar açıksa <strong>taze</strong> bir haber fikri de aranma hacmi olmadan ama gerçek SERP rekabeti ölçülerek yazılır. Hiçbiri olmazsa yenilenmeyi bekler.</small></span>
