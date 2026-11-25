@@ -7,6 +7,7 @@ const settings = require('./settings');
 const limits = require('./limits');
 const sensitive = require('./sensitive');
 const providers = require('./providers');
+const checks = require('./checks');
 const queue = require('./queue');
 const notifications = require('./notifications');
 const projects = require('./projects');
@@ -512,6 +513,17 @@ async function discardArticle(run, reason) {
  * a duplicate, no sources) and not past the number of drafts.
  * @returns { redo: 'write' } or null (no draft left for this idea / no place left today: the caller throws the idea away)
  */
+/** what exactly went wrong with a draft, in words the NEXT writer can use: the claims the sources did not carry (so they are not written again) and the shortfall in words */
+async function failureDetails(articleId, minWords) {
+  const a = (await db.query('SELECT word_count, current_version FROM articles WHERE id = $1', [articleId])).rows[0]; if (!a) return '';
+  const out = [];
+  const fc = await checks.latestOf(articleId, 'fact', a.current_version).catch(() => null);
+  const bad = ((fc && fc.result && fc.result.claims) || []).filter((c) => c.importance === 'major' && ['unsupported', 'contradicted', 'unverifiable'].includes(c.verdict)).slice(0, 6);
+  if (bad.length) out.push(`CLAIMS THE SOURCES DID NOT CARRY (do not write these or anything like them; leave them out or say only what the sources say): ${bad.map((c) => `"${String(c.claim).slice(0, 180)}"${c.note ? ` (${String(c.note).slice(0, 90)})` : ''}`).join(' | ')}`);
+  if (a.word_count < minWords) out.push(`THE DRAFT HAD ONLY ${a.word_count} WORDS, the minimum is ${minWords}: add whole sections of real explanation (what it means for the reader, what to check or do, the questions people ask, background the sources give) - never new facts`);
+  return out.join('; ');
+}
+
 async function redo(run, why, notes, now, { noArticle = false } = {}) {
   const cfg = await config(run.projectId);
   if (run.rewrites >= cfg.maxDrafts - 1) return null;
@@ -521,9 +533,10 @@ async function redo(run, why, notes, now, { noArticle = false } = {}) {
   const ready = (await llm.available()).filter((v) => v.ready).map((v) => v.key);
   const alt = ready.find((k) => k !== first) || null;
   const earlier = (run.hints && run.hints.notes) || '';
+  const details = run.articleId ? await failureDetails(run.articleId, cfg.minWords).catch(() => '') : '';
   await archiveDraft(run);
   await db.query("UPDATE content_opportunities SET status = 'new', article_id = NULL, updated_at = now() WHERE id = $1", [run.opportunityId]);
-  run.rewrites += 1; run.articleId = null; run.hints = { ...keepOut(run, now), provider: alt, notes: `${why}${notes ? `; ${notes}` : ''}${earlier ? ` || EARLIER DRAFTS FAILED ON: ${earlier}` : ''}`.slice(0, 1600) };
+  run.rewrites += 1; run.articleId = null; run.hints = { ...keepOut(run, now), provider: alt, notes: `${details ? `${details}; ` : ''}${why}${notes ? `; ${notes}` : ''}${earlier ? ` || EARLIER DRAFTS FAILED ON: ${earlier}` : ''}`.slice(0, 2400) };
   say(run, run.step, null, `${noArticle ? 'Taslak çıkmadı' : `${run.rewrites}. taslak kontrollerden geçemedi`} (${String(why).slice(0, 160)}). Fikir elenmeden önce yeniden deneniyor (${run.rewrites + 1}/${cfg.maxDrafts}. taslak): ${alt ? `farklı yazar (${alt}), ` : ''}${noArticle ? '' : 'sorunlar yazım talimatına eklendi'}`);
   return { redo: 'write' };
 }
@@ -749,7 +762,11 @@ async function tick({ now = new Date() } = {}) {
       const last = await lastRun(p.id);
       if (last && now.getTime() < new Date(last.startedAt).getTime() + cfg.everyMinutes * 60000) continue;
       try { run = await create(p.id, 'schedule', now); out.started.push(run.id); } catch (err) { if (err.code === '23505') continue; throw err; }
-    } else if (run.status === 'waiting' && run.waitUntil && new Date(run.waitUntil) > now) continue;
+    } else if (run.status === 'waiting' && run.waitUntil && new Date(run.waitUntil) > now) {
+      // a wait for a BUDGET ends the moment the owner raises or removes it (no sitting until tomorrow on a limit that is gone)
+      if (!(/bütçe/i.test(run.note || '') && await providers.budgetsOpen({ now }))) continue;
+      run.status = 'running'; run.waitUntil = null; say(run, run.step, null, 'Bütçe artık uygun (yükseltildi ya da kaldırıldı): beklemeden devam ediliyor'); await persist(run, now);
+    }
     else if (run.status === 'stopped' && now.getTime() - new Date(run.updatedAt).getTime() < STOP_RETRY_MIN * 60000) continue;
     const q = await queue.enqueue({ botKey: BOT, projectId: p.id, trigger: 'schedule', dedupeKey: `${BOT}:${p.id}`, runAfter: now, maxAttempts: 1 });
     if (!q.duplicate) out.enqueued.push({ bot: BOT, projectId: p.id, jobId: q.job.id });

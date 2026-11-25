@@ -297,6 +297,21 @@ test('the line still PUBLISHES an article with a sensitive detail (the bot only 
   const ov = await PL.overview(pid); assert.ok(ov.recent[0].sensitive.includes('Fidye yazılımı') && ov.recent[0].sensitive.includes('Veri ihlali'), JSON.stringify(ov.recent[0]));
 });
 
+test('the NEXT writer is told exactly which claims the sources did not carry (and how many words short the draft was), not just "the checks failed"', opts, async () => {
+  const w = await world(); const { pid } = w; let n = 0;
+  w.m.st.override.fact = () => { n++; if (n > 5) { delete w.m.st.override.fact; return undefined; } return { claims: [{ claim: 'The company will refund every user in March', importance: 'major', verdict: 'unsupported', sourceIds: [], evidence: '', note: 'no source says this' }] }; };
+  await turnOn(pid); await run(w, D0); const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-5))); assert.equal(d.attempt, 1, 'the same idea, a second draft');
+  const writes = w.m.byRole('write'); assert.equal(writes.length, 2); assert.match(writes[1].user, /CLAIMS THE SOURCES DID NOT CARRY[^\n]*The company will refund every user in March/); assert.doesNotMatch(writes[0].user, /CLAIMS THE SOURCES DID NOT CARRY/);
+});
+
+test('a wait for a BUDGET ends the moment the owner raises or removes it (the cycle does not sit until tomorrow on a limit that is gone)', opts, async () => {
+  const w = await world(); const { pid } = w; await S.set('budget', { dailyTotalUsd: 0.0000001, monthlyTotalUsd: null }, { scope: 'global' });
+  await turnOn(pid); await run(w, D0); const r = await PL.openRun(pid); assert.equal(r.status, 'waiting', r.note); assert.match(r.note, /bütçe/i); assert.ok(new Date(r.waitUntil) > plus(D0, 600), 'the wait runs to tomorrow');
+  await run(w, plus(D0, 3)); assert.equal((await PL.openRun(pid)).status, 'waiting', 'still waiting while the budget is full'); assert.equal(wp.posts.size, 0);
+  await S.set('budget', { dailyTotalUsd: null, monthlyTotalUsd: null }, { scope: 'global' }); await run(w, plus(D0, 6));
+  const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-4))); assert.equal(wp.posts.size, 1); assert.ok(d.trail.some((t) => /Bütçe artık uygun/.test(t.text)));
+});
+
 test('migration 0029 gives up a cycle that was waiting for Apify (nothing to wait for any more) and leaves every other waiting cycle alone; the next tick starts a fresh one', opts, async () => {
   const w = await world(); const { pid } = w; await turnOn(pid, { everyMinutes: 480 }); const db = H.db();
   const sql = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../src/content/migrations/0029_apify_wait_ends.sql'), 'utf8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
