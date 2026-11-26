@@ -369,6 +369,13 @@ test('only the CHECKS could not run (a vendor\'s rate limit): no draft is burned
   delete w.m.st.fail.fact; await run(w, plus(D0, 60)); const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-4))); assert.equal(w.m.byRole('write').length, 1, 'the same draft was published'); assert.equal(wp.posts.size, 1);
 });
 
+test('a vendor a redo asked for that cannot work any more (its key was removed) is simply not used: the cycle does not stay stopped on "kullanılamıyor"', opts, async () => {
+  const w = await world(); const { pid } = w; await turnOn(pid); await PL.start(pid, { now: D0 });
+  await H.db().query("UPDATE pipeline_runs SET hints = '{\"provider\":\"gemini\",\"notes\":\"an earlier draft failed\"}'");           // what the old redo left behind: a vendor nobody has a key for
+  await drain(D0, w.ctx); const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-4))); assert.equal(wp.posts.size, 1);
+  assert.notEqual((await q1('SELECT generation FROM articles')).generation.provider, 'gemini');
+});
+
 test('migration 0029 gives up a cycle that was waiting for Apify (nothing to wait for any more) and leaves every other waiting cycle alone; the next tick starts a fresh one', opts, async () => {
   const w = await world(); const { pid } = w; await turnOn(pid, { everyMinutes: 480 }); const db = H.db();
   const sql = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../src/content/migrations/0029_apify_wait_ends.sql'), 'utf8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
