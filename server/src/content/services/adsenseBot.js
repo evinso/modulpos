@@ -19,14 +19,16 @@ const HAND_OVER = new Set(['needs_person', 'skipped']);                      // 
  * @param o { projectId, editSubject (rewrite a subject-level warning neutrally once), rounds, fetchImpl, now }
  * @returns { result: 'approved'|'fixed'|'clean'|'unresolved'|'needs_person'|'skipped', last (the last fixer answer, with `remaining`), rounds, costUsd, unknownCost }
  */
-async function clear(articleId, { projectId = null, editSubject = false, rounds = ROUNDS, fetchImpl, now = new Date() } = {}) {
+async function clear(articleId, { projectId = null, editSubject = false, rounds = ROUNDS, fetchImpl, now = new Date(), pauseMs = 40000 } = {}) {
   const run = await runs.start(BOT, { projectId, trigger: 'schedule' });
-  const steps = []; let costUsd = 0; let unknownCost = 0; let result = 'unresolved'; let last = null;
+  const steps = []; let costUsd = 0; let unknownCost = 0; let result = 'unresolved'; let last = null; let waits = 0;
   try {
     for (let i = 1; i <= rounds; i++) {
       const left = (await articles.readiness(articleId)).problems.filter((p) => p.blocking);
       if (!left.length) { result = 'clean'; break; }
       last = await fixer.fixOne(articleId, { trigger: 'schedule', userId: null, force: true, notify: false, editSubject, allowBlocked: true, fetchImpl, now });
+      // a vendor's rate limit (Groq's tokens per minute ...) is not a round lost: wait a little and ask again (three times at most per draft)
+      if (last.result === 'error' && /istek sınırına takıldı/i.test(String(last.message)) && waits < 3 && pauseMs > 0) { waits++; steps.push({ round: i, result: 'waiting', note: 'Sağlayıcının istek sınırı: kısa bir bekleme' }); await new Promise((r) => setTimeout(r, pauseMs)); i--; continue; }
       steps.push({ round: i, result: last.result, note: String(last.message || '').slice(0, 200) });
       if (last.costUsd === null || last.costUsd === undefined) unknownCost++; else costUsd += last.costUsd;
       if (DONE.has(last.result)) { result = last.result; break; }

@@ -99,13 +99,18 @@ const price = (extra, k) => { const n = Number(extra[k]); return extra[k] !== un
 /** which vendors are ready to be used: { key, label, model, ready, reason } (the panel's pickers) */
 async function available({ now = new Date() } = {}) {
   const list = await providers.list();
-  // a vendor whose LAST call in the past 3 hours was refused for want of credit is not "ready": "Otomatik" must not keep choosing a service the owner cannot fund (it tries again after the 3 hours)
-  const dry = new Set((await db.query("SELECT DISTINCT ON (provider) provider, result, meta->>'code' AS code FROM api_usage WHERE provider = ANY($1) AND created_at > $2::timestamptz - interval '3 hours' AND result IN ('ok', 'error') ORDER BY provider, created_at DESC", [VENDORS, now])).rows.filter((r) => r.result === 'error' && r.code === 'funds').map((r) => r.provider));
+  // "dry": the LAST call of a vendor in the past 3 hours was refused for want of credit or because the model name does not exist, and the owner has not saved or re-tested that provider since; "Otomatik" must not keep
+  // choosing a service that cannot work (a fixed key / model name, or a new test, clears it at once)
+  const saved = new Map((await db.query('SELECT key, GREATEST(updated_at, COALESCE(last_tested_at, updated_at)) AS at FROM api_providers WHERE key = ANY($1)', [VENDORS])).rows.map((r) => [r.key, new Date(r.at)]));
+  const last = (await db.query("SELECT DISTINCT ON (provider) provider, result, meta->>'code' AS code, created_at FROM api_usage WHERE provider = ANY($1) AND created_at > $2::timestamptz - interval '3 hours' AND result IN ('ok', 'error') ORDER BY provider, created_at DESC", [VENDORS, now])).rows;
+  const dry = new Set(last.filter((r) => r.result === 'error' && ['funds', 'model'].includes(r.code) && (!saved.get(r.provider) || new Date(r.created_at) > saved.get(r.provider))).map((r) => r.provider));
+  // "proven": answered a call lately (a service that was only typed in, with a model name nobody tried, comes last)
+  const proven = new Set((await db.query("SELECT DISTINCT provider FROM api_usage WHERE provider = ANY($1) AND result = 'ok' AND created_at > $2::timestamptz - interval '14 days'", [VENDORS, now])).rows.map((r) => r.provider));
   return VENDORS.map((k) => {
     const p = list.find((x) => x.key === k);
     const model = (p.extra && p.extra.model) || DEFAULT_MODEL[k] || '';
     const ready = p.configured && !!model && !dry.has(k);
-    return { key: k, label: p.label, model, ready, reason: ready ? '' : (!p.configured ? 'API anahtarı yok' : dry.has(k) ? 'Kredisi/bakiyesi bitmiş (son çağrı reddedildi; 3 saat sonra yeniden denenir)' : 'Model adı yazılmamış'), pricesKnown: price(p.extra || {}, 'inputPricePerM') !== null && price(p.extra || {}, 'outputPricePerM') !== null };
+    return { key: k, label: p.label, model, ready, proven: proven.has(k), reason: ready ? '' : (!p.configured ? 'API anahtarı yok' : dry.has(k) ? 'Kredisi/bakiyesi bitmiş ya da model adı bulunamadı (son çağrı reddedildi); ayarı kaydedip bağlantıyı test edince ya da 3 saat sonra yeniden denenir' : 'Model adı yazılmamış'), pricesKnown: price(p.extra || {}, 'inputPricePerM') !== null && price(p.extra || {}, 'outputPricePerM') !== null };
   });
 }
 

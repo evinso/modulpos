@@ -347,6 +347,28 @@ test('a vendor whose credit ran out is skipped by "Otomatik" for 3 hours: the li
   assert.equal((await require('../../src/content/services/llm').available({ now: new Date(Date.now() + 4 * 3600e3) })).find((x) => x.key === 'anthropic').ready, true, 'after 3 hours it is tried again (the usage rows carry the database clock)');
 });
 
+test('a second draft is written by ANOTHER vendor only when the owner left the choice to "Otomatik" AND that vendor has answered lately: a vendor that was only typed in (a model name nobody tried) is never the fresh pair of eyes', opts, async () => {
+  const w = await world(); const { pid } = w; blockedFor(w.m, 6); await PR.save('gemini', { secret: 'AIzaSyTestKey0123456789abcdef', extra: { model: 'models/gemini-bogus' } }); w.m.st.fail.gemini = { status: 404, type: 'not_found', message: 'models/gemini-bogus is not found' };
+  await turnOn(pid, { adsenseCheck: true }); await run(w, D0); const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-4)));
+  assert.equal(w.m.calls.filter((c) => c.vendor === 'gemini').length, 0, 'the untried vendor was never asked'); const writes = w.m.byRole('write'); assert.equal(writes.length, 2); assert.notEqual(writes[0].vendor, writes[1].vendor, 'the other PROVEN vendor wrote the second draft');
+  await H.clean(); await wp.close(); wp = await startFakeWp();
+  const w2 = await world(); await S.set('quality', { ...(await S.get('quality')).value, writerProvider: 'anthropic' }, { scope: 'global' }); blockedFor(w2.m, 6); await turnOn(w2.pid, { adsenseCheck: true }); await run(w2, D0);
+  const ws = w2.m.byRole('write'); assert.equal(ws.length, 2); assert.deepEqual([ws[0].vendor, ws[1].vendor], ['anthropic', 'anthropic'], 'the owner chose the writer: the second draft keeps it'); assert.match(ws[1].user, /A PREVIOUS DRAFT OF THIS ARTICLE WAS REJECTED/);
+});
+
+test('a vendor whose model name does not exist is skipped by "Otomatik" until the owner saves or re-tests it', opts, async () => {
+  const w = await world(); const L = require('../../src/content/services/llm'); w.m.st.fail.gemini = { status: 404, type: 'not_found', message: 'not found' };
+  await PR.save('gemini', { secret: 'AIzaSyTestKey0123456789abcdef', extra: { model: 'models/gemini-bogus' } }); assert.equal((await L.available()).find((x) => x.key === 'gemini').ready, true);
+  await assert.rejects(L.complete({ provider: 'gemini', system: 's', user: 'u', fetchImpl: w.m.fetchImpl }), (e) => e.code === 'model'); assert.equal((await L.available()).find((x) => x.key === 'gemini').ready, false, 'skipped after the model-not-found answer');
+  await PR.save('gemini', { extra: { model: 'models/gemini-real' } }); assert.equal((await L.available()).find((x) => x.key === 'gemini').ready, true, 'saving the provider clears it at once');
+});
+
+test('only the CHECKS could not run (a vendor\'s rate limit): no draft is burned, the cycle waits and goes on with the same draft', opts, async () => {
+  const w = await world(); const { pid } = w; w.m.st.fail.fact = { status: 429, type: 'rate_limit_error', message: 'rate limited' }; w.ctx.pauseMs = 0;
+  await turnOn(pid); await run(w, D0); const r = await PL.openRun(pid); assert.equal(r.status, 'waiting', r.note); assert.match(r.note, /Kontroller çalıştırılamadı/); assert.equal(r.rewrites, 0, 'no second draft'); assert.equal(w.m.byRole('write').length, 1);
+  delete w.m.st.fail.fact; await run(w, plus(D0, 60)); const d = await q1('SELECT * FROM pipeline_runs'); assert.equal(d.status, 'done', d.note + JSON.stringify(d.trail.map((t) => t.text).slice(-4))); assert.equal(w.m.byRole('write').length, 1, 'the same draft was published'); assert.equal(wp.posts.size, 1);
+});
+
 test('migration 0029 gives up a cycle that was waiting for Apify (nothing to wait for any more) and leaves every other waiting cycle alone; the next tick starts a fresh one', opts, async () => {
   const w = await world(); const { pid } = w; await turnOn(pid, { everyMinutes: 480 }); const db = H.db();
   const sql = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../src/content/migrations/0029_apify_wait_ends.sql'), 'utf8').split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');

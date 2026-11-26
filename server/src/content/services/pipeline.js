@@ -551,8 +551,10 @@ async function redo(run, why, notes, now, { noArticle = false } = {}) {
   const room = await roomFor(run.projectId, 'new_article', now); if (room.left <= 0) return null;
   const a = run.articleId ? (await db.query('SELECT generation FROM articles WHERE id = $1', [run.articleId])).rows[0] : null;
   const first = (a && a.generation && a.generation.provider) || (run.hints && run.hints.provider) || null;
-  const ready = (await llm.available()).filter((v) => v.ready).map((v) => v.key);
-  const alt = ready.find((k) => k !== first) || null;
+  // another writer only when the owner leaves the choice to "Otomatik" AND that vendor has answered lately (a vendor that was only typed in, with a model name nobody tried, is no fresh pair of eyes - it just fails)
+  const quality = (await settings.get('quality', run.projectId)).value;
+  const proven = (await llm.available()).filter((v) => v.ready && v.proven).map((v) => v.key);
+  const alt = quality.writerProvider === 'auto' ? (proven.find((k) => k !== first) || null) : null;
   const earlier = (run.hints && run.hints.notes) || '';
   const details = run.articleId ? await failureDetails(run.articleId, cfg.minWords).catch(() => '') : '';
   await archiveDraft(run);
@@ -589,7 +591,7 @@ async function stepFix(run, ctx, now) {
   if (!left.length) return approveOutcome(run, aid);
   const cfg = await config(run.projectId);
   say(run, 'fix', null, `Eksik var (${left.map((p) => p.message).join('; ')}); Düzeltme Botu devrede (en çok ${adsenseBot.ROUNDS} tur)`);
-  const bot = await adsenseBot.clear(aid, { projectId: run.projectId, editSubject: cfg.acceptSubjectWarning, fetchImpl: ctx.fetchImpl, now });
+  const bot = await adsenseBot.clear(aid, { projectId: run.projectId, editSubject: cfg.acceptSubjectWarning, fetchImpl: ctx.fetchImpl, now, pauseMs: ctx.pauseMs });
   run.costUsd = Math.round((run.costUsd + bot.costUsd) * 1e6) / 1e6; run.unknownCost += bot.unknownCost;
   const r = bot.last;
   if (r && r.result === 'needs_person') {
@@ -611,6 +613,8 @@ async function stepFix(run, ctx, now) {
   left = await blocking();
   if (!left.length) { say(run, 'fix', true, `Düzeltme Botu ${bot.rounds} turda eksikleri giderdi`); return approveOutcome(run, aid); }
   const why = `Düzeltme Botu ${bot.rounds} turdan sonra eksik kaldı: ${left.map((p) => p.message).join('; ')}`;
+  // only the CHECKS could not run (a rate limit, a service that was down): the draft is not at fault, so no draft is burned: the cycle waits a little and the bot runs the checks again
+  if (left.length && left.every((p) => ['fact_check_error', 'not_fact_checked', 'no_quality'].includes(p.code))) return retryLater(`Kontroller çalıştırılamadı (${String(left[0].message).slice(0, 140)})`);
   const again = await redo(run, why, '', now); if (again) return again;
   await discardArticle(run, left[0].message); return reject(why);
 }
