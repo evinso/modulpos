@@ -462,6 +462,12 @@ async function stepCheck(run, ctx, now) {
   return go('write');
 }
 
+/** the vendor a redo asked for, when it can still work (the owner may have removed its key since, or it was refused for credit): otherwise null = the owner's setting / "Otomatik" decides */
+async function usableVendor(key) {
+  if (!key) return null;
+  return (await llm.available()).some((v) => v.key === key && v.ready) ? key : null;
+}
+
 async function stepWrite(run, ctx, now) {
   const o = await idea(run.opportunityId);
   if (!o) return reject('Fikir bulunamadı (silinmiş)');
@@ -476,7 +482,7 @@ async function stepWrite(run, ctx, now) {
   const room = await roomFor(run.projectId, 'new_article', now);
   if (room.left <= 0) return wait(tomorrow(now), `Günlük yeni makale sınırı doldu (${room.done}/${room.limit}); yarın devam edilecek`);
   let started;
-  try { started = await writer.start(o.id, { manual: false, userId: null, provider: (run.hints && run.hints.provider) || null, notes: (run.hints && run.hints.notes) || '', fetchImpl: ctx.fetchImpl, fetcher: ctx.fetcher, now, background: false }); }
+  try { started = await writer.start(o.id, { manual: false, userId: null, provider: await usableVendor(run.hints && run.hints.provider), notes: (run.hints && run.hints.notes) || '', fetchImpl: ctx.fetchImpl, fetcher: ctx.fetcher, now, background: false }); }
   catch (err) {
     if (err instanceof HttpError && err.status === 409 && !(err.extra && err.extra.limit)) {
       if (/şu anda zaten çalışıyor|şu anda yazılıyor/.test(err.message)) return retryLater(err.message);
