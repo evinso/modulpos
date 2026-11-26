@@ -106,8 +106,8 @@ function normalizeOutput(d, { types, focus }) {
 
 /** which vendor writes and which one checks: the settings, else the first ready vendor; the checker is ANOTHER ready vendor when there is one (a model is a poor judge of its own writing) */
 async function pickProviders(cfg, requested) {
-  const ready = (await llm.available()).filter((x) => x.ready);
-  if (!ready.length) throw new HttpError(409, 'Makale yazmak için bir yapay zekâ sağlayıcısı gerekli: API Kullanımı sayfasında Claude, OpenAI ya da Gemini anahtarını (ve OpenAI/Gemini için model adını) girip bağlantıyı test edin');
+  const ready = (await llm.available()).filter((x) => x.ready).sort((a, b) => Number(b.proven) - Number(a.proven));          // "Otomatik": vendors that answered lately first (stable otherwise)
+  if (!ready.length) throw new HttpError(409, 'Makale yazmak için bir yapay zekâ sağlayıcısı gerekli: API Kullanımı sayfasında Claude, OpenAI, Gemini ya da Groq anahtarını (ve OpenAI/Gemini için model adını) girip bağlantıyı test edin');
   const readyKeys = ready.map((x) => x.key);
   const want = requested || (cfg.writerProvider !== 'auto' ? cfg.writerProvider : readyKeys[0]);
   if (!readyKeys.includes(want)) { const all = await llm.available(); const x = all.find((y) => y.key === want); throw new HttpError(409, `${x ? x.label : want} kullanılamıyor: ${x ? x.reason : 'bilinmeyen sağlayıcı'}`); }
